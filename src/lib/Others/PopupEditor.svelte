@@ -12,6 +12,7 @@
     let previewing = $state(false);
     let tokens = $state(0);
     let MonacoComponent: (typeof MonacoEditorType)|null = $state(null)
+    let saving = $state(false)
     let showToggles = $state(false)
 
     let chatParserValue = $derived.by(() => {
@@ -43,13 +44,29 @@
             MonacoComponent = module.default;
         });
     });
+
+    function requestClose() {
+        popUpEditorStore.onSave = null
+        popUpEditorStore.open = false
+    }
+
+    async function requestSave() {
+        if (!popUpEditorStore.onSave || saving) return
+
+        saving = true
+        const canClose = await popUpEditorStore.onSave()
+        saving = false
+
+        if (canClose === false) return
+        requestClose()
+    }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
     class="fixed top-0 left-0 w-full h-full bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
-    onclick={() => (popUpEditorStore.open = false)}
+    onclick={requestClose}
 >
     <div
         class="bg-darkbg rounded-lg p-4 w-11/12 h-11/12 flex flex-col gap-2"
@@ -59,28 +76,39 @@
          <div class="flex items-center justify-between">
             <h2 class="text-xl font-bold">Popup Editor</h2>
             <div class="flex items-center gap-2">
-                {#if ['markdown', 'cbs'].includes(languageMode)}
-                    {#if !previewing}
+                {#if ['markdown', 'cbs', 'javascript'].includes(languageMode)}
+                    {#if !previewing && ['markdown', 'cbs'].includes(languageMode)}
                         <select
                             bind:value={languageMode}
-                            class="bg-bgcolor border-none rounded px-2 py-1 text-sm"
+                            class="h-8 min-h-8 bg-bgcolor border-none rounded px-2 text-sm leading-none"
                         >
                             <option value="markdown">Markdown</option>
                             <option value="cbs" disabled>CBS</option>
                         </select>
+                    {:else if !previewing}
+                        <span class="h-8 min-h-8 inline-flex items-center bg-bgcolor border-none rounded px-2 text-sm leading-none">{languageMode}</span>
                     {/if}
                     <button
-                        class="bg-primary text-white px-3 py-1 rounded hover:bg-primary/90 transition"
+                        class="h-8 min-h-8 inline-flex items-center justify-center bg-primary text-white px-3 rounded text-sm leading-none hover:bg-primary/90 transition"
                         onclick={() => (previewing = !previewing)}
                     >
                         {previewing ? language.edit : language.preview}
                     </button>
                 {:else}
-                    <span class="bg-bgcolor border-none rounded px-2 py-1 text-sm">{languageMode}</span>
+                    <span class="h-8 min-h-8 inline-flex items-center bg-bgcolor border-none rounded px-2 text-sm leading-none">{languageMode}</span>
+                {/if}
+                {#if popUpEditorStore.onSave}
+                    <button
+                        class="h-8 min-h-8 inline-flex items-center justify-center bg-primary text-white px-3 rounded text-sm leading-none hover:bg-primary/90 transition disabled:opacity-50"
+                        disabled={saving}
+                        onclick={requestSave}
+                    >
+                        저장
+                    </button>
                 {/if}
                 <button
-                    class="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition"
-                    onclick={() => (popUpEditorStore.open = false)}
+                    class="h-8 min-h-8 w-8 inline-flex items-center justify-center bg-red-500 text-white rounded text-sm leading-none hover:bg-red-600 transition"
+                    onclick={requestClose}
                 >
                     X
                 </button>
