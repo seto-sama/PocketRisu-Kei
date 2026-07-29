@@ -104,7 +104,7 @@
                       class:rs-breathe={spinning}></span>
 
                 {#if entry.phase === 'retrying'}
-                    <RotateCwIcon size={14} class="text-primary rs-spin shrink-0" />
+                    <RotateCwIcon size={12} class="text-primary rs-spin shrink-0" />
                 {/if}
 
                 <span class="rs-phase {phaseColor(entry.phase)}">{PHASE_LABEL[entry.phase]}</span>
@@ -185,6 +185,6 @@
     .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     .rs-badge-row { font-size: 12px; color: var(--risu-theme-textcolor2); margin-top: 5px; }
-    .rs-badge-success { color: #4ade80; }
-    .rs-badge-warn { color: #facc15; }
+    .rs-badge-success { color: var(--risu-theme-success); }
+    .rs-badge-warn { color: var(--risu-theme-warning); }
 </style>

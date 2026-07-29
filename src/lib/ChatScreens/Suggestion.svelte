@@ -12,6 +12,7 @@
     import { onDestroy } from 'svelte';
     import { ParseMarkdown } from "src/ts/parser/parser.svelte";
     import {defaultAutoSuggestPrompt} from "../../ts/storage/defaultPrompts.js";
+    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
 
     interface Props {
         send: () => any;
@@ -119,7 +120,7 @@
     $effect.pre(() => {translateSuggest(toggleTranslate, suggestMessages)});
 </script>
 
-<div class="ml-4 flex flex-wrap">
+<IconButtonGroup size="lg" className="ml-4 flex-wrap">
     {#if progress}
         <div class="flex bg-textcolor2 p-2 rounded-lg items-center">
             <div class="loadmove mx-2"></div>
@@ -174,7 +175,7 @@
         {/each}
         
     {/if}
-</div>
+</IconButtonGroup>
 
 <style>
     
@@ -193,4 +194,3 @@
         100% { transform: rotate(360deg); }
     }
 </style>
-
