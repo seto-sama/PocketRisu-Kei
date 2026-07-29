@@ -27,9 +27,7 @@ export async function processScript(char:character, data:string, mode:ScriptMode
     return (await processScriptFull(char, data, mode, -1, cbsConditions)).data
 }
 
-export function exportRegex(s?:customscript[]){
-    let db = getDatabase()
-    const script = s ?? db.globalscript
+export function exportRegex(script:customscript[]){
     const data = Buffer.from(JSON.stringify({
         type: 'regex',
         data: script
@@ -38,13 +36,11 @@ export function exportRegex(s?:customscript[]){
     notifySuccess(language.successExport)
 }
 
-export async function importRegex(o?:customscript[]):Promise<customscript[]>{
-    o = o ?? []
+export async function importRegex(o:customscript[]):Promise<customscript[]>{
     const filedata = (await selectSingleFile(['json'])).data
     if(!filedata){
         return o
     }
-    let db = getDatabase()
     try {
         const imported= JSON.parse(Buffer.from(filedata).toString('utf-8'))
         if(imported.type === 'regex' && imported.data){
