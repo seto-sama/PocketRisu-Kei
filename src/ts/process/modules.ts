@@ -19,6 +19,8 @@ export interface MCPModule{
 export interface RisuModule{
     name: string
     description: string
+    /** Optional user-defined folder used by module pickers. */
+    folderId?: string
     lorebook?: loreBook[]
     regex?: customscript[]
     cjs?: string
@@ -404,9 +406,13 @@ let lastModuleData:RisuModule[] = []
 export function getModules(){
     const currentChat = getCurrentChat()
     const character = getCurrentCharacter()
-    const persona = checkPersonaBinded()
     const db = getDatabase()
+    const persona = checkPersonaBinded()
+    const activePersona = persona ?? db.personas?.[db.selectedPersona]
     let ids = db.enabledModules ?? []
+    if(activePersona?.id && db.personaEnabledModules?.[activePersona.id]){
+        ids = ids.concat(db.personaEnabledModules[activePersona.id])
+    }
     if (currentChat){
         ids = ids.concat(currentChat.modules ?? [])
     }

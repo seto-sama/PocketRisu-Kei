@@ -1,20 +1,26 @@
 <script lang="ts">
     import { language } from "src/lang";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
+    import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     
     import { DBState } from 'src/ts/stores.svelte';
     import Button from "src/lib/UI/GUI/Button.svelte";
+    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
-    import { exportModule, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
-    import { SquarePen, TrashIcon, Globe, Share2Icon, PlusIcon, HardDriveUpload, Waypoints } from "@lucide/svelte";
+    import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
+    import { SquarePen, TrashIcon, Globe, Share2Icon, PlusIcon, HardDriveUpload, Waypoints, UserIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
-    import { tooltip } from "src/ts/gui/tooltip";
-    import { alertConfirm, notifySuccess } from "src/ts/alert";
+    import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import { onDestroy } from "svelte";
     import { importMCPModule } from "src/ts/process/mcp/mcp";
     import { convertModuleToCharacter } from "src/ts/interchangeability";
-    import { checkCharOrder } from "src/ts/globalApi.svelte";
+    import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
+    import { getCharImage } from "src/ts/characters";
+    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
+    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
@@ -23,16 +29,179 @@
     let mode = $state(0)
     let editModuleIndex = $state(-1)
     let moduleSearch = $state('')
+    let isDraggingModule = $state(false)
+    let draggedModuleIndex = $state(-1)
+    let dragOverModuleIndex = $state(-1)
+    let suppressModuleClick = $state(false)
+    let charConversionMode = $state(false)
+    let personaModuleTarget:RisuModule|null = $state(null)
+    let personaModuleDraft:string[] = $state([])
+    let personaFolder = $state('all')
+    let personaSearch = $state('')
+    let visiblePersonaIndexes = $state<number[]>([])
+    let emptyPersonaMessage = $state('')
+    const personaFolders = $derived(DBState.db.personaFolders ?? [])
+    let {
+        embedded = false,
+        view = 'modules',
+    }: {
+        embedded?: boolean;
+        view?: 'modules' | 'mcp';
+    } = $props();
 
-    function sortModules(modules:RisuModule[], search:string){
-        return modules.filter((v) => {
+    function filteredModules(modules:RisuModule[], search:string){
+        return modules.map((rmodule, index) => ({ rmodule, index })).filter(({ rmodule }) => {
+            if (view === 'mcp' ? !rmodule.mcp : !!rmodule.mcp) return false
             if(search === '') return true
-            return v.name.toLowerCase().includes(search.toLowerCase())
-        
-        }).sort((a, b) => {
-            let score = a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-            return score
+            return rmodule.name.toLowerCase().includes(search.toLowerCase())
         })
+    }
+
+    const visibleModules = $derived(filteredModules(DBState.db.modules, moduleSearch))
+    const managedModuleCount = $derived(DBState.db.modules.filter((rmodule) => view === 'mcp' ? !!rmodule.mcp : !rmodule.mcp).length)
+
+    function ensurePersonaIds() {
+        for (const persona of DBState.db.personas) {
+            persona.id ??= v4()
+        }
+    }
+
+    function getPersonaEnabledModules() {
+        DBState.db.personaEnabledModules ??= {}
+        return DBState.db.personaEnabledModules
+    }
+
+    function hasPersonaEnabledModule(moduleId: string) {
+        const map = DBState.db.personaEnabledModules ?? {}
+        return DBState.db.personas.some((persona) => persona.id && map[persona.id]?.includes(moduleId))
+    }
+
+    function isModuleIntegrated(rmodule: RisuModule) {
+        return !!(
+            rmodule.namespace &&
+            DBState.db.moduleIntergration?.split(',').map((s) => s.trim()).includes(rmodule.namespace)
+        )
+    }
+
+    function globalButtonClass(rmodule: RisuModule) {
+        if (hasPersonaEnabledModule(rmodule.id)) return "cursor-pointer text-scoped"
+        if (DBState.db.enabledModules.includes(rmodule.id)) return "cursor-pointer text-primary"
+        if (isModuleIntegrated(rmodule)) return "text-highlight hover:text-primary cursor-pointer"
+        return "text-textcolor2 hover:text-primary cursor-pointer"
+    }
+
+    function openPersonaModuleModal(rmodule: RisuModule, e: MouseEvent) {
+        e.preventDefault()
+        e.stopPropagation()
+        ensurePersonaIds()
+        const map = getPersonaEnabledModules()
+        personaModuleTarget = rmodule
+        personaFolder = 'all'
+        personaSearch = ''
+        personaModuleDraft = DBState.db.personas
+            .map((persona) => persona.id)
+            .filter((id): id is string => !!id && map[id]?.includes(rmodule.id))
+    }
+
+    function setPersonaModuleDraft(personaId: string, checked: boolean) {
+        if (checked) {
+            if (!personaModuleDraft.includes(personaId)) {
+                personaModuleDraft = [...personaModuleDraft, personaId]
+            }
+            return
+        }
+        personaModuleDraft = personaModuleDraft.filter((id) => id !== personaId)
+    }
+
+    function togglePersonaModuleDraft(index: number) {
+        const personaId = DBState.db.personas[index]?.id
+        if (!personaId) return
+        setPersonaModuleDraft(personaId, !personaModuleDraft.includes(personaId))
+    }
+
+    function closePersonaModuleModal() {
+        personaModuleTarget = null
+        personaModuleDraft = []
+    }
+
+    function savePersonaModuleModal() {
+        if (!personaModuleTarget) return
+        const moduleId = personaModuleTarget.id
+        const selected = new Set(personaModuleDraft)
+        const map = {...getPersonaEnabledModules()}
+        for (const persona of DBState.db.personas) {
+            if (!persona.id) continue
+            const modules = new Set(map[persona.id] ?? [])
+            if (selected.has(persona.id)) {
+                modules.add(moduleId)
+            } else {
+                modules.delete(moduleId)
+            }
+            const nextModules = Array.from(modules)
+            if (nextModules.length > 0) {
+                map[persona.id] = nextModules
+            } else {
+                delete map[persona.id]
+            }
+        }
+        DBState.db.personaEnabledModules = map
+        closePersonaModuleModal()
+        notifySuccess(language.moduleUpdated)
+    }
+
+    function moveModule(fromIndex: number, toIndex: number) {
+        const modules = DBState.db.modules
+        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= modules.length || toIndex > modules.length) return
+
+        const next = [...modules]
+        const [moved] = next.splice(fromIndex, 1)
+        if (!moved) return
+        const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
+        next.splice(adjustedToIndex, 0, moved)
+        DBState.db.modules = next
+    }
+
+    function startModuleDrag(index: number, e: DragEvent) {
+        e.stopPropagation()
+        const target = e.target as HTMLElement | null
+        if (target?.closest('[data-no-row-drag="true"]')) {
+            e.preventDefault()
+            return
+        }
+        isDraggingModule = true
+        draggedModuleIndex = index
+        dragOverModuleIndex = index
+        suppressModuleClick = true
+        e.dataTransfer?.setData('text/plain', 'module')
+        e.dataTransfer?.setData('moduleIndex', String(index))
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+    }
+
+    function updateModuleDragTarget(index: number, e: DragEvent) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+        dragOverModuleIndex = e.clientY < rect.top + rect.height / 2 ? index : index + 1
+    }
+
+    function dropModule(e: DragEvent) {
+        e.preventDefault()
+        e.stopPropagation()
+        const kind = e.dataTransfer?.getData('text/plain')
+        if (kind !== 'module') return
+        const sourceIndex = Number(e.dataTransfer?.getData('moduleIndex') || draggedModuleIndex)
+        moveModule(sourceIndex, dragOverModuleIndex)
+        endModuleDrag()
+    }
+
+    function endModuleDrag() {
+        isDraggingModule = false
+        draggedModuleIndex = -1
+        dragOverModuleIndex = -1
+        setTimeout(() => {
+            suppressModuleClick = false
+        }, 0)
     }
 
     onDestroy(() => {
@@ -40,113 +209,261 @@
     })
 </script>
 {#if mode === 0}
-    <SettingPage title={language.modules}>
+    <SettingPage title={embedded ? undefined : view === 'mcp' ? 'MCP' : language.modules}>
 
-    <div class="mt-4 flex gap-2 items-center">
-        <TextInput className="grow" placeholder={language.search} bind:value={moduleSearch} />
-        <button class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async () => {
-            tempModule = {
-                name: '',
-                description: '',
-                id: v4(),
-            }
-            mode = 1
-        }}>
-            <PlusIcon />
-        </button>
-        <button class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async () => {
-            importMCPModule()
-        }}>
-            <Waypoints />
-        </button>
-        <button class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async () => {
-            importModule()
-        }}>
-            <HardDriveUpload  />
-        </button>
-    </div>
-
-    <div class="contain w-full max-w-full mt-4 flex flex-col border-selected border-1 rounded-md flex-1 overflow-y-auto">
-        {#if DBState.db.modules.length === 0}
-            <div class="text-textcolor2 p-3">{language.noModules}</div>
+    <SettingLayout variant="search" className="mt-4">
+        <TextInput className="min-w-0 grow" placeholder={language.search} bind:value={moduleSearch} />
+        {#snippet control()}
+        <IconButtonGroup size="lg">
+        {#if view === 'modules'}
+            <IconButton onclick={async () => {
+                tempModule = {
+                    name: '',
+                    description: '',
+                    id: v4(),
+                }
+                mode = 1
+            }}>
+                <PlusIcon />
+            </IconButton>
+            <IconButton
+                className={charConversionMode ? 'text-scoped' : ''}
+                title={language.convertToCharacter}
+                onclick={() => {
+                    charConversionMode = !charConversionMode
+                }}
+            >
+                <UserIcon />
+            </IconButton>
+            <IconButton onclick={async () => {
+                importModule()
+            }}>
+                <HardDriveUpload  />
+            </IconButton>
         {:else}
-            {#each sortModules(DBState.db.modules, moduleSearch) as rmodule, i}
-                {#if i !== 0}
-                    <div class="border-t-1 border-selected"></div>
-                {/if}
+            <IconButton onclick={async () => {
+                await importMCPModule()
+            }}>
+                <Waypoints />
+            </IconButton>
+        {/if}
+        </IconButtonGroup>
+        {/snippet}
+    </SettingLayout>
 
-                <div class="pl-3 pt-3 text-left flex items-center">
-                    {#if rmodule.mcp}
-                        <Waypoints size={18} class="mr-2" />
-                    {/if}
-                    <span class="font-bold">{rmodule.name}</span>
-                    <div class="grow flex justify-end">
-                        <button class={(DBState.db.enabledModules.includes(rmodule.id)) ?
-                                "mr-2 cursor-pointer text-blue-500" :
-                                rmodule.namespace && 
-                                DBState.db.moduleIntergration?.split(',').map((s) => s.trim()).includes(rmodule.namespace) ?
-                                "text-amber-500 hover:text-primary mr-2 cursor-pointer" :
-                                "text-textcolor2 hover:text-primary mr-2 cursor-pointer"
-                            } use:tooltip={language.enableGlobal} onclick={async (e) => {
-                            e.stopPropagation()
-                            if(DBState.db.enabledModules.includes(rmodule.id)){
-                                DBState.db.enabledModules.splice(DBState.db.enabledModules.indexOf(rmodule.id), 1)
-                            }
-                            else{
-                                DBState.db.enabledModules.push(rmodule.id)
-                            }
-                            DBState.db.enabledModules = DBState.db.enabledModules
-                        }}>
-                            <Globe size={18}/>
-                        </button>
-                        {#if !rmodule.mcp}
-                            <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" use:tooltip={language.download} onclick={async (e) => {
-                                e.stopPropagation()
-                                exportModule(rmodule)
-                            }}>
-                                <Share2Icon size={18}/>
-                            </button>
-                            <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" use:tooltip={language.edit} onclick={async (e) => {
-                                e.stopPropagation()
-                                const index = DBState.db.modules.findIndex((v) => v.id === rmodule.id)
-                                tempModule = rmodule
-                                editModuleIndex = index
-                                mode = 2
-                            }}>
-                                <SquarePen size={18}/>
-                            </button>
+    <div class="contain w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto">
+        {#if managedModuleCount === 0}
+            <div class="text-textcolor2 text-sm text-center py-8">{view === 'mcp' ? language.noData : language.noModules}</div>
+        {:else}
+            {#if visibleModules.length === 0}
+                <div class="text-textcolor2 text-sm text-center py-8">{language.noData}</div>
+            {/if}
+            {#each visibleModules as { rmodule, index } (rmodule.id)}
+                <div
+                    class="h-1 rounded-full transition-colors"
+                    class:bg-primary={isDraggingModule && dragOverModuleIndex === index}
+                    class:bg-transparent={!isDraggingModule || dragOverModuleIndex !== index}
+                    role="presentation"
+                    ondragover={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+                        dragOverModuleIndex = index
+                    }}
+                    ondrop={dropModule}
+                ></div>
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <div
+                    class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors text-left cursor-grab active:cursor-grabbing"
+                    class:opacity-50={isDraggingModule && draggedModuleIndex === index}
+                    draggable="true"
+                    role="button"
+                    tabindex="0"
+                    onclick={() => {
+                        if (suppressModuleClick || rmodule.mcp) return
+                        tempModule = rmodule
+                        editModuleIndex = index
+                        mode = 2
+                    }}
+                    ondragstart={(e) => startModuleDrag(index, e)}
+                    ondragend={endModuleDrag}
+                    ondragover={(e) => updateModuleDragTarget(index, e)}
+                    ondrop={dropModule}
+                >
+                    <div class="flex flex-col min-w-0 grow">
+                        <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
+                            {#if rmodule.mcp}
+                                <Waypoints size={16} class="shrink-0 text-textcolor2" />
+                            {/if}
+                            <span class="truncate">{rmodule.name}</span>
+                        </span>
+                        <span class="text-xs text-textcolor2 truncate">{rmodule.description || 'No description provided'}</span>
+                    </div>
+                    <IconButtonGroup size="default" className="shrink-0 ml-2" data-no-row-drag="true">
+                        {#if charConversionMode}
+                            <IconButton
+                                className="text-scoped"
+                                title={language.convertToCharacter}
+                                onclick={(e) => {
+                                    e.stopPropagation()
+                                    const character = convertModuleToCharacter(rmodule)
+                                    DBState.db.characters.push(character)
+                                    checkCharOrder()
+                                    notifySuccess(language.successfullyConverted)
+                                }}
+                            >
+                                <UserIcon />
+                            </IconButton>
                         {:else}
-                            <button class="text-textcolor2 mr-2 cursor-not-allowed">
-                                <Share2Icon size={18}/>
-                            </button>
-                            <button class="text-textcolor2 mr-2 cursor-not-allowed">
-                                <SquarePen size={18}/>
-                            </button>
-                        {/if}
-                        <button class="text-textcolor2 hover:text-red-400 mr-2 cursor-pointer" use:tooltip={language.remove} onclick={async (e) => {
-                            e.stopPropagation()
-                            const d = await alertConfirm(`${language.removeConfirm}` + rmodule.name)
-                            if(d){
+                            <IconButton
+                                className={globalButtonClass(rmodule)}
+                                title={language.enableGlobal}
+                                oncontextmenu={(e) => openPersonaModuleModal(rmodule, e)}
+                                onclick={async (e) => {
+                                e.stopPropagation()
                                 if(DBState.db.enabledModules.includes(rmodule.id)){
                                     DBState.db.enabledModules.splice(DBState.db.enabledModules.indexOf(rmodule.id), 1)
-                                    DBState.db.enabledModules = DBState.db.enabledModules
                                 }
-                                const index = DBState.db.modules.findIndex((v) => v.id === rmodule.id)
-                                DBState.db.modules.splice(index, 1)
-                                DBState.db.modules = DBState.db.modules
-                                notifySuccess(language.moduleDeleted)
-                            }
-                        }}>
-                            <TrashIcon size={18}/>
-                        </button>
-                    </div>
-                </div>
-                <div class="mt-1 mb-3 pl-3">
-                    <span class="text-sm text-textcolor2">{rmodule.description || 'No description provided'}</span>
+                                else{
+                                    DBState.db.enabledModules.push(rmodule.id)
+                                }
+                                DBState.db.enabledModules = DBState.db.enabledModules
+                            }}
+                            >
+                                <Globe />
+                            </IconButton>
+                            {#if !rmodule.mcp}
+                                <IconButton title={language.download} onclick={async (e) => {
+                                    e.stopPropagation()
+                                    const sel = parseInt(await alertSelect([`CharX (${language.recommended})`, `RisuM (Legacy)`]))
+                                    if(sel === 0){
+                                        exportModule(rmodule)
+                                    }
+                                    else{
+                                        exportModuleLegacy(rmodule)
+                                    }
+                                }}>
+                                    <Share2Icon />
+                                </IconButton>
+                                <IconButton title={language.edit} onclick={async (e) => {
+                                    e.stopPropagation()
+                                    tempModule = rmodule
+                                    editModuleIndex = index
+                                    mode = 2
+                                }}>
+                                    <SquarePen />
+                                </IconButton>
+                            {:else}
+                                <IconButton disabled>
+                                    <Share2Icon />
+                                </IconButton>
+                                <IconButton disabled>
+                                    <SquarePen />
+                                </IconButton>
+                            {/if}
+                            <IconButton tone="destructive" title={language.remove} onclick={async (e) => {
+                                e.stopPropagation()
+                                const d = await alertConfirm(`${language.removeConfirm}` + rmodule.name)
+                                if(d){
+                                    if(DBState.db.enabledModules.includes(rmodule.id)){
+                                        DBState.db.enabledModules.splice(DBState.db.enabledModules.indexOf(rmodule.id), 1)
+                                        DBState.db.enabledModules = DBState.db.enabledModules
+                                    }
+                                    const map = {...(DBState.db.personaEnabledModules ?? {})}
+                                    for (const personaId of Object.keys(map)) {
+                                        map[personaId] = map[personaId].filter((id) => id !== rmodule.id)
+                                        if (map[personaId].length === 0) {
+                                            delete map[personaId]
+                                        }
+                                    }
+                                    DBState.db.personaEnabledModules = map
+                                    DBState.db.modules.splice(index, 1)
+                                    DBState.db.modules = DBState.db.modules
+                                    notifySuccess(language.moduleDeleted)
+                                }
+                            }}>
+                                <TrashIcon />
+                            </IconButton>
+                        {/if}
+                    </IconButtonGroup>
                 </div>
             {/each}
+            <div
+                class="h-1 rounded-full transition-colors"
+                class:bg-primary={isDraggingModule && dragOverModuleIndex === DBState.db.modules.length}
+                class:bg-transparent={!isDraggingModule || dragOverModuleIndex !== DBState.db.modules.length}
+                role="presentation"
+                ondragover={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+                    dragOverModuleIndex = DBState.db.modules.length
+                }}
+                ondrop={dropModule}
+            ></div>
         {/if}
     </div>
+
+    {#if personaModuleTarget}
+        <PresetPickerLayout
+            title="페르소나 연동 설정"
+            titleHelp="체크된 페르소나가 사용 중인 채팅에서만 해당 모듈이 활성화됩니다."
+            folders={personaFolders}
+            itemFolderIds={DBState.db.personas.map(persona => persona.folderId)}
+            itemNames={DBState.db.personas.map(persona => persona.name ?? '')}
+            itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
+            searchPlaceholder={language.personaSearch}
+            manageFolders={false}
+            itemDragDataKey="personaModuleIndex"
+            bind:selectedFolder={personaFolder}
+            bind:searchQuery={personaSearch}
+            bind:visibleItemIndexes={visiblePersonaIndexes}
+            bind:emptyMessage={emptyPersonaMessage}
+            close={closePersonaModuleModal}
+            onSelectItem={togglePersonaModuleDraft}
+            onFoldersChange={(next) => {
+                DBState.db.personaFolders = next
+                void requestImmediateSave()
+            }}
+            onAssignItem={(index, folderId) => {
+                const persona = DBState.db.personas[index]
+                if (!persona) return
+                persona.folderId = folderId
+                DBState.db.personas = [...DBState.db.personas]
+                void requestImmediateSave()
+            }}
+            onDeleteFolder={(folderId) => {
+                DBState.db.personas = DBState.db.personas.map(persona =>
+                    persona.folderId === folderId ? { ...persona, folderId: undefined } : persona
+                )
+                void requestImmediateSave()
+            }}
+        >
+            {#snippet itemContent(index)}
+                {@const persona = DBState.db.personas[index]}
+                <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md bg-textcolor2">
+                    {#if persona.icon}
+                        {#await getCharImage(persona.icon, 'css') then imageStyle}
+                            <div class="h-full w-full bg-cover bg-center" style={imageStyle}></div>
+                        {/await}
+                    {/if}
+                </div>
+                <div class="min-w-0 grow truncate">
+                    <span>{persona.name}</span>
+                    {#if persona.note}<span class="text-textcolor2"> / {persona.note}</span>{/if}
+                </div>
+                <ShSwitch
+                    checked={!!persona.id && personaModuleDraft.includes(persona.id)}
+                    className="mr-1"
+                />
+            {/snippet}
+
+            <div class="flex justify-end gap-2 pt-2">
+                <ShButton variant="outline" onclick={closePersonaModuleModal}>{language.cancel}</ShButton>
+                <ShButton variant="primary" onclick={savePersonaModuleModal}>{language.confirm}</ShButton>
+            </div>
+        </PresetPickerLayout>
+    {/if}
 
     </SettingPage>
 {:else if mode === 1}
