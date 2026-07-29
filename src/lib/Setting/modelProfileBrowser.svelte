@@ -6,10 +6,14 @@
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { selectSingleFile } from "src/ts/util";
     import {
-        getBundledRegistryId,
+        getOfficialRegistryId,
         getOfficialRegistry,
+        getProfileProviderGroup,
+        isProfileProviderVisible,
         isProfileVisible,
-        resolveSnapshot,
+        listFilterableProviderGroups,
+        resolveProviderFilterHiddenIds,
+        syncRemoteRegistry,
     } from "src/ts/preset/registry";
     import { createEmptyRegistryCache } from "src/ts/preset/dbDefaults";
     import {
@@ -17,14 +21,27 @@
         CUSTOM_ID_PREFIX,
         CUSTOM_REGISTRY_ID,
         importFragment,
-        migrateUserValues,
         removeCustomProfile,
         validateFragment,
     } from "src/ts/preset/customProfiles";
+    import {
+        createModelPresetFromProfile,
+        replaceModelPresetProfile,
+    } from "src/ts/preset/profileUpdate";
     import { localizeDisplayName, localizeDescription } from "src/ts/preset/registry/i18n";
-    import type { BaseProviderDefinition, ModelPreset, ModelProfile, RegistryCache, RegistryProfileStatus, ResolvedModelProfileSnapshot } from "src/ts/preset/types";
+    import { getDefaultApiKeyRef } from "src/ts/preset/apiKeyPool";
+    import type { BaseProviderDefinition, ModelProfile, RegistryCache, RegistryProfileStatus } from "src/ts/preset/types";
+    import { customV3ProviderMetaStore } from "src/ts/plugins/apiV3/v3.svelte";
+    import {
+        buildPluginRegistry,
+        listPluginModels,
+        PLUGIN_REGISTRY_ID,
+        pluginProfileDisplayId,
+        pluginPresetAbilityDefaults,
+    } from "src/ts/preset/pluginModels";
     import TextInput from "../UI/GUI/TextInput.svelte";
     import { v4 as uuidv4 } from "uuid";
+    import { onMount } from "svelte";
 
     interface Props {
         close?: any;
@@ -32,8 +49,13 @@
 
     let { close = () => {} }: Props = $props();
 
-    // Official = remote registry if synced, else bundled (reactive on the cache).
+    // Developer profiles exist synchronously; the models.dev catalog is
+    // hydrated from its separate cache/network at runtime. Plugins merge below.
     const officialRegistry = $derived(getOfficialRegistry());
+
+    onMount(() => {
+        void syncRemoteRegistry();
+    });
 
     let activeTab = $state<'official' | 'custom'>('official');
     let query = $state('');
@@ -41,29 +63,37 @@
     type Entry = {
         profile: ModelProfile;
         baseProvider: BaseProviderDefinition | undefined;
+        registry: RegistryCache;
+        registryId: string;
+        transientPlugin: boolean;
     };
 
     const profileStatusOrder: RegistryProfileStatus[] = ['current', 'outdated', 'deprecated'];
 
-    // Active registry by tab. Official = bundled (read-only). Custom = the
+    // Active registry by tab. Official = models.dev + Echo (read-only). Custom = the
     // persisted cache's 'custom' registry (reactive: import/delete update it).
     const activeRegistry = $derived<RegistryCache>(
         activeTab === 'official'
             ? officialRegistry
             : (DBState.db.modelProfileRegistryCache ?? createEmptyRegistryCache()),
     );
-    const activeRegistryId = $derived(activeTab === 'official' ? getBundledRegistryId() : CUSTOM_REGISTRY_ID);
+    const activeRegistryId = $derived(activeTab === 'official' ? getOfficialRegistryId() : CUSTOM_REGISTRY_ID);
 
     // Scope to the active tab's registry only. The custom cache object can hold
-    // multiple registries (e.g. the official 'bundled' entry is persisted into
-    // the same DB cache), so iterating all of them would leak official profiles
+    // multiple imported registries, so iterating all of them would leak profiles
     // into the custom tab.
-    function buildEntries(registry: RegistryCache, registryId: string): Entry[] {
+    function buildEntries(registry: RegistryCache, registryId: string, transientPlugin = false): Entry[] {
         const reg = registry.registries[registryId];
         if (!reg) return [];
         const out: Entry[] = [];
         for (const profile of Object.values(reg.profiles ?? {})) {
-            out.push({ profile, baseProvider: reg.baseProviders?.[profile.providerBaseId] });
+            out.push({
+                profile,
+                baseProvider: reg.baseProviders?.[profile.providerBaseId],
+                registry,
+                registryId,
+                transientPlugin,
+            });
         }
         return out.sort((a, b) =>
             (a.baseProvider?.displayName ?? '').localeCompare(b.baseProvider?.displayName ?? '')
@@ -71,13 +101,35 @@
         );
     }
 
-    // The catalog display level hides outdated/deprecated profiles on the
-    // official tab only. Custom profiles are the user's own — always shown.
+    // Only API 3.0 registrations are eligible here. addProvider() also exists
+    // in legacy 2.x, but those providers intentionally remain confined to the
+    // classic Chat Bot settings. The resulting ModelPreset stores a
+    // self-contained snapshot, not this transient registry.
+    const pluginRegistry = $derived(buildPluginRegistry(
+        listPluginModels(customV3ProviderMetaStore),
+        language.pluginModelProfileDescription,
+    ));
+
+    // Catalog visibility and provider filters apply to the official models.dev
+    // entries only. Custom profiles are the user's own, while Echo and Plugin
+    // are special entries — all three stay visible regardless of these filters.
     const entries = $derived.by(() => {
         const all = buildEntries(activeRegistry, activeRegistryId);
         if (activeTab !== 'official') return all;
         const level = DBState.db.modelProfileVisibilityLevel;
-        return all.filter(e => isProfileVisible(e.profile.profileStatus, level));
+        const providerGroups = listFilterableProviderGroups(activeRegistry, activeRegistryId);
+        const hiddenProviderIds = resolveProviderFilterHiddenIds(
+            providerGroups.map(provider => provider.id),
+            DBState.db.modelProfileHiddenProviderIds,
+            DBState.db.modelProfileProviderFilterInitialized === true,
+        );
+        return [
+            ...all.filter(e =>
+                isProfileVisible(e.profile.profileStatus, level)
+                && isProfileProviderVisible(e.profile, e.baseProvider, hiddenProviderIds)
+            ),
+            ...buildEntries(pluginRegistry, PLUGIN_REGISTRY_ID, true),
+        ];
     });
 
     const filtered = $derived.by(() => {
@@ -95,22 +147,21 @@
         });
     });
 
-    // Both tabs group by provider (collapsible) — soon-large catalog, and a
-    // single list UI for official + custom. Within a provider, current profiles
-    // sort before outdated/deprecated.
+    // Related official APIs can share one vendor group while each profile card
+    // still identifies its concrete provider/wire API.
     const groupedByProvider = $derived.by(() => {
         const buckets = new Map<string, { id: string; label: string; entries: Entry[] }>();
         for (const entry of filtered) {
-            const id = entry.baseProvider?.id ?? entry.profile.providerBaseId ?? '';
-            let b = buckets.get(id);
-            if (!b) {
-                b = { id, label: entry.baseProvider?.displayName ?? id ?? 'Unknown', entries: [] };
-                buckets.set(id, b);
+            const group = getProfileProviderGroup(entry.profile, entry.baseProvider);
+            let bucket = buckets.get(group.id);
+            if (!bucket) {
+                bucket = { id: group.id, label: group.label, entries: [] };
+                buckets.set(group.id, bucket);
             }
-            b.entries.push(entry);
+            bucket.entries.push(entry);
         }
-        for (const b of buckets.values()) {
-            b.entries.sort((x, y) =>
+        for (const bucket of buckets.values()) {
+            bucket.entries.sort((x, y) =>
                 profileStatusOrder.indexOf(x.profile.profileStatus) - profileStatusOrder.indexOf(y.profile.profileStatus)
                 || ((x.profile.sortOrder ?? 0) - (y.profile.sortOrder ?? 0))
                 || localizeDisplayName(x.profile).localeCompare(localizeDisplayName(y.profile)));
@@ -134,47 +185,24 @@
         expandedProviders = next;
     }
 
-    function seedDefaults(snapshot: ResolvedModelProfileSnapshot): Record<string, unknown> {
-        const seeded: Record<string, unknown> = {};
-        for (const field of snapshot.schema) {
-            if (field.default !== undefined) seeded[field.key] = field.default;
-        }
-        return seeded;
-    }
-
-    // A resolved snapshot must carry the data needed to build & dispatch a
-    // request. A degenerate snapshot (null auth/endpoint, empty schema) comes
-    // from an incomplete registry cache — refuse rather than persist a preset
-    // that renders blank and crashes on export. (always-persist sync should
-    // self-heal the cache on the next menu entry; this is the safety net.)
-    function snapshotIncomplete(s: ResolvedModelProfileSnapshot): boolean {
-        return !s.auth || !s.endpoint
-            || !Array.isArray(s.schema) || s.schema.length === 0
-            || !Array.isArray(s.uiSchema?.fields) || s.uiSchema.fields.length === 0;
-    }
-
-    function createPresetFrom(profile: ModelProfile) {
-        const snapshot = resolveSnapshot(activeRegistry, profile.id);
-        if (snapshotIncomplete(snapshot)) {
+    function createPresetFrom(entry: Entry) {
+        const { profile } = entry;
+        const preset = createModelPresetFromProfile({
+            registry: entry.registry,
+            registryId: entry.registryId,
+            profileId: profile.id,
+            transient: entry.transientPlugin,
+        }, {
+            id: uuidv4(),
+            apiKeyRef: getDefaultApiKeyRef(profile.providerBaseId),
+            abilityDefaults: entry.transientPlugin
+                ? pluginPresetAbilityDefaults(profile.modelId, customV3ProviderMetaStore)
+                : undefined,
+        });
+        if (!preset) {
             alertError(language.profileDataIncomplete);
             return;
         }
-        const preset: ModelPreset = {
-            id: uuidv4(),
-            name: profile.displayName,
-            profileSnapshot: snapshot,
-            sourceProfile: {
-                registryId: activeRegistryId,
-                profileId: snapshot.profileId,
-                profileVersion: snapshot.profileVersion,
-                providerBaseVersion: snapshot.providerBaseVersion,
-                fetchedAt: Date.now(),
-                profileUpdatedAt: profile.updatedAt,
-            },
-            userValues: seedDefaults(snapshot),
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-        };
         DBState.db.modelPresets = [...DBState.db.modelPresets, preset];
         notifySuccess(language.modelPresetCreated);
         openModelPresetEditId.set(preset.id);
@@ -182,48 +210,49 @@
     }
 
     // Replace an existing preset's profile (custom-profiles plan §3): re-resolve
-    // the chosen profile's snapshot, carry over matching userValues keys, drop
-    // orphans, seed defaults for new fields, and re-stamp sourceProfile.
-    async function replacePresetProfile(targetId: string, profile: ModelProfile): Promise<boolean> {
+    // the chosen profile's snapshot, carry over compatible userValues, preserve
+    // incompatible values as orphans, seed defaults, and re-stamp sourceProfile.
+    async function replacePresetProfile(targetId: string, entry: Entry): Promise<boolean> {
+        const { profile } = entry;
         const idx = DBState.db.modelPresets.findIndex((p) => p.id === targetId);
         if (idx < 0) return false;
-        const snapshot = resolveSnapshot(activeRegistry, profile.id);
-        if (snapshotIncomplete(snapshot)) {
+        const preset = DBState.db.modelPresets[idx];
+        const result = replaceModelPresetProfile(preset, {
+            registry: entry.registry,
+            registryId: entry.registryId,
+            profileId: profile.id,
+            transient: entry.transientPlugin,
+        }, {
+            abilityDefaults: entry.transientPlugin
+                ? pluginPresetAbilityDefaults(profile.modelId, customV3ProviderMetaStore)
+                : undefined,
+        });
+        if (!result) {
             alertError(language.profileDataIncomplete);
             return false;
         }
-        const preset = DBState.db.modelPresets[idx];
-        const { values, droppedKeys } = migrateUserValues(preset.userValues, snapshot.schema);
-        // Replacing the profile can lose settings — always confirm (a stronger,
-        // specific warning when settings will definitely be dropped).
-        const warn = droppedKeys.length > 0 ? language.profileReplaceWarn : language.profileUpdateLossWarn;
+        // Replacing the profile can move incompatible settings out of the active
+        // form — always confirm, with a stronger warning when that will happen.
+        const warn = result.droppedKeys.length > 0 ? language.profileReplaceWarn : language.profileUpdateLossWarn;
         if (!(await alertConfirm(warn))) {
             return false;
         }
-        preset.profileSnapshot = snapshot;
-        preset.sourceProfile = {
-            registryId: activeRegistryId,
-            profileId: snapshot.profileId,
-            profileVersion: snapshot.profileVersion,
-            providerBaseVersion: snapshot.providerBaseVersion,
-            fetchedAt: Date.now(),
-            profileUpdatedAt: profile.updatedAt,
-        };
-        preset.userValues = values;
-        preset.updatedAt = Date.now();
+        const next = [...DBState.db.modelPresets];
+        next[idx] = result.preset;
+        DBState.db.modelPresets = next;
         notifySuccess(language.profileReplaced);
         return true;
     }
 
-    async function selectProfile(profile: ModelProfile) {
+    async function selectProfile(entry: Entry) {
         const target = $modelProfileReplaceTarget;
         if (target) {
-            if (await replacePresetProfile(target, profile)) {
+            if (await replacePresetProfile(target, entry)) {
                 modelProfileReplaceTarget.set(null);
                 close();
             }
         } else {
-            createPresetFrom(profile);
+            createPresetFrom(entry);
         }
     }
 
@@ -285,7 +314,7 @@
             <h2 class="mt-0 mb-0">{language.selectProfile}</h2>
             <div class="grow flex justify-end">
                 <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer items-center" onclick={close}>
-                    <XIcon size={24}/>
+                    <XIcon size={20}/>
                 </button>
             </div>
         </div>
@@ -310,10 +339,11 @@
             </button>
         {/if}
 
-        {#snippet profileCard(profile: ModelProfile, baseProvider: BaseProviderDefinition | undefined)}
+        {#snippet profileCard(entry: Entry)}
+            {@const { profile, baseProvider } = entry}
             {@const localizedDesc = localizeDescription(profile)}
             <div class="flex items-start text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors">
-                <button class="flex flex-col min-w-0 grow cursor-pointer text-left" onclick={() => selectProfile(profile)}>
+                <button class="flex flex-col min-w-0 grow cursor-pointer text-left" onclick={() => selectProfile(entry)}>
                     <div class="flex items-center gap-2">
                         <span class="text-sm text-textcolor truncate">{localizeDisplayName(profile)}</span>
                         {#if profile.profileStatus !== 'current'}
@@ -328,7 +358,9 @@
                             <span class="text-xs text-textcolor2 shrink-0">[{baseProvider.displayName}]</span>
                         {/if}
                     </div>
-                    <span class="text-xs text-textcolor2 truncate">{profile.id}</span>
+                    <span class="text-xs text-textcolor2 truncate">
+                        {entry.transientPlugin ? pluginProfileDisplayId(profile.modelId) : profile.id}
+                    </span>
                     {#if profile.updatedAt}
                         <span class="text-xs text-textcolor2">{language.profileUpdatedAtLabel}: {new Date(profile.updatedAt).toLocaleDateString()}</span>
                     {/if}
@@ -373,8 +405,8 @@
                             <span class="text-xs">({group.entries.length})</span>
                         </button>
                         {#if isProviderExpanded(group.id)}
-                            {#each group.entries as { profile, baseProvider } (profile.id)}
-                                {@render profileCard(profile, baseProvider)}
+                            {#each group.entries as entry (entry.profile.id)}
+                                {@render profileCard(entry)}
                             {/each}
                         {/if}
                     </section>

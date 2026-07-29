@@ -6,7 +6,6 @@
     import { getModelInfo, getModelList } from 'src/ts/model/modellist';
     import { ArrowLeft, ChevronRight, TriangleAlert } from "@lucide/svelte";
     import ShButton from "./GUI/ShButton.svelte";
-    import ShSwitch from "./GUI/ShSwitch.svelte";
 
     interface Props {
         value?: string;
@@ -24,7 +23,6 @@
 
     let { value = $bindable(""), onChange = (v) => {}, onclick, blankable, excludesPrefix, compact, label, disabled = false, blankLabel }: Props = $props();
     let openOptions = $state(false)
-    let showUnrec = $state(false)
     let activeTab = $state<'base' | 'plugin'>('base')
     let expandedGroups = $state<Set<string>>(new Set())
 
@@ -44,31 +42,27 @@
 
     let recProviders = $derived(getModelList({ recommendedOnly: true, groupedByProvider: true }))
     let recIds = $derived(new Set(recProviders.flatMap(g => g.models.map(m => m.id))))
-    let providers = $derived(getModelList({ recommendedOnly: !showUnrec, groupedByProvider: true }))
+    let providers = $derived(getModelList({ recommendedOnly: false, groupedByProvider: true }))
     let pluginModels = $derived(providers.find(g => g.providerName === 'Plugins')?.models ?? [])
     let hasPlugins = $derived(pluginModels.length > 0)
 </script>
 
 {#snippet modelRow(id:string, name:string, unrec:boolean)}
     <button class="shrink-0 w-full flex items-center gap-1 text-left px-3 py-1.5 text-sm hover:bg-selected rounded" onclick={() => changeModel(id)}>
-        {#if showUnrec}
-            <span class="shrink-0 w-4 flex items-center justify-center">
-                {#if unrec}<TriangleAlert size={12} class="text-amber-500" />{/if}
-            </span>
-        {/if}
+        <span class="shrink-0 w-4 flex items-center justify-center">
+            {#if unrec}<TriangleAlert size={12} class="text-amber-500" />{/if}
+        </span>
         <span class="truncate">{name}</span>
     </button>
 {/snippet}
 
 {#snippet groupHeader(key:string, label:string, unrec:boolean)}
     <button class="shrink-0 w-full flex items-center gap-1 px-3 py-1.5 text-sm font-medium hover:bg-selected rounded" onclick={() => toggleGroup(key)}>
-        {#if showUnrec}
-            <span class="shrink-0 w-4 flex items-center justify-center">
-                {#if unrec}<TriangleAlert size={12} class="text-amber-500" />{/if}
-            </span>
-        {/if}
+        <span class="shrink-0 w-4 flex items-center justify-center">
+            {#if unrec}<TriangleAlert size={12} class="text-amber-500" />{/if}
+        </span>
         <span class="truncate flex-1 text-left">{label}</span>
-        <ChevronRight size={14} class={`transition-transform shrink-0${expandedGroups.has(key) ? ' rotate-90' : ''}`} />
+        <ChevronRight size={12} class={`transition-transform shrink-0${expandedGroups.has(key) ? ' rotate-90' : ''}`} />
     </button>
 {/snippet}
 
@@ -147,30 +141,21 @@
                         {@render modelRow('', blankLabel ?? language.none, false)}
                     {/if}
 
-                    {#if showUnrec}
-                        {@render groupHeader('Horde', 'Horde', true)}
-                        {#if expandedGroups.has('Horde')}
-                            <div class="pl-4 flex flex-col">
-                                {#await getHordeModels()}
-                                    <div class="px-3 py-1.5 text-sm text-textcolor2">Loading...</div>
-                                {:then models}
-                                    {@render modelRow('horde:::auto', 'Auto Model', true)}
-                                    {#each models as model}
-                                        {@render modelRow('horde:::' + model.name, model.name.trim(), true)}
-                                    {/each}
-                                {/await}
-                            </div>
-                        {/if}
+                    {@render groupHeader('Horde', 'Horde', true)}
+                    {#if expandedGroups.has('Horde')}
+                        <div class="pl-4 flex flex-col">
+                            {#await getHordeModels()}
+                                <div class="px-3 py-1.5 text-sm text-textcolor2">Loading...</div>
+                            {:then models}
+                                {@render modelRow('horde:::auto', 'Auto Model', true)}
+                                {#each models as model}
+                                    {@render modelRow('horde:::' + model.name, model.name.trim(), true)}
+                                {/each}
+                            {/await}
+                        </div>
                     {/if}
                 {/if}
             </div>
-
-            {#if !(hasPlugins && activeTab === 'plugin')}
-                <div class="shrink-0 border-t border-selected mt-2 pt-2 flex items-center justify-between gap-2 px-1">
-                    <span class="text-sm text-textcolor2">{language.showUnrecommended}</span>
-                    <ShSwitch className="shrink-0" bind:checked={showUnrec} />
-                </div>
-            {/if}
         </div>
     </div>
 
