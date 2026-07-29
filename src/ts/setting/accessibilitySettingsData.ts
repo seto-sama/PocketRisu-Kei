@@ -6,6 +6,7 @@
 
 import type { SettingItem } from './types';
 import { getCurrentChat, getDatabase, loadTogglesFromChat } from '../storage/database.svelte';
+import { syncMobileBackNavigationGuard } from '../mobileBackNavigation';
 
 export const accessibilitySettingsItems: SettingItem[] = [
     // Checkboxes
@@ -16,6 +17,22 @@ export const accessibilitySettingsItems: SettingItem[] = [
         bindKey: 'confirmReroll',
         helpKey: 'confirmReroll',
         keywords: ['reroll', 'regenerate', 'confirm', 'message']
+    },
+    {
+        id: 'acc.confirmMessageDelete',
+        type: 'check',
+        labelKey: 'confirmMessageDelete',
+        bindKey: 'confirmMessageDelete',
+        helpKey: 'confirmMessageDelete',
+        keywords: ['delete', 'remove', 'confirm', 'message']
+    },
+    {
+        id: 'acc.showPreviousChatSwipeButtons',
+        type: 'check',
+        labelKey: 'showPreviousChatSwipeButtons',
+        bindKey: 'showPreviousChatSwipeButtons',
+        helpKey: 'showPreviousChatSwipeButtons',
+        keywords: ['previous', 'chat', 'swipe', 'alternate', 'greeting', 'message']
     },
     {
         id: 'acc.sendKeyPC',
@@ -114,14 +131,6 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['menu', 'chat', 'list', 'show']
     },
     {
-        id: 'acc.showMenuHypaMemoryModal',
-        type: 'check',
-        labelKey: 'showMenuHypaMemoryModal',
-        bindKey: 'showMenuHypaMemoryModal',
-        helpKey: 'showMenuHypaMemoryModal',
-        keywords: ['menu', 'hypa', 'memory', 'modal']
-    },
-    {
         id: 'acc.goCharacterOnImport',
         type: 'check',
         labelKey: 'goCharacterOnImport',
@@ -138,44 +147,12 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['side', 'menu', 'reroll', 'button']
     },
     {
-        id: 'acc.localActivationInGlobalLorebook',
-        type: 'check',
-        labelKey: 'localActivationInGlobalLorebook',
-        bindKey: 'localActivationInGlobalLorebook',
-        helpKey: 'localActivationInGlobalLorebook',
-        keywords: ['local', 'activation', 'global', 'lorebook']
-    },
-    {
-        id: 'acc.requestInfoInsideChat',
-        type: 'check',
-        labelKey: 'requestInfoInsideChat',
-        bindKey: 'requestInfoInsideChat',
-        helpKey: 'requestInfoInsideChat',
-        keywords: ['request', 'info', 'chat']
-    },
-    {
         id: 'acc.inlayErrorResponse',
         type: 'check',
         labelKey: 'inlayErrorResponse',
         bindKey: 'inlayErrorResponse',
         helpKey: 'inlayErrorResponse',
         keywords: ['inlay', 'error', 'response']
-    },
-    {
-        id: 'acc.bulkEnabling',
-        type: 'check',
-        labelKey: 'bulkEnabling',
-        bindKey: 'bulkEnabling',
-        helpKey: 'bulkEnabling',
-        keywords: ['bulk', 'enable', 'multiple']
-    },
-    {
-        id: 'acc.showTranslationLoading',
-        type: 'check',
-        labelKey: 'showTranslationLoading',
-        bindKey: 'showTranslationLoading',
-        helpKey: 'showTranslationLoading',
-        keywords: ['translation', 'loading', 'indicator']
     },
     {
         id: 'acc.autoScrollToNewMessage',
@@ -214,20 +191,20 @@ export const accessibilitySettingsItems: SettingItem[] = [
     },
     {
         id: 'acc.chatLoadInitialPages',
-        type: 'number',
+        type: 'slider',
         labelKey: 'chatLoadInitialPages',
         bindKey: 'chatLoadInitialPages',
         helpKey: 'chatLoadInitialPages',
-        options: { min: 1 },
+        options: { min: 10, max: 60, step: 1 },
         keywords: ['chat', 'load', 'initial', 'pages', 'scroll', 'message', 'count'],
     },
     {
         id: 'acc.chatLoadAdditionalPages',
-        type: 'number',
+        type: 'slider',
         labelKey: 'chatLoadAdditionalPages',
         bindKey: 'chatLoadAdditionalPages',
         helpKey: 'chatLoadAdditionalPages',
-        options: { min: 1 },
+        options: { min: 5, max: 30, step: 1 },
         keywords: ['chat', 'load', 'additional', 'pages', 'scroll', 'message', 'count'],
     },
     {
@@ -333,12 +310,37 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['sidebar', 'persona', 'binding', 'show'],
     },
     {
+        id: 'acc.showModuleSidebar',
+        type: 'check',
+        labelKey: 'showModuleSidebar',
+        bindKey: 'showModuleSidebar',
+        helpKey: 'showModuleSidebar',
+        keywords: ['sidebar', 'module', 'show', 'select'],
+    },
+    {
         id: 'acc.disableMobileDragDrop',
         type: 'check',
         labelKey: 'disableMobileDragDrop',
         bindKey: 'disableMobileDragDrop',
         helpKey: 'disableMobileDragDrop',
         keywords: ['mobile', 'drag', 'drop', 'character', 'disable'],
+    },
+    {
+        id: 'acc.keepSessionAlive',
+        type: 'check',
+        labelKey: 'keepSessionAlive',
+        bindKey: 'keepSessionAlive',
+        helpKey: 'keepSessionAlive',
+        keywords: ['session', 'alive', 'sound', 'browser', 'background'],
+    },
+    {
+        id: 'acc.disableMobileBackNavigation',
+        type: 'check',
+        labelKey: 'disableMobileBackNavigation',
+        bindKey: 'disableMobileBackNavigation',
+        helpKey: 'disableMobileBackNavigation',
+        keywords: ['mobile', 'browser', 'back', 'navigation', 'history', 'disable'],
+        onChange: (enabled) => syncMobileBackNavigationGuard(Boolean(enabled), true),
     },
     {
         id: 'acc.disableToggleBinding',
@@ -364,6 +366,8 @@ const pick = (ids: string[]): SettingItem[] =>
 
 export const accessibilityEditingItems = pick([
     'acc.confirmReroll',
+    'acc.confirmMessageDelete',
+    'acc.showPreviousChatSwipeButtons',
     'acc.sendKeyPC',
     'acc.sendKeyMobile',
     'acc.fixedChatTextarea',
@@ -383,29 +387,33 @@ export const accessibilityScrollItems = pick([
     'acc.chatLoadAdditionalPages',
 ]);
 
-export const accessibilitySidebarItems = pick([
+export const accessibilityChatPanelItems = pick([
     'acc.modelModeLock',
     'acc.newChatModelMode',
-    'acc.showMenuChatList',
-    'acc.showMenuHypaMemoryModal',
-    'acc.sideMenuRerollButton',
-    'acc.hamburgerButtonBottom',
-    'acc.hideLeftBarCollapseButton',
+    'acc.disableToggleBinding',
     'acc.showModelInSidebar',
     'acc.showPresetInSidebar',
     'acc.showPersonaInSidebar',
+    'acc.showModuleSidebar',
+]);
+
+export const accessibilityInputItems = pick([
+    'acc.showMenuChatList',
+    'acc.sideMenuRerollButton',
+]);
+
+export const accessibilityMenuBarItems = pick([
+    'acc.hamburgerButtonBottom',
+    'acc.hideLeftBarCollapseButton',
 ]);
 
 export const accessibilityOtherItems = pick([
     'acc.botSettingAtStart',
     'acc.goCharacterOnImport',
     'acc.createFolderOnBranch',
-    'acc.localActivationInGlobalLorebook',
-    'acc.requestInfoInsideChat',
     'acc.inlayErrorResponse',
-    'acc.bulkEnabling',
-    'acc.showTranslationLoading',
+    'acc.keepSessionAlive',
+    'acc.disableMobileBackNavigation',
     'acc.disableMobileDragDrop',
-    'acc.disableToggleBinding',
     'acc.moveInsteadOfCopyOnCMPConvert',
 ]);

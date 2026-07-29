@@ -5,6 +5,28 @@ type HighlightInt = [HighLightRange, HighlightType]
 type HighlightIntRanged = [Range, HighlightType]
 
 let highLights = new Map<number, HighlightIntRanged[]>();
+const highlightStyleId = 'risu-cbs-highlight-style';
+
+const ensureHighlightStyle = () => {
+    if(document.getElementById(highlightStyleId)){
+        return
+    }
+
+    const style = document.createElement('style')
+    style.id = highlightStyleId
+    style.textContent = `
+::highlight(cbsnest3) { color: var(--color-amber-500); }
+::highlight(cbsnest2) { color: var(--color-green-500); }
+::highlight(cbsnest1) { color: var(--color-blue-500); }
+::highlight(cbsnest0) { color: var(--color-purple-500); }
+::highlight(cbsnest4) { color: var(--color-pink-500); }
+::highlight(cbsdisplay) { color: var(--color-cyan-500); }
+::highlight(comment) { color: var(--risu-theme-textcolor2); }
+::highlight(decorator) { color: var(--risu-theme-draculared); }
+::highlight(deprecated) { color: var(--risu-theme-textcolor2); text-decoration: line-through; }
+`
+    document.head.appendChild(style)
+}
 
 export const highlighter = (highlightDom:HTMLElement, id:number) => {
     try {
@@ -13,6 +35,7 @@ export const highlighter = (highlightDom:HTMLElement, id:number) => {
             if(!CSS.highlights){
                 return
             }
+            ensureHighlightStyle()
     
             const walker = document.createTreeWalker(highlightDom, NodeFilter.SHOW_TEXT)
             const nodes:Node[] = []

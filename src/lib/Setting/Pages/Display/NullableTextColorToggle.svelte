@@ -2,6 +2,7 @@
     import { language } from 'src/lang';
     import { DBState } from 'src/ts/stores.svelte';
     import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
+    import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte';
 
     interface Props {
         field: 'textScreenColor' | 'textScreenBorder';
@@ -15,12 +16,9 @@
     const helpText = $derived(helpKey ? (language.help as any)[helpKey] : undefined);
 </script>
 
-<div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
-    <div class="flex flex-col min-w-0">
-        <span class="text-sm text-textcolor">{language[labelKey]}</span>
-        {#if helpText}<p class="text-xs text-textcolor2 mt-0.5">{helpText}</p>{/if}
-    </div>
-    <div class="shrink-0 flex items-center gap-2">
+<SettingLayout variant="row" title={language[labelKey]} description={helpText}>
+    {#snippet control()}
+    <div class="flex items-center gap-2">
         {#if currentValue}
             <input
                 type="color"
@@ -38,4 +36,5 @@
             }}
         />
     </div>
-</div>
+    {/snippet}
+</SettingLayout>
