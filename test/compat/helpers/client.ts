@@ -1,10 +1,13 @@
 /**
  * Thin HTTP helpers for talking to a RisuAI-NodeOnly server during tests.
  */
+import { randomUUID } from 'node:crypto'
 
 export interface RisuClient {
   /** JWT auth token obtained from /api/login. */
   token: string
+  /** Page-scoped id used by the server to suppress sync self-echoes. */
+  clientId: string
   /** Export the backup as a raw Buffer. */
   exportBackup: () => Promise<Buffer>
   /**
@@ -18,6 +21,7 @@ export interface RisuClient {
 
 export async function createClient(port: number, password: string): Promise<RisuClient> {
   const base = `http://127.0.0.1:${port}`
+  const clientId = randomUUID()
 
   // Login
   const loginRes = await fetch(`${base}/api/login`, {
@@ -35,6 +39,9 @@ export async function createClient(port: number, password: string): Promise<Risu
   const authFetch = (urlPath: string, init?: RequestInit): Promise<Response> => {
     const headers = new Headers(init?.headers)
     headers.set('risu-auth', token)
+    if (!headers.has('x-sync-client-id') && !headers.has('x-session-id')) {
+      headers.set('x-sync-client-id', clientId)
+    }
     return fetch(`${base}${urlPath}`, { ...init, headers })
   }
 
@@ -68,5 +75,5 @@ export async function createClient(port: number, password: string): Promise<Risu
     return (await impRes.json()) as { ok: boolean; assetsRestored?: number; coldStorageFailed?: number; error?: string }
   }
 
-  return { token, exportBackup, importBackup, fetch: authFetch }
+  return { token, clientId, exportBackup, importBackup, fetch: authFetch }
 }

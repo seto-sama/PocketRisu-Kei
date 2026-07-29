@@ -2,6 +2,7 @@ export type ProxyJobWsEvent =
     | { type: 'job_accepted', jobId: string }
     | { type: 'upstream_headers', status: number, headers: Record<string, string> }
     | { type: 'chunk', dataBase64: string }
+    | { type: 'generation_content', content: string }
     | { type: 'error', status?: number, message: string }
     | { type: 'done' }
     | { type: 'ping', ts: number };
