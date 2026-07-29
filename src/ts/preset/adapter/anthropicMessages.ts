@@ -1,10 +1,13 @@
 import type { ModelPreset } from '../types'
 import {
     ModelPresetAdapterError,
-    extractErrorMessage,
     normalizeFetchError,
-    normalizeHttpStatus,
 } from './error'
+import {
+    deriveAdapterHttpError,
+    openPreparedEventStream,
+    sendPreparedJsonRequest,
+} from './httpTransport'
 import { prepareAdapterRequest } from './resolveCredential'
 import { parseSseStream } from './sse'
 import type {
@@ -20,6 +23,8 @@ import type {
     AdapterUsage,
 } from './types'
 import { resolveWireModelId } from './wireInvariants'
+import { isCustomPreset } from './customPreset'
+import { resolveThinkingBudget } from './thinkingBudget'
 
 // `anthropic` base provider v2+ supplies `max_tokens: 4096` via `defaultBody`,
 // so freshly-resolved snapshots already carry the value. But presets persisted
@@ -30,14 +35,22 @@ import { resolveWireModelId } from './wireInvariants'
 // existing chats keep working. `=== undefined` preserves any explicit 0 or
 // negative override.
 const ANTHROPIC_FALLBACK_MAX_TOKENS = 4096
+const ANTHROPIC_PROVIDER_ID = 'anthropic'
+const ANTHROPIC_BATCH_POLL_MS = 3_000
+const ANTHROPIC_BATCH_TIMEOUT_MS = 24 * 60 * 60 * 1_000 + 10 * 60 * 1_000
 
 type AnthropicContentBlock =
-    | { type: 'text'; text: string }
-    | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+    | { type: 'text'; text: string; cache_control?: AnthropicCacheControl }
+    | { type: 'image'; source: { type: 'base64'; media_type: string; data: string }; cache_control?: AnthropicCacheControl }
     | { type: 'thinking'; thinking: string; signature?: string }
     | { type: 'redacted_thinking'; data: string }
-    | { type: 'tool_use'; id: string; name: string; input: unknown }
-    | { type: 'tool_result'; tool_use_id: string; content: string }
+    | { type: 'tool_use'; id: string; name: string; input: unknown; cache_control?: AnthropicCacheControl }
+    | { type: 'tool_result'; tool_use_id: string; content: string; cache_control?: AnthropicCacheControl }
+
+interface AnthropicCacheControl {
+    type: 'ephemeral'
+    ttl?: '1h'
+}
 
 interface AnthropicWireMessage {
     role: 'user' | 'assistant'
@@ -57,30 +70,14 @@ export async function sendAnthropicChatRequest(
 ): Promise<AdapterChatResponse> {
     const prepared = await prepareAnthropicBody(preset, options, credential, false)
     const fetchImpl = options.fetchImpl ?? globalThis.fetch
-    let response: Response
-    try {
-        response = await fetchImpl(prepared.url, {
-            method: prepared.method,
-            headers: prepared.headers,
-            body: JSON.stringify(prepared.body),
-            signal: options.abortSignal,
-        })
-    } catch (err) {
-        throw normalizeFetchError(err)
+    if (isAnthropicBatchingEnabled(preset)) {
+        return sendAnthropicBatch(prepared, options, fetchImpl)
     }
-
-    if (!response.ok) {
-        throw await deriveHttpError(response)
-    }
-
-    let raw: unknown
-    try {
-        raw = await response.json()
-    } catch (err) {
-        throw new ModelPresetAdapterError('parse', 'Failed to parse Anthropic JSON response', {
-            cause: err,
-        })
-    }
+    const raw = await sendPreparedJsonRequest(
+        prepared,
+        options,
+        'Failed to parse Anthropic JSON response',
+    )
 
     return parseAnthropicMessage(raw)
 }
@@ -91,29 +88,14 @@ export async function* streamAnthropicChatRequest(
     credential?: AdapterCredential,
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const prepared = await prepareAnthropicBody(preset, options, credential, true)
-    const fetchImpl = options.fetchImpl ?? globalThis.fetch
-    let response: Response
-    try {
-        response = await fetchImpl(prepared.url, {
-            method: prepared.method,
-            headers: { ...prepared.headers, Accept: 'text/event-stream' },
-            body: JSON.stringify(prepared.body),
-            signal: options.abortSignal,
-        })
-    } catch (err) {
-        throw normalizeFetchError(err)
-    }
-
-    if (!response.ok) {
-        throw await deriveHttpError(response)
-    }
-
-    if (!response.body) {
-        throw new ModelPresetAdapterError('parse', 'Anthropic stream response has no body')
-    }
+    const stream = await openPreparedEventStream(
+        prepared,
+        options,
+        'Anthropic stream response has no body',
+    )
 
     try {
-        for await (const event of parseSseStream(response.body)) {
+        for await (const event of parseSseStream(stream)) {
             if (event.event === 'ping') continue
             if (event.event === 'message_stop') return
             if (event.event === 'error') {
@@ -164,10 +146,15 @@ async function prepareAnthropicBody(
     //   - model              → adapter selects the wire model id
     //   - stream             → adapter controls the transport mode
     const modelId = resolveWireModelId(preset, { vendorName: 'Anthropic' })
-    const { system, chat } = collectSystemAndChat(options.messages)
-    prepared.body.messages = toAnthropicWireMessages(chat)
+    const { system, systemCachePoint, chat } = collectSystemAndChat(options.messages)
+    const hasDirectCachePoint = systemCachePoint || chat.some((message) => message.cachePoint)
+    const directCacheControl = resolveDirectCacheControl(preset, hasDirectCachePoint)
+    const wireMessages = toAnthropicWireMessages(chat, directCacheControl)
+    prepared.body.messages = wireMessages
     if (system.length > 0) {
-        prepared.body.system = system
+        prepared.body.system = directCacheControl && systemCachePoint
+            ? [{ type: 'text', text: system, cache_control: directCacheControl }]
+            : system
     } else {
         delete prepared.body.system
     }
@@ -184,30 +171,120 @@ async function prepareAnthropicBody(
     if (prepared.body.max_tokens === undefined) {
         prepared.body.max_tokens = ANTHROPIC_FALLBACK_MAX_TOKENS
     }
+    if (!isCustomPreset(preset)) {
+        applyAnthropicThinking(prepared.body, preset, modelId)
+    }
+    if (options.structuredOutput) {
+        const outputConfig = isPlainObject(prepared.body.output_config)
+            ? { ...prepared.body.output_config }
+            : {}
+        outputConfig.format = {
+            type: 'json_schema',
+            schema: options.structuredOutput.schema,
+        }
+        prepared.body.output_config = outputConfig
+    } else if (isPlainObject(prepared.body.output_config)) {
+        const outputConfig = { ...prepared.body.output_config }
+        delete outputConfig.format
+        if (Object.keys(outputConfig).length > 0) prepared.body.output_config = outputConfig
+        else delete prepared.body.output_config
+    }
+    if (directCacheControl?.ttl === '1h') {
+        appendAnthropicBeta(prepared.headers, 'extended-cache-ttl-2025-04-11')
+    }
     prepared.body.stream = stream
     return prepared
+}
+
+function applyAnthropicThinking(
+    body: Record<string, unknown>,
+    preset: ModelPreset,
+    modelId: string,
+): void {
+    const budget = resolveThinkingBudget(preset, 'effort')
+    if (budget !== undefined) {
+        body.thinking = { type: 'enabled', budget_tokens: budget }
+        if (!isPlainObject(body.output_config)) return
+        const outputConfig = { ...body.output_config }
+        delete outputConfig.effort
+        if (Object.keys(outputConfig).length > 0) body.output_config = outputConfig
+        else delete body.output_config
+        return
+    }
+
+    const effort = isPlainObject(body.output_config)
+        ? body.output_config.effort
+        : undefined
+    if (
+        typeof effort === 'string'
+        && effort.length > 0
+        && supportsAdaptiveThinking(modelId)
+    ) {
+        body.thinking = { type: 'adaptive' }
+    }
+}
+
+function supportsAdaptiveThinking(modelId: string): boolean {
+    const normalized = modelId.toLowerCase()
+    if (normalized.includes('claude-mythos-preview')) return true
+
+    const claude4 = normalized.match(/claude-(?:opus|sonnet)-4[.-](\d+)(?:[.-]|$)/u)
+    if (claude4 && Number(claude4[1]) >= 6) return true
+
+    const later = normalized.match(
+        /claude-(?:opus|sonnet|fable|mythos)-(\d+)(?:[.-]|$)/u,
+    )
+    return later !== null && Number(later[1]) >= 5
 }
 
 function toAnthropicTool(tool: AdapterToolDef): AnthropicWireTool {
     return { name: tool.name, description: tool.description, input_schema: tool.parameters }
 }
 
+function resolveDirectCacheControl(
+    preset: ModelPreset,
+    hasCachePoint: boolean,
+): AnthropicCacheControl | undefined {
+    if (preset.profileSnapshot.providerBaseId !== ANTHROPIC_PROVIDER_ID || !hasCachePoint) {
+        return undefined
+    }
+    return preset.claude1HourCaching
+        ? { type: 'ephemeral', ttl: '1h' }
+        : { type: 'ephemeral' }
+}
+
+function isAnthropicBatchingEnabled(preset: ModelPreset): boolean {
+    return preset.profileSnapshot.providerBaseId === ANTHROPIC_PROVIDER_ID
+        && preset.claudeBatching === true
+}
+
+function appendAnthropicBeta(headers: Record<string, string>, beta: string): void {
+    const key = Object.keys(headers).find((header) => header.toLowerCase() === 'anthropic-beta')
+        ?? 'anthropic-beta'
+    const values = (headers[key] ?? '').split(',').map((value) => value.trim()).filter(Boolean)
+    if (!values.includes(beta)) values.push(beta)
+    headers[key] = values.join(',')
+}
+
 function collectSystemAndChat(messages: AdapterChatMessage[]): {
     system: string
+    systemCachePoint: boolean
     chat: AdapterChatMessage[]
 } {
     const systems: string[] = []
     const chat: AdapterChatMessage[] = []
+    let systemCachePoint = false
     for (const message of messages) {
         if (message.role === 'system') {
             systems.push(message.content)
+            if (message.cachePoint) systemCachePoint = true
         } else {
             // tool / user / assistant are all carried into the wire builder,
             // which groups tool results onto a user turn (Anthropic shape).
             chat.push(message)
         }
     }
-    return { system: systems.join('\n\n'), chat }
+    return { system: systems.join('\n\n'), systemCachePoint, chat }
 }
 
 // Build the Anthropic message array. Consecutive tool-role messages are merged
@@ -215,14 +292,22 @@ function collectSystemAndChat(messages: AdapterChatMessage[]): {
 // requires every tool_use to be answered in the immediately following user
 // turn). Assistant turns emit thinking blocks first, then text, then tool_use —
 // the order Anthropic requires when thinking is enabled.
-function toAnthropicWireMessages(chat: AdapterChatMessage[]): AnthropicWireMessage[] {
+function toAnthropicWireMessages(
+    chat: AdapterChatMessage[],
+    cacheControl?: AnthropicCacheControl,
+): AnthropicWireMessage[] {
     const out: AnthropicWireMessage[] = []
     let pendingToolResults: AnthropicContentBlock[] = []
+    let pendingToolCachePoint = false
 
     const flushToolResults = () => {
         if (pendingToolResults.length > 0) {
+            if (cacheControl && pendingToolCachePoint) {
+                addCacheBoundary(pendingToolResults, cacheControl)
+            }
             out.push({ role: 'user', content: pendingToolResults })
             pendingToolResults = []
+            pendingToolCachePoint = false
         }
     }
 
@@ -233,6 +318,7 @@ function toAnthropicWireMessages(chat: AdapterChatMessage[]): AnthropicWireMessa
                 tool_use_id: message.toolCallId ?? '',
                 content: message.content,
             })
+            if (message.cachePoint) pendingToolCachePoint = true
             continue
         }
         flushToolResults()
@@ -240,15 +326,30 @@ function toAnthropicWireMessages(chat: AdapterChatMessage[]): AnthropicWireMessa
             // Verbatim re-send of the model's own turn (thinking signatures intact)
             // when captured this request; reconstruct for history-restored turns.
             const content = Array.isArray(message.providerEcho)
-                ? (message.providerEcho as AnthropicContentBlock[])
+                ? (message.providerEcho as AnthropicContentBlock[]).map((block) => ({ ...block }))
                 : toAssistantBlocks(message)
+            if (cacheControl && message.cachePoint) addCacheBoundary(content, cacheControl)
             out.push({ role: 'assistant', content })
         } else {
-            out.push({ role: 'user', content: toUserBlocks(message) })
+            const content = toUserBlocks(message)
+            if (cacheControl && message.cachePoint) addCacheBoundary(content, cacheControl)
+            out.push({ role: 'user', content })
         }
     }
     flushToolResults()
     return out
+}
+
+function addCacheBoundary(
+    content: AnthropicContentBlock[],
+    cacheControl: AnthropicCacheControl,
+): void {
+    for (let i = content.length - 1; i >= 0; i--) {
+        const block = content[i]
+        if (block.type === 'thinking' || block.type === 'redacted_thinking') continue
+        content[i] = { ...block, cache_control: cacheControl }
+        return
+    }
 }
 
 // A user turn: the text block (always present, even empty, so a pure-image turn
@@ -294,16 +395,156 @@ function parseToolArgs(args: string): unknown {
     }
 }
 
-async function deriveHttpError(response: Response): Promise<ModelPresetAdapterError> {
-    let bodyText = ''
+async function sendAnthropicBatch(
+    prepared: AdapterPreparedRequest,
+    options: AdapterChatOptions,
+    fetchImpl: typeof fetch,
+): Promise<AdapterChatResponse> {
+    const collectionUrl = toBatchCollectionUrl(prepared.url)
+    const customId = `pocketrisu-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const params = { ...prepared.body }
+    delete params.stream
+    let batchId: string | undefined
+
     try {
-        bodyText = await response.text()
-    } catch {
-        // ignore body read failures; status alone is enough to classify
+        const createResponse = await fetchImpl(collectionUrl, {
+            method: 'POST',
+            headers: prepared.headers,
+            body: JSON.stringify({
+                requests: [{ custom_id: customId, params }],
+            }),
+            signal: options.abortSignal,
+        })
+        if (!createResponse.ok) throw await deriveAdapterHttpError(createResponse)
+
+        const deferredUsageJobId = createResponse.headers.get('x-risu-generation-job-id')
+            ?? undefined
+        const created = await readJsonObject(createResponse, 'Anthropic batch creation response')
+        if (typeof created.id !== 'string' || created.id.length === 0) {
+            throw new ModelPresetAdapterError('parse', 'Anthropic batch response has no id')
+        }
+        batchId = created.id
+        const batchUrl = `${collectionUrl}/${encodeURIComponent(batchId)}`
+        const startedAt = Date.now()
+        let status = typeof created.processing_status === 'string'
+            ? created.processing_status
+            : undefined
+
+        while (status !== 'ended') {
+            if (Date.now() - startedAt > ANTHROPIC_BATCH_TIMEOUT_MS) {
+                throw new ModelPresetAdapterError('timeout', 'Anthropic batch request timed out after 24 hours', {
+                    retryable: true,
+                    fallbackEligible: true,
+                })
+            }
+            await abortableDelay(ANTHROPIC_BATCH_POLL_MS, options.abortSignal)
+            const statusResponse = await fetchImpl(batchUrl, {
+                method: 'GET',
+                headers: prepared.headers,
+                signal: options.abortSignal,
+            })
+            if (!statusResponse.ok) throw await deriveAdapterHttpError(statusResponse)
+            const statusBody = await readJsonObject(statusResponse, 'Anthropic batch status response')
+            status = typeof statusBody.processing_status === 'string'
+                ? statusBody.processing_status
+                : undefined
+        }
+
+        const resultsResponse = await fetchImpl(`${batchUrl}/results`, {
+            method: 'GET',
+            headers: prepared.headers,
+            signal: options.abortSignal,
+        })
+        if (!resultsResponse.ok) throw await deriveAdapterHttpError(resultsResponse)
+        const resultText = await resultsResponse.text()
+        const result = parseBatchResult(resultText, customId)
+        if (result.type !== 'succeeded') {
+            const message = extractBatchFailureMessage(result)
+            throw new ModelPresetAdapterError('server', message)
+        }
+        return {
+            ...parseAnthropicMessage(result.message),
+            deferredUsageJobId,
+        }
+    } catch (err) {
+        if (batchId && options.abortSignal?.aborted) {
+            try {
+                await fetchImpl(`${collectionUrl}/${encodeURIComponent(batchId)}/cancel`, {
+                    method: 'POST',
+                    headers: prepared.headers,
+                    body: '{}',
+                })
+            } catch {
+                // Best effort: preserve the original abort error.
+            }
+        }
+        if (err instanceof ModelPresetAdapterError) throw err
+        throw normalizeFetchError(err)
     }
-    const message = extractErrorMessage(bodyText) ?? `HTTP ${response.status}`
-    return normalizeHttpStatus(response.status, message)
-        ?? new ModelPresetAdapterError('unknown', message, { status: response.status })
+}
+
+function toBatchCollectionUrl(messagesUrl: string): string {
+    const withoutTrailingSlash = messagesUrl.replace(/\/+$/, '')
+    return `${withoutTrailingSlash}/batches`
+}
+
+async function readJsonObject(response: Response, label: string): Promise<Record<string, unknown>> {
+    let raw: unknown
+    try {
+        raw = await response.json()
+    } catch (err) {
+        throw new ModelPresetAdapterError('parse', `${label} is not valid JSON`, { cause: err })
+    }
+    if (!isPlainObject(raw)) {
+        throw new ModelPresetAdapterError('parse', `${label} is not an object`)
+    }
+    return raw
+}
+
+function parseBatchResult(text: string, customId: string): Record<string, unknown> {
+    for (const line of text.split('\n')) {
+        if (line.trim().length === 0) continue
+        let entry: unknown
+        try {
+            entry = JSON.parse(line)
+        } catch {
+            continue
+        }
+        if (!isPlainObject(entry) || entry.custom_id !== customId || !isPlainObject(entry.result)) {
+            continue
+        }
+        return entry.result
+    }
+    throw new ModelPresetAdapterError('parse', 'Anthropic batch results contain no matching request')
+}
+
+function extractBatchFailureMessage(result: Record<string, unknown>): string {
+    const error = result.error
+    if (isPlainObject(error)) {
+        if (typeof error.message === 'string') return error.message
+        if (isPlainObject(error.error) && typeof error.error.message === 'string') {
+            return error.error.message
+        }
+    }
+    const type = typeof result.type === 'string' ? result.type : 'failed'
+    return `Anthropic batch request ${type}`
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+        return Promise.reject(new DOMException('The operation was aborted', 'AbortError'))
+    }
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort)
+            resolve()
+        }, ms)
+        const onAbort = () => {
+            clearTimeout(timeout)
+            reject(new DOMException('The operation was aborted', 'AbortError'))
+        }
+        signal?.addEventListener('abort', onAbort, { once: true })
+    })
 }
 
 function deriveStreamError(data: string): ModelPresetAdapterError {

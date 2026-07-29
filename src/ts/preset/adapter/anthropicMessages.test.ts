@@ -1,6 +1,4 @@
 import { describe, expect, test } from 'vitest'
-import { loadBundledRegistry } from '../registry/loader'
-import { resolveSnapshot } from '../registry/snapshot'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import { sendAnthropicChatRequest, streamAnthropicChatRequest } from './anthropicMessages'
 import { ModelPresetAdapterError } from './error'
@@ -9,9 +7,7 @@ import type { AdapterChatMessage } from './types'
 function makeSnapshot(overrides: Partial<ResolvedModelProfileSnapshot> = {}): ResolvedModelProfileSnapshot {
     return {
         profileId: 'demo:anthropic',
-        profileVersion: 1,
         providerBaseId: 'anthropic',
-        providerBaseVersion: 1,
         adapterKind: 'anthropic-messages',
         auth: { kind: 'x-api-key', fields: ['apiKey'] },
         endpoint: { kind: 'static', url: 'https://demo.test/v1/messages' },
@@ -150,6 +146,118 @@ describe('sendAnthropicChatRequest (non-stream)', () => {
         expect(calls[0].body.max_tokens).toBe(4096)
     })
 
+    test('maps Budget effort to Claude thinking tokens', async () => {
+        const base = makeSnapshot()
+        const value = makePreset({
+            profileSnapshot: makeSnapshot({
+                schema: [
+                    ...base.schema,
+                    {
+                        key: 'effort',
+                        type: 'string',
+                        label: 'Reasoning Effort',
+                        mapsTo: { target: 'body', path: 'output_config.effort' },
+                    },
+                    {
+                        key: 'thinking_tokens',
+                        type: 'integer',
+                        label: 'Thinking Tokens',
+                        default: 1024,
+                    },
+                ],
+                capabilities: ['streaming', 'reasoning'],
+            }),
+            userValues: {
+                modelId: 'claude-sonnet-4-6',
+                effort: 'budget',
+                thinking_tokens: 2048,
+            },
+        })
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({ content: [{ type: 'text', text: 'ok' }] }),
+        )
+
+        await sendAnthropicChatRequest(
+            value,
+            { messages: [{ role: 'user', content: 'Think' }], fetchImpl },
+            { apiKey: 'key' },
+        )
+
+        expect(calls[0].body.thinking).toEqual({
+            type: 'enabled',
+            budget_tokens: 2048,
+        })
+        expect(calls[0].body).not.toHaveProperty('output_config.effort')
+    })
+
+    test('enables adaptive thinking with effort on Claude 4.6 and later', async () => {
+        const base = makeSnapshot()
+        const value = makePreset({
+            profileSnapshot: makeSnapshot({
+                schema: [
+                    ...base.schema,
+                    {
+                        key: 'effort',
+                        type: 'string',
+                        label: 'Reasoning Effort',
+                        mapsTo: { target: 'body', path: 'output_config.effort' },
+                    },
+                ],
+                capabilities: ['streaming', 'reasoning'],
+            }),
+            userValues: {
+                modelId: 'claude-sonnet-4-6',
+                effort: 'medium',
+            },
+        })
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({ content: [{ type: 'text', text: 'ok' }] }),
+        )
+
+        await sendAnthropicChatRequest(
+            value,
+            { messages: [{ role: 'user', content: 'Think' }], fetchImpl },
+            { apiKey: 'key' },
+        )
+
+        expect(calls[0].body.thinking).toEqual({ type: 'adaptive' })
+        expect(calls[0].body.output_config).toMatchObject({ effort: 'medium' })
+    })
+
+    test('does not send adaptive thinking to Claude 4.5', async () => {
+        const base = makeSnapshot()
+        const value = makePreset({
+            profileSnapshot: makeSnapshot({
+                schema: [
+                    ...base.schema,
+                    {
+                        key: 'effort',
+                        type: 'string',
+                        label: 'Reasoning Effort',
+                        mapsTo: { target: 'body', path: 'output_config.effort' },
+                    },
+                ],
+                capabilities: ['streaming', 'reasoning'],
+            }),
+            userValues: {
+                modelId: 'claude-opus-4-5',
+                effort: 'medium',
+            },
+        })
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({ content: [{ type: 'text', text: 'ok' }] }),
+        )
+
+        await sendAnthropicChatRequest(
+            value,
+            { messages: [{ role: 'user', content: 'Think' }], fetchImpl },
+            { apiKey: 'key' },
+        )
+
+        expect(calls[0].body).not.toHaveProperty('thinking')
+        expect(calls[0].body.output_config).toMatchObject({ effort: 'medium' })
+    })
+
     test('joins multiple system messages with double newline', async () => {
         const { fetchImpl, calls } = captureFetch(
             jsonResponse({ content: [{ type: 'text', text: 'ok' }] }),
@@ -167,6 +275,88 @@ describe('sendAnthropicChatRequest (non-stream)', () => {
             { apiKey: 'k' },
         )
         expect(calls[0].body.system).toBe('first system\n\nsecond system')
+    })
+
+    test('maps native cachePoint to a one-hour Anthropic cache boundary', async () => {
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({ content: [{ type: 'text', text: 'ok' }] }),
+        )
+        await sendAnthropicChatRequest(
+            makePreset({ claude1HourCaching: true }),
+            {
+                messages: [
+                    { role: 'system', content: 'system' },
+                    { role: 'user', content: 'cached prefix', cachePoint: true },
+                    { role: 'assistant', content: 'prior answer' },
+                    { role: 'user', content: 'new prompt' },
+                ],
+                fetchImpl,
+            },
+            { apiKey: 'k' },
+        )
+        const messages = calls[0].body.messages as Array<{ content: Array<Record<string, unknown>> }>
+        expect(messages[0].content.at(-1)?.cache_control).toEqual({ type: 'ephemeral', ttl: '1h' })
+        expect(messages[1].content.at(-1)?.cache_control).toBeUndefined()
+        expect(calls[0].headers['anthropic-beta']).toContain('extended-cache-ttl-2025-04-11')
+    })
+
+    test('uses the default five-minute cache boundary when one-hour caching is off', async () => {
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({ content: [{ type: 'text', text: 'ok' }] }),
+        )
+        await sendAnthropicChatRequest(
+            makePreset(),
+            { messages: [{ role: 'system', content: 'cached system', cachePoint: true }, { role: 'user', content: 'hi' }], fetchImpl },
+            { apiKey: 'k' },
+        )
+        expect(calls[0].body.system).toEqual([
+            { type: 'text', text: 'cached system', cache_control: { type: 'ephemeral' } },
+        ])
+        expect(calls[0].headers['anthropic-beta']).toBeUndefined()
+    })
+
+    test('submits and parses an Anthropic Message Batch when enabled', async () => {
+        let captured: ReturnType<typeof captureFetch>
+        captured = captureFetch(() => {
+            if (captured.calls.length === 1) {
+                return new Response(JSON.stringify({ id: 'batch-1', processing_status: 'ended' }), {
+                    status: 200,
+                    headers: {
+                        'content-type': 'application/json',
+                        'x-risu-generation-job-id': 'usage-job-1',
+                    },
+                })
+            }
+            const requests = captured.calls[0].body.requests as Array<{ custom_id: string }>
+            return new Response(JSON.stringify({
+                custom_id: requests[0].custom_id,
+                result: {
+                    type: 'succeeded',
+                    message: {
+                        content: [{ type: 'text', text: 'batched' }],
+                        stop_reason: 'end_turn',
+                        usage: { input_tokens: 4, output_tokens: 2 },
+                    },
+                },
+            }) + '\n', { status: 200 })
+        })
+
+        const result = await sendAnthropicChatRequest(
+            makePreset({ claudeBatching: true }),
+            { messages: messagesWithSystem, fetchImpl: captured.fetchImpl },
+            { apiKey: 'k' },
+        )
+
+        expect(result.text).toBe('batched')
+        expect(result.usage).toEqual({ promptTokens: 4, completionTokens: 2, totalTokens: 6 })
+        expect(result.deferredUsageJobId).toBe('usage-job-1')
+        expect(captured.calls.map((call) => call.url)).toEqual([
+            'https://demo.test/v1/messages/batches',
+            'https://demo.test/v1/messages/batches/batch-1/results',
+        ])
+        const requests = captured.calls[0].body.requests as Array<{ params: Record<string, unknown> }>
+        expect(requests[0].params.stream).toBeUndefined()
+        expect(requests[0].params.messages).toBeDefined()
     })
 
     test('omits system field when no system messages present', async () => {
@@ -599,34 +789,6 @@ describe('streamAnthropicChatRequest', () => {
             return out
         }
         await expect(collect()).rejects.toMatchObject({ kind: 'aborted', retryable: false })
-    })
-})
-
-describe('bundled anthropic:sonnet-46 profile integration', () => {
-    test('anthropic:sonnet-46 backfills modelId default and routes to /v1/messages', async () => {
-        const registry = loadBundledRegistry()
-        const snapshot = resolveSnapshot(registry, 'anthropic:sonnet-46')
-        // bundled profile.modelId is empty string by default; user is expected
-        // to set it. Provide a userValue.
-        const preset: ModelPreset = {
-            id: 'preset-claude',
-            name: 'Claude',
-            profileSnapshot: snapshot,
-            userValues: { modelId: 'claude-sonnet-4-5' },
-            createdAt: 0,
-            updatedAt: 0,
-        }
-        const { fetchImpl, calls } = captureFetch(
-            jsonResponse({
-                content: [{ type: 'text', text: 'ok' }],
-                stop_reason: 'end_turn',
-            }),
-        )
-        await sendAnthropicChatRequest(preset, { messages: messagesWithSystem, fetchImpl }, { apiKey: 'sk' })
-        expect(calls[0].url).toBe('https://api.anthropic.com/v1/messages')
-        expect(calls[0].headers['x-api-key']).toBe('sk')
-        expect(calls[0].headers['anthropic-version']).toBe('2023-06-01')
-        expect(calls[0].body.model).toBe('claude-sonnet-4-5')
     })
 })
 

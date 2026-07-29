@@ -1,4 +1,5 @@
 import type { ModelPreset } from '../types'
+import { getPresetModelIdValue } from '../runtime/effectiveConfig'
 import { ModelPresetAdapterError } from './error'
 
 /**
@@ -15,33 +16,17 @@ export function resolveWireModelId(
     options: { vendorName?: string } = {},
 ): string {
     const vendorName = options.vendorName ?? 'Adapter'
-    const schema = preset.profileSnapshot.schema
-    const modelField = schema.find((field) => field.key === 'modelId')
-    if (modelField) {
-        // If the user values record explicitly carries the modelId key, that
-        // intent must be a non-empty string. Empty string / null / wrong type
-        // is treated as a configuration error rather than silently falling
-        // back to the default model (otherwise corrupted UI/migration data
-        // would call the wrong endpoint without the user noticing).
-        if (Object.prototype.hasOwnProperty.call(preset.userValues, modelField.key)) {
-            const userValue = preset.userValues[modelField.key]
-            if (typeof userValue === 'string' && userValue.length > 0) return userValue
-            if (userValue !== undefined) {
-                throw new ModelPresetAdapterError(
-                    'invalid-request',
-                    `${vendorName} adapter requires a non-empty string modelId user value`,
-                    { retryable: false },
-                )
-            }
-        }
-        if (typeof modelField.default === 'string' && modelField.default.length > 0) {
-            return modelField.default
-        }
-    }
-    if (preset.profileSnapshot.modelId) return preset.profileSnapshot.modelId
+    const modelId = getPresetModelIdValue(preset)
+    if (typeof modelId === 'string' && modelId.length > 0) return modelId
     throw new ModelPresetAdapterError(
         'invalid-request',
-        `${vendorName} adapter requires a modelId`,
+        preset.profileSnapshot.schema.some(
+            (field) =>
+                field.semantic === 'modelId'
+                || (field.semantic === undefined && field.key === 'modelId'),
+        )
+            ? `${vendorName} adapter requires a non-empty string modelId user value`
+            : `${vendorName} adapter requires a modelId`,
         { retryable: false },
     )
 }

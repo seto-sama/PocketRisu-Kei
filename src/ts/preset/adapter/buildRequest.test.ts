@@ -6,9 +6,7 @@ import { ModelPresetAdapterError } from './error'
 function makeSnapshot(overrides: Partial<ResolvedModelProfileSnapshot> = {}): ResolvedModelProfileSnapshot {
     return {
         profileId: 'demo:standard',
-        profileVersion: 1,
         providerBaseId: 'demo',
-        providerBaseVersion: 1,
         adapterKind: 'openai-compatible',
         auth: { kind: 'bearer', fields: ['apiKey'] },
         endpoint: { kind: 'static', url: 'https://demo.test/v1/chat/completions' },
@@ -888,5 +886,83 @@ describe('buildPreparedRequest — Vertex project/location resolution', () => {
                 expect(err.message).toMatch(/project/i)
             }
         }
+    })
+})
+
+describe('buildPreparedRequest — Cloudflare AI endpoint resolution', () => {
+    function cloudflarePreset(
+        userValues: Record<string, unknown>,
+        withGateway = false,
+    ) {
+        return makePreset({
+            profileSnapshot: makeSnapshot({
+                auth: { kind: 'bearer', fields: ['cloudflareApiToken'] },
+                endpoint: { kind: 'cloudflare-ai' },
+                headerTemplate: withGateway
+                    ? {
+                        'Content-Type': 'application/json',
+                        'cf-aig-gateway-id': 'default',
+                    }
+                    : { 'Content-Type': 'application/json' },
+                schema: [
+                    {
+                        key: 'cloudflareApiToken',
+                        type: 'string',
+                        label: 'Cloudflare API Token',
+                        secret: true,
+                        mapsTo: { target: 'auth', path: 'apiKey' },
+                    },
+                    {
+                        key: 'cloudflareAccountId',
+                        type: 'string',
+                        label: 'Account ID',
+                        required: true,
+                        secret: true,
+                        mapsTo: { target: 'custom', path: 'cloudflareAccountId' },
+                    },
+                ],
+            }),
+            userValues,
+        })
+    }
+
+    test('builds a Workers AI request from the masked Account ID field', () => {
+        const result = buildPreparedRequest({
+            preset: cloudflarePreset({ cloudflareAccountId: ' account-123 ' }),
+            credential: { apiKey: 'cf-token' },
+        })
+
+        expect(result.url).toBe(
+            'https://api.cloudflare.com/client/v4/accounts/account-123/ai/v1/chat/completions',
+        )
+        expect(result.headers.Authorization).toBe('Bearer cf-token')
+        expect(result.headers['cf-aig-gateway-id']).toBeUndefined()
+    })
+
+    test('defaults the AI Gateway header and allows an additional-params override', () => {
+        const defaultGateway = buildPreparedRequest({
+            preset: cloudflarePreset({ cloudflareAccountId: 'account-123' }, true),
+            credential: { apiKey: 'cf-token' },
+        })
+        const namedGatewayPreset = cloudflarePreset(
+            { cloudflareAccountId: 'account-123' },
+            true,
+        )
+        namedGatewayPreset.additionalParamsText =
+            'header::cf-aig-gateway-id=my-gateway'
+        const namedGateway = buildPreparedRequest({
+            preset: namedGatewayPreset,
+            credential: { apiKey: 'cf-token' },
+        })
+
+        expect(defaultGateway.headers['cf-aig-gateway-id']).toBe('default')
+        expect(namedGateway.headers['cf-aig-gateway-id']).toBe('my-gateway')
+    })
+
+    test('rejects a request whose Account ID is blank', () => {
+        expect(() => buildPreparedRequest({
+            preset: cloudflarePreset({ cloudflareAccountId: '' }),
+            credential: { apiKey: 'cf-token' },
+        })).toThrowError(ModelPresetAdapterError)
     })
 })

@@ -78,7 +78,7 @@ export function resolveVertexProject(
     const extracted = extractProjectIdFromServiceAccount(serviceAccountJson)
     if (extracted !== undefined) return extracted
     throw invalid(
-        'Could not determine the Vertex project — check the Service Account JSON (it must contain a "project_id") or set Project ID explicitly',
+        'Could not determine the Vertex project — check the Service Account JSON (it must contain a "project_id")',
     )
 }
 

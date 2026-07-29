@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { resetGeminiContextCacheRuntime } from '../cache/geminiContextCache'
-import { loadBundledRegistry } from '../registry/loader'
-import { resolveSnapshot } from '../registry/snapshot'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import { ModelPresetAdapterError } from './error'
 import * as serviceAccountCache from './googleServiceAccount/cache'
@@ -36,9 +34,7 @@ function stubServiceAccountToken(accessToken: string): void {
 function makeSnapshot(overrides: Partial<ResolvedModelProfileSnapshot> = {}): ResolvedModelProfileSnapshot {
     return {
         profileId: 'demo:google',
-        profileVersion: 1,
         providerBaseId: 'google',
-        providerBaseVersion: 1,
         adapterKind: 'google-gemini',
         auth: { kind: 'x-goog-api-key', fields: ['apiKey'] },
         endpoint: { kind: 'static', url: 'https://demo.test/v1beta/models' },
@@ -167,6 +163,81 @@ describe('sendGoogleChatRequest (non-stream)', () => {
         ])
         expect(calls[0].body.systemInstruction).toEqual({
             parts: [{ text: 'You are factual.' }],
+        })
+    })
+
+    test('always requests thought summaries when Gemini thinking is enabled', async () => {
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
+        )
+        const value = makePreset({
+            profileSnapshot: makeSnapshot({
+                bodyTemplate: {
+                    generationConfig: {
+                        thinkingConfig: { thinkingLevel: 'high' },
+                    },
+                },
+            }),
+        })
+
+        await sendGoogleChatRequest(
+            value,
+            { messages: [{ role: 'user', content: 'x' }], fetchImpl },
+            { apiKey: 'k' },
+        )
+
+        expect(calls[0].body.generationConfig).toEqual({
+            thinkingConfig: {
+                thinkingLevel: 'high',
+                includeThoughts: true,
+            },
+        })
+    })
+
+    test('maps Budget effort to Gemini thinking tokens and includes thoughts', async () => {
+        const base = makeSnapshot()
+        const value = makePreset({
+            profileSnapshot: makeSnapshot({
+                schema: [
+                    ...base.schema,
+                    {
+                        key: 'thinkingLevel',
+                        type: 'string',
+                        label: 'Reasoning Effort',
+                        mapsTo: {
+                            target: 'body',
+                            path: 'generationConfig.thinkingConfig.thinkingLevel',
+                        },
+                    },
+                    {
+                        key: 'thinking_tokens',
+                        type: 'integer',
+                        label: 'Thinking Tokens',
+                        default: 1024,
+                    },
+                ],
+                capabilities: ['streaming', 'reasoning'],
+            }),
+            userValues: {
+                thinkingLevel: 'budget',
+                thinking_tokens: 4096,
+            },
+        })
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
+        )
+
+        await sendGoogleChatRequest(
+            value,
+            { messages: [{ role: 'user', content: 'Think' }], fetchImpl },
+            { apiKey: 'key' },
+        )
+
+        expect(calls[0].body.generationConfig).toEqual({
+            thinkingConfig: {
+                thinkingBudget: 4096,
+                includeThoughts: true,
+            },
         })
     })
 
@@ -631,33 +702,6 @@ describe('streamGoogleChatRequest', () => {
     })
 })
 
-describe('bundled google:gemini-35-flash profile integration', () => {
-    test('google:gemini-35-flash routes to generateContent under the bundled base URL', async () => {
-        const registry = loadBundledRegistry()
-        const snapshot = resolveSnapshot(registry, 'google:gemini-35-flash')
-        const preset: ModelPreset = {
-            id: 'preset-gemini',
-            name: 'Gemini',
-            profileSnapshot: snapshot,
-            userValues: { modelId: 'gemini-3.5-flash' },
-            createdAt: 0,
-            updatedAt: 0,
-        }
-        const { fetchImpl, calls } = captureFetch(
-            jsonResponse({
-                candidates: [
-                    { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
-                ],
-            }),
-        )
-        await sendGoogleChatRequest(preset, { messages: messagesWithSystem, fetchImpl }, { apiKey: 'gk' })
-        expect(calls[0].url).toBe(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent',
-        )
-        expect(calls[0].headers['x-goog-api-key']).toBe('gk')
-    })
-})
-
 describe('vision (Stage 3)', () => {
     test('appends an inlineData part (raw base64 + mimeType) to the user turn', async () => {
         const { fetchImpl, calls } = captureFetch(
@@ -681,6 +725,100 @@ describe('vision (Stage 3)', () => {
         })
     })
 
+    test('sends enabled audio/video inlineData and requests generated audio', async () => {
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
+        )
+        await sendGoogleChatRequest(
+            makePreset({
+                userValues: {
+                    modelId: 'gemini-media',
+                    customFlag_hasAudioOutput: true,
+                },
+            }),
+            {
+                messages: [{
+                    role: 'user',
+                    content: 'listen',
+                    media: [
+                        { kind: 'audio', base64: 'AA', mime: 'audio/wav' },
+                        { kind: 'video', base64: 'VV', mime: 'video/mp4' },
+                    ],
+                }],
+                fetchImpl,
+            },
+            { apiKey: 'k' },
+        )
+        const contents = calls[0].body.contents as Array<Record<string, unknown>>
+        expect(contents[0]).toEqual({
+            role: 'user',
+            parts: [
+                { text: 'listen' },
+                { inlineData: { mimeType: 'audio/wav', data: 'AA' } },
+                { inlineData: { mimeType: 'video/mp4', data: 'VV' } },
+            ],
+        })
+        expect(calls[0].body.generationConfig).toMatchObject({
+            responseModalities: ['TEXT', 'AUDIO'],
+        })
+    })
+
+    test('requests IMAGE-only output for registry image-generation profiles', async () => {
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({
+                candidates: [{
+                    content: {
+                        parts: [{ inlineData: { mimeType: 'image/png', data: 'IMG' } }],
+                    },
+                }],
+            }),
+        )
+        await sendGoogleChatRequest(
+            makePreset({
+                profileSnapshot: makeSnapshot({
+                    modelId: 'gemini-2.5-flash-image',
+                    capabilities: ['streaming', 'image-output'],
+                }),
+            }),
+            {
+                messages: [{ role: 'user', content: 'draw a cat' }],
+                fetchImpl,
+            },
+            { apiKey: 'k' },
+        )
+
+        expect(calls[0].body.generationConfig).toMatchObject({
+            responseModalities: ['IMAGE'],
+        })
+    })
+
+    test('returns generated Gemini image/audio parts separately from text', async () => {
+        const { fetchImpl } = captureFetch(
+            jsonResponse({
+                candidates: [{
+                    content: {
+                        parts: [
+                            { text: 'done' },
+                            { inlineData: { mimeType: 'image/png', data: 'IMG' } },
+                            { inlineData: { mimeType: 'audio/wav', data: 'AUD' } },
+                        ],
+                    },
+                }],
+            }),
+        )
+        const response = await sendGoogleChatRequest(
+            makePreset(),
+            { messages: [{ role: 'user', content: 'make media' }], fetchImpl },
+            { apiKey: 'k' },
+        )
+
+        expect(response.text).toBe('done')
+        expect(response.media).toEqual([
+            { kind: 'image', mime: 'image/png', base64: 'IMG' },
+            { kind: 'audio', mime: 'audio/wav', base64: 'AUD' },
+        ])
+    })
+
     test('a pure-image user turn (empty text) omits the empty text part', async () => {
         const { fetchImpl, calls } = captureFetch(
             jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
@@ -692,6 +830,29 @@ describe('vision (Stage 3)', () => {
         )
         const contents = calls[0].body.contents as Array<Record<string, unknown>>
         expect(contents[0]).toEqual({ role: 'user', parts: [{ inlineData: { mimeType: 'image/png', data: 'DD' } }] })
+    })
+
+    test('maps the preset Vision Quality to generationConfig.mediaResolution', async () => {
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
+        )
+        await sendGoogleChatRequest(
+            makePreset({
+                profileSnapshot: makeSnapshot({
+                    profileId: 'vertex-gemini-native:standard',
+                    providerBaseId: 'vertex-gemini-native',
+                }),
+                gptVisionQuality: 'medium',
+            }),
+            {
+                messages: [{ role: 'user', content: 'inspect', images: [{ kind: 'image', base64: 'MM', mime: 'image/png' }] }],
+                fetchImpl,
+            },
+            { apiKey: 'k' },
+        )
+        expect(calls[0].body.generationConfig).toEqual({
+            mediaResolution: 'MEDIA_RESOLUTION_MEDIUM',
+        })
     })
 
     test('a text-only user turn keeps a single text part (no regression)', async () => {

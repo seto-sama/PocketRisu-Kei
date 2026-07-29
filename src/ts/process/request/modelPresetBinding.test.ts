@@ -111,6 +111,42 @@ describe('resolvePresetMaxOutputTokens — output cap comes from the preset, not
         expect(resolvePresetMaxOutputTokens(preset)).toBe(2048)
     })
 
+    test('uses semantic metadata for Bedrock inferenceConfig.maxTokens', () => {
+        const preset = presetWith({
+            schema: [{
+                key: 'outputCap',
+                semantic: 'maxOutputTokens',
+                mapsTo: { target: 'body', path: 'inferenceConfig.maxTokens' },
+            }],
+            defaults: { inferenceConfig: { maxTokens: 3072 } },
+        })
+        expect(resolvePresetMaxOutputTokens(preset)).toBe(3072)
+    })
+
+    test('keeps legacy Bedrock maxTokens snapshots working without semantic metadata', () => {
+        const preset = presetWith({
+            schema: [{
+                key: 'maxTokens',
+                mapsTo: { target: 'body', path: 'inferenceConfig.maxTokens' },
+            }],
+            userValues: { maxTokens: 6144 },
+        })
+        expect(resolvePresetMaxOutputTokens(preset)).toBe(6144)
+    })
+
+    test('treats declared semantic metadata as authoritative over a legacy-looking key', () => {
+        const preset = presetWith({
+            schema: [{
+                key: 'max_tokens',
+                semantic: 'temperature',
+                mapsTo: { target: 'body', path: 'temperature' },
+            }],
+            userValues: { max_tokens: 4096 },
+            defaults: { max_tokens: 2048 },
+        })
+        expect(resolvePresetMaxOutputTokens(preset)).toBeUndefined()
+    })
+
     test('returns undefined when no output-token field is declared', () => {
         const preset = presetWith({
             schema: [{ key: 'temperature', mapsTo: { target: 'body', path: 'temperature' } }],
@@ -189,7 +225,7 @@ describe('resolveChatMaxResponseTokens — the bug: stray legacy db.maxResponse 
     })
 })
 
-describe('applyPromptPresetParams — per-chat prompt-preset sampling override', () => {
+describe('applyPromptPresetParams — prompt-preset sampling override', () => {
     const SAMPLING_SCHEMA = [
         { key: 'temperature', default: 0.7, mapsTo: { target: 'body', path: 'temperature' } },
         { key: 'top_p', default: 1, mapsTo: { target: 'body', path: 'top_p' } },
@@ -216,10 +252,30 @@ describe('applyPromptPresetParams — per-chat prompt-preset sampling override',
         expect(applyPromptPresetParams(preset, undefined, 'model')).toBe(preset)
     })
 
+    test('global preference overrides the per-chat opt-in', () => {
+        mockDb.modelPresetPromptParamsFirst = true
+        const preset = presetWith({
+            schema: SAMPLING_SCHEMA,
+            userValues: { temperature: 0.2 },
+        })
+        const out = applyPromptPresetParams(preset, { usePromptPresetParams: false } as any, 'model')
+        expect(out.userValues.temperature).toBe(0.8)
+        expect(out.userValues.top_p).toBe(0.9)
+    })
+
     test('identity for non-main modes even when opted in', () => {
         const preset = presetWith({ schema: SAMPLING_SCHEMA })
         expect(applyPromptPresetParams(preset, onChat, 'submodel')).toBe(preset)
         expect(applyPromptPresetParams(preset, onChat, 'memory')).toBe(preset)
+    })
+
+    test('global prompt-parameter priority is also limited to the main model', () => {
+        mockDb.modelPresetPromptParamsFirst = true
+        const preset = presetWith({ schema: SAMPLING_SCHEMA })
+        expect(applyPromptPresetParams(preset, onChat, 'submodel')).toBe(preset)
+        expect(applyPromptPresetParams(preset, onChat, 'memory')).toBe(preset)
+        expect(applyPromptPresetParams(preset, onChat, 'emotion')).toBe(preset)
+        expect(applyPromptPresetParams(preset, onChat, 'translate')).toBe(preset)
     })
 
     test('injects normalized sampling values over userValues without mutating the stored preset', () => {
@@ -264,6 +320,31 @@ describe('applyPromptPresetParams — per-chat prompt-preset sampling override',
         const out = applyPromptPresetParams(preset, onChat, 'model')
         expect(out.userValues.topP).toBe(0.9)
         expect(out.userValues.topK).toBe(40)
+    })
+
+    test('canonical temperature semantic works independently of a custom storage key', () => {
+        const preset = presetWith({
+            schema: [{
+                key: 'randomness',
+                semantic: 'temperature',
+                mapsTo: { target: 'custom', path: 'generation.temperature' },
+            }],
+        })
+        const out = applyPromptPresetParams(preset, onChat, 'model')
+        expect(out.userValues.randomness).toBe(0.8)
+    })
+
+    test('canonical output semantic applies prompt output priority on custom mappings', () => {
+        mockDb.modelPresetPromptPresetFirst = true
+        const preset = presetWith({
+            schema: [{
+                key: 'outputCap',
+                semantic: 'maxOutputTokens',
+                mapsTo: { target: 'custom', path: 'generation.maxTokens' },
+            }],
+        })
+        const out = applyPromptPresetParams(preset, onChat, 'model')
+        expect(out.userValues.outputCap).toBe(65535)
     })
 
     test('non-body mappings are ignored even if the key matches', () => {

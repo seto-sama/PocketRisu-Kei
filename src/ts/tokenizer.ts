@@ -21,11 +21,10 @@ function getHash(
     aiModel: string,
     customTokenizer: string,
     currentPluginProvider: string,
-    googleClaudeTokenizing: boolean,
     modelInfo: LLMModel,
     pluginTokenizer: string
 ): string {
-    const combined = `${data}::${aiModel}::${customTokenizer}::${currentPluginProvider}::${googleClaudeTokenizing ? '1' : '0'}::${modelInfo.tokenizer}::${pluginTokenizer}`;
+    const combined = `${data}::${aiModel}::${customTokenizer}::${currentPluginProvider}::${modelInfo.tokenizer}::${pluginTokenizer}`;
     return combined;
 }
 
@@ -75,21 +74,17 @@ export async function encode(data:string):Promise<(number[]|Uint32Array|Int32Arr
     const modelInfo = getModelInfo(db.aiModel);
     const pluginTokenizer = pluginV2.providerOptions.get(db.currentPluginProvider)?.tokenizer ?? "none";
 
-    let cacheKey = ''
-    if(db.useTokenizerCaching){
-        cacheKey = getHash(
-            data,
-            db.aiModel,
-            db.customTokenizer,
-            db.currentPluginProvider,
-            db.googleClaudeTokenizing,
-            modelInfo,
-            pluginTokenizer
-        );
-        const cachedResult = encodeCache.get(cacheKey);
-        if (cachedResult !== undefined) {
-            return cachedResult;
-        }
+    const cacheKey = getHash(
+        data,
+        db.aiModel,
+        db.customTokenizer,
+        db.currentPluginProvider,
+        modelInfo,
+        pluginTokenizer
+    );
+    const cachedResult = encodeCache.get(cacheKey);
+    if (cachedResult !== undefined) {
+        return cachedResult;
     }
 
     let result: number[] | Uint32Array | Int32Array;
@@ -162,8 +157,6 @@ export async function encode(data:string):Promise<(number[]|Uint32Array|Int32Arr
             result = await tokenizeGGUFModel(data);
         } else if(modelInfo.tokenizer === LLMTokenizer.tiktokenO200Base){
             result = await tikJS(data, 'o200k_base');
-        } else if(modelInfo.tokenizer === LLMTokenizer.GoogleCloud && db.googleClaudeTokenizing){
-            result = await tokenizeGoogleCloud(data);
         } else if(modelInfo.tokenizer === LLMTokenizer.Gemma || modelInfo.tokenizer === LLMTokenizer.GoogleCloud){
             result = await gemmaTokenize(data);
         } else if(modelInfo.tokenizer === LLMTokenizer.DeepSeek){
@@ -174,56 +167,15 @@ export async function encode(data:string):Promise<(number[]|Uint32Array|Int32Arr
             result = await tikJS(data);
         }
     }
-    if(db.useTokenizerCaching){
-        encodeCache.set(cacheKey, result);
-    }
+    encodeCache.set(cacheKey, result);
 
     return result;
 }
 
 type tokenizerType = 'novellist'|'claude'|'novelai'|'llama'|'mistral'|'llama3'|'gemma'|'cohere'|'googleCloud'|'DeepSeek'
 
-let tikParser:Tiktoken = null
-let tokenizersTokenizer:Tokenizer = null
-let tokenizersType:tokenizerType = null
-let lastTikModel = 'cl100k_base'
-
-let googleCloudTokenizedCache = new Map<string, number>()
-
-async function tokenizeGoogleCloud(text:string) {
-    const db = getDatabase()
-    const model = getModelInfo(db.aiModel)
-    const cacheKey = text + model.internalID
-
-    if(googleCloudTokenizedCache.has(cacheKey)){
-        const count = googleCloudTokenizedCache.get(cacheKey) ?? 0
-        return new Uint32Array(count)
-    }
-
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.internalID}:countTokens?key=${db.google?.accessToken}`, {
-        method: 'POST',
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            contents: [{
-                parts:[{
-                    text: text
-                }]
-            }]
-        }),
-    })
-
-    if(res.status !== 200){
-        return await tokenizeWebTokenizers(text, 'gemma')
-    }
-
-    const json = await res.json()
-    googleCloudTokenizedCache.set(cacheKey, json.totalTokens as number)
-    const count = json.totalTokens as number
-
-    return new Uint32Array(count)
-}
+const tikParsers = new Map<string, Promise<Tiktoken>>()
+const tokenizersByType = new Map<tokenizerType, Promise<Tokenizer>>()
 
 let gemmaTokenizer:GemmaTokenizer = null
 async function gemmaTokenize(text:string) {
@@ -237,31 +189,35 @@ async function gemmaTokenize(text:string) {
 }
 
 async function tikJS(text:string, model='cl100k_base') {
-    if(!tikParser || lastTikModel !== model){
-        tikParser?.free()
-        if(model === 'cl100k_base'){
+    let parserPromise = tikParsers.get(model)
+    if(!parserPromise){
+        parserPromise = (async () => {
             const {Tiktoken} = await import('@dqbd/tiktoken')
+            if(model === 'o200k_base'){
+                const o200k_base = await import("src/etc/o200k_base.json");
+                return new Tiktoken(
+                    o200k_base.bpe_ranks,
+                    o200k_base.special_tokens,
+                    o200k_base.pat_str
+                );
+            }
+
             const cl100k_base = await import("@dqbd/tiktoken/encoders/cl100k_base.json");
-            lastTikModel = model   
-        
-            tikParser = new Tiktoken(
+            return new Tiktoken(
                 cl100k_base.bpe_ranks,
                 cl100k_base.special_tokens,
                 cl100k_base.pat_str
             );
-        }
-        if(model === 'o200k_base'){
-            const {Tiktoken} = await import('@dqbd/tiktoken')
-            const o200k_base = await import("src/etc/o200k_base.json");
-            lastTikModel = model
-            tikParser = new Tiktoken(
-                o200k_base.bpe_ranks,
-                o200k_base.special_tokens,
-                o200k_base.pat_str
-            );
-        }
+        })()
+        tikParsers.set(model, parserPromise)
+        parserPromise.catch(() => {
+            if(tikParsers.get(model) === parserPromise){
+                tikParsers.delete(model)
+            }
+        })
     }
-    return tikParser.encode(text)
+
+    return (await parserPromise).encode(text)
 }
 
 async function geminiTokenizer(text:string) {
@@ -290,60 +246,59 @@ async function geminiTokenizer(text:string) {
 }
 
 async function tokenizeWebTokenizers(text:string, type:tokenizerType) {
-    if(type !== tokenizersType || !tokenizersTokenizer){
-        const webTokenizer = await import('@mlc-ai/web-tokenizers')
-        switch(type){
-            case "novellist":
-                tokenizersTokenizer = await webTokenizer.Tokenizer.fromSentencePiece(
-                    await (await fetch("/token/trin/spiece.model")
-                ).arrayBuffer())
-                break
-            case "claude":
-                tokenizersTokenizer = await webTokenizer.Tokenizer.fromJSON(
-                    await (await fetch("/token/claude/claude.json")
-                ).arrayBuffer())
-                break
-            case 'llama3':
-                tokenizersTokenizer = await webTokenizer.Tokenizer.fromJSON(
-                    await (await fetch("/token/llama/llama3.json")
-                ).arrayBuffer())
-                break
-            case 'cohere':
-                tokenizersTokenizer = await webTokenizer.Tokenizer.fromJSON(
-                    await (await fetch("/token/cohere/tokenizer.json")
-                ).arrayBuffer())
-                break
-            case 'novelai':
-                tokenizersTokenizer = await webTokenizer.Tokenizer.fromSentencePiece(
-                    await (await fetch("/token/nai/nerdstash_v2.model")
-                ).arrayBuffer())
-                
-                break
-            case 'llama':
-                tokenizersTokenizer = await webTokenizer.Tokenizer.fromSentencePiece(
-                    await (await fetch("/token/llama/llama.model")
-                ).arrayBuffer())
-                break
-            case 'mistral':
-                tokenizersTokenizer = await webTokenizer.Tokenizer.fromSentencePiece(
-                    await (await fetch("/token/mistral/tokenizer.model")
-                ).arrayBuffer())
-                break
-            case 'gemma':
-                tokenizersTokenizer = await webTokenizer.Tokenizer.fromSentencePiece(
-                    await (await fetch("/token/gemma/tokenizer.model")
-                ).arrayBuffer())
-                break
-            case 'DeepSeek':
-                tokenizersTokenizer = await webTokenizer.Tokenizer.fromJSON(
-                    await (await fetch("/token/deepseek/tokenizer.json")
-                ).arrayBuffer())
-                break
+    let tokenizerPromise = tokenizersByType.get(type)
+    if(!tokenizerPromise){
+        tokenizerPromise = (async () => {
+            const webTokenizer = await import('@mlc-ai/web-tokenizers')
+            switch(type){
+                case "novellist":
+                    return await webTokenizer.Tokenizer.fromSentencePiece(
+                        await (await fetch("/token/trin/spiece.model")
+                    ).arrayBuffer())
+                case "claude":
+                    return await webTokenizer.Tokenizer.fromJSON(
+                        await (await fetch("/token/claude/claude.json")
+                    ).arrayBuffer())
+                case 'llama3':
+                    return await webTokenizer.Tokenizer.fromJSON(
+                        await (await fetch("/token/llama/llama3.json")
+                    ).arrayBuffer())
+                case 'cohere':
+                    return await webTokenizer.Tokenizer.fromJSON(
+                        await (await fetch("/token/cohere/tokenizer.json")
+                    ).arrayBuffer())
+                case 'novelai':
+                    return await webTokenizer.Tokenizer.fromSentencePiece(
+                        await (await fetch("/token/nai/nerdstash_v2.model")
+                    ).arrayBuffer())
+                case 'llama':
+                    return await webTokenizer.Tokenizer.fromSentencePiece(
+                        await (await fetch("/token/llama/llama.model")
+                    ).arrayBuffer())
+                case 'mistral':
+                    return await webTokenizer.Tokenizer.fromSentencePiece(
+                        await (await fetch("/token/mistral/tokenizer.model")
+                    ).arrayBuffer())
+                case 'gemma':
+                    return await webTokenizer.Tokenizer.fromSentencePiece(
+                        await (await fetch("/token/gemma/tokenizer.model")
+                    ).arrayBuffer())
+                case 'DeepSeek':
+                    return await webTokenizer.Tokenizer.fromJSON(
+                        await (await fetch("/token/deepseek/tokenizer.json")
+                    ).arrayBuffer())
 
-        }
-        tokenizersType = type
+            }
+            throw new Error(`Unknown tokenizer type: ${type}`)
+        })()
+        tokenizersByType.set(type, tokenizerPromise)
+        tokenizerPromise.catch(() => {
+            if(tokenizersByType.get(type) === tokenizerPromise){
+                tokenizersByType.delete(type)
+            }
+        })
     }
-    return (tokenizersTokenizer.encode(text))
+    return (await tokenizerPromise).encode(text)
 }
 
 export async function tokenizerChar(char:character) {
@@ -370,17 +325,24 @@ export class ChatTokenizer {
 
     private chatAdditionalTokens:number
     private useName:'name'|'noName'
+    private tokenizerOverride?: string
 
-    constructor(chatAdditionalTokens:number, useName:'name'|'noName'){
+    constructor(chatAdditionalTokens:number, useName:'name'|'noName', tokenizerOverride?: string){
         this.chatAdditionalTokens = chatAdditionalTokens
         this.useName = useName
+        this.tokenizerOverride = tokenizerOverride
+    }
+    private encodeText(data: string) {
+        return this.tokenizerOverride
+            ? encodeWithTokenizer(data, this.tokenizerOverride)
+            : encode(data)
     }
     async tokenizeChat(data:OpenAIChat, args:{
         countThoughts?:boolean,
     } = {}) {
-        let encoded = (await encode(data.content)).length + this.chatAdditionalTokens
+        let encoded = (await this.encodeText(data.content)).length + this.chatAdditionalTokens
         if(data.name && this.useName ==='name'){
-            encoded += (await encode(data.name)).length + 1
+            encoded += (await this.encodeText(data.name)).length + 1
         }
         if(data.multimodals && data.multimodals.length > 0){
             for(const multimodal of data.multimodals){
@@ -389,7 +351,7 @@ export class ChatTokenizer {
         }
         if(data.thoughts && data.thoughts.length > 0 && args.countThoughts){
             for(const thought of data.thoughts){
-                encoded += (await encode(thought)).length + 1
+                encoded += (await this.encodeText(thought)).length + 1
             }
         }
         return encoded

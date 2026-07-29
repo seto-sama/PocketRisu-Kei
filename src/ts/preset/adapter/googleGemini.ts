@@ -14,6 +14,7 @@ import type {
     AdapterChatResponse,
     AdapterChatStreamDelta,
     AdapterCredential,
+    AdapterGeneratedMedia,
     AdapterPreparedRequest,
     AdapterReasoningPart,
     AdapterToolCall,
@@ -21,6 +22,15 @@ import type {
     AdapterUsage,
 } from './types'
 import { resolveWireModelId } from './wireInvariants'
+import {
+    hasCustomFlag,
+    hasFixedImageOutput,
+    hasPresetFlag,
+    hasPresetImageOutput,
+    isCustomPreset,
+    resolveCustomGeminiEndpoint,
+} from './customPreset'
+import { resolveThinkingBudget } from './thinkingBudget'
 
 interface GeminiPart {
     text?: string
@@ -243,10 +253,115 @@ async function prepareGeminiBody(
         delete prepared.body.tools
         delete prepared.body.toolConfig
     }
+    applyVisionQuality(prepared.body, preset)
+    if (options.structuredOutput) {
+        const generationConfig = isPlainObject(prepared.body.generationConfig)
+            ? { ...prepared.body.generationConfig }
+            : {}
+        generationConfig.responseMimeType = 'application/json'
+        generationConfig.responseJsonSchema = options.structuredOutput.schema
+        prepared.body.generationConfig = generationConfig
+    } else if (isPlainObject(prepared.body.generationConfig)) {
+        const generationConfig = { ...prepared.body.generationConfig }
+        delete generationConfig.responseMimeType
+        delete generationConfig.responseJsonSchema
+        if (Object.keys(generationConfig).length > 0) prepared.body.generationConfig = generationConfig
+        else delete prepared.body.generationConfig
+    }
+    if (!isCustomPreset(preset)) applyGeminiThinkingBudget(prepared.body, preset)
+    applyIncludeThoughts(prepared.body, preset)
+    applyResponseModalities(prepared.body, preset)
 
-    const suffix = stream ? ':streamGenerateContent?alt=sse' : ':generateContent'
-    prepared.url = `${prepared.url}/${encodeURIComponent(modelId)}${suffix}`
+    const customEndpoint = resolveCustomGeminiEndpoint(preset, prepared.url, modelId, stream)
+    if (customEndpoint) {
+        prepared.url = customEndpoint
+    } else {
+        const suffix = stream ? ':streamGenerateContent?alt=sse' : ':generateContent'
+        prepared.url = `${prepared.url}/${encodeURIComponent(modelId)}${suffix}`
+    }
     return { ...prepared, modelId, cacheBoundary: resolvedBoundary }
+}
+
+function applyGeminiThinkingBudget(
+    body: Record<string, unknown>,
+    preset: ModelPreset,
+): void {
+    const budget = resolveThinkingBudget(preset, 'thinkingLevel')
+    if (budget === undefined) return
+
+    const generationConfig = isPlainObject(body.generationConfig)
+        ? { ...body.generationConfig }
+        : {}
+    const thinkingConfig = isPlainObject(generationConfig.thinkingConfig)
+        ? { ...generationConfig.thinkingConfig }
+        : {}
+    delete thinkingConfig.thinkingLevel
+    thinkingConfig.thinkingBudget = budget
+    generationConfig.thinkingConfig = thinkingConfig
+    body.generationConfig = generationConfig
+}
+
+function applyIncludeThoughts(
+    body: Record<string, unknown>,
+    preset: ModelPreset,
+): void {
+    const generationConfig = isPlainObject(body.generationConfig)
+        ? { ...body.generationConfig }
+        : {}
+    const thinkingConfig = isPlainObject(generationConfig.thinkingConfig)
+        ? { ...generationConfig.thinkingConfig }
+        : {}
+    const hasStandardThinking = thinkingConfig.thinkingLevel !== undefined
+        || thinkingConfig.thinkingBudget !== undefined
+    const custom = isCustomPreset(preset)
+    const customReasoning = preset.userValues?.reasoning_effort
+    const usesCustomReasoningControl = typeof customReasoning === 'string'
+        && customReasoning.length > 0
+        && customReasoning !== 'none'
+    const forceForCustom = custom && hasCustomFlag(preset, 'geminiIncludeThoughts')
+    const shouldInclude = custom
+        ? usesCustomReasoningControl || forceForCustom
+        : hasStandardThinking
+    if (!shouldInclude) return
+
+    thinkingConfig.includeThoughts = true
+    generationConfig.thinkingConfig = thinkingConfig
+    body.generationConfig = generationConfig
+}
+
+function applyResponseModalities(
+    body: Record<string, unknown>,
+    preset: ModelPreset,
+): void {
+    const imageOutput = hasPresetImageOutput(preset)
+    const audioOutput = hasPresetFlag(preset, 'hasAudioOutput')
+    if (!imageOutput && !audioOutput) return
+
+    const generationConfig = isPlainObject(body.generationConfig)
+        ? { ...body.generationConfig }
+        : {}
+    generationConfig.responseModalities = imageOutput
+        ? hasFixedImageOutput(preset) ? ['IMAGE'] : ['TEXT', 'IMAGE']
+        : ['TEXT', 'AUDIO']
+    body.generationConfig = generationConfig
+}
+
+function applyVisionQuality(
+    body: Record<string, unknown>,
+    preset: ModelPreset,
+): void {
+    const quality = preset.gptVisionQuality
+    if (quality === undefined) return
+    const generationConfig = isPlainObject(body.generationConfig)
+        ? { ...body.generationConfig }
+        : {}
+    if (quality === 'low' || quality === 'medium' || quality === 'high') {
+        generationConfig.mediaResolution = `MEDIA_RESOLUTION_${quality.toUpperCase()}`
+    } else {
+        delete generationConfig.mediaResolution
+    }
+    if (Object.keys(generationConfig).length > 0) body.generationConfig = generationConfig
+    else delete body.generationConfig
 }
 
 function toGeminiFunctionDeclaration(tool: AdapterToolDef): Record<string, unknown> {
@@ -346,13 +461,20 @@ function toGeminiContents(chat: AdapterChatMessage[]): {
     return { contents: out, cacheBoundary }
 }
 
-// A user turn: the text part (when non-empty) followed by one inlineData part per
-// image. Gemini wants the raw base64 + mimeType split out of the data URL.
+// A user turn: text followed by enabled inline image/audio/video data.
 function toUserParts(message: AdapterChatMessage): GeminiPart[] {
     const parts: GeminiPart[] = []
     if (message.content.length > 0) parts.push({ text: message.content })
     for (const img of message.images ?? []) {
         parts.push({ inlineData: { mimeType: img.mime ?? 'image/png', data: img.base64 } })
+    }
+    for (const media of message.media ?? []) {
+        parts.push({
+            inlineData: {
+                mimeType: media.mime ?? (media.kind === 'audio' ? 'audio/mpeg' : 'video/mp4'),
+                data: media.base64,
+            },
+        })
     }
     // Gemini rejects an empty parts array; keep at least one part.
     if (parts.length === 0) parts.push({ text: '' })
@@ -427,6 +549,7 @@ function parseGeminiResponse(raw: unknown): AdapterChatResponse {
         : undefined
     return {
         text: parsed.text,
+        media: parsed.media.length > 0 ? parsed.media : undefined,
         toolCalls: parsed.toolCalls.length > 0 ? parsed.toolCalls : undefined,
         reasoning: parsed.reasoning.length > 0 ? parsed.reasoning : undefined,
         // Keep the raw parts so a tool follow-up resends the model turn verbatim —
@@ -446,10 +569,12 @@ function parseGeminiParts(content: unknown): {
     text: string
     toolCalls: AdapterToolCall[]
     reasoning: AdapterReasoningPart[]
+    media: AdapterGeneratedMedia[]
 } {
     const text: string[] = []
     const toolCalls: AdapterToolCall[] = []
     const reasoning: AdapterReasoningPart[] = []
+    const media: AdapterGeneratedMedia[] = []
     if (isPlainObject(content) && Array.isArray(content['parts'])) {
         for (const part of content['parts']) {
             if (!isPlainObject(part)) continue
@@ -471,12 +596,27 @@ function parseGeminiParts(content: unknown): {
                 })
             } else if (part['thought'] === true && typeof part['text'] === 'string') {
                 reasoning.push({ text: part['text'] as string, signature })
+            } else if (isPlainObject(part['inlineData'])) {
+                const inlineData = part['inlineData'] as Record<string, unknown>
+                const mime = inlineData['mimeType']
+                const data = inlineData['data']
+                if (
+                    typeof mime === 'string'
+                    && typeof data === 'string'
+                    && (mime.startsWith('image/') || mime.startsWith('audio/'))
+                ) {
+                    media.push({
+                        kind: mime.startsWith('image/') ? 'image' : 'audio',
+                        mime,
+                        base64: data,
+                    })
+                }
             } else if (typeof part['text'] === 'string') {
                 text.push(part['text'] as string)
             }
         }
     }
-    return { text: text.join(''), toolCalls, reasoning }
+    return { text: text.join(''), toolCalls, reasoning, media }
 }
 
 function parseGeminiStreamDelta(raw: unknown): AdapterChatStreamDelta | null {

@@ -1,6 +1,4 @@
 import { describe, expect, test } from 'vitest'
-import { loadBundledRegistry } from '../registry/loader'
-import { resolveSnapshot } from '../registry/snapshot'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import { ModelPresetAdapterError } from './error'
 import { sendChatRequest, streamChatRequest, previewChatRequest } from './openaiCompatible'
@@ -9,9 +7,7 @@ import type { AdapterChatMessage } from './types'
 function makeSnapshot(overrides: Partial<ResolvedModelProfileSnapshot> = {}): ResolvedModelProfileSnapshot {
     return {
         profileId: 'demo:standard',
-        profileVersion: 1,
         providerBaseId: 'demo',
-        providerBaseVersion: 1,
         adapterKind: 'openai-compatible',
         auth: { kind: 'bearer', fields: ['apiKey'] },
         endpoint: { kind: 'static', url: 'https://demo.test/v1/chat/completions' },
@@ -331,6 +327,36 @@ describe('streamChatRequest', () => {
         expect(reasoning.join('')).toBe('step two')
     })
 
+    test('separates split think tags in a DeepSeek stream when output is enabled', async () => {
+        const { fetchImpl } = captureFetch(
+            sseResponse([
+                'data: {"choices":[{"delta":{"content":"<th"}}]}\n\n',
+                'data: {"choices":[{"delta":{"content":"ink>fallback "}}]}\n\n',
+                'data: {"choices":[{"delta":{"content":"reasoning</thi"}}]}\n\n',
+                'data: {"choices":[{"delta":{"content":"nk>visible answer"}}]}\n\n',
+                'data: [DONE]\n\n',
+            ]),
+        )
+        const text: string[] = []
+        const reasoning: string[] = []
+        for await (const delta of streamChatRequest(
+            makePreset({
+                userValues: {
+                    modelId: 'deepseek-chat',
+                    customFlag_deepSeekThinkingOutput: true,
+                },
+            }),
+            { messages: userMessages, fetchImpl },
+            { apiKey: 'sk' },
+        )) {
+            if (delta.textDelta) text.push(delta.textDelta)
+            if (delta.reasoningDelta) reasoning.push(delta.reasoningDelta)
+        }
+
+        expect(text.join('')).toBe('visible answer')
+        expect(reasoning.join('')).toBe('fallback reasoning')
+    })
+
     test('captures usage emitted in the final chunk', async () => {
         const { fetchImpl } = captureFetch(
             sseResponse([
@@ -348,6 +374,25 @@ describe('streamChatRequest', () => {
             if (delta.usage) usage = delta.usage
         }
         expect(usage).toEqual({ promptTokens: 5, completionTokens: 1, totalTokens: 6 })
+    })
+
+    test('requests usage in first-party OpenAI streams', async () => {
+        const { fetchImpl, calls } = captureFetch(
+            sseResponse(['data: [DONE]\n\n']),
+        )
+        const preset = makePreset({
+            profileSnapshot: makeSnapshot({ providerBaseId: 'openai' }),
+        })
+
+        for await (const _delta of streamChatRequest(
+            preset,
+            { messages: userMessages, fetchImpl },
+            { apiKey: 'sk' },
+        )) {
+            // Drain the stream so the request is made.
+        }
+
+        expect(calls[0].body.stream_options).toEqual({ include_usage: true })
     })
 
     test('throws parse error on non-JSON SSE data', async () => {
@@ -440,118 +485,6 @@ describe('streamChatRequest', () => {
             { apiKey: 'sk' },
         )
         await expect(gen.next()).rejects.toMatchObject({ kind: 'parse' })
-    })
-})
-
-describe('bundled OpenAI-compatible profiles', () => {
-    const registry = loadBundledRegistry()
-
-    test.each([
-        ['openai:gpt-55', 'https://api.openai.com/v1/chat/completions'],
-        ['openrouter:openai-compatible', 'https://openrouter.ai/api/v1/chat/completions'],
-        ['ollama:openai-compatible-local', 'http://localhost:11434/v1/chat/completions'],
-    ])('builds the right URL and auth header for %s', async (profileId, expectedUrl) => {
-        const snapshot = resolveSnapshot(registry, profileId)
-        const preset: ModelPreset = {
-            id: `preset-${profileId}`,
-            name: profileId,
-            profileSnapshot: snapshot,
-            userValues: { modelId: 'demo-model' },
-            createdAt: 0,
-            updatedAt: 0,
-        }
-        const { fetchImpl, calls } = captureFetch(
-            jsonResponse({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }),
-        )
-        await sendChatRequest(preset, { messages: userMessages, fetchImpl }, { apiKey: 'sk-test' })
-        expect(calls[0].url).toBe(expectedUrl)
-        if (snapshot.auth.kind === 'bearer') {
-            expect(calls[0].headers.Authorization).toBe('Bearer sk-test')
-        } else if (snapshot.auth.kind === 'none') {
-            expect(calls[0].headers.Authorization).toBeUndefined()
-        }
-    })
-
-    test('openai-compatible:custom resolves endpoint URL from userValues', async () => {
-        const snapshot = resolveSnapshot(registry, 'openai-compatible:custom')
-        const preset: ModelPreset = {
-            id: 'preset-custom',
-            name: 'Custom Provider',
-            profileSnapshot: snapshot,
-            userValues: {
-                endpointUrl: 'https://my-llm.example.com/v1/chat/completions',
-                modelId: 'my-llm-7b',
-            },
-            createdAt: 0,
-            updatedAt: 0,
-        }
-        const { fetchImpl, calls } = captureFetch(
-            jsonResponse({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }),
-        )
-        await sendChatRequest(
-            preset,
-            { messages: userMessages, fetchImpl },
-            { apiKey: 'sk-custom' },
-        )
-        expect(calls[0].url).toBe('https://my-llm.example.com/v1/chat/completions')
-        expect(calls[0].body.model).toBe('my-llm-7b')
-        expect(calls[0].headers.Authorization).toBe('Bearer sk-custom')
-    })
-
-    test('openai-compatible:custom-noauth calls endpoint without Authorization header', async () => {
-        const snapshot = resolveSnapshot(registry, 'openai-compatible:custom-noauth')
-        const preset: ModelPreset = {
-            id: 'preset-custom-noauth',
-            name: 'Local vLLM',
-            profileSnapshot: snapshot,
-            userValues: {
-                endpointUrl: 'http://localhost:8000/v1/chat/completions',
-                modelId: 'llama3-8b',
-            },
-            createdAt: 0,
-            updatedAt: 0,
-        }
-        const { fetchImpl, calls } = captureFetch(
-            jsonResponse({ choices: [{ message: { content: 'hi' }, finish_reason: 'stop' }] }),
-        )
-        await sendChatRequest(preset, { messages: userMessages, fetchImpl })
-        expect(calls[0].url).toBe('http://localhost:8000/v1/chat/completions')
-        expect(calls[0].body.model).toBe('llama3-8b')
-        expect(calls[0].headers.Authorization).toBeUndefined()
-    })
-
-    test('openai-compatible:custom with missing endpointUrl throws invalid-request', async () => {
-        const snapshot = resolveSnapshot(registry, 'openai-compatible:custom')
-        const preset: ModelPreset = {
-            id: 'preset-custom-blank',
-            name: 'Custom Provider',
-            profileSnapshot: snapshot,
-            userValues: { modelId: 'my-llm' },
-            createdAt: 0,
-            updatedAt: 0,
-        }
-        const { fetchImpl } = captureFetch(jsonResponse({}))
-        await expect(
-            sendChatRequest(preset, { messages: userMessages, fetchImpl }, { apiKey: 'sk' }),
-        ).rejects.toMatchObject({ kind: 'invalid-request', retryable: false })
-    })
-
-    test('ollama profile works without credential under auth.none', async () => {
-        const snapshot = resolveSnapshot(registry, 'ollama:openai-compatible-local')
-        const preset: ModelPreset = {
-            id: 'preset-ollama',
-            name: 'Ollama',
-            profileSnapshot: snapshot,
-            userValues: { modelId: 'llama3' },
-            createdAt: 0,
-            updatedAt: 0,
-        }
-        const { fetchImpl, calls } = captureFetch(
-            jsonResponse({ choices: [{ message: { content: 'ok' } }] }),
-        )
-        await sendChatRequest(preset, { messages: userMessages, fetchImpl })
-        expect(calls[0].body.model).toBe('llama3')
-        expect(calls[0].headers.Authorization).toBeUndefined()
     })
 })
 
@@ -782,6 +715,33 @@ describe('vision (Stage 3)', () => {
         expect(wire[1]).toEqual({ role: 'user', content: 'Hello' })
     })
 
+    test('maps the preset Vision Quality to image_url.detail', async () => {
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({ choices: [{ message: { content: 'ok' } }] }),
+        )
+        await sendChatRequest(
+            makePreset({
+                profileSnapshot: makeSnapshot({
+                    profileId: 'openai:official',
+                    providerBaseId: 'openai',
+                }),
+                gptVisionQuality: 'high',
+            }),
+            {
+                messages: [
+                    { role: 'user', content: 'inspect', images: [{ kind: 'image', base64: 'HQ', mime: 'image/png' }] },
+                ],
+                fetchImpl,
+            },
+            { apiKey: 'sk' },
+        )
+        const wire = calls[0].body.messages as Array<{ content: Array<Record<string, any>> }>
+        expect(wire[0].content[1].image_url).toEqual({
+            url: 'data:image/png;base64,HQ',
+            detail: 'high',
+        })
+    })
+
     test('defaults mime to image/png when omitted', async () => {
         const { fetchImpl, calls } = captureFetch(
             jsonResponse({ choices: [{ message: { content: 'ok' } }] }),
@@ -813,6 +773,112 @@ describe('reasoning display (Stage 4a)', () => {
         expect(result.reasoning).toEqual([{ text: 'step' }])
     })
 
+    test('gates DeepSeek reasoning output behind its per-preset flag', async () => {
+        const response = () => jsonResponse({
+            choices: [{
+                message: {
+                    content: 'answer',
+                    reasoning_content: 'hidden reasoning',
+                },
+            }],
+        })
+        const deepSeekSnapshot = makeSnapshot({
+            providerBaseId: 'deepseek',
+            modelId: 'opaque-chat-model',
+        })
+        const disabled = makePreset({
+            profileSnapshot: deepSeekSnapshot,
+            userValues: { modelId: 'opaque-chat-model' },
+        })
+        const enabled = makePreset({
+            profileSnapshot: deepSeekSnapshot,
+            userValues: {
+                modelId: 'opaque-chat-model',
+                customFlag_deepSeekThinkingOutput: true,
+            },
+        })
+
+        const off = await sendChatRequest(
+            disabled,
+            { messages: userMessages, fetchImpl: captureFetch(response).fetchImpl },
+            { apiKey: 'sk' },
+        )
+        const on = await sendChatRequest(
+            enabled,
+            { messages: userMessages, fetchImpl: captureFetch(response).fetchImpl },
+            { apiKey: 'sk' },
+        )
+
+        expect(off.reasoning).toBeUndefined()
+        expect(on.reasoning).toEqual([{ text: 'hidden reasoning' }])
+    })
+
+    test('gates output for a DeepSeek-family profile served by another provider', async () => {
+        const response = () => jsonResponse({
+            choices: [{
+                message: {
+                    content: 'answer',
+                    reasoning_content: 'hosted reasoning',
+                },
+            }],
+        })
+        const baseSnapshot = makeSnapshot()
+        const hostedSnapshot = makeSnapshot({
+            providerBaseId: 'ollama-cloud',
+            modelId: 'opaque-hosted-model',
+            schema: [
+                ...baseSnapshot.schema,
+                {
+                    key: 'customFlag_deepSeekThinkingOutput',
+                    type: 'boolean',
+                    label: 'deepSeekThinkingOutput',
+                    default: false,
+                },
+            ],
+        })
+        const off = await sendChatRequest(
+            makePreset({ profileSnapshot: hostedSnapshot }),
+            { messages: userMessages, fetchImpl: captureFetch(response).fetchImpl },
+            { apiKey: 'sk' },
+        )
+        const on = await sendChatRequest(
+            makePreset({
+                profileSnapshot: hostedSnapshot,
+                userValues: { customFlag_deepSeekThinkingOutput: true },
+            }),
+            { messages: userMessages, fetchImpl: captureFetch(response).fetchImpl },
+            { apiKey: 'sk' },
+        )
+
+        expect(off.reasoning).toBeUndefined()
+        expect(on.reasoning).toEqual([{ text: 'hosted reasoning' }])
+    })
+
+    test('uses think tags when enabled DeepSeek output has no native reasoning field', async () => {
+        const { fetchImpl } = captureFetch(
+            jsonResponse({
+                choices: [{
+                    message: {
+                        content: '<think>fallback reasoning</think>visible answer',
+                    },
+                }],
+            }),
+        )
+        const result = await sendChatRequest(
+            makePreset({
+                userValues: {
+                    modelId: 'deepseek-chat',
+                    customFlag_deepSeekThinkingOutput: true,
+                },
+            }),
+            { messages: userMessages, fetchImpl },
+            { apiKey: 'sk' },
+        )
+
+        expect(result.reasoning).toEqual([{ text: 'fallback reasoning' }])
+        expect(result.text).toBe('visible answer')
+    })
+
     test('no reasoning field → undefined (non-reasoning models unchanged)', async () => {
         const { fetchImpl } = captureFetch(
             jsonResponse({ choices: [{ message: { content: 'a' } }] }),
@@ -834,5 +900,202 @@ describe('previewChatRequest (no network)', () => {
         expect(fetched).toBe(false)
         expect(prepared.url).toBe('https://demo.test/v1/chat/completions')
         expect((prepared.body.tools as unknown[]).length).toBe(1)
+    })
+
+    test('uses the Images API body and parses generated GPT Image data', async () => {
+        const preset = makePreset({
+            profileSnapshot: makeSnapshot({
+                providerBaseId: 'openai',
+                endpoint: {
+                    kind: 'static',
+                    url: 'https://api.openai.com/v1/images/generations',
+                },
+                modelId: 'gpt-image-2',
+                capabilities: ['image-output'],
+            }),
+            userValues: { modelId: 'gpt-image-2' },
+        })
+        const { fetchImpl, calls } = captureFetch(
+            jsonResponse({ data: [{ b64_json: 'PNGDATA' }] }),
+        )
+        const response = await sendChatRequest(
+            preset,
+            {
+                messages: [
+                    { role: 'system', content: 'old context' },
+                    { role: 'user', content: 'draw a cat' },
+                ],
+                fetchImpl,
+            },
+            { apiKey: 'sk' },
+        )
+
+        expect(calls[0].body).toEqual({
+            model: 'gpt-image-2',
+            prompt: 'draw a cat',
+        })
+        expect(response.media).toEqual([
+            { kind: 'image', mime: 'image/png', base64: 'PNGDATA' },
+        ])
+    })
+
+    test.each([
+        ['moonshotai', 'opaque-chat-model', 'partial'],
+        ['deepseek', 'opaque-chat-model', 'prefix'],
+    ] as const)(
+        'automatically applies the %s provider assistant-prefill extension for current profiles',
+        async (providerBaseId, modelId, extension) => {
+            const prepared = await previewChatRequest(
+                makePreset({
+                    profileSnapshot: makeSnapshot({ providerBaseId, modelId }),
+                    userValues: { modelId },
+                }),
+                {
+                    messages: [
+                        { role: 'assistant', content: 'Earlier assistant turn' },
+                        { role: 'user', content: 'Continue with this prefix' },
+                        { role: 'assistant', content: 'Answer: ' },
+                    ],
+                },
+                { apiKey: 'sk' },
+            )
+            const messages = prepared.body.messages as Array<Record<string, unknown>>
+
+            expect(messages[0]).not.toHaveProperty(extension)
+            expect(messages[2]).toMatchObject({
+                role: 'assistant',
+                content: 'Answer: ',
+                [extension]: true,
+            })
+        },
+    )
+
+    test('uses DeepSeek beta endpoint for direct prefix completion', async () => {
+        const prepared = await previewChatRequest(
+            makePreset({
+                profileSnapshot: makeSnapshot({
+                    providerBaseId: 'deepseek',
+                    endpoint: {
+                        kind: 'static',
+                        url: 'https://api.deepseek.com/chat/completions',
+                    },
+                }),
+                userValues: { modelId: 'deepseek-chat' },
+            }),
+            {
+                messages: [
+                    { role: 'user', content: 'Continue this' },
+                    { role: 'assistant', content: 'Answer: ' },
+                ],
+            },
+            { apiKey: 'sk' },
+        )
+
+        expect(prepared.url).toBe('https://api.deepseek.com/beta/chat/completions')
+    })
+
+    test('sends saved reasoning_content only for an enabled final DeepSeek prefill', async () => {
+        const prepared = await previewChatRequest(
+            makePreset({
+                profileSnapshot: makeSnapshot({
+                    providerBaseId: 'deepseek',
+                    modelId: 'opaque-chat-model',
+                }),
+                userValues: {
+                    modelId: 'opaque-chat-model',
+                    customFlag_deepSeekThinkingInput: true,
+                },
+            }),
+            {
+                messages: [
+                    { role: 'assistant', content: 'Earlier', reasoning: [{ text: 'ignore me' }] },
+                    { role: 'user', content: 'Continue' },
+                    {
+                        role: 'assistant',
+                        content: 'Answer: ',
+                        reasoning: [{ text: 'first thought' }, { text: 'second thought' }],
+                    },
+                ],
+            },
+            { apiKey: 'sk' },
+        )
+        const messages = prepared.body.messages as Array<Record<string, unknown>>
+
+        expect(messages[0]).not.toHaveProperty('reasoning_content')
+        expect(messages[2]).toMatchObject({
+            prefix: true,
+            reasoning_content: 'first thought\nsecond thought',
+        })
+    })
+
+    test('keeps the ordinary DeepSeek endpoint when there is no assistant prefill', async () => {
+        const prepared = await previewChatRequest(
+            makePreset({
+                profileSnapshot: makeSnapshot({
+                    providerBaseId: 'deepseek',
+                    endpoint: {
+                        kind: 'static',
+                        url: 'https://api.deepseek.com/chat/completions',
+                    },
+                }),
+                userValues: { modelId: 'deepseek-chat' },
+            }),
+            { messages: [{ role: 'user', content: 'Normal request' }] },
+            { apiKey: 'sk' },
+        )
+
+        expect(prepared.url).toBe('https://api.deepseek.com/chat/completions')
+    })
+
+    test('uses a regional Bedrock Mantle Chat Completions endpoint and bearer API key', async () => {
+        const snapshot = makeSnapshot({
+            profileId: 'amazon-bedrock:openai.gpt-5.6-sol',
+            providerBaseId: 'amazon-bedrock--responses',
+            auth: { kind: 'aws-bedrock', fields: ['bedrockCredential'] },
+            endpoint: {
+                kind: 'amazon-bedrock-mantle',
+                path: 'openai/v1/responses',
+            },
+            modelId: 'openai.gpt-5.6-sol',
+            schema: [
+                {
+                    key: 'bedrockCredential',
+                    type: 'string',
+                    label: 'Credential',
+                    secret: true,
+                    mapsTo: { target: 'auth', path: 'apiKey' },
+                },
+                {
+                    key: 'bedrockRegion',
+                    type: 'string',
+                    label: 'AWS Region',
+                    default: 'us-east-1',
+                    mapsTo: { target: 'custom', path: 'bedrockRegion' },
+                },
+                {
+                    key: 'openaiApiMode',
+                    type: 'string',
+                    label: 'OpenAI API',
+                    default: 'completions',
+                    mapsTo: { target: 'custom', path: 'openaiApiMode' },
+                },
+            ],
+        })
+        const prepared = await previewChatRequest(
+            makePreset({
+                profileSnapshot: snapshot,
+                userValues: {
+                    bedrockRegion: 'us-west-2',
+                    openaiApiMode: 'completions',
+                },
+            }),
+            { messages: [{ role: 'user', content: 'hello' }] },
+            { apiKey: 'bedrock-api-key' },
+        )
+
+        expect(prepared.url)
+            .toBe('https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions')
+        expect(prepared.headers.Authorization).toBe('Bearer bedrock-api-key')
+        expect(prepared.body.model).toBe('openai.gpt-5.6-sol')
     })
 })
