@@ -5,9 +5,10 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { MobileGUIStack, MobileSearch, selectedCharID, SettingsMenuIndex, MobileSideBar } from "src/ts/stores.svelte";
     import { SettingsRoute } from "src/ts/routing";
+    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
 
 </script>
-<div class="w-full px-4 h-16 border-b border-b-darkborderc bg-darkbg flex justify-start items-center gap-2">
+<IconButtonGroup size="lg" className="w-full px-4 h-16 border-b border-b-darkborderc bg-darkbg justify-start gap-2">
     {#if $selectedCharID !== -1 && $MobileSideBar > 0}
         <button onclick={() => {
             MobileSideBar.set(0)
@@ -44,4 +45,4 @@
         <span class="font-bold text-lg">PocketRisu</span>
 
     {/if}
-</div>
+</IconButtonGroup>

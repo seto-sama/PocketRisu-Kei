@@ -1,78 +1,85 @@
 <script lang="ts">
     import { language } from "src/lang";
     import { DBState } from "src/ts/stores.svelte";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
+    import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
+    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import ShInput from "src/lib/UI/GUI/ShInput.svelte";
+    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
 
-    
+    function formatHotkeyKey(key: string) {
+        return key === ' ' ? 'SPACE' : (key?.toLocaleUpperCase() ?? '');
+    }
 </script>
 
-<SettingPage title={language.hotkey}>
-{#if window.innerWidth < 768}
-    <span class="text-red-500">
-        {language.screenTooSmall}
-    </span>
+<SettingLayout
+    variant="row"
+    title={language.enableHotkeys}
+    description={language.enableHotkeysDesc}
+    className="!border-t-0"
+>
+    {#snippet control()}
+        <ShSwitch bind:checked={DBState.db.enableHotkeys} />
+    {/snippet}
+</SettingLayout>
 
-{:else}
+{#if DBState.db.enableHotkeys}
+    <SettingLayout
+        variant="row"
+        title={language.enableScrollToActiveChar}
+        description={language.help.enableScrollToActiveChar}
+    >
+        {#snippet control()}
+            <ShSwitch bind:checked={DBState.db.enableScrollToActiveChar} />
+        {/snippet}
+    </SettingLayout>
 
-    <table>
-        <thead>
-            <tr>
-                <th>{language.hotkey}</th>
-            </tr>
-        </thead>
-        <tbody>
-            {#each DBState.db.hotkeys as hotkey}
-                {#if language.hotkeyDesc[hotkey.action]}
-                    <tr>
-                        <td>{language.hotkeyDesc[hotkey.action]}</td>
-                        <td>
-
-                            <button
-                                class:text-textcolor={hotkey.ctrl}
-                                class:text-textcolor2={!hotkey.ctrl}
-                                onclick={() => {
-                                    hotkey.ctrl = !hotkey.ctrl;
-                                }}
-                            >
-                                Ctrl
-                            </button>
-                        </td>
-                        <td>
-                            <button
-                                class:text-textcolor={hotkey.shift}
-                                class:text-textcolor2={!hotkey.shift}
-                                onclick={() => {
-                                    hotkey.shift = !hotkey.shift;
-                                }}
-                            >
-                                Shift
-                            </button>
-                        </td>
-                        <td>
-                            <button
-                                class:text-textcolor={hotkey.alt}
-                                class:text-textcolor2={!hotkey.alt}
-                                onclick={() => {
-                                    hotkey.alt = !hotkey.alt;
-                                }}
-                            >
-                                Alt
-                            </button>
-                        </td>
-                        <td>
-                            <input
-                                value={hotkey.key === ' ' ? "SPACE" : hotkey.key?.toLocaleUpperCase()}
-                                class="bg-bgcolor border-none w-16"
-                                onkeydown={(e) => {
-                                    e.preventDefault();
-                                    hotkey.key = e.key;
-                                }}
-                            >
-                        </td>
-                    </tr>
-                {/if}
-            {/each}
-        </tbody>
-    </table>
+    <SettingLayout variant="section" title={language.hotkeyList}>
+        {#each DBState.db.hotkeys as hotkey, index (hotkey.action)}
+            <SettingLayout
+                variant="row"
+                title={language.hotkeyDesc[hotkey.action] ?? hotkey.action}
+                className={index === 0 ? '!border-t-0' : ''}
+            >
+                {#snippet control()}
+                    <div class="flex items-center gap-2">
+                        <ShButton
+                            variant={hotkey.ctrl ? 'default' : 'outline'}
+                            size="sm"
+                            aria-pressed={hotkey.ctrl ?? false}
+                            onclick={() => hotkey.ctrl = !hotkey.ctrl}
+                        >
+                            Ctrl
+                        </ShButton>
+                        <ShButton
+                            variant={hotkey.shift ? 'default' : 'outline'}
+                            size="sm"
+                            aria-pressed={hotkey.shift ?? false}
+                            onclick={() => hotkey.shift = !hotkey.shift}
+                        >
+                            Shift
+                        </ShButton>
+                        <ShButton
+                            variant={hotkey.alt ? 'default' : 'outline'}
+                            size="sm"
+                            aria-pressed={hotkey.alt ?? false}
+                            onclick={() => hotkey.alt = !hotkey.alt}
+                        >
+                            Alt
+                        </ShButton>
+                        <ShInput
+                            value={formatHotkeyKey(hotkey.key)}
+                            readonly
+                            aria-label={`${language.hotkeyDesc[hotkey.action] ?? hotkey.action} ${language.hotkey}`}
+                            className="h-8 min-h-8 w-24 text-center text-sm"
+                            onkeydown={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                hotkey.key = event.key;
+                            }}
+                        />
+                    </div>
+                {/snippet}
+            </SettingLayout>
+        {/each}
+    </SettingLayout>
 {/if}
-</SettingPage>
