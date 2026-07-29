@@ -7,14 +7,18 @@
     // is replaced; download streams via streamsaver to avoid loading the
     // backup into memory.
     import { language } from "src/lang";
-    import { alertConfirm, alertError, alertWait, alertStore, waitAlert, notifySuccess, notifyError } from "src/ts/alert";
+    import { alertConfirm, alertConfirmMulti, alertError, alertWait, alertStore, waitAlert, notifySuccess, notifyError } from "src/ts/alert";
     import { forageStorage, downloadFile } from "src/ts/globalApi.svelte";
     import { RotateCcwIcon, DownloadIcon, TrashIcon } from "@lucide/svelte";
+    import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
+    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
+    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
 
     interface Props {
         onChange?: () => void;
+        onStatsChange?: (count: number, totalSize: number) => void;
     }
-    let { onChange }: Props = $props();
+    let { onChange, onStatsChange }: Props = $props();
 
     interface BackupEntry {
         filename: string;
@@ -37,10 +41,26 @@
         try {
             const result = await forageStorage.listServerBackups();
             backups = result.backups;
+            onStatsChange?.(
+                backups.length,
+                backups.reduce((total, backup) => total + backup.size, 0),
+            );
         } catch (error) {
             notifyError(error instanceof Error ? error.message : 'Failed to load backups');
         }
         loading = false;
+    }
+
+    async function chooseRestore(backup: BackupEntry) {
+        const selected = await alertConfirmMulti(language.serverBackupRestoreMenuTitle, [
+            language.serverBackupLoadBackup,
+            language.serverBackupRestoreAssets,
+        ]);
+        if (selected === 0) {
+            await restoreBackup(backup);
+        } else if (selected === 1) {
+            await restoreAssets(backup);
+        }
     }
 
     async function restoreBackup(backup: BackupEntry) {
@@ -64,6 +84,27 @@
             location.reload();
         } catch (error) {
             alertError(error instanceof Error ? error.message : 'Restore failed');
+        }
+    }
+
+    async function restoreAssets(backup: BackupEntry) {
+        alertWait(language.serverBackupAssetsRestoring);
+        try {
+            const result = await forageStorage.restoreMissingServerBackupAssets(
+                backup.filename,
+                (bytes, totalBytes) => {
+                    if (totalBytes > 0) {
+                        const pct = ((bytes / totalBytes) * 100).toFixed(1);
+                        alertWait(`${language.serverBackupAssetsRestoring} (${pct}%)`);
+                    }
+                },
+            );
+            notifySuccess(language.serverBackupAssetsRestoreSuccess(
+                result.assetsRestored,
+                result.assetsUnavailable,
+            ));
+        } catch (error) {
+            alertError(error instanceof Error ? error.message : 'Asset restore failed');
         }
     }
 
@@ -102,6 +143,10 @@
         try {
             await forageStorage.deleteServerBackup(backup.filename);
             backups = backups.filter(b => b.filename !== backup.filename);
+            onStatsChange?.(
+                backups.length,
+                backups.reduce((total, item) => total + item.size, 0),
+            );
             notifySuccess(language.serverBackupDeleteSuccess);
             onChange?.();
         } catch (error) {
@@ -117,28 +162,30 @@
 {:else if backups.length === 0}
     <p class="text-textcolor2 text-sm">{language.serverBackupEmpty}</p>
 {:else}
-    <div class="border border-darkborderc rounded-md bg-darkbg/30 overflow-hidden">
-        {#each backups as backup, i (backup.filename)}
-            <div class="flex items-center text-textcolor px-3 py-2 {i > 0 ? 'border-t border-darkborderc/50' : ''}">
-                <div class="flex flex-col min-w-0">
+    <SettingLayout variant="list" scrollable>
+        {#each backups as backup (backup.filename)}
+            <SettingLayout variant="item" className="text-textcolor">
+                <div class="flex flex-col min-w-0 flex-1">
                     <span class="text-sm">{new Date(backup.createdAt).toLocaleString()}</span>
                     <span class="text-xs text-textcolor2 tabular-nums">{formatBytes(backup.size)}</span>
                 </div>
-                <div class="grow flex justify-end items-center gap-2">
-                    <button class="text-textcolor2 hover:text-primary cursor-pointer" title={language.serverBackupRestore} aria-label={language.serverBackupRestore}
-                        onclick={() => restoreBackup(backup)}>
-                        <RotateCcwIcon size={18}/>
-                    </button>
-                    <button class="text-textcolor2 hover:text-primary cursor-pointer" title={language.serverBackupDownload} aria-label={language.serverBackupDownload}
+                {#snippet control()}
+                    <IconButtonGroup>
+                    <IconButton title={language.serverBackupRestore} aria-label={language.serverBackupRestore}
+                        onclick={() => chooseRestore(backup)}>
+                        <RotateCcwIcon />
+                    </IconButton>
+                    <IconButton title={language.serverBackupDownload} aria-label={language.serverBackupDownload}
                         onclick={() => downloadBackup(backup)}>
-                        <DownloadIcon size={18}/>
-                    </button>
-                    <button class="text-textcolor2 hover:text-red-400 cursor-pointer" title={language.serverBackupDelete} aria-label={language.serverBackupDelete}
+                        <DownloadIcon />
+                    </IconButton>
+                    <IconButton tone="destructive" title={language.serverBackupDelete} aria-label={language.serverBackupDelete}
                         onclick={() => deleteBackup(backup)}>
-                        <TrashIcon size={18}/>
-                    </button>
-                </div>
-            </div>
+                        <TrashIcon />
+                    </IconButton>
+                    </IconButtonGroup>
+                {/snippet}
+            </SettingLayout>
         {/each}
-    </div>
+    </SettingLayout>
 {/if}

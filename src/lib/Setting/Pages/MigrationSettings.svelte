@@ -10,15 +10,13 @@
         LoadLocalBackup,
         SaveLocalBackupForUpstream,
         SavePartialLocalBackup,
-        ImportFromSaveZip,
-        CleanupMigratedFiles,
     } from "src/ts/drive/backuplocal";
     import { exportAsDataset } from "src/ts/storage/exportAsDataset";
-    import { openSettings, SettingsRoute, SystemTab } from "src/ts/routing";
+    import { openSettings, SettingsRoute, StorageManagementTab } from "src/ts/routing";
     import { InfoIcon } from "@lucide/svelte";
 
     function gotoBackupTab() {
-        openSettings(SettingsRoute.System, SystemTab.Backups);
+        openSettings(SettingsRoute.System, StorageManagementTab.Backups);
     }
 </script>
 
@@ -54,29 +52,8 @@
         {language.migrationLoadUpstreamBackup}
     </Button>
 
-    <!-- Save folder import (collapsed by default) ────────────────────── -->
-    <div class="mt-6">
-        <ShAccordion name={language.migrationSaveFolderAccordion} variant="card">
-            <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.migrationSaveFolderDesc}</p>
-
-            <p class="text-textcolor2 text-sm leading-relaxed mb-2">{language.importSaveZipDesc}</p>
-            <div class="flex flex-col gap-2">
-                <Button onclick={ImportFromSaveZip} className="w-full">
-                    {language.importSaveZip}
-                </Button>
-            </div>
-
-            <p class="text-textcolor2 text-sm leading-relaxed mt-4 mb-2">{language.cleanupMigratedDesc}</p>
-            <div class="flex flex-col gap-2">
-                <Button onclick={CleanupMigratedFiles} className="w-full">
-                    {language.cleanupMigratedFiles}
-                </Button>
-            </div>
-        </ShAccordion>
-    </div>
-
     <!-- Legacy backup options (collapsed by default) ──────────────────── -->
-    <div class="mt-3">
+    <div class="mt-6">
         <ShAccordion name={language.migrationLegacyAccordion} variant="card">
             <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.migrationLegacyDesc}</p>
             <div class="flex flex-col gap-2">

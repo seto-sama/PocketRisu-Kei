@@ -32,15 +32,21 @@ export interface PersistWarning {
 export interface PatchItemResult {
     success: boolean
     etag?: string
+    conflict?: boolean
     persistWarning?: PersistWarning
     /** Set when the server's chat-internal-field guard rejected the patch. */
     chatGuardRejected?: boolean
 }
 
+/** Page-scoped id used for sync self-echo suppression and request tracing. */
+export function getSyncClientId(): string {
+    return NodeStorage.getSessionId()
+}
+
 export class NodeStorage{
     private static readonly BULK_WRITE_CLIENT_BATCH = 20
 
-    // Unique per page load — used for cross-device single-writer lock
+    // Unique per page load — identifies the origin of writes and sync events.
     private static sessionId: string =
         crypto?.randomUUID?.() ?? (Date.now().toString(36) + Math.random().toString(36).slice(2))
 
@@ -50,32 +56,59 @@ export class NodeStorage{
     private static sessionInitialized = false
     private static sessionPending: Promise<void> | null = null
     private refreshPending: Promise<string> | null = null
+    private authPending: Promise<void> | null = null
 
-    async createAuth(){
+    static getSessionId() {
+        return NodeStorage.sessionId
+    }
+
+    async createAuth(): Promise<string> {
         const now = Date.now()
         if (this.cachedJwt && this.cachedJwt.expiresAt - now > 30_000) {
             return this.cachedJwt.token
         }
+
+        // A fresh page has no in-memory JWT. Authenticate first instead of
+        // calling /api/token/refresh with an empty risu-auth header.
+        if (!this.cachedJwt) {
+            await this.checkAuth()
+            if (!this.cachedJwt) {
+                throw new Error('Node auth unavailable')
+            }
+            return this.cachedJwt.token
+        }
+
         const token = await this._refreshToken()
-        return token
+        if (token) return token
+
+        // A rejected refresh means the cached token is no longer usable.
+        // Re-establish authentication through /api/test_auth instead of
+        // returning an empty or stale token to the caller.
+        this.cachedJwt = null
+        this.authChecked = false
+        await this.checkAuth()
+        if (!this.cachedJwt) {
+            throw new Error('Node auth unavailable')
+        }
+        return this.cachedJwt.token
     }
 
     // Called once after JWT auth is confirmed. Issues a session cookie so that
     // <img src="/api/asset/..."> can be served without JS-injected headers.
-    private async initSession() {
+    private async initSession(authToken: string) {
         if (NodeStorage.sessionInitialized) return
         if (NodeStorage.sessionPending) return NodeStorage.sessionPending
-        NodeStorage.sessionPending = this._doInitSession()
+        NodeStorage.sessionPending = this._doInitSession(authToken)
         return NodeStorage.sessionPending
     }
 
-    private async _doInitSession() {
+    private async _doInitSession(authToken: string) {
         try {
             const res = await fetch('/api/session', {
                 method: 'POST',
                 headers: {
-                    'risu-auth': await this.createAuth(),
-                    'x-session-id': NodeStorage.sessionId,
+                    'risu-auth': authToken,
+                    'x-sync-client-id': NodeStorage.sessionId,
                 },
             })
             if (res.ok) {
@@ -106,7 +139,7 @@ export class NodeStorage{
             this.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
             return data.token
         }
-        return this.cachedJwt?.token ?? ''
+        return ''
     }
 
     private async loginWithPassword(password: string) {
@@ -150,7 +183,6 @@ export class NodeStorage{
         try {
             const data = await response.clone().json()
             return [
-                'No auth header',
                 'Invalid Signature',
                 'Token Expired'
             ].includes(data?.error)
@@ -163,16 +195,12 @@ export class NodeStorage{
         await this.checkAuth()
         const headers = new Headers(init.headers)
         headers.set('risu-auth', await this.createAuth())
-        headers.set('x-session-id', NodeStorage.sessionId)
+        headers.set('x-sync-client-id', NodeStorage.sessionId)
 
         const response = await fetch(input, {
             ...init,
             headers
         })
-
-        if (response.status === 423) {
-            window.dispatchEvent(new CustomEvent('risu-session-deactivated'))
-        }
 
         if(retry && await this.shouldRetryAuth(response)){
             this.authChecked = false
@@ -271,8 +299,22 @@ export class NodeStorage{
         }
     }
 
-    private async checkAuth(){
+    private async checkAuth() {
+        if (this.authChecked && this.cachedJwt) {
+            await this.initSession(this.cachedJwt.token)
+            return
+        }
+        if (this.authPending) return this.authPending
 
+        this.authPending = this._doCheckAuth()
+        try {
+            await this.authPending
+        } finally {
+            this.authPending = null
+        }
+    }
+
+    private async _doCheckAuth() {
         if(!this.authChecked){
             const data = await (await fetch('/api/test_auth',{
                 headers: {
@@ -297,13 +339,15 @@ export class NodeStorage{
                 }
 
                 await this.loginWithPassword(input)
-                await this.initSession()
+                if (!this.cachedJwt) throw new Error('Node auth unavailable')
+                await this.initSession(this.cachedJwt.token)
                 return
             }
             else if(data.status === 'incorrect'){
                 const input = await digestPassword(await alertInput(language.inputNodePassword))
                 await this.loginWithPassword(input)
-                await this.initSession()
+                if (!this.cachedJwt) throw new Error('Node auth unavailable')
+                await this.initSession(this.cachedJwt.token)
                 return
             }
             else{
@@ -313,7 +357,8 @@ export class NodeStorage{
                 this.authChecked = true
             }
         }
-        await this.initSession()
+        if (!this.cachedJwt) throw new Error('Node auth unavailable')
+        await this.initSession(this.cachedJwt.token)
     }
 
     listItem = this.keys
@@ -345,7 +390,12 @@ export class NodeStorage{
             const rejectedByChatGuard = data.chatGuardRejected === true
                 || data.code === 'CHAT_GUARD_REJECTED'
                 || (typeof data.error === 'string' && data.error.includes('chat-internal field ops'))
-            return { success: false, etag: currentEtag, chatGuardRejected: rejectedByChatGuard }
+            return {
+                success: false,
+                etag: currentEtag,
+                conflict: !rejectedByChatGuard,
+                chatGuardRejected: rejectedByChatGuard,
+            }
         }
         if (da.status < 200 || da.status >= 300) {
             return { success: false }
@@ -451,7 +501,7 @@ export class NodeStorage{
             xhr.open('POST', '/api/backup/import')
             xhr.setRequestHeader('content-type', 'application/x-risu-backup')
             xhr.setRequestHeader('risu-auth', authHeader)
-            xhr.setRequestHeader('x-session-id', NodeStorage.sessionId)
+            xhr.setRequestHeader('x-sync-client-id', NodeStorage.sessionId)
             // Opt into NDJSON streaming so the server keeps the response socket
             // alive during long post-upload work — prevents reverse-proxy 502s.
             xhr.setRequestHeader('accept', 'application/x-ndjson')
@@ -524,8 +574,9 @@ export class NodeStorage{
             method: 'POST',
             headers: {
                 'content-type': 'application/json',
-                'x-session-id': NodeStorage.sessionId,
+                'x-sync-client-id': NodeStorage.sessionId,
             },
+            body: JSON.stringify({}),
         })
         if (da.status < 200 || da.status >= 300) {
             const body = await da.json().catch(() => ({}))
@@ -573,7 +624,7 @@ export class NodeStorage{
             method: 'POST',
             headers: {
                 'content-type': 'application/json',
-                'x-session-id': NodeStorage.sessionId,
+                'x-sync-client-id': NodeStorage.sessionId,
             },
             body: JSON.stringify({ filename }),
         })
@@ -608,6 +659,70 @@ export class NodeStorage{
             }
         }
         if (!result) throw new Error('Server backup restore: no result received')
+        return result
+    }
+
+    async restoreMissingServerBackupAssets(
+        filename: string,
+        onProgress?: (bytes: number, totalBytes: number) => void
+    ): Promise<{
+        ok: boolean
+        referencedAssets: number
+        missingAssets: number
+        assetsFound: number
+        assetsUnavailable: number
+        assetsRestored: number
+        restoredBytes: number
+        skippedExisting: number
+    }> {
+        const da = await this.authFetch('/api/backup/server/restore-assets', {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                'x-sync-client-id': NodeStorage.sessionId,
+            },
+            body: JSON.stringify({ filename }),
+        })
+        if (da.status === 404) throw new Error('Backup file not found')
+        if (da.status === 409) throw new Error('Another import is already in progress')
+        if (da.status < 200 || da.status >= 300) {
+            const body = await da.json().catch(() => ({}))
+            throw new Error(body.error || `server backup asset restore error: ${da.status}`)
+        }
+
+        const reader = da.body!.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let result: {
+            ok: boolean
+            referencedAssets: number
+            missingAssets: number
+            assetsFound: number
+            assetsUnavailable: number
+            assetsRestored: number
+            restoredBytes: number
+            skippedExisting: number
+        } | null = null
+
+        while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop()!
+            for (const line of lines) {
+                if (!line) continue
+                const msg = JSON.parse(line)
+                if (msg.type === 'progress') {
+                    onProgress?.(msg.bytes, msg.totalBytes)
+                } else if (msg.type === 'done') {
+                    result = msg
+                } else if (msg.type === 'error') {
+                    throw new Error(msg.message)
+                }
+            }
+        }
+        if (!result) throw new Error('Server backup asset restore: no result received')
         return result
     }
 
@@ -691,7 +806,7 @@ export class NodeStorage{
             xhr.open('POST', '/api/migrate/save-folder/upload')
             xhr.setRequestHeader('content-type', 'application/zip')
             xhr.setRequestHeader('risu-auth', authHeader)
-            xhr.setRequestHeader('x-session-id', NodeStorage.sessionId)
+            xhr.setRequestHeader('x-sync-client-id', NodeStorage.sessionId)
 
             xhr.upload.onprogress = (event) => {
                 if (event.lengthComputable) {
