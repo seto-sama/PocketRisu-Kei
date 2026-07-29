@@ -7,6 +7,18 @@ import { CharEmotion } from "../stores.svelte"
 import type { OpenAIChat } from "./index.svelte"
 import { processZip } from "./processzip"
 import random from "lodash/random"
+import { getApiKey } from "../preset/apiKeyPool"
+
+// Vite replaces this expression at build time. With the default (undefined/false),
+// the minifier removes the optional provider branches from production bundles.
+const ENABLE_EXTRA_IMAGE_PROVIDERS = import.meta.env.VITE_EXTRA_IMAGE_PROVIDERS === 'TRUE'
+
+type ImageKeyProvider = 'openai' | 'novelai' | 'openai-compatible' | 'google'
+
+function getImageApiKey(provider: ImageKeyProvider, directKey = ''): string {
+    const db = getDatabase()
+    return (getApiKey(db.imageApiKeyRefs?.[provider])?.key ?? directKey).trim()
+}
 
 export async function stableDiff(currentChar:character,prompt:string){
     let db = getDatabase()
@@ -63,7 +75,7 @@ export async function stableDiff(currentChar:character,prompt:string){
 export async function generateAIImage(genPrompt:string, currentChar:character, neg:string, returnSdData:string):Promise<string|false>{
     const db = getDatabase()
     console.log(db.sdProvider)
-    if(db.sdProvider === 'webui'){
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'webui'){
 
 
         const uri = new URL(db.webUiUrl)
@@ -192,10 +204,11 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
                     "director_reference_descriptions": [],
                     "director_reference_information_extracted": [],
                     "director_reference_strength_values": [],
+                    "director_reference_secondary_strength_values": [],
                 }
             },
             headers:{
-                "Authorization": "Bearer " + db.NAIApiKey
+                "Authorization": "Bearer " + getImageApiKey('novelai', db.NAIApiKey)
             },
             rawResponse: true
         }
@@ -251,7 +264,7 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             }
         }
 
-        if(db.NAIImgConfig.reference_mode === 'character' &&
+        if(db.NAIImgConfig.reference_mode === 'reference' &&
             (db.NAIImgModel.includes('nai-diffusion-4-5-full') || db.NAIImgModel.includes('nai-diffusion-4-5-curated'))
         ) {
             let base64img = ''
@@ -304,10 +317,15 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             }
             
             if(base64img){
+                const referenceType = ['character', 'style', 'character&style'].includes(db.NAIImgConfig.reference_type)
+                    ? db.NAIImgConfig.reference_type
+                    : 'character';
+                const referenceStrength = Math.min(1, Math.max(0, db.NAIImgConfig.reference_strength ?? 1));
+                const referenceFidelity = Math.min(1, Math.max(0, db.NAIImgConfig.reference_fidelity ?? 1));
                 commonReq.body.parameters.director_reference_descriptions = [
                     {
                         caption: {
-                            base_caption: "character" + (db.NAIImgConfig.style_aware ? "&style" : ""),
+                            base_caption: referenceType,
                             char_captions: []
                         },
                         legacy_uc: db.NAIImgConfig.legacy_uc,
@@ -315,7 +333,8 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
                 ]
                 commonReq.body.parameters.director_reference_images = [base64img]
                 commonReq.body.parameters.director_reference_information_extracted = [1]
-                commonReq.body.parameters.director_reference_strength_values = [1]
+                commonReq.body.parameters.director_reference_strength_values = [referenceStrength]
+                commonReq.body.parameters.director_reference_secondary_strength_values = [referenceFidelity]
             }
         }
 
@@ -386,7 +405,7 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             return false   
         }
     }
-    if(db.sdProvider === 'dalle'){
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'dalle'){
         const da = await globalFetch("https://api.openai.com/v1/images/generations", {
             body: {
                 "prompt": genPrompt,
@@ -396,7 +415,7 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
                 "quality": db.dallEQuality || 'standard'
             },
             headers: {
-                "Authorization": "Bearer " + db.openAIKey
+                "Authorization": "Bearer " + getImageApiKey('openai', db.openAIKey)
             }
         })
 
@@ -429,7 +448,7 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
         }
         return returnSdData
     }
-    if(db.sdProvider === 'stability'){
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'stability'){
         const formData = new FormData()
         const model = db.stabilityModel
         formData.append('prompt', genPrompt)
@@ -552,7 +571,67 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
                 }
                 await new Promise(r => setTimeout(r, 1000))
             } // Check history until the generation is complete.
-            const genImgInfo = Object.values(item.outputs).flatMap((output: any) => output.images)[0];
+
+            const historyStatus = item?.status
+            const historyMessages = Array.isArray(historyStatus?.messages) ? historyStatus.messages : []
+            const failureEntry = [...historyMessages].reverse().find((entry: unknown) => {
+                if (!Array.isArray(entry)) return false
+                return entry[0] === 'execution_error' || entry[0] === 'execution_interrupted'
+            })
+            const statusText = typeof historyStatus?.status_str === 'string'
+                ? historyStatus.status_str
+                : 'unknown'
+            const failed = statusText === 'error'
+                || statusText === 'failed'
+                || failureEntry !== undefined
+
+            if (failed) {
+                const failureType = Array.isArray(failureEntry) && typeof failureEntry[0] === 'string'
+                    ? failureEntry[0]
+                    : 'execution_error'
+                const failureData = Array.isArray(failureEntry) && failureEntry[1] && typeof failureEntry[1] === 'object'
+                    ? failureEntry[1] as Record<string, unknown>
+                    : {}
+                const failedNode = failureData.node_id ?? failureData.node ?? 'unknown'
+                const exceptionType = typeof failureData.exception_type === 'string'
+                    ? failureData.exception_type
+                    : ''
+                const exceptionMessage = failureData.exception_message
+                    ?? failureData.error
+                    ?? failureData.message
+                    ?? failureType
+                const errorMessage = [exceptionType, String(exceptionMessage)]
+                    .filter((value, index, values) => value && values.indexOf(value) === index)
+                    .join(': ')
+
+                notifyError('ComfyUI 작업 실패', {
+                    source: 'comfyui',
+                    description: [
+                        `prompt_id=${id}`,
+                        `status=${statusText}`,
+                        `failed_node=${String(failedNode)}`,
+                        `error_message=${errorMessage}`
+                    ].join('\n')
+                })
+                return false
+            }
+
+            const genImgInfo = Object.values(item.outputs ?? {})
+                .flatMap((output: any) => Array.isArray(output?.images) ? output.images : [])
+                .find((image: any) => image && typeof image.filename === 'string')
+
+            if (!genImgInfo) {
+                notifyError('ComfyUI 이미지 출력 없음', {
+                    source: 'comfyui',
+                    description: [
+                        `prompt_id=${id}`,
+                        `status=${statusText}`,
+                        'failed_node=unknown',
+                        'error_message=Completed without a usable image output'
+                    ].join('\n')
+                })
+                return false
+            }
 
             const imgResponse = await fetchNative(createUrl('/view', {
                 filename: genImgInfo.filename,
@@ -581,7 +660,7 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             return false
         }
     }
-    if(db.sdProvider === 'fal'){
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'fal'){
         const model = db.falModel
         const token = db.falToken
 
@@ -641,7 +720,7 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             CharEmotion.set(charemotions)
         }
     }
-    if(db.sdProvider === 'Imagen') {
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'Imagen') {
         const model = db.ImagenModel
         const size = db.ImagenImageSize
         const aspect = db.ImagenAspectRatio
@@ -665,7 +744,7 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             }
         }
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${db.google.accessToken}`
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${getImageApiKey('google', db.google.accessToken)}`
 
         const res = await globalFetch(url, {
             headers: {
@@ -690,7 +769,7 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
         const mimeType = res.data?.predictions?.[0]?.mimeType || 'image/png'
         return `data:${mimeType};base64,${img64}`
     }
-    if(db.sdProvider === 'openai-compat'){
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'openai-compat'){
         const config = db.openaiCompatImage
         if(!config.url){
             notifyError("OpenAI Compatible API URL is not set")
@@ -712,8 +791,9 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             "Content-Type": "application/json"
         }
 
-        if(config.key){
-            headers["Authorization"] = "Bearer " + config.key
+        const apiKey = getImageApiKey('openai-compatible', config.key)
+        if(apiKey){
+            headers["Authorization"] = "Bearer " + apiKey
         }
 
         const da = await globalFetch(config.url, {
@@ -748,7 +828,7 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
         }
         return returnSdData
     }
-    if(db.sdProvider === 'wavespeed'){
+    if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'wavespeed'){
         const config = db.wavespeedImage
         if (!config.key) {
             notifyError('Please enter wavespeed API key')

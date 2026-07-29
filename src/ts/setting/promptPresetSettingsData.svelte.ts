@@ -2,7 +2,7 @@
  * Prompt Preset Settings Data
  *
  * Data-driven definition for the new PromptPreset menu (SettingsMenuIndex 17).
- * Four tabs: basic info / prompt / parameters / advanced settings.
+ * Three tabs: general (basic info + parameters) / prompt / advanced settings.
  *
  * Data layer is shared with BotSettings (db.botPresets, db.mainPrompt etc.).
  * Edits in either menu reflect immediately in the other — the new menu is a
@@ -12,21 +12,12 @@
 import type { SettingItem } from './types';
 import { allBasicParameterItems } from './botSettingsParamsData';
 
-export const promptPresetBasicInfoItems: SettingItem[] = [
-    {
-        id: 'promptPreset.basicInfo',
-        type: 'custom',
-        componentId: 'PromptPresetBasicInfo',
-        keywords: ['preset', 'name', 'icon', 'copy', 'export', 'import'],
-    },
-];
-
 export const promptPresetPromptItems: SettingItem[] = [
     {
         id: 'promptPreset.editor',
         type: 'custom',
         componentId: 'PromptEditorSection',
-        keywords: ['mainPrompt', 'jailbreak', 'globalNote', 'formatingOrder', 'promptPreprocess', 'promptTemplate'],
+        keywords: ['mainPrompt', 'jailbreak', 'globalNote', 'formatingOrder', 'promptTemplate'],
     },
 ];
 
@@ -61,75 +52,12 @@ export const promptPresetParameterItems: SettingItem[] = allBasicParameterItems
     .map(({ condition: _condition, ...item }) => ({
         ...item,
         id: item.id.replace('params.', 'promptPreset.params.'),
+        type: item.id === 'params.maxContext' || item.id === 'params.maxResponse'
+            ? 'slider' as const
+            : item.type,
+        options: item.id === 'params.maxContext'
+            ? { ...item.options, min: 1, max: 256000 }
+            : item.id === 'params.maxResponse'
+                ? { ...item.options, min: 1, max: 25600 }
+                : item.options,
     }));
-
-export const promptPresetAdvancedItems: SettingItem[] = [
-    {
-        id: 'promptPreset.advanced.template',
-        type: 'accordion',
-        labelKey: 'promptTemplate',
-        helpKey: 'botPromptTemplate',
-        options: {
-            styled: true,
-            children: [
-                {
-                    id: 'promptPreset.advanced.template.block',
-                    type: 'custom',
-                    componentId: 'PromptTemplateBlock',
-                },
-            ],
-        },
-        keywords: ['template', 'prompt'],
-    },
-    {
-        id: 'promptPreset.advanced.tools',
-        type: 'accordion',
-        labelKey: 'tools',
-        helpKey: 'tools',
-        options: {
-            styled: true,
-            children: [
-                {
-                    id: 'promptPreset.advanced.tools.block',
-                    type: 'custom',
-                    componentId: 'PromptToolsBlock',
-                },
-            ],
-        },
-        keywords: ['tools', 'search', 'modelTools'],
-    },
-    {
-        id: 'promptPreset.advanced.regex',
-        type: 'accordion',
-        labelKey: 'regexScript',
-        helpKey: 'botRegexScript',
-        options: {
-            styled: true,
-            children: [
-                {
-                    id: 'promptPreset.advanced.regex.block',
-                    type: 'custom',
-                    componentId: 'PromptRegexBlock',
-                },
-            ],
-        },
-        keywords: ['regex', 'presetRegex'],
-    },
-    {
-        id: 'promptPreset.advanced.moduleIntegration',
-        type: 'accordion',
-        labelKey: 'moduleIntergration',
-        helpKey: 'moduleIntergration',
-        options: {
-            styled: true,
-            children: [
-                {
-                    id: 'promptPreset.advanced.moduleIntegration.value',
-                    type: 'textarea',
-                    bindKey: 'moduleIntergration',
-                },
-            ],
-        },
-        keywords: ['module', 'integration'],
-    },
-];

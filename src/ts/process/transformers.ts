@@ -1,4 +1,4 @@
-import type { SummarizationOutput, TextToAudioPipeline, FeatureExtractionPipeline, TextGenerationConfig, TextGenerationOutput, ImageToTextOutput } from '@huggingface/transformers';
+import type { SummarizationOutput, TextToAudioPipeline, FeatureExtractionPipeline, TextGenerationPipeline, TextGenerationOutput, ImageToTextOutput } from '@huggingface/transformers';
 import { unzip } from 'fflate';
 import { loadAsset, saveAsset } from 'src/ts/globalApi.svelte';
 import { selectSingleFile, asBuffer  } from 'src/ts/util';
@@ -6,6 +6,8 @@ import { v4 } from 'uuid';
 let tfCache: Cache = null
 let tfLoaded = false
 let tfMap: { [key: string]: string } = {}
+type TextGenerationConfig = NonNullable<Parameters<TextGenerationPipeline['_call']>[1]>
+
 async function initTransformers() {
     if (tfLoaded) {
         return

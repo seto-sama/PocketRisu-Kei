@@ -33,7 +33,6 @@ export const prebuiltPresets: Record<string, botPreset> = {
     "textgenWebUIBlockingURL": "",
     "forceReplaceUrl": "",
     "forceReplaceUrl2": "",
-    "promptPreprocess": false,
     "bias": [],
     "koboldURL": null,
     "proxyKey": "",
@@ -173,7 +172,6 @@ export const prebuiltPresets: Record<string, botPreset> = {
       "globalNote",
       "authorNote"
     ],
-    "promptPreprocess": false,
     "bias": [],
     "ooba": {
       "max_new_tokens": 180,
@@ -250,7 +248,6 @@ export const prebuiltPresets: Record<string, botPreset> = {
     "textgenWebUIBlockingURL": "",
     "forceReplaceUrl": "",
     "forceReplaceUrl2": "",
-    "promptPreprocess": false,
     "bias": [],
     "koboldURL": "http://localhost:5001/api/v1",
     "proxyKey": "",
