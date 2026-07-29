@@ -38,6 +38,16 @@ const { nodeStorageMap, inlayMetaMap } = vi.hoisted(() => ({
 }))
 
 vi.mock('src/ts/storage/nodeStorage', () => {
+    class MockConflictError extends Error {
+        currentEtag: string
+
+        constructor(message: string, currentEtag: string) {
+            super(message)
+            this.name = 'ConflictError'
+            this.currentEtag = currentEtag
+        }
+    }
+
     class MockNodeStorage {
         authChecked = true
         async setItem(key: string, value: Uint8Array) {
@@ -65,7 +75,11 @@ vi.mock('src/ts/storage/nodeStorage', () => {
         }
         listItem = this.keys
     }
-    return { NodeStorage: MockNodeStorage }
+    return {
+        ConflictError: MockConflictError,
+        getSyncClientId: vi.fn(() => 'test-sync-client-id'),
+        NodeStorage: MockNodeStorage,
+    }
 })
 
 vi.mock('src/ts/process/files/inlayMeta', () => ({

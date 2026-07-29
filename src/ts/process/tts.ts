@@ -1,10 +1,11 @@
 import { notifyError } from "../alert";
-import { getCurrentCharacter, getDatabase, type character } from "../storage/database.svelte";
+import { getCurrentCharacter, getDatabase, type character, type TTSApiKeyProvider } from "../storage/database.svelte";
 import { runTranslator, translateVox } from "../translator/translator";
 import { globalFetch, loadAsset } from "../globalApi.svelte";
 import { language } from "src/lang";
 import { sleep } from "../util";
 import { runVITS } from "./transformers";
+import { getApiKey } from "../preset/apiKeyPool";
 import {
     getTTSPreprocessors,
     getTTSPostprocessors,
@@ -16,6 +17,13 @@ import {
 } from "./ttsHooks";
 
 let sourceNode:AudioBufferSourceNode = null
+
+/** Resolve a saved TTS key at request time so edits in the key pool take effect immediately. */
+export function getTTSApiKey(provider: TTSApiKeyProvider, directKey = ''): string {
+    const db = getDatabase()
+    const ref = db.ttsApiKeyRefs?.[provider]
+    return (getApiKey(ref)?.key ?? directKey).trim()
+}
 
 /**
  * Run every registered TTS postprocessor hook against the audio bytes, honoring
@@ -135,7 +143,7 @@ export async function sayTTS(character:character,text:string) {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        'xi-api-key': db.elevenLabKey || undefined
+                        'xi-api-key': getTTSApiKey('elevenlabs', db.elevenLabKey) || undefined
                     }
                 })
                 if(da.status >= 200 && da.status < 300){
@@ -182,7 +190,7 @@ export async function sayTTS(character:character,text:string) {
             case 'openai':{
                 const cfg = character.oaiTTSConfig?.enabled ? character.oaiTTSConfig : null
                 const baseURL = (cfg?.baseURL?.trim() || 'https://api.openai.com/v1').replace(/\/+$/, '')
-                const apiKey  = (cfg?.apiKey || db.openAIKey || '').trim()
+                const apiKey  = (cfg?.apiKey || getTTSApiKey('openai', db.openAIKey)).trim()
                 const model   = cfg?.model || 'tts-1'
                 const voice   = cfg?.voice || character.oaiVoice || 'alloy'
                 const format  = cfg?.format || 'mp3'
@@ -235,7 +243,7 @@ export async function sayTTS(character:character,text:string) {
                 const response = await globalFetch(url, {
                     method: 'GET',
                     headers: {
-                        "Authorization": "Bearer " + db.NAIApiKey,
+                        "Authorization": "Bearer " + getTTSApiKey('novelai', db.NAIApiKey),
                     },
                     rawResponse: true
                 });
@@ -255,7 +263,7 @@ export async function sayTTS(character:character,text:string) {
                     const response = await fetch(`https://api-inference.huggingface.co/models/${character.hfTTS.model}`, {
                         method: 'POST',
                         headers: {
-                            "Authorization": "Bearer " + db.huggingfaceKey,
+                            "Authorization": "Bearer " + getTTSApiKey('huggingface', db.huggingfaceKey),
                             "Content-Type": "application/json",
                         },
                         body: JSON.stringify({
@@ -398,7 +406,7 @@ export async function sayTTS(character:character,text:string) {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${db.fishSpeechKey}`
+                        'Authorization': `Bearer ${getTTSApiKey('fishspeech', db.fishSpeechKey)}`
                     },
                     body: body,
                     rawResponse: true,
@@ -447,7 +455,7 @@ export async function getElevenTTSVoices() {
 
     const data = await fetch('https://api.elevenlabs.io/v1/voices', {
         headers: {
-            'xi-api-key': db.elevenLabKey || undefined
+            'xi-api-key': getTTSApiKey('elevenlabs', db.elevenLabKey) || undefined
         }
     })
     const res = await data.json()
