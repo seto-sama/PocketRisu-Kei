@@ -32,8 +32,21 @@ interface AbortSignalRef {
     __type: 'ABORT_SIGNAL_REF';
     abortId: string;
     aborted: boolean;
+    metadata?: Record<string, string>;
 }
 
+const rpcAbortSignalMetadata = new WeakMap<AbortSignal, Record<string, string>>();
+
+export function setRpcAbortSignalMetadata(signal: AbortSignal, key: string, value: string): void {
+    rpcAbortSignalMetadata.set(signal, {
+        ...(rpcAbortSignalMetadata.get(signal) ?? {}),
+        [key]: value,
+    });
+}
+
+export function getRpcAbortSignalMetadata(signal: AbortSignal | undefined, key: string): string | undefined {
+    return signal ? rpcAbortSignalMetadata.get(signal)?.[key] : undefined;
+}
 
 const GUEST_BRIDGE_SCRIPT = `
 await (async function() {
@@ -42,6 +55,7 @@ await (async function() {
     const callbackIdByFunction = new WeakMap();
     const proxyRefRegistry = new Map();
     const abortControllers = new Map();
+    const abortSignalMetadata = new WeakMap();
 
     function serializeArg(arg) {
         if (typeof arg === 'function') {
@@ -72,7 +86,12 @@ await (async function() {
                             }, { once: true });
                         }
 
-                        out[key] = { __type: 'ABORT_SIGNAL_REF', abortId, aborted: val.aborted };
+                        out[key] = {
+                            __type: 'ABORT_SIGNAL_REF',
+                            abortId,
+                            aborted: val.aborted,
+                            metadata: abortSignalMetadata.get(val)
+                        };
                     }
                 }
                 if (out) return out;
@@ -204,6 +223,7 @@ await (async function() {
                         abortControllers.set(a.abortId, controller);
                         usedAbortIds.push(a.abortId);
                         if (a.aborted) { controller.abort(); }
+                        if (a.metadata) { abortSignalMetadata.set(controller.signal, a.metadata); }
                         return controller.signal;
                     }
                     return a;
@@ -423,7 +443,8 @@ export class SandboxHost {
                                 const ref: AbortSignalRef = {
                                     __type: 'ABORT_SIGNAL_REF',
                                     abortId,
-                                    aborted: arg.aborted
+                                    aborted: arg.aborted,
+                                    metadata: rpcAbortSignalMetadata.get(arg),
                                 };
                                 if (!arg.aborted) {
                                     arg.addEventListener('abort', () => {
@@ -472,6 +493,9 @@ export class SandboxHost {
 
                         usedAbortIds?.push(abortRef.abortId);
                         out[key] = controller.signal;
+                        if (abortRef.metadata) {
+                            rpcAbortSignalMetadata.set(controller.signal, abortRef.metadata);
+                        }
                     }
                 }
                 if (out) return out;
