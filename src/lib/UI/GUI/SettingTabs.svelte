@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { cn } from 'src/lib/utils';
+
     interface Tab {
         label: string;
         value: number;
@@ -7,13 +9,15 @@
     let {
         tabs,
         selected = $bindable(0),
+        className = '',
     }: {
         tabs: Tab[];
         selected?: number;
+        className?: string;
     } = $props();
 </script>
 
-<div class="setting-tabs flex w-full border-b border-darkborderc mb-4 overflow-x-auto" role="tablist">
+<div class={cn("setting-tabs flex w-full border-b border-darkborderc mb-4 overflow-x-auto", className)} role="tablist">
     {#each tabs as tab}
         <button
             role="tab"

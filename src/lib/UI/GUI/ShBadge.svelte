@@ -29,12 +29,12 @@
     const variantClasses: Record<ShBadgeVariant, string> = {
         default: 'bg-selected/60 text-textcolor border-darkborderc',
         secondary: 'bg-darkbg text-textcolor2 border-darkborderc',
-        destructive: 'bg-draculared/20 text-red-400 border-draculared/40',
+        destructive: 'bg-draculared/20 text-draculared border-draculared/40',
         outline: 'bg-transparent text-textcolor2 border-darkborderc',
         ghost: 'bg-transparent text-textcolor2 border-transparent hover:bg-selected/30',
         link: 'bg-transparent text-borderc border-transparent underline-offset-4 hover:underline',
-        warning: 'bg-yellow-900/30 text-yellow-400 border-yellow-700/40',
-        info: 'bg-blue-900/30 text-blue-400 border-blue-700/40',
+        warning: 'bg-warning/20 text-warning border-warning/40',
+        info: 'bg-accent/20 text-accent border-accent/40',
         success: 'bg-success/20 text-success border-success/40',
     };
 </script>

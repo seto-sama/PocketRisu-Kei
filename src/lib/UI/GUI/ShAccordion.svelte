@@ -101,6 +101,7 @@
         aria-hidden={!open}
         inert={!open}
         class="grid transition-[grid-template-rows] duration-150"
+        class:hidden={!open}
         style:grid-template-rows={open ? '1fr' : '0fr'}
     >
         <div class="overflow-hidden">

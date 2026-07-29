@@ -48,13 +48,8 @@
         outline:     'bg-transparent text-textcolor border border-darkborderc hover:bg-selected/30',
         secondary:   'bg-darkbg text-textcolor border border-darkborderc hover:bg-selected',
         ghost:       'bg-transparent text-textcolor border border-transparent hover:bg-selected/30',
-        destructive: 'bg-draculared/20 text-red-400 border border-draculared/40 hover:bg-draculared/30',
-        // Success: muted pair of destructive — same outline + tinted-bg pattern.
-        // Text uses Tailwind green-400 (brighter than --risu-theme-success #16a34a)
-        // so the green text reads on top of bg-success/20; mirrors destructive's
-        // text-red-400 choice. bg/border use the success token so themes can
-        // shift the hue without re-touching this file.
-        success:     'bg-success/20 text-green-400 border border-success/40 hover:bg-success/30',
+        destructive: 'bg-draculared/20 text-draculared border border-draculared/40 hover:bg-draculared/30',
+        success:     'bg-success/20 text-success border border-success/40 hover:bg-success/30',
         // Primary: filled-solid (shadcn vega original pattern, NOT muted).
         // Pairs with ShSwitch checked-track which is also a full bg-primary fill,
         // so the visual weight matches when both appear in the same form. text
@@ -65,14 +60,14 @@
     };
 
     const sizeClasses: Record<ShButtonSize, string> = {
-        default:   'h-10 px-2.5',
+        default:   'h-10 px-2.5 [&_svg]:size-[18px]',
         xs:        'h-7 px-2 text-xs gap-1 [&_svg]:size-3',
-        sm:        'h-8 px-2.5 text-sm gap-1',
-        lg:        'h-11 px-2.5',
-        icon:      'size-10 p-0',
+        sm:        'h-8 px-2.5 text-sm gap-1 [&_svg]:size-4',
+        lg:        'h-11 px-2.5 [&_svg]:size-5',
+        icon:      'size-10 p-0 [&_svg]:size-[18px]',
         'icon-xs': 'size-7 p-0 [&_svg]:size-3',
-        'icon-sm': 'size-8 p-0',
-        'icon-lg': 'size-11 p-0',
+        'icon-sm': 'size-8 p-0 [&_svg]:size-4',
+        'icon-lg': 'size-11 p-0 [&_svg]:size-5',
     };
 
     const classes = $derived(cn(base, variantClasses[variant], sizeClasses[size], className));

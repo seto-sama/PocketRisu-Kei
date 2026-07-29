@@ -2,6 +2,7 @@
     import { MenuIcon } from "@lucide/svelte";
     import { popupStore } from "src/ts/stores.svelte";
     import { sleep } from "src/ts/util";
+    import IconButton from "./GUI/IconButton.svelte";
 
     const {
         children
@@ -12,7 +13,7 @@
     let buttonId = Math.random()
 </script>
 
-<button onclick={async (e:MouseEvent) => {
+<IconButton size="lg" onclick={async (e:MouseEvent) => {
     await sleep(0)
     if(popupStore.openId === buttonId){
         popupStore.children = null
@@ -23,6 +24,6 @@
     popupStore.mouseY = e.clientY
     popupStore.children = children
     popupStore.openId = buttonId
-}} class="hover:text-primary transition-colors button-icon-menu">
-    <MenuIcon size={20} />
-</button>
+}} className="button-icon-menu">
+    <MenuIcon />
+</IconButton>

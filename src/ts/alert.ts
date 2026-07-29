@@ -2,7 +2,7 @@ import { get, writable } from "svelte/store"
 import { toast } from "svelte-sonner"
 import { sleep } from "./util"
 import { language } from "../lang"
-import { getDatabase, nodeOnlyVer, type MessageGenerationInfo } from "./storage/database.svelte"
+import { nodeOnlyVer, type MessageGenerationInfo } from "./storage/database.svelte"
 import { alertStore as alertStoreImported, togglePresetsOpenStore } from "./stores.svelte"
 import { addLog } from "./log"
 import { nativeConsoleError } from "./log-capture"
@@ -29,11 +29,13 @@ export interface alertData{
     stackTrace?: string;
     defaultValue?: string
     actions?: AlertAction[]
+    hideConfirm?: boolean
 }
 
 export interface NotifyOptions {
     description?: string
     source?: string
+    log?: boolean
 }
 
 type AlertGenerationInfoStoreData = {
@@ -79,8 +81,6 @@ export function alertError(msg: unknown) {
     // but log-capture does not also persist it — alertError below calls addLog
     // explicitly with source='blocking-alert', avoiding a duplicate entry.
     nativeConsoleError(`[NodeOnly v${nodeOnlyVer}]`, msg)
-    const db = getDatabase()
-
     let { message: errorMessage, stack: stackTrace } = normalizeErrorMessage(msg)
     errorMessage = errorMessage.trim()
     if (!errorMessage) {
@@ -99,7 +99,7 @@ export function alertError(msg: unknown) {
 
     //check if it's a known error
     if(errorMessage.includes('Failed to fetch') || errorMessage.includes("NetworkError when attempting to fetch resource.")){
-        submsg =    db.usePlainFetch ? language.errors.networkFetchPlain : language.errors.networkFetch
+        submsg = language.errors.networkFetch
     }
 
     // Persist error to logs.db alongside the blocking modal. UX remains blocking;
@@ -183,10 +183,11 @@ export async function alertErrorWait(msg:string){
     await waitAlert()
 }
 
-export function alertMd(msg:string){
+export function alertMd(msg:string, options: { closeOnly?: boolean } = {}){
     alertStoreImported.set({
         'type': 'markdown',
-        'msg': msg
+        'msg': msg,
+        hideConfirm: options.closeOnly,
     })
 }
 
@@ -224,7 +225,9 @@ export function notifyError(msg: unknown, opts?: NotifyOptions) {
     clearTransitionalAlert()
     const { message, stack } = normalizeErrorMessage(msg)
     const description = opts?.description ?? stack
-    addLog({ level: 'error', message, description, source: opts?.source })
+    if (opts?.log !== false) {
+        addLog({ level: 'error', message, description, source: opts?.source })
+    }
     toast.error(message, description ? { description } : undefined)
 }
 
@@ -232,14 +235,18 @@ export function notifyWarning(msg: unknown, opts?: NotifyOptions) {
     clearTransitionalAlert()
     const { message, stack } = normalizeErrorMessage(msg)
     const description = opts?.description ?? stack
-    addLog({ level: 'warning', message, description, source: opts?.source })
+    if (opts?.log !== false) {
+        addLog({ level: 'warning', message, description, source: opts?.source })
+    }
     toast.warning(message, description ? { description } : undefined)
 }
 
 export function notifyInfo(msg: unknown, opts?: NotifyOptions) {
     clearTransitionalAlert()
     const { message } = normalizeErrorMessage(msg)
-    addLog({ level: 'info', message, description: opts?.description, source: opts?.source })
+    if (opts?.log !== false) {
+        addLog({ level: 'info', message, description: opts?.description, source: opts?.source })
+    }
     toast.info(message, opts?.description ? { description: opts.description } : undefined)
 }
 
@@ -277,11 +284,12 @@ export async function alertSelectChar(){
     return get(alertStoreImported).msg
 }
 
-export async function alertConfirm(msg:string){
+export async function alertConfirm(msg:string, description?:string){
 
     alertStoreImported.set({
         'type': 'ask',
-        'msg': msg
+        'msg': msg,
+        'submsg': description,
     })
 
     await waitAlert()

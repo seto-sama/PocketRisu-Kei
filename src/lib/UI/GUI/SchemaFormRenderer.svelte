@@ -19,24 +19,38 @@
         visibility: UiVisibility;
         // Passed through to auth fields so they can render the saved-key picker.
         preset?: ModelPreset;
+        // Preset-editor-owned controls that should share a registry UI group
+        // without becoming provider body mappings.
+        extraSchema?: RegistryFieldSchema[];
+        extraUiGroups?: RegistryUiGroup[];
+        extraUiFields?: RegistryUiField[];
+        extraValues?: object;
+        showGroupLabels?: boolean;
     }
 
-    let { schema, uiSchema, userValues = $bindable(), visibility, preset }: Props = $props();
+    let {
+        schema,
+        uiSchema,
+        userValues = $bindable(),
+        visibility,
+        preset,
+        extraSchema = [],
+        extraUiGroups = [],
+        extraUiFields = [],
+        extraValues,
+        showGroupLabels = true,
+    }: Props = $props();
 
-    // Seed defaults into userValues for fields that the snapshot defines a
-    // `default` for. Idempotent — only writes when the key is still undefined.
-    $effect(() => {
-        for (const field of schema) {
-            // Tolerate null/undefined elements from a malformed/persisted snapshot
-            // so a single bad entry can't crash rendering (reading `.key` of null).
-            if (!field) continue;
-            if (userValues[field.key] === undefined && field.default !== undefined) {
-                userValues[field.key] = field.default;
-            }
-        }
-    });
+    // Profile defaults are seeded when a preset is created or updated. Do not
+    // re-seed them while rendering: a disableable slider writes `undefined`
+    // when dragged to its leftmost "off" stop, and render-time seeding would
+    // immediately turn it back on.
 
-    type RenderEntry = { schemaField: RegistryFieldSchema; uiField: RegistryUiField };
+    type RenderEntry = {
+        schemaField: RegistryFieldSchema;
+        uiField: RegistryUiField;
+        values: Record<string, unknown>;
+    };
 
     // Default widget for a schema field when its uiField is missing (degenerate
     // snapshot fallback below). Auth fields ignore this — SchemaFieldRenderer
@@ -57,15 +71,23 @@
 
     function visibleEntries(): RenderEntry[] {
         const out: RenderEntry[] = [];
-        for (const uiField of uiSchema.fields) {
+        const allSchema = [...schema, ...extraSchema];
+        for (const uiField of [...uiSchema.fields, ...extraUiFields]) {
             // Tolerate null/undefined elements from a malformed/persisted snapshot
             // so a single bad entry can't crash rendering (reading `.visibility` of null).
             if (!uiField) continue;
             if (uiField.visibility !== visibility) continue;
             if (!evalShowIf(uiField)) continue;
-            const schemaField = schema.find((f) => f?.key === uiField.key);
+            const schemaField = allSchema.find((f) => f?.key === uiField.key);
             if (!schemaField) continue;
-            out.push({ schemaField, uiField });
+            const isExtra = extraSchema.some((field) => field?.key === uiField.key);
+            out.push({
+                schemaField,
+                uiField,
+                values: isExtra && extraValues
+                    ? extraValues as Record<string, unknown>
+                    : userValues,
+            });
         }
         // Degenerate-snapshot fallback: schema fields exist but uiSchema carries no
         // usable field, which would render a blank form and hide the API key (see
@@ -75,7 +97,11 @@
         if (visibility === 'basic' && !uiSchema.fields.some(Boolean)) {
             for (const f of schema) {
                 if (!f) continue;
-                out.push({ schemaField: f, uiField: { key: f.key, widget: fieldToWidget(f), visibility: 'basic' } });
+                out.push({
+                    schemaField: f,
+                    uiField: { key: f.key, widget: fieldToWidget(f), visibility: 'basic' },
+                    values: userValues,
+                });
             }
         }
         return out;
@@ -84,7 +110,8 @@
     function evalShowIf(uiField: RegistryUiField): boolean {
         const cond = uiField.showIf;
         if (!cond) return true;
-        const v = userValues[cond.key];
+        const schemaDefault = schema.find((field) => field?.key === cond.key)?.default;
+        const v = userValues[cond.key] ?? schemaDefault;
         if (cond.equals !== undefined) return v === cond.equals;
         if (cond.notEquals !== undefined) return v !== cond.notEquals;
         return true;
@@ -95,8 +122,14 @@
     const groupedRendered = $derived.by(() => {
         // Tolerate null/undefined group elements from a malformed/persisted
         // snapshot so a bad entry can't crash the sort (reading `.order` of null).
-        const groupOrder = uiSchema.groups
-            .filter(Boolean)
+        // Extra editor-owned controls can join an existing registry group. The
+        // last definition wins so the editor can also supply a missing group
+        // without rendering a duplicate bucket.
+        const groupsById = new Map<string, RegistryUiGroup>();
+        for (const group of [...uiSchema.groups, ...extraUiGroups]) {
+            if (group) groupsById.set(group.id, group);
+        }
+        const groupOrder = [...groupsById.values()]
             .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
 
         // entries grouped by group id (or '' for un-grouped)
@@ -124,6 +157,26 @@
         }
         return out;
     });
+
+    function segmentEntries(items: RenderEntry[]): Array<{ row: boolean; items: RenderEntry[] }> {
+        const segments: Array<{ row: boolean; items: RenderEntry[] }> = [];
+        for (const item of items) {
+            // Slider rows and ShSwitch rows already own their py-3 spacing and
+            // top divider. Treat both as contiguous setting rows; adding the
+            // form's ordinary gap-3 between them puts extra space above each
+            // divider and makes the text look vertically top-heavy.
+            const row = item.uiField.layout === 'row'
+                || item.uiField.widget === 'toggle'
+                || item.schemaField.mapsTo?.target === 'auth';
+            const last = segments.at(-1);
+            if (last?.row === row) {
+                last.items.push(item);
+            } else {
+                segments.push({ row, items: [item] });
+            }
+        }
+        return segments;
+    }
 </script>
 
 {#if groupedRendered.length === 0}
@@ -132,18 +185,24 @@
              heal couldn't repair. Don't dead-end on a blank/"no items" form —
              point the user at re-download / replace. -->
         <p class="text-textcolor2 text-sm py-4">{language.modelPresetSnapshotEmpty}</p>
-    {:else}
+    {:else if visibility !== 'info'}
         <p class="text-textcolor2 text-sm py-4">표시할 항목이 없습니다.</p>
     {/if}
 {:else}
     <div class="flex flex-col gap-6">
         {#each groupedRendered as group}
-            <div class="flex flex-col gap-3">
-                {#if group.label}
-                    <h3 class="text-sm font-semibold text-textcolor2 uppercase tracking-wide">{group.label}</h3>
+            <div class="flex flex-col">
+                {#if group.label && showGroupLabels}
+                    <h3 class="text-base font-bold mb-1 text-textcolor">{group.label}</h3>
                 {/if}
-                {#each group.items as { schemaField, uiField } (uiField.key)}
-                    <SchemaFieldRenderer {schemaField} {uiField} bind:userValues {preset} />
+                {#each segmentEntries(group.items) as segment}
+                    <div class={segment.row
+                        ? "[&>*:first-child]:border-t-0"
+                        : "flex flex-col gap-3 [&>*:first-child]:border-t-0"}>
+                        {#each segment.items as { schemaField, uiField, values } (uiField.key)}
+                            <SchemaFieldRenderer {schemaField} {uiField} userValues={values} {preset} />
+                        {/each}
+                    </div>
                 {/each}
             </div>
         {/each}

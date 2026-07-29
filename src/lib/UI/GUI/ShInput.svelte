@@ -31,7 +31,7 @@
         'flex h-10 min-h-10 w-full min-w-0 rounded-md border border-darkborderc bg-transparent px-2.5 py-1 text-base ' +
         'text-textcolor placeholder:text-textcolor2 ' +
         'transition-colors outline-none ' +
-        'focus-visible:border-borderc focus-visible:ring-2 focus-visible:ring-borderc/50 ' +
+        'focus-visible:border-borderc ' +
         'disabled:opacity-50 disabled:cursor-not-allowed ' +
         'file:inline-flex file:h-8 file:border-0 file:bg-transparent file:text-sm file:font-medium';
 </script>

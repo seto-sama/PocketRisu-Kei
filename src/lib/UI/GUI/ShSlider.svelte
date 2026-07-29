@@ -12,6 +12,8 @@
         min?: number;
         max?: number;
         step?: number;
+        /** Decimal places used by the editable number input. */
+        fixed?: number;
         disabled?: boolean;
         showInput?: boolean;
         inputWidth?: string;
@@ -28,6 +30,7 @@
         min = 0,
         max = 100,
         step = 1,
+        fixed,
         disabled = false,
         showInput = true,
         inputWidth = 'w-20',
@@ -100,8 +103,13 @@
     let inputEl = $state<HTMLInputElement | null>(null);
     let editing = $state(false);
 
+    function displayValue(v: number | undefined): string {
+        if (v == null) return '';
+        return fixed === undefined ? String(v) : v.toFixed(fixed);
+    }
+
     $effect(() => {
-        const display = value == null ? '' : String(value);
+        const display = displayValue(value);
         if (inputEl && !editing && inputEl.value !== display) {
             inputEl.value = display;
         }
@@ -113,13 +121,14 @@
         if (el.value === '') return;     // allow a transient empty field while editing
         const n = el.valueAsNumber;
         if (Number.isNaN(n)) return;     // partial input such as "1." or "-"
-        value = clamp(n);                // drives the slider; field keeps the typed text
+        value = n;                       // the slider thumb remains visually clamped
     }
 
-    // On blur/enter, normalize the field to the clamped model value so it can
-    // never be left showing an out-of-range or partial number.
+    // On blur/enter, normalize the field to the stored model value so it cannot
+    // be left showing a partial number. Typed values may exceed the slider's
+    // visual range; only the thumb position is clamped.
     function normalizeField(el: HTMLInputElement) {
-        el.value = value == null ? '' : String(value);
+        el.value = displayValue(value);
     }
 </script>
 
@@ -191,8 +200,6 @@
             onfocus={() => (editing = true)}
             onblur={(e) => { editing = false; normalizeField(e.currentTarget); }}
             onchange={(e) => normalizeField(e.currentTarget)}
-            {min}
-            {max}
             {step}
             {disabled}
             placeholder={inputPlaceholder}

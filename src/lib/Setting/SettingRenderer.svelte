@@ -12,6 +12,8 @@
         modelInfo?: LLMModel;
         /** Optional subModelInfo, derived automatically if not provided */
         subModelInfo?: LLMModel;
+        /** Optional object used as the root for bindKey/bindPath. */
+        target?: object;
         /** 'row' renders row-capable wrappers (select/text/slider) with the label
          * + inline help on the left and the control right-aligned. 'block' renders
          * the ModelPreset-editor field grammar (label row + full-width control).
@@ -19,7 +21,7 @@
         layout?: 'stacked' | 'row' | 'block';
     }
 
-    let { items, modelInfo, subModelInfo, layout = 'stacked' }: Props = $props();
+    let { items, modelInfo, subModelInfo, target, layout = 'stacked' }: Props = $props();
 
     // Derive modelInfo if not provided
     let effectiveModelInfo = $derived(modelInfo ?? getModelInfo(DBState.db.aiModel));
@@ -28,6 +30,7 @@
     // Build context for condition checks
     let ctx: SettingContext = $derived({
         db: DBState.db,
+        target,
         modelInfo: effectiveModelInfo,
         subModelInfo: effectiveSubModelInfo,
         layout,
