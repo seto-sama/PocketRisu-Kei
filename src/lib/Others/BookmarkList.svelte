@@ -143,7 +143,7 @@
                     {/if}   
                 </button>
                 <button class="text-textcolor2 hover:text-primary" onclick={close}>
-                    <XIcon size={24}/>
+                    <XIcon size={20}/>
                 </button>
             </div>
         </div>

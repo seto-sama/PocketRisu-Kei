@@ -4,16 +4,25 @@
   interface Props {
     onClick?: any;
     additionalStyle?: string | Promise<string>;
+    interactive?: boolean;
     children?: import('svelte').Snippet;
   }
 
-  let { onClick = () => {}, additionalStyle = "", children }: Props = $props();
+  let { onClick = () => {}, additionalStyle = "", interactive = true, children }: Props = $props();
 </script>
 
 {#await additionalStyle}
-  <button onclick={onClick} class="ico">{@render children?.()}</button>
+  {#if interactive}
+    <button type="button" onclick={onClick} class="ico">{@render children?.()}</button>
+  {:else}
+    <div class="ico noninteractive">{@render children?.()}</div>
+  {/if}
 {:then as}
-  <button onclick={onClick} class="ico" style={as}>{@render children?.()}</button>
+  {#if interactive}
+    <button type="button" onclick={onClick} class="ico" style={as}>{@render children?.()}</button>
+  {:else}
+    <div class="ico noninteractive" style={as}>{@render children?.()}</div>
+  {/if}
 {/await}
 
 <style>
@@ -30,8 +39,8 @@
       var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
     box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000),
       var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
-    --tw-bg-opacity: 1;
-    background-color: rgba(107, 114, 128, var(--tw-bg-opacity));
+    background-color: var(--risu-theme-darkbutton);
+    color: var(--risu-theme-textcolor);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -40,7 +49,11 @@
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .ico:hover {
+  .ico:not(.noninteractive):hover {
     background-color: var(--risu-theme-primary);
+  }
+
+  .ico.noninteractive {
+    cursor: default;
   }
 </style>

@@ -1,7 +1,5 @@
 <script lang="ts">
-    import { onDestroy, onMount } from "svelte";
     import { v4 } from "uuid";
-    import Sortable from 'sortablejs/modular/sortable.core.esm.js';
     import { DownloadIcon, PencilIcon, HardDriveUploadIcon, MenuIcon, TrashIcon, SplitIcon, FolderPlusIcon, BookmarkCheckIcon, PackageIcon, CopyIcon } from "@lucide/svelte";
 
     import type { Chat, ChatFolder, character } from "src/ts/storage/database.svelte";
@@ -10,13 +8,14 @@
     import { DBState, ReloadGUIPointer } from 'src/ts/stores.svelte';
     import { selectedCharID, chatDeselected } from "src/ts/stores.svelte";
 
-    import CheckInput from "../UI/GUI/CheckInput.svelte";
     import ShButton from "../UI/GUI/ShButton.svelte";
+    import ShSortableList from "../UI/GUI/ShSortableList.svelte";
     import TextInput from "../UI/GUI/TextInput.svelte";
+    import IconButton from "../UI/GUI/IconButton.svelte";
+    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
 
     import { exportChat, importChat, exportAllChats } from "src/ts/characters";
     import { alertConfirm, alertError, alertSelect, alertStore, notifySuccess, notifyError } from "src/ts/alert";
-    import { findCharacterbyId, sleep, sortableOptions } from "src/ts/util";
 
     import { bookmarkListOpen, openModuleListStore } from "src/ts/stores.svelte";
     import { language } from "src/lang";
@@ -44,115 +43,38 @@
     const isOrphanFolder = (folderId: string | null | undefined): boolean =>
         folderId != null && !validFolderIds.has(folderId)
 
-    let chatsStb: Sortable[] = []
-    let folderStb: Sortable = null
-
-    let folderEles: HTMLDivElement = $state()
     let listEle: HTMLDivElement = $state()
-    let sorted = $state(0)
-    let opened = 0
 
-    const createStb = () => {
-        for (let chat of listEle.querySelectorAll('.risu-chat')) {
-            chatsStb.push(new Sortable(chat, {
-                group: 'chats',
-                onEnd: async (event) => {
-                    const currentChatPage = chara.chatPage
-                    const newChats: Chat[] = []
+    function syncChatOrderFromDom() {
+        const activeChat = chara.chats[chara.chatPage]
+        const chatsById = new Map(chara.chats.map(chat => [chat.id, chat]))
+        const nextChats: Chat[] = []
 
-                    // const chats: HTMLElement = event.to
-                    // chats.querySelectorAll()
-                    
-                    listEle.querySelectorAll('[data-risu-chat-folder-idx]').forEach(folder => {
-                        const folderIdx = parseInt(folder.getAttribute('data-risu-chat-folder-idx'))
-                        folder.querySelectorAll('[data-risu-chat-idx]').forEach(chatInFolder => {
-                            const chatIdx = parseInt(chatInFolder.getAttribute('data-risu-chat-idx'))
-                            const newChat = chara.chats[chatIdx]
-                            newChat.folderId = chara.chatFolders[folderIdx].id
-                            newChats.push(newChat)
-                        })
-                    })
-
-                    listEle.querySelectorAll('[data-risu-chat-idx]').forEach(chatEle => {
-                        const idx = parseInt(chatEle.getAttribute('data-risu-chat-idx'))
-                        const newChat = chara.chats[idx]
-                        if (newChats.includes(newChat) == false) {
-                            if (newChat.folderId != null)
-                                newChat.folderId = null
-                            newChats.push(newChat)
-                        }
-                    })
-
-                    changeChatTo(newChats.indexOf(chara.chats[currentChatPage]))
-                    chara.chats = newChats
-
-                    try {
-                        this.destroy()
-                    } catch (e) {}
-                    sorted += 1
-                    await sleep(1)
-                    createStb()
-                },
-                ...sortableOptions
-            }))
-        }
-        folderStb = Sortable.create(folderEles, {
-            group: 'folders',
-            onEnd: async (event) => {
-                const newFolders: ChatFolder[] = []
-                const newChats: Chat[] = []
-                const folders: HTMLElement[] = Array.from<HTMLElement>(event.to.children)
-
-                const currentChatPage = chara.chatPage
-
-                folders.forEach(folder => {
-                    const folderIdx = parseInt(folder.getAttribute('data-risu-chat-folder-idx'))
-                    newFolders.push(chara.chatFolders[folderIdx])
-
-                    folder.querySelectorAll('[data-risu-chat-idx]').forEach(chatEle => {
-                        const idx = parseInt(chatEle.getAttribute('data-risu-chat-idx'))
-                        newChats.push(chara.chats[idx])
-                    })
-                })
-
-                listEle.querySelectorAll('[data-risu-chat-idx]').forEach(chatEle => {
-                    const idx = parseInt(chatEle.getAttribute('data-risu-chat-idx'))
-                    if (newChats.includes(chara.chats[idx]) == false) {
-                        newChats.push(chara.chats[idx])
-                    }
-                })
-                
-                chara.chatFolders = newFolders
-                changeChatTo(newChats.indexOf(chara.chats[currentChatPage]))
-                chara.chats = newChats
-                try {
-                    folderStb.destroy()
-                } catch (e) {}
-                sorted += 1
-                await sleep(1)
-                createStb()
-            },
-            ...sortableOptions
+        listEle.querySelectorAll<HTMLElement>('[data-sortable-chat-id]').forEach(chatElement => {
+            const chat = chatsById.get(chatElement.dataset.sortableChatId ?? '')
+            if (!chat || nextChats.includes(chat)) return
+            chat.folderId = chatElement.closest<HTMLElement>('[data-risu-chat-folder-id]')?.dataset.risuChatFolderId ?? null
+            nextChats.push(chat)
         })
+
+        for (const chat of chara.chats) {
+            if (!nextChats.includes(chat)) nextChats.push(chat)
+        }
+
+        chara.chats = nextChats
+        changeChatTo(Math.max(0, nextChats.indexOf(activeChat)))
     }
 
-    onMount(createStb)
-
-    onDestroy(() => {
-        if (folderStb) {
-            try {
-                folderStb.destroy()
-            } catch (error) {}
-        }
-        chatsStb.map(stb => {
-            try {
-                stb.destroy()
-            } catch (error) {}
-        })
-    })
+    function reorderFolders(orderedIds: string[]) {
+        const foldersById = new Map(chara.chatFolders.map(folder => [folder.id, folder]))
+        chara.chatFolders = orderedIds
+            .map(id => foldersById.get(id))
+            .filter((folder): folder is ChatFolder => !!folder)
+        syncChatOrderFromDom()
+    }
 </script>
 <div class="flex flex-col w-full">
-    <ShButton className="relative bottom-2 w-full" onclick={() => {
+    <ShButton className="relative bottom-2 h-10 min-h-10 w-full" onclick={() => {
         const len = chara.chats.length
         let chats = chara.chats
         const newChat = {
@@ -166,13 +88,17 @@
         $ReloadGUIPointer += 1
     }}>{language.newChat}</ShButton>
 
-    {#key sorted}
-    <div class="flex flex-col mt-2 overflow-y-auto max-h-80" bind:this={listEle}>
+    <div class="flex flex-col mt-2 overflow-y-auto max-h-100" bind:this={listEle}>
         <!-- folder div -->
-        <div class="flex flex-col" bind:this={folderEles}>
+        <ShSortableList
+            className="flex flex-col"
+            handle=".chat-folder-header"
+            dragPreviewText={(folderId) => chara.chatFolders.find(folder => folder.id === folderId)?.name}
+            onReorder={reorderFolders}
+        >
             <!-- chat folder -->
-            {#each chara.chatFolders as folder, i}
-            <div data-risu-chat-folder-idx={i}
+            {#each chara.chatFolders as folder, i (folder.id)}
+            <div data-sortable-key={folder.id} data-risu-chat-folder-id={folder.id}
                 class="flex flex-col mb-2 border-solid border-1 border-darkborderc cursor-pointer rounded-md">
                 <!-- folder header -->
                 <button 
@@ -182,7 +108,7 @@
                             $ReloadGUIPointer += 1
                         }
                     }}
-                    class="flex items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
+                    class="chat-folder-header flex min-w-0 items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
                     class:bg-red-900={folder.color === 'red'}
                     class:bg-yellow-900={folder.color === 'yellow'}
                     class:bg-green-900={folder.color === 'green'}
@@ -192,36 +118,35 @@
                     class:bg-pink-900={folder.color === 'pink'}
                 >
                     {#if editMode}
-                        <TextInput bind:value={chara.chatFolders[i].name} className="grow min-w-0" padding={false}/>
+                        <div class="min-w-0 grow">
+                            <TextInput bind:value={chara.chatFolders[i].name} className="h-6 min-w-0 px-2" padding={false} fullwidth/>
+                        </div>
                     {:else}
-                        <span>{folder.name}</span>
+                        <span class="truncate grow text-left">{folder.name}</span>
                     {/if}
-                    <div class="grow flex justify-end">
+                    <div class="no-sort ml-3 flex shrink-0 items-center gap-2">
                         <div role="button" tabindex="0" onkeydown={(e) => {
                             if(e.key === 'Enter'){
                                 e.currentTarget.click()
                             }
-                        }} class="text-textcolor2 hover:text-primary mr-1 cursor-pointer" onclick={async (e) => {
+                        }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
                             e.stopPropagation()
-                            const sel = parseInt(await alertSelect([language.changeFolderColor, language.cancel]))
+                            const remoteVisibilityLabel = folder.localOnly
+                                ? language.showFolderOnRemoteAccess
+                                : language.hideFolderOnRemoteAccess
+                            const sel = parseInt(await alertSelect([language.changeFolderColor, remoteVisibilityLabel, language.cancel]))
                             switch (sel) {
                                 case 0:
                                     const colors = ["red","green","blue","yellow","indigo","purple","pink","default"]
                                     const sel = parseInt(await alertSelect(colors))
                                     folder.color = colors[sel]
                                     break
+                                case 1:
+                                    folder.localOnly = !folder.localOnly
+                                    break
                             }
                         }}>
                             <MenuIcon size={18}/>
-                        </div>
-                        <div role="button" tabindex="0" onkeydown={(e) => {
-                            if(e.key === 'Enter'){
-                                e.currentTarget.click()
-                            }
-                        }} class="text-textcolor2 hover:text-primary mr-1 cursor-pointer" onclick={() => {
-                            editMode = !editMode
-                        }}>
-                            <PencilIcon size={18}/>
                         </div>
                         <div role="button" tabindex="0" onkeydown={(e) => {
                             if(e.key === 'Enter'){
@@ -247,29 +172,38 @@
                     </div>
                 </button>
                 <!-- chats in folder -->
-                <div class="risu-chat flex flex-col w-full text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md {folder.folded ? 'hidden' : ''}">
+                <ShSortableList
+                    className="risu-chat flex flex-col w-full text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md {folder.folded ? 'hidden' : ''}"
+                    draggable="[data-sortable-chat-id]"
+                    dataAttribute="data-sortable-chat-id"
+                    dragPreviewText={(chatId) => chara.chats.find(chat => chat.id === chatId)?.name}
+                    options={{ group: 'chats' }}
+                    onReorder={syncChatOrderFromDom}
+                >
                     {#if chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id).length == 0}
                     <span class="no-sort flex justify-center text-textcolor2">Empty</span>
                     <div></div>
                     {:else}
-                    {#each chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id) as chat}
+                    {#each chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id) as chat (chat.id)}
                     {@const chatIdx = chara.chats.indexOf(chat)}
-                    <button data-risu-chat-idx={chatIdx} onclick={() => {
+                    <button data-risu-chat-idx={chatIdx} data-sortable-chat-id={chat.id} data-sortable-no-scale onclick={() => {
                         if(!editMode){
                             changeChatTo(chatIdx)
                         }
-                    }} class="risu-chats flex items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"class:bg-selected={chatIdx === chara.chatPage && !$chatDeselected}>
+                    }} class="risu-chats flex min-w-0 items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"class:bg-selected={chatIdx === chara.chatPage && !$chatDeselected}>
                         {#if editMode}
-                            <TextInput bind:value={chat.name} className="grow min-w-0" padding={false}/>
+                            <div class="min-w-0 grow">
+                                <TextInput bind:value={chat.name} className="h-6 min-w-0 px-2" padding={false} fullwidth/>
+                            </div>
                         {:else}
-                            <span>{chat.name}</span>
+                            <span class="truncate grow text-left">{chat.name}</span>
                         {/if}
-                        <div class="grow flex justify-end">
+                        <div class="no-sort ml-3 flex shrink-0 items-center gap-2">
                             <div role="button" tabindex="0" onkeydown={(e) => {
                                 if(e.key === 'Enter'){
                                     e.currentTarget.click()
                                 }
-                            }} class="text-textcolor2 hover:text-primary mr-1 cursor-pointer" onclick={async (e) => {
+                            }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
                                 e.stopPropagation()
                                 const confirmed = await alertConfirm(`${language.copyChatConfirm}${chat.name}`)
                                 if(!confirmed) return
@@ -296,16 +230,7 @@
                                 if(e.key === 'Enter'){
                                     e.currentTarget.click()
                                 }
-                            }} class="text-textcolor2 hover:text-primary mr-1 cursor-pointer" onclick={() => {
-                                editMode = !editMode
-                            }}>
-                                <PencilIcon size={18}/>
-                            </div>
-                            <div role="button" tabindex="0" onkeydown={(e) => {
-                                if(e.key === 'Enter'){
-                                    e.currentTarget.click()
-                                }
-                            }} class="text-textcolor2 hover:text-primary mr-1 cursor-pointer" onclick={async (e) => {
+                            }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
                                 e.stopPropagation()
                                 exportChat(chara.chats.indexOf(chat))
                             }}>
@@ -337,32 +262,41 @@
                     </button>
                     {/each}
                     {/if}
-                </div>
+                </ShSortableList>
             </div>
             {/each}
-        </div>
+        </ShSortableList>
         <!-- chat without folder div -->
-        <div class="risu-chat flex flex-col">
-            {#each chara.chats as chat, i}
+        <ShSortableList
+            className="risu-chat flex flex-col"
+            draggable="[data-sortable-chat-id]"
+            dataAttribute="data-sortable-chat-id"
+            dragPreviewText={(chatId) => chara.chats.find(chat => chat.id === chatId)?.name}
+            options={{ group: 'chats' }}
+            onReorder={syncChatOrderFromDom}
+        >
+            {#each chara.chats as chat, i (chat.id)}
             {#if chat.folderId == null || isOrphanFolder(chat.folderId)}
-            <button data-risu-chat-idx={i} onclick={() => {
+            <button data-risu-chat-idx={i} data-sortable-chat-id={chat.id} data-sortable-no-scale onclick={() => {
                 if(!editMode){
                     changeChatTo(i)
                 }
             }}
-            class="flex items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
+            class="flex min-w-0 items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
             class:bg-selected={i === chara.chatPage && !$chatDeselected}>
                 {#if editMode}
-                    <TextInput bind:value={chara.chats[i].name} className="grow min-w-0" padding={false}/>
+                    <div class="min-w-0 grow">
+                        <TextInput bind:value={chara.chats[i].name} className="h-6 min-w-0 px-2" padding={false} fullwidth/>
+                    </div>
                 {:else}
-                    <span>{chat.name}</span>
+                    <span class="truncate grow text-left">{chat.name}</span>
                 {/if}
-                <div class="grow flex justify-end">
+                <div class="no-sort ml-3 flex shrink-0 items-center gap-2">
                     <div role="button" tabindex="0" onkeydown={(e) => {
                         if(e.key === 'Enter'){
                             e.currentTarget.click()
                         }
-                    }} class="text-textcolor2 hover:text-primary mr-1 cursor-pointer" onclick={async (e) => {
+                    }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
                         e.stopPropagation()
                         const confirmed = await alertConfirm(`${language.copyChatConfirm}${chat.name}`)
                         if(!confirmed) return
@@ -388,16 +322,7 @@
                         if(e.key === 'Enter'){
                             e.currentTarget.click()
                         }
-                    }} class="text-textcolor2 hover:text-primary mr-1 cursor-pointer" onclick={() => {
-                        editMode = !editMode
-                    }}>
-                        <PencilIcon size={18}/>
-                    </div>
-                    <div role="button" tabindex="0" onkeydown={(e) => {
-                        if(e.key === 'Enter'){
-                            e.currentTarget.click()
-                        }
-                    }} class="text-textcolor2 hover:text-primary mr-1 cursor-pointer" onclick={async (e) => {
+                    }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
                         e.stopPropagation()
                         exportChat(i)
                     }}>
@@ -429,41 +354,40 @@
             </button>
             {/if}
             {/each}
-        </div>
+        </ShSortableList>
     </div>
-    {/key}
 
     <div class="border-t border-selected mt-2">
-        <div class="flex mt-2 ml-2 items-center">
-            <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" onclick={() => {
+        <IconButtonGroup className="mt-2 ml-2">
+            <IconButton onclick={() => {
                 exportAllChats()
             }}>
-                <DownloadIcon size={18}/>
-            </button>
-            <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" onclick={() => {
+                <DownloadIcon />
+            </IconButton>
+            <IconButton onclick={() => {
                 importChat()
             }}>
-                <HardDriveUploadIcon size={18}/>
-            </button>
-            <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" onclick={() => {
+                <HardDriveUploadIcon />
+            </IconButton>
+            <IconButton active={editMode} onclick={() => {
                 editMode = !editMode
             }}>
-                <PencilIcon size={18}/>
-            </button>
-            <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" onclick={() => {
+                <PencilIcon />
+            </IconButton>
+            <IconButton onclick={() => {
                 alertStore.set({
                   type: "branches",
                   msg: ""
                 })
             }}>
-                <SplitIcon size={18}/>
-            </button>
-            <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" onclick={() => {
+                <SplitIcon />
+            </IconButton>
+            <IconButton onclick={() => {
                 $bookmarkListOpen = true;
             }}>
-                <BookmarkCheckIcon size={18}/>
-            </button>
-            <button class="ml-auto text-textcolor2 hover:text-primary mr-2 cursor-pointer" onclick={() => {
+                <BookmarkCheckIcon />
+            </IconButton>
+            <IconButton className="ml-auto mr-2" onclick={() => {
                 if (!chara.chatFolders) {
                     chara.chatFolders = []
                 }
@@ -477,9 +401,9 @@
                 chara.chatFolders = folders
                 $ReloadGUIPointer += 1
             }}>
-                <FolderPlusIcon size={18}/>
-            </button>
-        </div>
+                <FolderPlusIcon />
+            </IconButton>
+        </IconButtonGroup>
 
         {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground' && !$chatDeselected}
             {#if DBState.db.showModelInSidebar}
@@ -492,15 +416,17 @@
                 <PersonaBind />
             {/if}
             <Toggles bind:chara={chara} noContainer />
-            <ShButton className="w-full mt-2" onclick={() => {
-                const char = DBState.db.characters[$selectedCharID]
-                if (!char) return
-                char.chats[char.chatPage].modules ??= []
-                openModuleListStore.set(true)
-            }}>
-                <PackageIcon size={16} class="shrink-0" />
-                <span class="truncate">{language.modules}</span>
-            </ShButton>
+            {#if DBState.db.showModuleSidebar}
+                <ShButton className="w-full mt-2" onclick={() => {
+                    const char = DBState.db.characters[$selectedCharID]
+                    if (!char) return
+                    char.chats[char.chatPage].modules ??= []
+                    openModuleListStore.set(true)
+                }}>
+                    <PackageIcon class="shrink-0" />
+                    <span class="truncate">{language.modules}</span>
+                </ShButton>
+            {/if}
         {/if}
     </div>
 </div>

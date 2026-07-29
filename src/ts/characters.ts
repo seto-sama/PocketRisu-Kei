@@ -8,7 +8,7 @@ import { checkNullish, findCharacterbyId, getUserName, selectMultipleFile, selec
 import { v4 as uuidv4, v4 } from 'uuid';
 import { getImageType } from "./media";
 import { MobileGUIStack, OpenRealmStore, selectedCharID } from "./stores.svelte";
-import { AppendableBuffer, changeChatTo, checkCharOrder, downloadFile, getFileSrc, requiresFullEncoderReload } from "./globalApi.svelte";
+import { AppendableBuffer, changeChatTo, checkCharOrder, downloadFile, getFileSrc, requestImmediateSave, requiresFullEncoderReload } from "./globalApi.svelte";
 import { updateInlayScreen } from "./process/inlayScreen";
 import { parseMarkdownSafe } from "./parser/parser.svelte";
 import { translateHTML } from "./translator/translator";
@@ -665,6 +665,9 @@ export function createBlankChar():character{
         type: 'character',
         sdData: defaultSdDataFunc(),
         utilityBot: false,
+        lowLevelAccess: false,
+        hideChatIcon: false,
+        escapeOutput: false,
         customscript: [],
         exampleMessage: '',
         creatorNotes:'',
@@ -698,29 +701,98 @@ export function createBlankChar():character{
 }
 
 
+const charactersBeingRemoved = new WeakSet<object>()
+let activeCharacterRemovalCount = 0
+let emptyingCharacterTrash = false
+
 export async function removeChar(index:number,name:string, type:'normal'|'permanent'|'permanentForce' = 'normal'){
     const db = getDatabase()
-    if(type !== 'permanentForce'){
-        const conf = await alertConfirm(language.removeConfirm + name)
-        if(!conf){
+    const targetCharacter = db.characters[index]
+    if(!targetCharacter || emptyingCharacterTrash || charactersBeingRemoved.has(targetCharacter)){
+        return
+    }
+
+    charactersBeingRemoved.add(targetCharacter)
+    activeCharacterRemovalCount++
+    try{
+        if(type !== 'permanentForce'){
+            const conf = await alertConfirm(language.removeConfirm + name)
+            if(!conf){
+                return
+            }
+            if(type === 'permanent'){
+                const conf2 = await alertConfirm(language.removeConfirm2 + name)
+                if(!conf2){
+                    return
+                }
+            }
+        }
+        let currentIndex = db.characters.findIndex((character) => character === targetCharacter)
+        if(currentIndex === -1 && targetCharacter.chaId){
+            currentIndex = db.characters.findIndex((character) => character.chaId === targetCharacter.chaId)
+        }
+        if(currentIndex === -1){
             return
         }
-        const conf2 = await alertConfirm(language.removeConfirm2 + name)
-        if(!conf2){
-            return
+
+        let chars = db.characters
+        if(type === 'normal'){
+            chars[currentIndex].trashTime = Date.now()
         }
+        else{
+            chars.splice(currentIndex, 1)
+        }
+        checkCharOrder()
+        db.characters = chars
+        requiresFullEncoderReload.state = true
+        selectedCharID.set(-1)
+        await requestImmediateSave({ characterIds: [targetCharacter.chaId] })
     }
-    let chars = db.characters
-    if(type === 'normal'){
-        chars[index].trashTime = Date.now()
+    finally{
+        charactersBeingRemoved.delete(targetCharacter)
+        activeCharacterRemovalCount--
     }
-    else{
-        chars.splice(index, 1)
+}
+
+export async function emptyCharacterTrash(){
+    if(emptyingCharacterTrash || activeCharacterRemovalCount > 0){
+        return false
     }
-    checkCharOrder()
-    db.characters = chars
-    requiresFullEncoderReload.state = true
-    selectedCharID.set(-1)
+
+    emptyingCharacterTrash = true
+    try{
+        const db = getDatabase()
+        const trashedCharacterIds = db.characters
+            .filter((character) => !!character.trashTime)
+            .map((character) => character.chaId)
+        const trashedCount = trashedCharacterIds.length
+        if(trashedCount === 0){
+            return false
+        }
+
+        const confirmed = await alertConfirm(
+            language.emptyTrashConfirm.replace('{count}', trashedCount.toString())
+        )
+        if(!confirmed){
+            return false
+        }
+
+        const confirmedAgain = await alertConfirm(language.emptyTrashConfirm2)
+        if(!confirmedAgain){
+            return false
+        }
+
+        db.characters = db.characters.filter((character) => !character.trashTime)
+        checkCharOrder()
+        requiresFullEncoderReload.state = true
+        selectedCharID.set(-1)
+        await requestImmediateSave({ characterIds: trashedCharacterIds })
+        notifySuccess(language.trashEmptied.replace('{count}', trashedCount.toString()))
+        return true
+    }
+    finally{
+        emptyingCharacterTrash = false
+    }
 }
 
 export async function addCharacter(arg:{
