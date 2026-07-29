@@ -2,7 +2,6 @@
     import { DBState, selectedCharID } from "src/ts/stores.svelte";
     import { language } from "src/lang";
     import { ChevronDownIcon, SettingsIcon } from "@lucide/svelte";
-    import { alertConfirm, notifySuccess } from "src/ts/alert";
     import { openSettings, SettingsRoute, AccessibilityTab } from "src/ts/routing";
     import ModelList from "../UI/ModelList.svelte";
     import ModelPresetList from "../UI/ModelPresetList.svelte";
@@ -61,13 +60,6 @@
         openSettings(SettingsRoute.Accessibility, undefined, AccessibilityTab.Sidebar);
     }
 
-    async function confirmSetAsDefault() {
-        if (!currentChat?.modelBinding) return;
-        if (!(await alertConfirm(language.modelPresetSetDefaultConfirm))) return;
-        DBState.db.defaultModelBinding = structuredClone($state.snapshot(currentChat.modelBinding));
-        notifySuccess(language.modelPresetDefaultSaved);
-    }
-
     // Make sure the bundle exists whenever the binding UI is shown (including
     // chats forced into preset mode by the global lock).
     $effect(() => {
@@ -90,7 +82,7 @@
                 </SelectInput>
             </div>
             <ShButton size="icon" className="shrink-0" onclick={openModelModeSettings} title={language.modelModeSettingsTitle}>
-                <SettingsIcon size={16} />
+                <SettingsIcon />
             </ShButton>
         </div>
     {/if}
@@ -106,7 +98,7 @@
                 <ModelList compact bind:value={DBState.db.subModel} />
             </div>
             <ShButton size="icon" className="shrink-0" onclick={() => { auxExpanded = !auxExpanded }} title={language.seperateModelsForAxModels}>
-                <ChevronDownIcon size={16} class={`transition-transform${auxExpanded ? ' rotate-180' : ''}`} />
+                <ChevronDownIcon class={`transition-transform${auxExpanded ? ' rotate-180' : ''}`} />
             </ShButton>
         </div>
         {#if auxExpanded}
@@ -127,13 +119,13 @@
         {/if}
     {:else if currentChat?.modelBinding}
         <!-- Binding regime: per-chat ModelPreset bundle. -->
-        <ModelPresetList warnIfEmpty bind:value={currentChat.modelBinding.main} />
+        <ModelPresetList showConfigure warnIfEmpty bind:value={currentChat.modelBinding.main} />
         <div class="flex gap-1 items-stretch">
             <div class="flex-1 min-w-0">
-                <ModelPresetList warnIfEmpty bind:value={currentChat.modelBinding.sub} />
+                <ModelPresetList showConfigure warnIfEmpty bind:value={currentChat.modelBinding.sub} />
             </div>
             <ShButton size="icon" className="shrink-0" onclick={() => { auxExpanded = !auxExpanded }} title={language.seperateModelsForAxModels}>
-                <ChevronDownIcon size={16} class={`transition-transform${auxExpanded ? ' rotate-180' : ''}`} />
+                <ChevronDownIcon class={`transition-transform${auxExpanded ? ' rotate-180' : ''}`} />
             </ShButton>
         </div>
         {#if auxExpanded}
@@ -143,20 +135,14 @@
                     <ShSwitch className="shrink-0" bind:checked={currentChat.modelBinding.separateAux} />
                 </div>
                 <div class="text-[11px] text-textcolor2 px-1">{language.axModelMemory}</div>
-                <ModelPresetList blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.memory} />
+                <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.memory} />
                 <div class="text-[11px] text-textcolor2 px-1">{language.axModelTranslate}</div>
-                <ModelPresetList blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.translate} />
+                <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.translate} />
                 <div class="text-[11px] text-textcolor2 px-1">{language.axModelEmotion}</div>
-                <ModelPresetList blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.emotion} />
+                <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.emotion} />
                 <div class="text-[11px] text-textcolor2 px-1">{language.axModelOther}</div>
-                <ModelPresetList blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.otherAx} />
+                <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.otherAx} />
             </div>
         {/if}
-    {/if}
-
-    {#if presetRegime && currentChat?.modelBinding}
-        <ShButton variant="ghost" size="xs" className="w-full text-textcolor2" onclick={confirmSetAsDefault}>
-            {language.modelPresetSaveAsDefaultButton}
-        </ShButton>
     {/if}
 </div>

@@ -45,7 +45,7 @@ const {
 const { DBState } = storesModule as any
 
 function makePreset(id: string, name: string) {
-    return { id, name, mainPrompt: '', jailbreak: '', globalNote: '', temperature: 0, maxContext: 0, maxResponse: 0, frequencyPenalty: 0, PresensePenalty: 0, formatingOrder: [], bias: [], promptPreprocess: false }
+    return { id, name, mainPrompt: '', jailbreak: '', globalNote: '', temperature: 0, maxContext: 0, maxResponse: 0, frequencyPenalty: 0, PresensePenalty: 0, formatingOrder: [], bias: [] }
 }
 
 beforeEach(() => {

@@ -12,7 +12,8 @@
     let currentChat = $derived(DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage])
 
     let paramsExpanded = $state(false);
-    let promptParamsOn = $derived(currentChat?.usePromptPresetParams === true);
+    let globalPromptParamsOn = $derived(DBState.db.modelPresetPromptParamsFirst === true);
+    let promptParamsOn = $derived(globalPromptParamsOn || currentChat?.usePromptPresetParams === true);
 
     let boundPresetIndex = $derived.by(() => {
         const id = currentChat?.bindedBotPreset
@@ -93,9 +94,9 @@
         onclick={handlePresetBindClick}
     >
         {#if isPresetBound}
-            <PinIcon size={16} class="shrink-0" />
+            <PinIcon class="shrink-0" />
         {:else}
-            <PinOffIcon size={16} class="shrink-0" />
+            <PinOffIcon class="shrink-0" />
         {/if}
         <span class="truncate">{displayPreset?.name ?? language.none}</span>
     </ShButton>
@@ -107,19 +108,20 @@
         title={language.promptPresetParamsUse}
     >
         {#if promptParamsOn}
-            <SlidersHorizontalIcon size={16} />
+            <SlidersHorizontalIcon />
         {:else}
-            <ChevronDownIcon size={16} class={`transition-transform${paramsExpanded ? ' rotate-180' : ''}`} />
+            <ChevronDownIcon class={`transition-transform${paramsExpanded ? ' rotate-180' : ''}`} />
         {/if}
     </ShButton>
 </div>
 {#if paramsExpanded && currentChat}
     <div class="flex flex-col gap-1 mt-1 pl-2 border-l border-selected">
         <div class="w-full flex items-center justify-between gap-2 min-h-10 rounded-md px-1">
-            <span class="min-w-0">{language.promptPresetParamsUse} <Help key="promptPresetParams" name={language.promptPresetParamsUse}/></span>
+            <span class="min-w-0">{language.promptPresetParamsUse}<Help key="promptPresetParams" name={language.promptPresetParamsUse}/></span>
             <ShSwitch
                 className="shrink-0"
                 checked={promptParamsOn}
+                disabled={globalPromptParamsOn}
                 onCheckedChange={(v) => { if (currentChat) currentChat.usePromptPresetParams = v }}
             />
         </div>
