@@ -2,22 +2,14 @@
  * Language Settings Data
  *
  * Data-driven definition for LanguageSettings page.
- * Uses `.svelte.ts` extension to support reactive `langState` via Svelte 5 runes.
  */
 
 import type { SettingItem } from './types';
 import { changeLanguage, language } from 'src/lang';
 import { languageEnglish } from 'src/lang/en';
-import { selectFileByDom, sleep } from '../util';
-import { alertConfirm, alertError, alertNormal, alertSelect, alertWait } from '../alert';
+import { sleep } from '../util';
+import { alertNormal, alertSelect } from '../alert';
 import { downloadFile } from '../globalApi.svelte';
-import {
-    clearLLMCache,
-    exportLLMCacheAsJSON,
-    importLLMCacheFromJSON,
-} from '../translator/translator';
-
-export const langState = $state({ changed: false });
 
 export const languageSettingsItems: SettingItem[] = [
     // UI Language
@@ -27,7 +19,6 @@ export const languageSettingsItems: SettingItem[] = [
         labelKey: 'UiLanguage',
         bindKey: 'language',
         helpKey: 'UiLanguage',
-        classes: 'mt-4',
         options: {
             selectOptions: [
                 { value: 'de', label: 'Deutsch' },
@@ -72,27 +63,15 @@ export const languageSettingsItems: SettingItem[] = [
 
             await sleep(10);
             changeLanguage(ctx.db.language);
-            langState.changed = true;
         },
     },
 
-    {
-        id: 'lang.restartWarn',
-        type: 'header',
-        fallbackLabel: 'Close the settings to take effect',
-        options: { level: 'span' },
-        classes: 'bg-red-500 text-sm',
-        condition: () => langState.changed,
-    },
-
-    // Translator Base
     {
         id: 'lang.translatorLang',
         type: 'select',
         labelKey: 'translatorLanguage',
         bindKey: 'translator',
         helpKey: 'translatorLanguage',
-        classes: 'mt-4',
         options: {
             selectOptions: [
                 { value: '', labelKey: 'disabled' },
@@ -114,20 +93,30 @@ export const languageSettingsItems: SettingItem[] = [
     },
 
     {
+        id: 'lang.showTranslationLoading',
+        type: 'check',
+        labelKey: 'showTranslationLoading',
+        bindKey: 'showTranslationLoading',
+        helpKey: 'showTranslationLoading',
+        keywords: ['translation', 'loading', 'indicator'],
+    },
+
+    // Translator Configuration
+
+    {
         id: 'lang.translatorType',
         type: 'select',
         labelKey: 'translatorType',
         bindKey: 'translatorType',
         helpKey: 'translatorType',
-        classes: 'mt-4',
         condition: (ctx) => !!ctx.db.translator,
         options: {
             selectOptions: [
-                { value: 'google', label: 'Google' },
-                { value: 'deepl', label: 'DeepL' },
                 { value: 'llm', label: 'Ax. Model' },
-                { value: 'deeplX', label: 'DeepL X' },
+                { value: 'google', label: 'Google' },
                 { value: 'bergamot', label: 'Firefox' },
+                { value: 'deepl', label: 'DeepL' },
+                { value: 'deeplX', label: 'DeepL X' },
             ],
         },
     },
@@ -139,7 +128,6 @@ export const languageSettingsItems: SettingItem[] = [
         labelKey: 'deeplKey',
         bindPath: 'deeplOptions.key',
         helpKey: 'deeplKey',
-        classes: 'mt-4',
         condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'deepl',
     },
 
@@ -159,7 +147,6 @@ export const languageSettingsItems: SettingItem[] = [
         labelKey: 'deeplXUrl',
         bindPath: 'deeplXOptions.url',
         helpKey: 'deeplXUrl',
-        classes: 'mt-4',
         condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'deeplX',
     },
 
@@ -169,7 +156,6 @@ export const languageSettingsItems: SettingItem[] = [
         labelKey: 'deeplXToken',
         bindPath: 'deeplXOptions.token',
         helpKey: 'deeplXToken',
-        classes: 'mt-4',
         condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'deeplX',
     },
 
@@ -186,7 +172,6 @@ export const languageSettingsItems: SettingItem[] = [
         labelKey: 'sourceLanguage',
         bindKey: 'translatorInputLanguage',
         helpKey: 'sourceLanguage',
-        classes: 'mt-4',
         condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'google',
         options: {
             selectOptions: [
@@ -203,16 +188,6 @@ export const languageSettingsItems: SettingItem[] = [
         },
     },
 
-    {
-        id: 'lang.bergamotHtml',
-        type: 'check',
-        labelKey: 'htmlTranslation',
-        bindKey: 'htmlTranslation',
-        helpKey: 'htmlTranslation',
-        classes: 'mt-4',
-        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'bergamot',
-    },
-
     // General Translation Options
     {
         id: 'lang.autoTranslate',
@@ -225,12 +200,42 @@ export const languageSettingsItems: SettingItem[] = [
     },
 
     {
+        id: 'lang.bergamotHtml',
+        type: 'check',
+        labelKey: 'htmlTranslation',
+        bindKey: 'htmlTranslation',
+        helpKey: 'htmlTranslation',
+        classes: 'mt-2',
+        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'bergamot',
+    },
+
+    {
+        id: 'lang.autoTranslateCachedOnly',
+        type: 'check',
+        labelKey: 'autoTranslateCachedOnly',
+        bindKey: 'autoTranslateCachedOnly',
+        helpKey: 'autoTranslateCachedOnly',
+        classes: 'mt-2',
+        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'llm' && ctx.db.autoTranslate,
+    },
+
+    {
+        id: 'lang.translateBeforeHTML',
+        type: 'check',
+        labelKey: 'translateBeforeHTMLFormatting',
+        bindKey: 'translateBeforeHTMLFormatting',
+        helpKey: 'translateBeforeHTMLFormatting',
+        classes: 'mt-2',
+        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'llm',
+    },
+
+    {
         id: 'lang.combineTranslation',
         type: 'check',
         labelKey: 'combineTranslation',
         bindKey: 'combineTranslation',
         helpKey: 'combineTranslation',
-        classes: 'mt-4',
+        classes: 'mt-2',
         condition: (ctx) => !!ctx.db.translator,
     },
 
@@ -240,125 +245,47 @@ export const languageSettingsItems: SettingItem[] = [
         labelKey: 'legacyTranslation',
         bindKey: 'legacyTranslation',
         helpKey: 'legacyTranslation',
-        classes: 'mt-4',
+        classes: 'mt-2',
         condition: (ctx) => !!ctx.db.translator,
     },
 
     {
-        id: 'lang.translateBeforeHTML',
+        id: 'lang.experimentalGoogleTranslator',
         type: 'check',
-        labelKey: 'translateBeforeHTMLFormatting',
-        bindKey: 'translateBeforeHTMLFormatting',
-        helpKey: 'translateBeforeHTMLFormatting',
-        classes: 'mt-4',
-        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'llm',
-    },
-
-    {
-        id: 'lang.autoTranslateCachedOnly',
-        type: 'check',
-        labelKey: 'autoTranslateCachedOnly',
-        bindKey: 'autoTranslateCachedOnly',
-        helpKey: 'autoTranslateCachedOnly',
-        classes: 'mt-4',
-        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'llm',
-    },
-
-    {
-        id: 'lang.exportCache',
-        type: 'button',
-        labelKey: 'exportTranslationCache',
-        classes: 'mt-4',
-        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'llm',
-        options: {
-            onClick: async () => {
-                alertWait(language.loading);
-                try {
-                    const cache = await exportLLMCacheAsJSON();
-                    const entries = Object.keys(cache).length;
-                    if (entries === 0) {
-                        alertNormal(language.exportTranslationCacheEmpty);
-                        return;
-                    }
-                    const json = JSON.stringify(cache, null, 2);
-                    await downloadFile('translation_cache.json', new TextEncoder().encode(json));
-                    alertNormal(language.exportTranslationCacheSuccess);
-                } catch (e: any) {
-                    alertError(e?.message ?? String(e));
-                }
-            },
-        },
-    },
-
-    {
-        id: 'lang.importCache',
-        type: 'button',
-        labelKey: 'importTranslationCache',
+        fallbackLabel: 'New Google Translate Experimental',
+        bindKey: 'useExperimentalGoogleTranslator',
+        helpKey: 'unrecommendedNewGoogleTrans',
+        helpUnrecommended: true,
         classes: 'mt-2',
-        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'llm',
-        options: {
-            onClick: async () => {
-                try {
-                    const files = await selectFileByDom(['json']);
-                    if (!files || files.length === 0) return;
-                    if (!files[0].name.endsWith('.json')) {
-                        alertError('Invalid file type. Please select a .json file.');
-                        return;
-                    }
-                    const text = await files[0].text();
-                    const data = JSON.parse(text);
-                    if (typeof data !== 'object' || data === null || Array.isArray(data)) {
-                        alertError('Invalid JSON format');
-                        return;
-                    }
-                    for (const [key, value] of Object.entries(data)) {
-                        if (typeof key !== 'string' || typeof value !== 'string') {
-                            alertError('Invalid JSON format');
-                            return;
-                        }
-                    }
-                    const confirmed = await alertConfirm(language.importTranslationCacheConfirm);
-                    if (!confirmed) return;
-                    alertWait(language.loading);
-                    const { count, failed } = await importLLMCacheFromJSON(
-                        data as Record<string, string>,
-                    );
-                    if (failed > 0) {
-                        alertError(
-                            language.importTranslationCacheFailed
-                                .replace('{0}', String(count))
-                                .replace('{1}', String(failed)),
-                        );
-                    } else {
-                        alertNormal(
-                            language.importTranslationCacheSuccess.replace('{0}', String(count)),
-                        );
-                    }
-                } catch (e: any) {
-                    alertError(e?.message ?? String(e));
-                }
-            },
-        },
+        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'google',
     },
 
-    {
-        id: 'lang.clearCache',
-        type: 'button',
-        labelKey: 'clearTranslationCache',
-        classes: 'mt-2',
-        condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'llm',
-        options: {
-            onClick: async () => {
-                try {
-                    const confirmed = await alertConfirm(language.clearTranslationCacheConfirm);
-                    if (!confirmed) return;
-                    alertWait(language.loading);
-                    await clearLLMCache();
-                    alertNormal(language.clearTranslationCacheSuccess);
-                } catch (e: any) {
-                    alertError(e?.message ?? String(e));
-                }
-            },
-        },
-    },
 ];
+
+const languageAndDisplayIds = new Set([
+    'lang.uiLanguage',
+    'lang.translatorLang',
+    'lang.showTranslationLoading',
+]);
+
+const translatorConfigurationIds = new Set([
+    'lang.translatorType',
+    'lang.deeplKey',
+    'lang.deeplFree',
+    'lang.deeplXUrl',
+    'lang.deeplXToken',
+    'lang.llmPresets',
+    'lang.googleSourceLang',
+]);
+
+export const languageAndDisplaySettingsItems = languageSettingsItems.filter((item) =>
+    languageAndDisplayIds.has(item.id)
+);
+
+export const translatorConfigurationItems = languageSettingsItems.filter((item) =>
+    translatorConfigurationIds.has(item.id)
+);
+
+export const translationBehaviorItems = languageSettingsItems.filter((item) =>
+    !languageAndDisplayIds.has(item.id) && !translatorConfigurationIds.has(item.id)
+);
