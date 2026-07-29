@@ -51,6 +51,7 @@ const stmtRotate = db.prepare(`
 `);
 
 const stmtClearAll = db.prepare(`DELETE FROM logs`);
+const stmtDeleteById = db.prepare(`DELETE FROM logs WHERE id = ?`);
 
 // Sources captured by monkey-patched console / window handlers / Express
 // middleware rather than explicit logger calls. Mirrors the client-side
@@ -142,6 +143,10 @@ function maybeRotate() {
     if (insertedSinceRotate < ROTATE_EVERY_N_ROWS) return;
     insertedSinceRotate = 0;
     stmtRotate.run(MAX_ROWS);
+}
+
+function deleteLog(id) {
+    return stmtDeleteById.run(id).changes === 1;
 }
 
 // ─── Server-side logger ──────────────────────────────────────────────────────
@@ -383,6 +388,7 @@ module.exports = {
     addLogBatch,
     queryLogs,
     clearLogs,
+    deleteLog,
     countLogs,
     logger,
     installProcessHandlers,

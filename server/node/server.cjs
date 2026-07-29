@@ -9,7 +9,6 @@ const htmlparser = require('node-html-parser');
 const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
 const fs = require('fs/promises')
 const nodeCrypto = require('crypto')
-const zlib = require('zlib')
 const rateLimit = require('express-rate-limit')
 const { WebSocketServer } = require('ws')
 const Vips = require('wasm-vips')
@@ -27,11 +26,34 @@ const { kvGet, kvSet, kvDel, kvList,
         kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue, clearEntities, checkpointWal,
         gcChunks, reclaimableChunkBytes, isDbBlobChunked, snapshotFootprint, db: sqliteDb } = require('./db.cjs');
 const {
-    addLogBatch, queryLogs, clearLogs, countLogs,
+    addLogBatch, queryLogs, clearLogs, deleteLog, countLogs,
     logger, installProcessHandlers, expressErrorMiddleware,
-} = require('./logs.cjs');
+} = require('./logs/logs.cjs');
+const { addRequestLog, installRequestLogRoutes, updateRequestLogResponseById } = require('./logs/requestLogs.cjs');
+const { installUsageRoutes, recordGenerationUsage } = require('./logs/usageDb.cjs');
+const {
+    getGenerationJob,
+    setGenerationJobGenerating,
+    setGenerationJobHeaders,
+    appendGenerationJobRaw,
+    setGenerationJobRawContent,
+    finishGenerationJob,
+    checkpointGenerationDb,
+} = require('./revenant/generationDb.cjs');
+const { installRevenantGenerationRoutes } = require('./revenant/generationRoutes.cjs');
+const {
+    filterRemoteOnlyFolders,
+    isChatHiddenFromRemote,
+    isCloudflareTunnelRequest: isCloudflareTunnelRequestForUrl,
+    mergeRemoteFilteredDatabase,
+} = require('./remoteDatabaseFilter.cjs');
 const { applyPatch } = require('fast-json-patch');
 const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON, hasRemoteBlocks } = require('./utils.cjs');
+const {
+    createBackupRestoreService,
+    createLegacyRestoreService,
+    restoreMissingAssetsFromBackupFile,
+} = require('./dataRestore/index.cjs');
 const { spawn, execSync } = require('child_process');
 const os = require('os');
 const { Readable, Transform } = require('stream');
@@ -58,6 +80,9 @@ let fullChatStore = null; // Map<chaId, Map<chatId, chatObject>> — lazy-initia
 
 // ETag for database.bin
 let dbEtag = null;
+let migrateRemoteBlocksIfNeeded;
+let restoreColdStorageCharactersInDb;
+let restoreColdStorageChat;
 
 function computeBufferEtag(buffer) {
     return nodeCrypto.createHash('md5').update(buffer).digest('hex');
@@ -201,6 +226,23 @@ function snapshotUsage() {
     return { count: keys.length, bytes, logicalBytes };
 }
 
+function makeSnapshotKey(now = Date.now()) {
+    let tick = Math.round(now / 100);
+    let key = `${DB_BACKUP_PREFIX}${tick}.bin`;
+    while (kvGet(key)) {
+        tick += 1;
+        key = `${DB_BACKUP_PREFIX}${tick}.bin`;
+    }
+    return key;
+}
+
+function createSnapshotNow() {
+    const backupKey = makeSnapshotKey();
+    kvCopyValue('database/database.bin', backupKey);
+    trimSnapshotsToLimits();
+    return backupKey;
+}
+
 function createBackupAndRotate() {
     const now = Date.now();
     if (lastBackupTime && now - lastBackupTime < BACKUP_INTERVAL_MS) {
@@ -208,9 +250,7 @@ function createBackupAndRotate() {
     }
     lastBackupTime = now;
 
-    const backupKey = `${DB_BACKUP_PREFIX}${(now / 100).toFixed()}.bin`;
-    kvCopyValue('database/database.bin', backupKey);
-    trimSnapshotsToLimits();
+    createSnapshotNow();
 }
 
 async function flushPendingDb() {
@@ -452,98 +492,11 @@ function reassembleFullDb(strippedDb) {
     return full;
 }
 
-// ─── Remote-block migration ─────────────────────────────────────────────────
-//
-// Background: upstream RisuAI (and very early NodeOnly versions) split each
-// character's data out of database.bin into a separate `remotes/<chaId>.local.bin`
-// file. The main database.bin then carries a REMOTE pointer block instead of the
-// character payload. The server-side RisuSaveDecoder used to skip those blocks
-// outright, so any decode pass — /api/read, /api/chat-content fallback, chat
-// store init — saw the character as missing and lost its chats.
-//
-// NodeOnly never wanted this split (`disableRemoteSaving` is hardcoded to
-// true), so we one-shot convert any leftover REMOTE blocks to inline raw blocks
-// the first time a server with such data boots. The reencoded database.bin is
-// stored in legacy msgpack format, which has no block structure at all — so
-// the REMOTE code path becomes unreachable for future decodes.
-//
-// Idempotent via a KV marker. The marker lives in KV (not on disk) so a backup
-// import — which wipes most KV prefixes and INSERTs a new database.bin — naturally
-// clears it, letting the new contents be re-evaluated.
-
-const REMOTE_MIGRATION_MARKER_KEY = 'migration/disable-remote-saving';
-const REMOTE_MIGRATION_MARKER_VALUE = Buffer.from('done', 'utf-8');
-
-function isRemoteMigrationDone() {
-    const value = kvGet(REMOTE_MIGRATION_MARKER_KEY);
-    return value !== null && value.length > 0;
+function isCloudflareTunnelRequest(req) {
+    return isCloudflareTunnelRequestForUrl(req, tunnelUrl);
 }
 
-function markRemoteMigrationDone() {
-    kvSet(REMOTE_MIGRATION_MARKER_KEY, REMOTE_MIGRATION_MARKER_VALUE);
-}
-
-/**
- * Convert any leftover REMOTE blocks in database.bin into inline raw blocks.
- * Safe to call repeatedly: idempotent via KV marker.
- */
-async function migrateRemoteBlocksIfNeeded() {
-    if (isRemoteMigrationDone()) return { ran: false, reason: 'already-done' };
-
-    const raw = kvGet('database/database.bin');
-    if (!raw) {
-        markRemoteMigrationDone();
-        return { ran: false, reason: 'no-database' };
-    }
-
-    if (!hasRemoteBlocks(raw)) {
-        markRemoteMigrationDone();
-        return { ran: false, reason: 'no-remote-blocks' };
-    }
-
-    logger.info('[Migration] REMOTE blocks detected in database.bin; converting to inline format');
-
-    // Pre-migration backup so a botched migration can be rolled back manually.
-    // Use a dedicated prefix — `database/dbbackup-` is on a 20-snapshot rotation
-    // whose timestamp parser would assign this entry ts=0 (because of the
-    // non-numeric suffix), making it the first to evict. The migration safety
-    // net must outlive ordinary backup churn.
-    const backupKey = `migration-backup/pre-remote-fix-${Date.now()}.bin`;
-    kvCopyValue('database/database.bin', backupKey);
-
-    const dbObj = await decodeRisuSave(raw, {
-        resolveRemote: async (name) => {
-            const value = kvGet(`remotes/${name}.local.bin`);
-            return value || null;
-        },
-    });
-
-    const reEncoded = encodeRisuSaveLegacy(dbObj, 'compression');
-
-    // Single transaction so swap + marker move together.
-    // remotes/ files are intentionally NOT deleted here: pre-migration
-    // dbbackup-* snapshots and the migration-backup we just wrote both
-    // only carry database.bin (kvCopyValue is single-key). If a user later
-    // restores one of those snapshots — which holds REMOTE pointers —
-    // resolveRemote needs the remotes/<id>.local.bin payloads to still
-    // exist, otherwise every REMOTE-pointed character drops on the next
-    // decode and the backup is effectively dead. The orphans don't grow
-    // (NodeOnly's disableRemoteSaving = true on writes), so leaving them
-    // costs a few MB of disk for full backup recoverability.
-    sqliteDb.transaction(() => {
-        kvSet('database/database.bin', Buffer.from(reEncoded));
-        markRemoteMigrationDone();
-    })();
-
-    // Reset in-memory caches whose contents were derived from the pre-migration
-    // bytes — next reader recomputes from the migrated database.bin.
-    invalidateDbCache();
-    dbEtag = null;
-
-    const characterCount = Array.isArray(dbObj.characters) ? dbObj.characters.length : 0;
-    logger.info(`[Migration] Remote-block migration complete. Inlined ${characterCount} character(s); pre-migration backup at ${backupKey}`);
-    return { ran: true, characterCount, backupKey };
-}
+// Legacy REMOTE migration is provided by dataRestore/legacyRestore.cjs.
 
 /**
  * Ensure fullChatStore is initialized. Loads from disk if needed.
@@ -825,6 +778,55 @@ if(!existsSync(backupsDir)){
 }
 writeBackupPathMarker(backupsDir);
 const BACKUP_FILENAME_REGEX = /^risu-backup-\d+\.bin$/;
+const MANUAL_SNAPSHOT_FILENAME_REGEX = /^dbbackup-\d+\.bin$/;
+const BACKUP_SCHEDULE_KEY = 'config/backup-schedule';
+const DEFAULT_BACKUP_SCHEDULE = Object.freeze({
+    enabled: false,
+    serverDays: 0,
+    snapshotDays: 0,
+});
+
+function getManualSnapshotsDir() {
+    return path.join(backupsDir, 'snapshot');
+}
+
+function makeManualSnapshotFilename(now = Date.now()) {
+    let tick = Math.round(now / 100);
+    let filename = `dbbackup-${tick}.bin`;
+    while (existsSync(path.join(getManualSnapshotsDir(), filename))) {
+        tick += 1;
+        filename = `dbbackup-${tick}.bin`;
+    }
+    return filename;
+}
+
+function clampBackupScheduleDays(value, fallback) {
+    const days = Math.floor(Number(value));
+    if (!Number.isFinite(days)) return fallback;
+    return Math.min(365, Math.max(0, days));
+}
+
+function normalizeBackupSchedule(raw = {}) {
+    const serverDays = clampBackupScheduleDays(raw.serverDays, DEFAULT_BACKUP_SCHEDULE.serverDays);
+    const snapshotDays = clampBackupScheduleDays(raw.snapshotDays, DEFAULT_BACKUP_SCHEDULE.snapshotDays);
+    return {
+        enabled: !!raw.enabled,
+        serverDays,
+        snapshotDays,
+        serverEnabled: serverDays > 0,
+        snapshotEnabled: snapshotDays > 0,
+    };
+}
+
+function readBackupSchedule() {
+    try {
+        const raw = kvGet(BACKUP_SCHEDULE_KEY);
+        if (!raw) return { ...DEFAULT_BACKUP_SCHEDULE };
+        return normalizeBackupSchedule(JSON.parse(Buffer.from(raw).toString('utf-8')));
+    } catch {
+        return { ...DEFAULT_BACKUP_SCHEDULE };
+    }
+}
 
 const passwordPath = path.join(process.cwd(), 'save', '__password')
 if(existsSync(passwordPath)){
@@ -882,6 +884,7 @@ let tunnelUrl = null;
 let tunnelStatus = 'off';   // 'off' | 'downloading' | 'starting' | 'running' | 'error'
 let tunnelError = null;
 let tunnelStartTimeout = null;
+let serverIsHttps = false;
 
 const CLOUDFLARED_ASSETS = {
     'darwin-arm64':  { url: 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz', type: 'tgz' },
@@ -1377,12 +1380,26 @@ async function fetchLatestRelease(lang) {
 const SESSION_FILE = path.join(process.cwd(), 'save', '__sessions')
 const sessions = new Map() // token → expiresAt (ms)
 
+function sessionExpiresAt(session) {
+    return typeof session === 'number' ? session : session?.expiresAt ?? 0
+}
+
+function connectedDevice(userAgent = '') {
+    if (/Windows/i.test(userAgent)) return { name: 'Windows', type: 'desktop' }
+    if (/iPhone|iPad|iPod/i.test(userAgent)) return { name: 'iPhone/iPad', type: 'mobile' }
+    if (/Android/i.test(userAgent)) return { name: 'Android', type: 'mobile' }
+    if (/Macintosh|Mac OS X/i.test(userAgent)) return { name: 'macOS', type: 'desktop' }
+    if (/Linux/i.test(userAgent)) return { name: 'Linux', type: 'desktop' }
+    return { name: 'Unknown device', type: 'desktop' }
+}
+
 function loadSessions() {
     try {
         const raw = readFileSync(SESSION_FILE, 'utf-8')
         const now = Date.now()
-        for (const [token, exp] of JSON.parse(raw)) {
-            if (exp > now) sessions.set(token, exp)
+        for (const [token, storedSession] of JSON.parse(raw)) {
+            const expiresAt = sessionExpiresAt(storedSession)
+            if (expiresAt > now) sessions.set(token, expiresAt)
         }
     } catch { /* file missing or corrupt – start fresh */ }
 }
@@ -1406,7 +1423,7 @@ function parseSessionCookie(req) {
 
 function sessionAuthMiddleware(req, res, next) {
     const token = parseSessionCookie(req)
-    if (token && (sessions.get(token) ?? 0) > Date.now()) return next()
+    if (token && sessionExpiresAt(sessions.get(token)) > Date.now()) return next()
     res.status(401).end()
 }
 
@@ -1441,19 +1458,41 @@ async function checkDiskSpace(requiredBytes) {
     }
 }
 
-// ── Active writer session (single-writer lock) ────────────────────────────────
-// Mirrors the BroadcastChannel-based tab lock on the server side so that the
-// same protection extends across devices. The last client to call /api/session
-// becomes the active writer; older sessions receive 423 on write attempts.
-let activeSessionId = null // string | null
+// Each page has an opaque client id. It is not a write lock: this is a
+// single-user server, so every authenticated page may submit mutations. The id
+// is retained to suppress self-echoes on the sync WebSocket.
 
-function checkActiveSession(req, res) {
-    const clientSessionId = req.headers['x-session-id']
-    if (!clientSessionId) return true  // client without session support
-    if (!activeSessionId) return true  // no session registered yet
-    if (clientSessionId === activeSessionId) return true
-    res.status(423).json({ error: 'Session deactivated' })
-    return false
+function getSyncClientIdFromRequest(req) {
+    return req.headers['x-sync-client-id'] || req.headers['x-session-id'] || ''
+}
+
+function requireSyncClientId(req, res) {
+    if (!getSyncClientIdFromRequest(req)) {
+        res.status(400).json({ error: 'Sync client id required' })
+        return false
+    }
+    return true
+}
+
+const syncClients = new Map();
+const syncClientDevices = new Map();
+
+function broadcastSync(type, payload = {}, excludeClientId = null) {
+    const message = JSON.stringify({ type, ...payload });
+    for (const [clientId, clients] of syncClients) {
+        if (clientId === excludeClientId) continue;
+        for (const ws of clients) {
+            if (ws.readyState === 1) ws.send(message);
+        }
+    }
+}
+
+function broadcastDatabaseInvalidated(req, payload = {}) {
+    broadcastSync(
+        'database-invalidated',
+        { ...payload, timestamp: Date.now(), etag: dbEtag ?? undefined },
+        String(getSyncClientIdFromRequest(req)),
+    );
 }
 
 // --- Proxy Stream Job constants ---
@@ -1625,6 +1664,19 @@ function sanitizeTargetUrl(raw) {
     }
 }
 
+function sanitizeGenerationTargetUrl(raw) {
+    if (typeof raw !== 'string' || raw.trim() === '') return null;
+    try {
+        const parsed = new URL(raw);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+        parsed.username = '';
+        parsed.password = '';
+        return parsed.toString();
+    } catch {
+        return null;
+    }
+}
+
 // --- Proxy Stream: request/response helpers ---
 
 function normalizeForwardHeaders(input) {
@@ -1669,6 +1721,108 @@ function normalizeHeartbeatSec(heartbeatSec) {
     }
     const parsed = Math.floor(heartbeatSec);
     return Math.min(PROXY_STREAM_HEARTBEAT_MAX_SEC, Math.max(PROXY_STREAM_HEARTBEAT_MIN_SEC, parsed));
+}
+
+function extractGenerationTextFromWire(rawBuffer) {
+    const text = Buffer.from(rawBuffer || '').toString('utf-8');
+    const payloads = [];
+    for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        try { payloads.push(JSON.parse(data)); } catch { /* partial/non-JSON event */ }
+    }
+    if (payloads.length === 0) {
+        try {
+            const parsed = JSON.parse(text);
+            if (Array.isArray(parsed)) payloads.push(...parsed);
+            else payloads.push(parsed);
+        } catch { return ''; }
+    }
+
+    let output = '';
+    let reasoning = '';
+    const appendParts = (parts) => {
+        if (!Array.isArray(parts)) return;
+        for (const part of parts) {
+            const value = typeof part?.text === 'string'
+                ? part.text
+                : typeof part?.content === 'string'
+                    ? part.content
+                    : '';
+            if (!value) continue;
+            if (part?.thought === true || part?.type === 'reasoning' || part?.type === 'thinking') {
+                reasoning += value;
+            } else {
+                output += value;
+            }
+        }
+    };
+    for (const payload of payloads) {
+        const choice = payload?.choices?.[0];
+        const deltaContent = choice?.delta?.content;
+        if (typeof deltaContent === 'string') output += deltaContent;
+        else if (Array.isArray(deltaContent)) appendParts(deltaContent);
+        else if (typeof choice?.text === 'string') output += choice.text;
+        else if (typeof choice?.message?.content === 'string') output += choice.message.content;
+
+        const choiceReasoning = choice?.delta?.reasoning_content
+            ?? choice?.delta?.reasoning
+            ?? choice?.message?.reasoning_content
+            ?? choice?.message?.reasoning
+            ?? choice?.reasoning_content;
+        if (typeof choiceReasoning === 'string') reasoning += choiceReasoning;
+
+        if (typeof payload?.delta?.text === 'string') output += payload.delta.text;
+        if (typeof payload?.delta?.thinking === 'string') reasoning += payload.delta.thinking;
+        if (typeof payload?.completion === 'string') output += payload.completion;
+        appendParts(payload?.content);
+
+        const candidateParts = payload?.candidates?.[0]?.content?.parts;
+        appendParts(candidateParts);
+
+        if (payload?.type === 'response.output_text.delta' && typeof payload?.delta === 'string') {
+            output += payload.delta;
+        }
+        if (payload?.type === 'response.reasoning_text.delta' && typeof payload?.delta === 'string') {
+            reasoning += payload.delta;
+        }
+        if (typeof payload?.output_text === 'string') output += payload.output_text;
+    }
+    if (!reasoning) return output;
+    return `<Thoughts>\n${reasoning.replace(/<\/?think>/g, '')}\n</Thoughts>\n\n${output}`;
+}
+
+function hasGenerationStreamTerminalMarker(rawBuffer) {
+    const text = Buffer.from(rawBuffer || '').toString('utf-8');
+    for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === '[DONE]') return true;
+        if (!data) continue;
+        try {
+            const payload = JSON.parse(data);
+            if (
+                payload?.type === 'message_stop'
+                || payload?.type === 'response.completed'
+                || payload?.type === 'response.done'
+            ) {
+                return true;
+            }
+            if (payload?.candidates?.some(candidate =>
+                typeof candidate?.finishReason === 'string'
+                && candidate.finishReason !== ''
+                && candidate.finishReason !== 'FINISH_REASON_UNSPECIFIED'
+            )) {
+                return true;
+            }
+        } catch {
+            // Partial/non-JSON SSE event.
+        }
+    }
+    return false;
 }
 
 // --- Proxy Stream: native HTTP request to local target ---
@@ -1743,7 +1897,7 @@ function requestLocalTargetStream(targetUrl, arg) {
 // --- Proxy Stream: job lifecycle ---
 
 function createProxyStreamJob(arg) {
-    const jobId = nodeCrypto.randomUUID();
+    const jobId = arg.jobId || nodeCrypto.randomUUID();
     const timeoutMs = normalizeProxyStreamTimeoutMs(Number(arg.timeoutMs));
     const heartbeatSec = normalizeHeartbeatSec(arg.heartbeatSec);
     const controller = new AbortController();
@@ -1757,11 +1911,63 @@ function createProxyStreamJob(arg) {
         clients: new Set(),
         pendingEvents: [],
         pendingBytes: 0,
+        latestGenerationContent: '',
         abortController: controller,
         deadlineAt: createdAt + timeoutMs,
         heartbeatSec,
         timeoutMs
     };
+    proxyStreamJobs.set(jobId, job);
+    return job;
+}
+
+function loadPersistedProxyStreamJob(jobId) {
+    const persisted = getGenerationJob(jobId);
+    if (!persisted) return null;
+    const createdAt = persisted.createdAt || Date.now();
+    const job = {
+        id: jobId,
+        createdAt,
+        updatedAt: persisted.updatedAt || createdAt,
+        done: true,
+        cleanupAt: Date.now() + PROXY_STREAM_DONE_GRACE_MS,
+        clients: new Set(),
+        pendingEvents: [],
+        pendingBytes: 0,
+        latestGenerationContent: persisted.rawContent || '',
+        abortController: new AbortController(),
+        deadlineAt: Date.now(),
+        heartbeatSec: PROXY_STREAM_DEFAULT_HEARTBEAT_SEC,
+        timeoutMs: PROXY_STREAM_DEFAULT_TIMEOUT_MS,
+        persistent: true,
+    };
+    if (persisted.responseStatus) {
+        job.pendingEvents.push(JSON.stringify({
+            type: 'upstream_headers',
+            status: persisted.responseStatus,
+            headers: persisted.responseHeaders || {},
+        }));
+    }
+    if (persisted.rawResponse?.length) {
+        job.pendingEvents.push(JSON.stringify({
+            type: 'chunk',
+            dataBase64: persisted.rawResponse.toString('base64'),
+        }));
+    }
+    if (persisted.status === 'failed') {
+        job.pendingEvents.push(JSON.stringify({
+            type: 'error',
+            status: 502,
+            message: persisted.error || 'Generation job failed',
+        }));
+    } else {
+        job.pendingEvents.push(JSON.stringify({
+            type: 'done',
+            partial: ['cancelled', 'interrupted', 'failed_partial'].includes(persisted.status),
+            finishReason: persisted.finishReason,
+        }));
+    }
+    job.pendingBytes = job.pendingEvents.reduce((sum, event) => sum + Buffer.byteLength(event), 0);
     proxyStreamJobs.set(jobId, job);
     return job;
 }
@@ -1789,6 +1995,16 @@ function pushJobEvent(job, event) {
     }
 }
 
+function pushGenerationContent(job, content) {
+    job.latestGenerationContent = content;
+    const text = JSON.stringify({ type: 'generation_content', content });
+    for (const client of job.clients) {
+        if (client.recoverySubscriber && client.readyState === client.OPEN) {
+            client.send(text);
+        }
+    }
+}
+
 function markJobDone(job) {
     if (job.done) return;
     job.done = true;
@@ -1805,50 +2021,190 @@ function cleanupJob(jobId) {
 }
 
 async function runProxyStreamJob(job, arg) {
-    const targetUrl = sanitizeTargetUrl(arg.targetUrl);
+    const targetUrl = arg.allowExternal
+        ? sanitizeGenerationTargetUrl(arg.targetUrl)
+        : sanitizeTargetUrl(arg.targetUrl);
     if (!targetUrl) {
         pushJobEvent(job, { type: 'error', status: 400, message: 'Blocked non-local target URL' });
+        if (job.persistent) finishGenerationJob(job.id, 'failed', 'invalid_target', 'Invalid target URL');
         markJobDone(job);
         return;
     }
 
     const headers = normalizeForwardHeaders(arg.headers);
-    if (!headers['x-forwarded-for']) {
+    if (!arg.allowExternal && !headers['x-forwarded-for']) {
         headers['x-forwarded-for'] = arg.clientIp;
     }
     const bodyBuffer = arg.bodyBase64 ? Buffer.from(arg.bodyBase64, 'base64') : undefined;
+    let persistBuffer = [];
+    let persistBytes = 0;
+    let accumulatedRaw = Buffer.alloc(0);
+    let completionProbe = Buffer.alloc(0);
+    let providerCompleted = false;
+    let lastPublishedContent = '';
+    let lastPersistAt = Date.now();
+    const flushRaw = () => {
+        if (!job.persistent || persistBytes === 0) return;
+        const flushed = Buffer.concat(persistBuffer, persistBytes);
+        appendGenerationJobRaw(job.id, flushed);
+        const incrementalText = extractGenerationTextFromWire(accumulatedRaw);
+        if (incrementalText) {
+            setGenerationJobRawContent(job.id, incrementalText);
+        }
+        persistBuffer = [];
+        persistBytes = 0;
+        lastPersistAt = Date.now();
+    };
 
     try {
-        const upstreamResponse = await requestLocalTargetStream(targetUrl, {
-            method: arg.method,
-            headers,
-            bodyBuffer,
-            timeoutMs: job.timeoutMs,
-            signal: job.abortController.signal
-        });
+        if (job.persistent) setGenerationJobGenerating(job.id);
+        const upstreamResponse = arg.allowExternal
+            ? await (async () => {
+                const response = await fetch(targetUrl, {
+                    method: arg.method,
+                    headers,
+                    body: bodyBuffer && arg.method !== 'GET' && arg.method !== 'HEAD' ? bodyBuffer : undefined,
+                    signal: job.abortController.signal,
+                    redirect: 'follow',
+                });
+                return {
+                    status: response.status,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    body: response.body,
+                };
+            })()
+            : await requestLocalTargetStream(targetUrl, {
+                method: arg.method,
+                headers,
+                bodyBuffer,
+                timeoutMs: job.timeoutMs,
+                signal: job.abortController.signal
+            });
 
         const filteredHeaders = {};
         for (const [key, value] of Object.entries(upstreamResponse.headers)) {
-            if (key === 'content-security-policy' || key === 'content-security-policy-report-only' || key === 'clear-site-data') {
+            if (
+                key === 'content-security-policy'
+                || key === 'content-security-policy-report-only'
+                || key === 'clear-site-data'
+                || key === 'content-encoding'
+                || key === 'content-length'
+                || key === 'transfer-encoding'
+            ) {
                 continue;
             }
             filteredHeaders[key] = value;
         }
 
+        if (job.persistent) {
+            setGenerationJobHeaders(job.id, upstreamResponse.status, filteredHeaders);
+        }
         pushJobEvent(job, { type: 'upstream_headers', status: upstreamResponse.status, headers: filteredHeaders });
 
         if (upstreamResponse.body) {
             for await (const value of upstreamResponse.body) {
                 if (job.abortController.signal.aborted) break;
                 if (value && value.length > 0) {
-                    pushJobEvent(job, { type: 'chunk', dataBase64: Buffer.from(value).toString('base64') });
+                    const bytes = Buffer.from(value);
+                    completionProbe = Buffer.concat([completionProbe, bytes]);
+                    if (job.persistent) {
+                        persistBuffer.push(bytes);
+                        persistBytes += bytes.length;
+                        accumulatedRaw = Buffer.concat([accumulatedRaw, bytes]);
+                        const liveContent = extractGenerationTextFromWire(accumulatedRaw);
+                        if (liveContent && liveContent !== lastPublishedContent) {
+                            lastPublishedContent = liveContent;
+                            pushGenerationContent(job, liveContent);
+                        }
+                        if (Date.now() - lastPersistAt >= 250 || persistBytes >= 256 * 1024) {
+                            flushRaw();
+                        }
+                    }
+                    pushJobEvent(job, { type: 'chunk', dataBase64: bytes.toString('base64') });
+                    if (hasGenerationStreamTerminalMarker(completionProbe)) {
+                        providerCompleted = true;
+                        break;
+                    }
                 }
             }
         }
-        pushJobEvent(job, { type: 'done' });
+        flushRaw();
+        const cancelled = job.abortController.signal.aborted;
+        if (job.persistent) {
+            const persisted = getGenerationJob(job.id);
+            const serverParsed = extractGenerationTextFromWire(persisted?.rawResponse);
+            if (serverParsed) {
+                // The browser may have disconnected while the provider kept
+                // streaming. Server parsing therefore wins at completion; the
+                // client still owns output-script postprocessing.
+                setGenerationJobRawContent(job.id, serverParsed);
+            }
+            updateRequestLogResponseById(
+                job.id,
+                persisted?.rawResponse?.toString('utf-8') || '',
+                upstreamResponse.status,
+                upstreamResponse.status >= 200 && upstreamResponse.status < 400,
+            );
+            recordGenerationUsage({
+                jobId: job.id,
+                timestamp: persisted?.createdAt,
+                chatId: persisted?.chatId,
+                targetUrl,
+                bodyBase64: arg.bodyBase64,
+                rawResponse: persisted?.rawResponse,
+                outputText: serverParsed,
+                usageProviderId: arg.usageProviderId,
+                usageModelId: arg.usageModelId,
+                usageServiceTier: arg.usageServiceTier,
+            });
+            finishGenerationJob(
+                job.id,
+                cancelled ? 'cancelled' : 'generated',
+                cancelled ? 'user_cancelled' : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
+            );
+        }
+        pushJobEvent(job, {
+            type: 'done',
+            partial: cancelled,
+            finishReason: cancelled ? 'user_cancelled' : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
+        });
         markJobDone(job);
     } catch (error) {
+        try { flushRaw(); } catch (persistError) {
+            logger.error('[GenerationJob] Failed to flush partial response:', persistError);
+        }
         const message = error?.name === 'AbortError' ? 'Proxy stream job aborted' : `${error}`;
+        if (job.persistent) {
+            const persistedWithRaw = getGenerationJob(job.id);
+            const serverParsed = extractGenerationTextFromWire(persistedWithRaw?.rawResponse);
+            if (serverParsed) setGenerationJobRawContent(job.id, serverParsed);
+            updateRequestLogResponseById(
+                job.id,
+                persistedWithRaw?.rawResponse?.toString('utf-8') || message,
+                persistedWithRaw?.responseStatus,
+                false,
+            );
+            recordGenerationUsage({
+                jobId: job.id,
+                timestamp: persistedWithRaw?.createdAt,
+                chatId: persistedWithRaw?.chatId,
+                targetUrl,
+                bodyBase64: arg.bodyBase64,
+                rawResponse: persistedWithRaw?.rawResponse,
+                outputText: serverParsed,
+                usageProviderId: arg.usageProviderId,
+                usageModelId: arg.usageModelId,
+                usageServiceTier: arg.usageServiceTier,
+            });
+            const persisted = getGenerationJob(job.id, false);
+            const hasPartial = (persisted?.rawBytes || 0) > 0;
+            finishGenerationJob(
+                job.id,
+                error?.name === 'AbortError' ? 'cancelled' : (hasPartial ? 'failed_partial' : 'failed'),
+                error?.name === 'AbortError' ? 'user_cancelled' : 'upstream_error',
+                message,
+            );
+        }
         pushJobEvent(job, { type: 'error', status: 504, message });
         markJobDone(job);
     }
@@ -1858,9 +2214,23 @@ async function runProxyStreamJob(job, arg) {
 
 function setupProxyStreamWebSocket(server) {
     const wsServer = new WebSocketServer({ noServer: true });
+    const syncWsServer = new WebSocketServer({ noServer: true });
     server.on('upgrade', async (req, socket, head) => {
         try {
             const reqUrl = new URL(req.url, `http://${req.headers.host}`);
+            if (reqUrl.pathname === '/sync') {
+                const auth = reqUrl.searchParams.get('risu-auth') || normalizeAuthHeader(req.headers['risu-auth']);
+                const clientId = reqUrl.searchParams.get('client-id');
+                if (!clientId || !await isAuthorizedProxyRequest({ headers: { 'risu-auth': auth } })) {
+                    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                    socket.destroy();
+                    return;
+                }
+                syncWsServer.handleUpgrade(req, socket, head, (ws) => {
+                    syncWsServer.emit('connection', ws, req, clientId);
+                });
+                return;
+            }
             if (!reqUrl.pathname.startsWith('/proxy-stream-jobs/') || !reqUrl.pathname.endsWith('/ws')) {
                 socket.destroy();
                 return;
@@ -1875,7 +2245,7 @@ function setupProxyStreamWebSocket(server) {
 
             const pathParts = reqUrl.pathname.split('/').filter(Boolean);
             const jobId = pathParts.length >= 3 ? pathParts[1] : '';
-            const job = proxyStreamJobs.get(jobId);
+            const job = proxyStreamJobs.get(jobId) || loadPersistedProxyStreamJob(jobId);
             if (!job) {
                 socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
                 socket.destroy();
@@ -1891,13 +2261,44 @@ function setupProxyStreamWebSocket(server) {
         }
     });
 
-    wsServer.on('connection', (ws, _req, jobId) => {
-        const job = proxyStreamJobs.get(jobId);
+    syncWsServer.on('connection', (ws, req, clientId) => {
+        const clients = syncClients.get(clientId) ?? new Set();
+        clients.add(ws);
+        syncClients.set(clientId, clients);
+        if (!syncClientDevices.has(clientId)) {
+            syncClientDevices.set(clientId, {
+                connectedAt: Date.now(),
+                device: connectedDevice(req.headers['user-agent'] || ''),
+            });
+        }
+        ws.send(JSON.stringify({ type: 'sync-ready', timestamp: Date.now() }));
+
+        const pingTimer = setInterval(() => {
+            if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+        }, 30_000);
+
+        ws.on('close', () => {
+            clearInterval(pingTimer);
+            const current = syncClients.get(clientId);
+            if (!current) return;
+            current.delete(ws);
+            if (current.size === 0) {
+                syncClients.delete(clientId);
+                syncClientDevices.delete(clientId);
+            }
+        });
+        ws.on('error', () => clearInterval(pingTimer));
+    });
+
+    wsServer.on('connection', (ws, req, jobId) => {
+        const job = proxyStreamJobs.get(jobId) || loadPersistedProxyStreamJob(jobId);
         if (!job) {
             ws.close();
             return;
         }
 
+        const reqUrl = new URL(req.url, `http://${req.headers.host}`);
+        ws.recoverySubscriber = reqUrl.searchParams.get('mode') === 'recovery';
         job.clients.add(ws);
         ws.send(JSON.stringify({ type: 'job_accepted', jobId }));
         for (const event of job.pendingEvents) {
@@ -1905,6 +2306,12 @@ function setupProxyStreamWebSocket(server) {
         }
         job.pendingEvents = [];
         job.pendingBytes = 0;
+        if (ws.recoverySubscriber && job.latestGenerationContent) {
+            ws.send(JSON.stringify({
+                type: 'generation_content',
+                content: job.latestGenerationContent,
+            }));
+        }
 
         const pingTimer = setInterval(() => {
             if (ws.readyState !== ws.OPEN) return;
@@ -1916,7 +2323,7 @@ function setupProxyStreamWebSocket(server) {
             const currentJob = proxyStreamJobs.get(jobId);
             if (!currentJob) return;
             currentJob.clients.delete(ws);
-            if (currentJob.done && currentJob.clients.size === 0) {
+            if (currentJob.done && currentJob.clients.size === 0 && !currentJob.persistent) {
                 cleanupJob(jobId);
             }
         });
@@ -1936,491 +2343,73 @@ function encodeBackupEntry(name, data) {
     return Buffer.concat([nameLength, encodedName, dataLength, data]);
 }
 
-function isInvalidBackupPathSegment(name) {
-    return (
-        !name ||
-        name.includes('\0') ||
-        name.includes('\\') ||
-        name.startsWith('/') ||
-        name.includes('../') ||
-        name.includes('/..') ||
-        name === '.' ||
-        name === '..'
-    );
-}
+// Legacy storage codecs and migrations are provided by dataRestore/legacyRestore.cjs.
 
-function parseInlayBackupName(name) {
-    if (!name.startsWith('inlay/')) return null;
-    const suffix = name.slice('inlay/'.length);
-    if (!suffix || suffix.includes('/')) return null;
-    const dotIdx = suffix.lastIndexOf('.');
-    if (dotIdx <= 0) {
-        return { id: suffix, ext: null };
-    }
-    return {
-        id: suffix.slice(0, dotIdx),
-        ext: suffix.slice(dotIdx + 1),
-    };
-}
+const {
+    migrationMarkerPath,
+    remoteMigrationMarkerKey,
+    normalizeColdStorageStorageKey,
+    parseColdStorageJsonBuffer,
+    encodeColdStorageCanonicalBuffer,
+    readColdStorageJsonEntry,
+    listColdStorageBackupEntries,
+    restoreColdStorageCharactersInDb: restoreColdStorageCharacters,
+    restoreColdStorageChat: restoreColdChat,
+    migrateRemoteBlocksIfNeeded: migrateRemoteBlocks,
+    scanHexFilesInDir,
+    importHexFilesFromDir,
+    importHexEntries,
+} = createLegacyRestoreService({
+    savePath,
+    sqliteDb,
+    kvGet,
+    kvSet,
+    kvDel,
+    kvDelPrefix,
+    kvCopyValue,
+    clearEntities,
+    flushPendingDb,
+    createBackupAndRotate,
+    invalidateDbCache,
+    decodeRisuSave,
+    encodeRisuSaveLegacy,
+    hasRemoteBlocks,
+    logger,
+    setDbEtag: (value) => { dbEtag = value; },
+});
+migrateRemoteBlocksIfNeeded = migrateRemoteBlocks;
+restoreColdStorageCharactersInDb = restoreColdStorageCharacters;
+restoreColdStorageChat = restoreColdChat;
 
-function parseInlaySidecarBackupName(name) {
-    if (!name.startsWith('inlay_sidecar/')) return null;
-    const id = name.slice('inlay_sidecar/'.length);
-    if (!isSafeInlayId(id)) return null;
-    return { id };
-}
-
-function normalizeColdStorageStorageKey(nameOrKey) {
-    let key = nameOrKey;
-    if (key.startsWith('coldstorage/')) {
-        key = key.slice('coldstorage/'.length);
-    }
-    if (key.endsWith('.json')) {
-        key = key.slice(0, -'.json'.length);
-    }
-    if (!key || key.includes('/') || isInvalidBackupPathSegment(key)) {
-        throw new Error(`Invalid cold storage entry name: ${nameOrKey}`);
-    }
-    return `coldstorage/${key}`;
-}
-
-function toColdStorageBackupName(storageKey) {
-    return `${normalizeColdStorageStorageKey(storageKey)}.json`;
-}
-
-function parseColdStorageJsonBuffer(buffer, sourceLabel, options = {}) {
-    const { allowPlainJson = false } = options;
-    try {
-        const decompressed = zlib.gunzipSync(buffer);
-        return {
-            coldData: JSON.parse(decompressed.toString('utf-8')),
-            format: 'gzip',
-        };
-    } catch (gzipError) {
-        if (!allowPlainJson) {
-            throw gzipError;
-        }
-        try {
-            return {
-                coldData: JSON.parse(buffer.toString('utf-8')),
-                format: 'plain-json',
-            };
-        } catch (jsonError) {
-            throw new Error(`[ColdStorage] failed to parse ${sourceLabel}: gzip=${gzipError.message}; json=${jsonError.message}`);
-        }
-    }
-}
-
-function encodeColdStorageCanonicalBuffer(coldData) {
-    return Buffer.from(zlib.gzipSync(Buffer.from(JSON.stringify(coldData), 'utf-8')));
-}
-
-function readColdStorageJsonEntry(nameOrKey, options = {}) {
-    const { migrateLegacy = false, allowPlainJsonFallback = false } = options;
-    const canonicalKey = normalizeColdStorageStorageKey(nameOrKey);
-    const legacyBackupKey = `${canonicalKey}.json`;
-
-    let storageKey = canonicalKey;
-    let value = kvGet(canonicalKey);
-    if (!value) {
-        storageKey = legacyBackupKey;
-        value = kvGet(legacyBackupKey);
-    }
-    if (!value) {
-        return null;
-    }
-
-    const parsed = parseColdStorageJsonBuffer(value, storageKey, {
-        allowPlainJson: allowPlainJsonFallback || storageKey !== canonicalKey,
-    });
-
-    if (migrateLegacy && (storageKey !== canonicalKey || parsed.format !== 'gzip')) {
-        kvSet(canonicalKey, encodeColdStorageCanonicalBuffer(parsed.coldData));
-        if (storageKey !== canonicalKey) {
-            kvDel(storageKey);
-        }
-    }
-
-    return {
-        coldData: parsed.coldData,
-        storageKey,
-        canonicalKey,
-        format: parsed.format,
-    };
-}
-
-function listColdStorageBackupEntries() {
-    const canonicalKeys = Array.from(new Set(
-        kvList('coldstorage/').map((key) => normalizeColdStorageStorageKey(key))
-    )).sort((a, b) => a.localeCompare(b));
-
-    return canonicalKeys.map((storageKey) => {
-        const entry = readColdStorageJsonEntry(storageKey, {
-            migrateLegacy: true,
-            allowPlainJsonFallback: true,
-        });
-        if (!entry) {
-            throw new Error(`[ColdStorage] missing cold storage entry while exporting: ${storageKey}`);
-        }
-        const plainJson = Buffer.from(JSON.stringify(entry.coldData), 'utf-8');
-        return {
-            kind: 'buffer',
-            buffer: plainJson,
-            backupName: toColdStorageBackupName(storageKey),
-            sortKey: toColdStorageBackupName(storageKey),
-            size: plainJson.length,
-        };
-    });
-}
-
-function resolveBackupStorageKey(name) {
-    if (Buffer.byteLength(name, 'utf-8') > BACKUP_ENTRY_NAME_MAX_BYTES) {
-        throw new Error(`Backup entry name too long: ${name.slice(0, 64)}`);
-    }
-
-    if (name === 'database.risudat') {
-        return 'database/database.bin';
-    }
-
-    if (
-        name.startsWith('inlay_thumb/') ||
-        name.startsWith('inlay_meta/')
-    ) {
-        if (isInvalidBackupPathSegment(name)) {
-            throw new Error(`Invalid backup entry name: ${name}`);
-        }
-        return name;
-    }
-
-    if (name.startsWith('inlay/')) {
-        const parsed = parseInlayBackupName(name);
-        if (!parsed || !isSafeInlayId(parsed.id)) {
-            throw new Error(`Invalid inlay backup entry name: ${name}`);
-        }
-        return name;
-    }
-
-    if (name.startsWith('inlay_sidecar/')) {
-        const parsed = parseInlaySidecarBackupName(name);
-        if (!parsed) {
-            throw new Error(`Invalid inlay sidecar backup entry name: ${name}`);
-        }
-        return name;
-    }
-
-    // Upstream backups transport cold storage as coldstorage/<uuid>.json.
-    // Normalize back to the runtime KV key: coldstorage/<uuid>.
-    if (name.startsWith('coldstorage/')) {
-        return normalizeColdStorageStorageKey(name);
-    }
-
-    if (isInvalidBackupPathSegment(name) || name !== path.basename(name)) {
-        throw new Error(`Invalid asset backup entry name: ${name}`);
-    }
-
-    return `assets/${name}`;
-}
-
-function parseBackupChunk(buffer, onEntry) {
-    let offset = 0;
-    while (offset + 4 <= buffer.length) {
-        const nameLength = buffer.readUInt32LE(offset);
-        if (offset + 4 + nameLength > buffer.length) {
-            break;
-        }
-        const nameStart = offset + 4;
-        const nameEnd = nameStart + nameLength;
-        const name = buffer.subarray(nameStart, nameEnd).toString('utf-8');
-        if (nameEnd + 4 > buffer.length) {
-            break;
-        }
-        const dataLength = buffer.readUInt32LE(nameEnd);
-        const dataStart = nameEnd + 4;
-        const dataEnd = dataStart + dataLength;
-        if (dataEnd > buffer.length) {
-            break;
-        }
-        onEntry(name, buffer.subarray(dataStart, dataEnd));
-        offset = dataEnd;
-    }
-    return buffer.subarray(offset);
-}
-
-// ─── Shared backup import logic ─────────────────────────────────────────────
-// Accepts any async iterable of Buffer chunks (HTTP request body, file stream, etc.)
-async function importBackupFromSource(dataSource, { maxBytes = 0, totalBytes = 0, onProgress = null } = {}) {
-    const BATCH_SIZE = 5000;
-    // Defer Buffer.concat until enough bytes for the next entry are buffered.
-    // Concatenating on every chunk arrival is O(n²) when a single entry (e.g.
-    // database.risudat) far exceeds chunk size.
-    let pendingChunks = [];
-    let pendingTotal = 0;
-    let nextEntryThreshold = 8;
-    let hasDatabase = false;
-    let assetsRestored = 0;
-    let bytesReceived = 0;
-    let batchCount = 0;
-    const seenEntryNames = new Set();
-    const importedInlayIds = new Set();
-    const importedSidecarIds = new Set();
-    const explicitSidecarMap = new Map();
-    const legacyInlayInfoMap = new Map();
-
-    const stagingDir = path.join(savePath, 'inlays_import_staging');
-    const backupInlayDir = path.join(savePath, 'inlays_import_backup');
-    await fs.rm(stagingDir, { recursive: true, force: true });
-    await fs.rm(backupInlayDir, { recursive: true, force: true });
-    await fs.mkdir(stagingDir, { recursive: true });
-
-    function stagingInlayFilePath(id, ext) {
-        return path.join(stagingDir, `${id}.${normalizeInlayExt(ext)}`);
-    }
-    function stagingSidecarPath(id) {
-        return path.join(stagingDir, `${id}.meta.json`);
-    }
-    function writeStagingInlayFileSync(id, ext, buffer, info) {
-        const normalizedExt = normalizeInlayExt(ext);
-        writeFileSync(stagingInlayFilePath(id, normalizedExt), Buffer.from(buffer));
-        const sidecar = {
-            ext: normalizedExt,
-            name: typeof info?.name === 'string' ? info.name : id,
-            type: typeof info?.type === 'string' ? info.type : 'image',
-            height: typeof info?.height === 'number' ? info.height : undefined,
-            width: typeof info?.width === 'number' ? info.width : undefined,
-        };
-        writeFileSync(stagingSidecarPath(id), JSON.stringify(sidecar));
-    }
-    function writeStagingSidecarSync(id, info) {
-        const sidecar = {
-            ext: normalizeInlayExt(info?.ext),
-            name: typeof info?.name === 'string' ? info.name : id,
-            type: typeof info?.type === 'string' ? info.type : 'image',
-            height: typeof info?.height === 'number' ? info.height : undefined,
-            width: typeof info?.width === 'number' ? info.width : undefined,
-        };
-        writeFileSync(stagingSidecarPath(id), JSON.stringify(sidecar));
-    }
-
-    await flushPendingDb();
-    createBackupAndRotate();
-
-    sqliteDb.pragma('synchronous = OFF');
-
-    sqliteDb.exec('BEGIN');
-    kvDelPrefix('assets/');
-    kvDelPrefix('inlay/');
-    kvDelPrefix('inlay_thumb/');
-    kvDelPrefix('inlay_meta/');
-    kvDelPrefix('inlay_info/');
-    kvDelPrefix('coldstorage/');
-    // Composer drafts are session/device-local and not carried in the backup;
-    // wipe stale ones so an old snapshot's chats don't resurrect later drafts.
-    kvDelPrefix('drafts/');
-    // Same reasoning as clearExistingData (save-folder import path): wipe stale
-    // remote payloads from the prior user before this backup's contents land.
-    // .bin backups never carry REMOTE blocks today, so the migration won't
-    // resolveRemote on them — but keeping the two import paths consistent
-    // avoids a contamination regression if that ever changes (upstream sync,
-    // plugin-generated buffers, etc.).
-    kvDelPrefix('remotes/');
-    // Allow remote-block migration to re-evaluate against the new database.bin.
-    // (.bin backups themselves never carry REMOTE blocks — legacy msgpack
-    // format only — but a fresh import is a clear "data changed" signal.)
-    kvDel(REMOTE_MIGRATION_MARKER_KEY);
-    clearEntities();
-
-    try {
-        for await (const chunk of dataSource) {
-            bytesReceived += chunk.length;
-            if (maxBytes > 0 && bytesReceived > maxBytes) {
-                throw new Error(`Backup exceeds max allowed size (${maxBytes} bytes)`);
-            }
-            if (onProgress) onProgress(bytesReceived, totalBytes);
-
-            pendingChunks.push(Buffer.from(chunk));
-            pendingTotal += chunk.length;
-            if (pendingTotal < nextEntryThreshold) continue;
-
-            const buffer = pendingChunks.length === 1
-                ? pendingChunks[0]
-                : Buffer.concat(pendingChunks, pendingTotal);
-            pendingChunks = [];
-            pendingTotal = 0;
-
-            const remaining = parseBackupChunk(buffer, (name, data) => {
-                if (seenEntryNames.has(name)) {
-                    throw new Error(`Duplicate backup entry: ${name}`);
-                }
-                seenEntryNames.add(name);
-
-                const inlayRaw = parseInlayBackupName(name);
-                const inlaySidecar = parseInlaySidecarBackupName(name);
-
-                if (inlayRaw) {
-                    importedInlayIds.add(inlayRaw.id);
-                    if (inlayRaw.ext) {
-                        writeStagingInlayFileSync(inlayRaw.id, inlayRaw.ext, data, legacyInlayInfoMap.get(inlayRaw.id) || { ext: inlayRaw.ext, name: inlayRaw.id, type: 'image' });
-                    } else if (data.length > 0 && data[0] === 0x7b) {
-                        const parsed = JSON.parse(data.toString('utf-8'));
-                        const type = typeof parsed?.type === 'string' ? parsed.type : 'image';
-                        const ext = normalizeInlayExt(parsed?.ext);
-                        const buffer = type === 'signature'
-                            ? Buffer.from(typeof parsed?.data === 'string' ? parsed.data : '', 'utf-8')
-                            : decodeDataUri(parsed?.data).buffer;
-                        writeStagingInlayFileSync(inlayRaw.id, ext, buffer, legacyInlayInfoMap.get(inlayRaw.id) || {
-                            ext,
-                            name: typeof parsed?.name === 'string' ? parsed.name : inlayRaw.id,
-                            type,
-                            height: typeof parsed?.height === 'number' ? parsed.height : undefined,
-                            width: typeof parsed?.width === 'number' ? parsed.width : undefined,
-                        });
-                    } else {
-                        writeStagingInlayFileSync(inlayRaw.id, 'bin', data, legacyInlayInfoMap.get(inlayRaw.id) || {
-                            ext: 'bin',
-                            name: inlayRaw.id,
-                            type: 'image',
-                        });
-                    }
-                    if (explicitSidecarMap.has(inlayRaw.id)) {
-                        writeStagingSidecarSync(inlayRaw.id, explicitSidecarMap.get(inlayRaw.id));
-                    } else if (!importedSidecarIds.has(inlayRaw.id)) {
-                        const legacyInfo = legacyInlayInfoMap.get(inlayRaw.id);
-                        if (legacyInfo) {
-                            writeStagingSidecarSync(inlayRaw.id, legacyInfo);
-                        }
-                    }
-                    assetsRestored += 1;
-                } else if (inlaySidecar) {
-                    const parsed = JSON.parse(data.toString('utf-8'));
-                    explicitSidecarMap.set(inlaySidecar.id, parsed);
-                    writeStagingSidecarSync(inlaySidecar.id, parsed);
-                    importedSidecarIds.add(inlaySidecar.id);
-                } else if (name.startsWith('inlay_info/')) {
-                    const id = name.slice('inlay_info/'.length);
-                    if (!isSafeInlayId(id)) {
-                        throw new Error(`Invalid legacy inlay info entry name: ${name}`);
-                    }
-                    const parsed = JSON.parse(data.toString('utf-8'));
-                    legacyInlayInfoMap.set(id, {
-                        ext: normalizeInlayExt(parsed?.ext),
-                        name: typeof parsed?.name === 'string' ? parsed.name : id,
-                        type: typeof parsed?.type === 'string' ? parsed.type : 'image',
-                        height: typeof parsed?.height === 'number' ? parsed.height : undefined,
-                        width: typeof parsed?.width === 'number' ? parsed.width : undefined,
-                    });
-                    if (importedInlayIds.has(id) && !importedSidecarIds.has(id)) {
-                        writeStagingSidecarSync(id, legacyInlayInfoMap.get(id));
-                    }
-                } else if (name.startsWith('inlay_thumb/')) {
-                    // Skip deprecated thumbnail entries from legacy backups
-                } else {
-                    const storageKey = resolveBackupStorageKey(name);
-                    const storageValue = storageKey.startsWith('coldstorage/')
-                        ? encodeColdStorageCanonicalBuffer(
-                            parseColdStorageJsonBuffer(data, name, { allowPlainJson: true }).coldData
-                        )
-                        : data;
-                    kvSet(storageKey, storageValue);
-                    if (storageKey === 'database/database.bin') {
-                        hasDatabase = true;
-                    } else {
-                        assetsRestored += 1;
-                    }
-                }
-
-                batchCount++;
-                if (batchCount >= BATCH_SIZE) {
-                    sqliteDb.exec('COMMIT');
-                    sqliteDb.exec('BEGIN');
-                    batchCount = 0;
-                }
-            });
-
-            if (remaining.length === 0) {
-                nextEntryThreshold = 8;
-            } else {
-                pendingChunks.push(remaining);
-                pendingTotal = remaining.length;
-                if (remaining.length < 4) {
-                    nextEntryThreshold = 8;
-                } else {
-                    const nameLen = remaining.readUInt32LE(0);
-                    const headerEnd = 4 + nameLen + 4;
-                    if (remaining.length < headerEnd) {
-                        nextEntryThreshold = headerEnd;
-                    } else {
-                        const dataLen = remaining.readUInt32LE(4 + nameLen);
-                        nextEntryThreshold = headerEnd + dataLen;
-                    }
-                }
-            }
-        }
-
-        if (pendingTotal > 0) {
-            throw new Error('Backup stream ended with incomplete entry');
-        }
-        if (!hasDatabase) {
-            throw new Error('Backup does not contain database.risudat');
-        }
-        for (const [id, info] of legacyInlayInfoMap.entries()) {
-            if (importedInlayIds.has(id) && !importedSidecarIds.has(id)) {
-                writeStagingSidecarSync(id, info);
-            }
-        }
-        sqliteDb.exec('COMMIT');
-    } catch (error) {
-        try { sqliteDb.exec('ROLLBACK'); } catch (_) {}
-        await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
-        await fs.rm(backupInlayDir, { recursive: true, force: true }).catch(() => {});
-        throw error;
-    } finally {
-        sqliteDb.pragma('synchronous = NORMAL');
-    }
-
-    await ensureInlayDir();
-    try {
-        if (existsSync(inlayDir)) {
-            await fs.rename(inlayDir, backupInlayDir);
-        }
-        await fs.rename(stagingDir, inlayDir);
-        await fs.writeFile(inlayMigrationMarker, new Date().toISOString(), 'utf-8');
-        await fs.rm(backupInlayDir, { recursive: true, force: true }).catch(() => {});
-    } catch (swapError) {
-        if (existsSync(backupInlayDir)) {
-            await fs.rm(inlayDir, { recursive: true, force: true }).catch(() => {});
-            await fs.rename(backupInlayDir, inlayDir).catch(() => {});
-        }
-        await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
-        throw swapError;
-    }
-
-    invalidateDbCache();
-
-    // Trigger cold storage migration now so import result includes failure count.
-    const dbRaw = kvGet('database/database.bin');
-    let coldStorageFailed = 0;
-    if (dbRaw) {
-        const migration = {};
-        const dbObj = await decodeDatabaseWithPersistentChatIds(dbRaw, {
-            createBackup: false,
-            migrationResult: migration,
-        });
-        coldStorageFailed = migration.coldStorageFailed || 0;
-        initChatStore(dbObj);
-    }
-
-    try {
-        checkpointWal('TRUNCATE');
-    } catch (checkpointError) {
-        logger.warn('[Backup Import] WAL checkpoint after import failed:', checkpointError);
-    }
-
-    console.log(`[Backup Import] Complete: ${assetsRestored} assets restored, ${(bytesReceived / 1024 / 1024).toFixed(1)}MB processed`);
-    if (coldStorageFailed > 0) {
-        logger.error(`[Backup Import] ${coldStorageFailed} cold storage character(s) could not be restored`);
-    }
-    return { assetsRestored, bytesReceived, coldStorageFailed };
-}
+const {
+    importBackupFromSource,
+} = createBackupRestoreService({
+    savePath,
+    inlayDir,
+    inlayMigrationMarker,
+    remoteMigrationMarkerKey,
+    sqliteDb,
+    kvGet,
+    kvSet,
+    kvDel,
+    kvDelPrefix,
+    clearEntities,
+    checkpointWal,
+    flushPendingDb,
+    createBackupAndRotate,
+    invalidateDbCache,
+    decodeDatabaseWithPersistentChatIds,
+    initChatStore,
+    normalizeInlayExt,
+    isSafeInlayId,
+    decodeDataUri,
+    ensureInlayDir,
+    normalizeColdStorageStorageKey,
+    parseColdStorageJsonBuffer,
+    encodeColdStorageCanonicalBuffer,
+    logger,
+    maxEntryNameBytes: BACKUP_ENTRY_NAME_MAX_BYTES,
+});
 
 app.get('/', async (req, res, next) => {
 
@@ -2446,7 +2435,9 @@ async function checkAuth(req, res, returnOnlyStatus = false, {allowExpired = fal
         const authHeader = req.headers['risu-auth'];
 
         if(!authHeader){
-            console.log('No auth header')
+            if(!returnOnlyStatus){
+                console.log('No auth header')
+            }
             if(returnOnlyStatus){
                 return false;
             }
@@ -2782,6 +2773,10 @@ async function hubProxyFunc(req, res) {
 
         const pathHeader = req.headers['x-risu-node-path'];
         if (pathHeader) {
+            if (isCloudflareTunnelRequest(req)) {
+                res.status(403).send({ error: 'x-risu-node-path is not allowed through tunnel requests' });
+                return;
+            }
             const decodedPath = decodeURIComponent(pathHeader);
             externalURL = decodedPath;
         } else {
@@ -2870,7 +2865,7 @@ async function hubProxyFunc(req, res) {
 
 app.get('/proxy', reverseProxyFunc_get);
 app.get('/proxy2', reverseProxyFunc_get);
-app.get('/hub-proxy/*', hubProxyFunc);
+app.get('/hub-proxy/*splat', hubProxyFunc);
 
 app.post('/proxy', reverseProxyFunc);
 app.post('/proxy2', reverseProxyFunc);
@@ -2880,7 +2875,7 @@ app.patch('/proxy', reverseProxyFunc);
 app.patch('/proxy2', reverseProxyFunc);
 app.delete('/proxy', reverseProxyFunc);
 app.delete('/proxy2', reverseProxyFunc);
-app.post('/hub-proxy/*', hubProxyFunc);
+app.post('/hub-proxy/*splat', hubProxyFunc);
 
 // --- Proxy Stream Job endpoints ---
 app.post('/proxy-stream-jobs', async (req, res) => {
@@ -2947,6 +2942,38 @@ app.delete('/proxy-stream-jobs/:jobId', async (req, res) => {
     res.send({ success: true });
 });
 
+// --- Revenant generation jobs -------------------------------------------------
+installRevenantGenerationRoutes(app, {
+    checkProxyAuth,
+    requireSyncClientId,
+    sanitizeGenerationTargetUrl,
+    normalizeForwardHeaders,
+    createProxyStreamJob,
+    runProxyStreamJob,
+    proxyStreamJobs,
+    maxActiveJobs: PROXY_STREAM_MAX_ACTIVE_JOBS,
+    maxBodyBase64Bytes: PROXY_STREAM_MAX_BODY_BASE64_BYTES,
+    randomUUID: () => nodeCrypto.randomUUID(),
+    addRequestLog,
+    queueStorageOperation,
+    chatStorage: {
+        ensureChatStore,
+        getState: () => ({ fullChatStore, saveTimers, dbCache }),
+        databaseHexKey: DB_HEX_KEY,
+        persistDbCacheWithChats,
+        kvGet,
+        normalizeJSON,
+        decodeRisuSave,
+        reassembleFullDb,
+        stripChatsFromDb,
+        kvSet,
+        encodeRisuSaveLegacy,
+        initChatStore,
+        createBackupAndRotate,
+        broadcastDatabaseInvalidated,
+    },
+});
+
 // app.get('/api/password', async(req, res)=> {
 //     if(password === ''){
 //         res.send({status: 'unset'})
@@ -2967,7 +2994,7 @@ app.get('/api/test_auth', async(req, res) => {
     else if(!await checkAuth(req, res, true)){
         // JWT missing/invalid – fall back to session cookie (survives page refresh)
         const sessionToken = parseSessionCookie(req)
-        if (sessionToken && (sessions.get(sessionToken) ?? 0) > Date.now()) {
+        if (sessionToken && sessionExpiresAt(sessions.get(sessionToken)) > Date.now()) {
             res.send({status: 'success', token: createServerJwt()})
         } else {
             res.send({status: 'incorrect'})
@@ -2998,26 +3025,45 @@ app.post('/api/token/refresh', async (req, res) => {
 })
 
 // ── Session cookie issuance (F-0) ──────────────────────────────────────────
-// Called once after JWT auth succeeds. Issues a long-lived cookie so that
-// <img src="/api/asset/..."> requests can be authenticated without JS.
+// Called after JWT auth succeeds. Reuses and refreshes a valid session cookie,
+// or issues a new one, so <img src="/api/asset/..."> requests can be
+// authenticated without JS.
 app.post('/api/session', async (req, res) => {
     if (!await checkAuth(req, res)) return
-    const clientSessionId = req.headers['x-session-id']
+    const clientSessionId = getSyncClientIdFromRequest(req)
     if (clientSessionId) {
-        activeSessionId = clientSessionId
-        console.log('[Session] Active writer session updated')
+        console.log('[Session] Sync client session registered')
     }
-    const token = nodeCrypto.randomBytes(32).toString('hex')
-    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000
+    const now = Date.now()
+    const existingToken = parseSessionCookie(req)
+    const token = existingToken && sessionExpiresAt(sessions.get(existingToken)) > now
+        ? existingToken
+        : nodeCrypto.randomBytes(32).toString('hex')
+    const maxAge = 7 * 24 * 60 * 60 // seconds
+    const expiresAt = now + maxAge * 1000
     sessions.set(token, expiresAt)
     // Prune stale sessions (bounded by single-user usage, safe to do inline)
-    for (const [t, exp] of sessions) {
-        if (exp < Date.now()) sessions.delete(t)
+    for (const [t, session] of sessions) {
+        if (sessionExpiresAt(session) <= now) sessions.delete(t)
     }
     saveSessions()
-    const maxAge = 7 * 24 * 60 * 60 // seconds
     res.setHeader('Set-Cookie', `risu-session=${token}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}; Path=/`)
-    res.json({ ok: true })
+    res.json({
+        ok: true,
+    })
+})
+
+app.get('/api/active-devices', async (req, res) => {
+    if (!await checkAuth(req, res)) return
+    const currentClientId = String(getSyncClientIdFromRequest(req))
+    res.json({
+        devices: [...syncClientDevices].map(([clientId, entry]) => ({
+            id: nodeCrypto.createHash('sha256').update(clientId).digest('hex'),
+            device: entry.device,
+            connectedAt: entry.connectedAt,
+            current: clientId === currentClientId,
+        })).sort((a, b) => Number(b.current) - Number(a.current) || b.connectedAt - a.connectedAt),
+    })
 })
 
 // ── Direct asset serving (F-1) ─────────────────────────────────────────────
@@ -3297,9 +3343,15 @@ app.get('/api/read', async (req, res, next) => {
                     });
                     initChatStore(dbObj);
                     const stripped = normalizeJSON(stripChatsFromDb(dbObj));
-                    // Populate dbCache so patch endpoint uses the same data
+                    const responseDb = isCloudflareTunnelRequest(req)
+                        ? normalizeJSON(filterRemoteOnlyFolders(stripped))
+                        : stripped;
+                    // Populate dbCache with the full stripped DB. Remote clients
+                    // receive a filtered view, but hidden local-only data must
+                    // remain in the server baseline so later saves can merge it
+                    // back instead of treating it as deleted.
                     dbCache[filePath] = stripped;
-                    value = Buffer.from(encodeRisuSaveLegacy(stripped));
+                    value = Buffer.from(encodeRisuSaveLegacy(responseDb));
                 } catch (e) {
                     // Log the Error itself (not just e.message) so logger.*
                     // tags it and the Express middleware won't re-log after next().
@@ -3435,7 +3487,7 @@ app.get('/api/logs', async (req, res, next) => {
 
 app.delete('/api/logs', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         clearLogs();
         res.send({ success: true });
@@ -3444,11 +3496,28 @@ app.delete('/api/logs', async (req, res, next) => {
     }
 });
 
+app.delete('/api/logs/:id', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isSafeInteger(id) || id <= 0) {
+            return res.status(400).send({ error: 'invalid log id' });
+        }
+        res.send({ success: true, deleted: deleteLog(id) });
+    } catch (error) {
+        next(error);
+    }
+});
+
+installRequestLogRoutes(app, { checkAuth, requireSyncClientId });
+installUsageRoutes(app, { checkAuth, requireSyncClientId });
+
 app.post('/api/write', async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
     }
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     const filePath = req.headers['file-path'];
     const fileContent = req.body;
     if (!filePath || !fileContent) {
@@ -3462,14 +3531,26 @@ app.post('/api/write', async (req, res, next) => {
     try {
         await queueStorageOperation(async () => {
             const key = Buffer.from(filePath, 'hex').toString('utf-8');
+            let databaseForEtag = null;
 
             // ETag conflict detection for database.bin
             if (key === 'database/database.bin') {
                 const ifMatch = req.headers['x-if-match'];
-                if (ifMatch && dbEtag && ifMatch !== dbEtag) {
+                let currentEtag = dbEtag;
+                if (ifMatch && isCloudflareTunnelRequest(req)) {
+                    const raw = kvGet('database/database.bin');
+                    if (raw) {
+                        const currentDb = normalizeJSON(stripChatsFromDb(
+                            await decodeDatabaseWithPersistentChatIds(raw)
+                        ));
+                        const visibleDb = normalizeJSON(filterRemoteOnlyFolders(currentDb));
+                        currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
+                    }
+                }
+                if (ifMatch && currentEtag && ifMatch !== currentEtag) {
                     res.status(409).send({
                         error: 'ETag mismatch - concurrent modification detected',
-                        currentEtag: dbEtag
+                        currentEtag
                     });
                     return;
                 }
@@ -3501,8 +3582,17 @@ app.post('/api/write', async (req, res, next) => {
             } else if (key === 'database/database.bin') {
                 // Client sends stubs-only DB — merge full chats from server before persisting
                 try {
-                    const incomingDb = await decodeRisuSave(fileContent);
+                    let incomingDb = await decodeRisuSave(fileContent);
                     await ensureChatStore();
+                    if (isCloudflareTunnelRequest(req)) {
+                        const raw = kvGet('database/database.bin');
+                        if (raw) {
+                            const originalDb = normalizeJSON(stripChatsFromDb(
+                                await decodeDatabaseWithPersistentChatIds(raw)
+                            ));
+                            incomingDb = mergeRemoteFilteredDatabase(originalDb, incomingDb);
+                        }
+                    }
                     const fullDb = reassembleFullDb(incomingDb);
 
                     // Mirror the patch-persist guard (persistDbCacheWithChats):
@@ -3532,6 +3622,7 @@ app.post('/api/write', async (req, res, next) => {
                     // Re-init chat store from merged result
                     initChatStore(fullDb);
                     kvSet(key, mergedContent);
+                    databaseForEtag = fullDb;
                 } catch (e) {
                     logger.error('[Write] Failed to merge chats into database.bin:', e.message);
                     // Do NOT write stubs-only to disk — that would permanently
@@ -3550,9 +3641,14 @@ app.post('/api/write', async (req, res, next) => {
                     clearTimeout(saveTimers[DB_HEX_KEY]);
                     delete saveTimers[DB_HEX_KEY];
                 }
-                // ETag based on stripped version (what client sees)
-                dbEtag = computeBufferEtag(fileContent);
+                // ETag based on the stripped version visible to this client.
+                const strippedForEtag = normalizeJSON(stripChatsFromDb(databaseForEtag));
+                const visibleForEtag = isCloudflareTunnelRequest(req)
+                    ? normalizeJSON(filterRemoteOnlyFolders(strippedForEtag))
+                    : strippedForEtag;
+                dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleForEtag)));
                 createBackupAndRotate();
+                broadcastDatabaseInvalidated(req);
             }
 
             res.send({
@@ -3566,7 +3662,7 @@ app.post('/api/write', async (req, res, next) => {
 });
 
 app.post('/api/db/flush', sessionAuthMiddleware, async (req, res, next) => {
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         await queueStorageOperation(async () => {
             await flushPendingDb();
@@ -3589,7 +3685,7 @@ app.post('/api/patch', async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
     }
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     const filePath = req.headers['file-path'];
     const patch = req.body.patch;
     const expectedHash = req.body.expectedHash;
@@ -3659,13 +3755,22 @@ app.post('/api/patch', async (req, res, next) => {
                 return;
             }
 
-            const serverHash = calculateHash(dbCache[filePath]).toString(16);
+            const remoteFilteredDb = decodedKey === 'database/database.bin' && isCloudflareTunnelRequest(req)
+                ? normalizeJSON(filterRemoteOnlyFolders(dbCache[filePath]))
+                : null;
+            const patchBaseline = remoteFilteredDb ?? dbCache[filePath];
+            const serverHash = calculateHash(patchBaseline).toString(16);
 
             if (expectedHash !== serverHash) {
-                console.log(`[Patch] Hash mismatch for ${decodedKey}: expected=${expectedHash}, server=${serverHash}`);
+                logger.warn(
+                    `[Patch] Hash mismatch for ${decodedKey}: `
+                    + `expected=${expectedHash}, server=${serverHash}, `
+                    + `client=${String(getSyncClientIdFromRequest(req) || 'none')}`
+                );
                 let currentEtag = undefined;
                 if (decodedKey === 'database/database.bin') {
-                    currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(dbCache[filePath])));
+                    const visibleDb = remoteFilteredDb ?? dbCache[filePath];
+                    currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
                     dbEtag = currentEtag;
                 }
                 res.status(409).send({
@@ -3676,7 +3781,7 @@ app.post('/api/patch', async (req, res, next) => {
             }
 
             // Apply patch to in-memory database (clone first to prevent partial mutation on failure)
-            const snapshot = JSON.parse(JSON.stringify(dbCache[filePath]));
+            const snapshot = JSON.parse(JSON.stringify(patchBaseline));
             let result;
             try {
                 result = applyPatch(snapshot, patch, true);
@@ -3685,7 +3790,9 @@ app.post('/api/patch', async (req, res, next) => {
                 delete dbCache[filePath];
                 throw patchErr;
             }
-            dbCache[filePath] = snapshot;
+            dbCache[filePath] = remoteFilteredDb
+                ? normalizeJSON(mergeRemoteFilteredDatabase(dbCache[filePath], snapshot))
+                : snapshot;
 
             // Schedule save to KV (debounced) — merge full chats back for database.bin
             if (saveTimers[filePath]) {
@@ -3726,7 +3833,10 @@ app.post('/api/patch', async (req, res, next) => {
 
             // Update ETag after successful patch (based on stripped version)
             if (decodedKey === 'database/database.bin') {
-                dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(dbCache[filePath])));
+                const visibleDb = remoteFilteredDb
+                    ? normalizeJSON(filterRemoteOnlyFolders(dbCache[filePath]))
+                    : dbCache[filePath];
+                dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
             }
 
             const responsePayload = {
@@ -3737,6 +3847,9 @@ app.post('/api/patch', async (req, res, next) => {
             const persistWarning = currentPersistWarning();
             if (persistWarning) {
                 responsePayload.persistWarning = persistWarning;
+            }
+            if (decodedKey === 'database/database.bin') {
+                broadcastDatabaseInvalidated(req);
             }
             res.send(responsePayload);
         });
@@ -3821,7 +3934,7 @@ app.post('/api/assets/bulk-read', async (req, res, next) => {
 
 app.post('/api/assets/bulk-write', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         const entries = req.body; // {key: string, value: base64}[]
         if(!Array.isArray(entries)){
@@ -3960,7 +4073,7 @@ app.get('/api/backup/export', async (req, res, next) => {
 // Pre-flight check: auth + size + disk space before client starts uploading
 app.post('/api/backup/import/prepare', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         if (importInProgress) {
             res.status(409).json({ error: 'Another import is already in progress' });
@@ -3993,7 +4106,7 @@ app.post('/api/backup/import/prepare', async (req, res, next) => {
 
 app.post('/api/backup/import', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
 
     if (importInProgress) {
         res.status(409).json({ error: 'Another import is already in progress' });
@@ -4090,14 +4203,15 @@ app.post('/api/backup/import', async (req, res, next) => {
 // Save current data as a .bin backup file on the server
 app.post('/api/backup/server/save', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         await flushPendingDb();
+        const dbBackupValue = kvGet('database/database.bin');
 
         // Pre-flight disk check — bail before streaming if the target dir
         // can't fit the backup. Avoids wasted minutes + half-written tmp files.
         try {
-            const estimate = await estimateServerBackupSize();
+            const estimate = await estimateServerBackupSize(dbBackupValue?.length);
             const required = Math.ceil(estimate * 1.05); // 5% safety margin
             const sf = await fs.statfs(backupsDir);
             const free = sf.bsize * sf.bavail;
@@ -4137,7 +4251,7 @@ app.post('/api/backup/server/save', async (req, res, next) => {
         ];
 
         const totalEntries = namespacedEntries.length + 1; // +1 for database
-        const totalBytes = namespacedEntries.reduce((sum, e) => sum + e.size, 0);
+        const totalBytes = namespacedEntries.reduce((sum, e) => sum + e.size, 0) + (dbBackupValue?.length || 0);
 
         // Stream progress as NDJSON
         res.setHeader('content-type', 'application/x-ndjson');
@@ -4178,11 +4292,10 @@ app.post('/api/backup/server/save', async (req, res, next) => {
                         }
                     }
                     if (closed) throw new Error('Client disconnected during backup save');
-                    const dbValue = kvGet('database/database.bin');
-                    if (dbValue) {
-                        const ok = writeStream.write(encodeBackupEntry('database.risudat', dbValue));
+                    if (dbBackupValue) {
+                        const ok = writeStream.write(encodeBackupEntry('database.risudat', dbBackupValue));
                         if (!ok) await new Promise(r => writeStream.once('drain', r));
-                        bytesWritten += dbValue.length;
+                        bytesWritten += dbBackupValue.length;
                     }
                     res.write(JSON.stringify({ type: 'progress', current: totalEntries, total: totalEntries, bytes: bytesWritten, totalBytes }) + '\n');
                     writeStream.end(resolve);
@@ -4246,7 +4359,7 @@ app.get('/api/backup/server/list', async (req, res, next) => {
 // Restore from a server backup file
 app.post('/api/backup/server/restore', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
 
     if (importInProgress) {
         res.status(409).json({ error: 'Another import is already in progress' });
@@ -4313,10 +4426,100 @@ app.post('/api/backup/server/restore', async (req, res, next) => {
     }
 });
 
+// Fill only assets referenced by the current database but absent from the
+// current KV store. Unlike a full restore this never changes database.bin,
+// chats, settings, existing assets, inlays, or cold storage.
+app.post('/api/backup/server/restore-assets', async (req, res, next) => {
+    if (!await checkAuth(req, res)) { return; }
+    if (!requireSyncClientId(req, res)) return;
+
+    if (importInProgress) {
+        res.status(409).json({ error: 'Another import is already in progress' });
+        return;
+    }
+    importInProgress = true;
+
+    try {
+        const filename = req.body?.filename;
+        if (!filename || !BACKUP_FILENAME_REGEX.test(filename)) {
+            res.status(400).json({ error: 'Invalid backup filename' });
+            return;
+        }
+        const filePath = path.join(backupsDir, filename);
+        try {
+            await fs.access(filePath);
+        } catch {
+            res.status(404).json({ error: 'Backup file not found' });
+            return;
+        }
+
+        // Include any debounced DB changes before deciding which assets the
+        // current save references. Asset restoration itself is additive.
+        await flushPendingDb();
+        const raw = kvGet('database/database.bin');
+        if (!raw) {
+            res.status(409).json({ error: 'Current database is missing' });
+            return;
+        }
+        const dbObj = await decodeRisuSave(raw);
+        const referencedBasenames = buildUncleanableSet(dbObj, true);
+        const currentBasenames = new Set(
+            kvList('assets/').map((key) => statsBasename(key)),
+        );
+        const missingBasenames = new Set(
+            Array.from(referencedBasenames).filter((name) => !currentBasenames.has(name)),
+        );
+
+        res.setHeader('content-type', 'application/x-ndjson');
+        res.flushHeaders();
+
+        let lastProgressWrite = 0;
+        const result = await restoreMissingAssetsFromBackupFile({
+            db: sqliteDb,
+            filePath,
+            missingBasenames,
+            maxEntryNameBytes: BACKUP_ENTRY_NAME_MAX_BYTES,
+            onProgress: (bytes, totalBytes) => {
+                const now = Date.now();
+                if (now - lastProgressWrite < 200 && bytes < totalBytes) return;
+                lastProgressWrite = now;
+                res.write(JSON.stringify({ type: 'progress', bytes, totalBytes }) + '\n');
+            },
+            beforeRestore: async (restoreBytes) => {
+                const required = restoreBytes * BACKUP_DISK_HEADROOM;
+                const disk = await checkDiskSpace(required);
+                if (!disk.ok) {
+                    throw new Error(
+                        `Insufficient disk space (available=${disk.available}, required=${required})`,
+                    );
+                }
+            },
+        });
+
+        res.write(JSON.stringify({
+            type: 'done',
+            ok: true,
+            referencedAssets: referencedBasenames.size,
+            missingAssets: missingBasenames.size,
+            ...result,
+        }) + '\n');
+        res.end();
+    } catch (error) {
+        if (!res.headersSent) {
+            next(error);
+        } else {
+            res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
+            res.end();
+        }
+    } finally {
+        importInProgress = false;
+    }
+});
+
 // Delete a server backup file
 app.delete('/api/backup/server/:filename', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         const filename = req.params.filename;
         if (!BACKUP_FILENAME_REGEX.test(filename)) {
@@ -4368,125 +4571,7 @@ app.get('/api/backup/server/download/:filename', async (req, res, next) => {
 
 // ── Chat content endpoints (runtime lazy load) ─────────────────────────────
 
-// Cold storage compatibility: restore data stored in coldstorage/ KV entries
-const COLD_STORAGE_HEADER = '\uEF01COLDSTORAGE\uEF01';
-
-function restoreColdStorageCharacter(character) {
-    if (!character?.coldstorage) return true;
-    const key = character.coldstorage;
-    const entry = readColdStorageJsonEntry(key, {
-        migrateLegacy: true,
-    });
-    if (!entry) {
-        logger.error(`[ColdStorage] character data not found for key: ${key}`);
-        return false;
-    }
-    try {
-        const coldData = entry.coldData;
-        if (coldData?.character) {
-            Object.assign(character, coldData.character);
-            delete character.coldstorage;
-            delete character.coldStoragedChats;
-        } else {
-            logger.error(`[ColdStorage] unexpected character cold data format for key: ${key}`);
-            return false;
-        }
-        return true;
-    } catch (err) {
-        logger.error(`[ColdStorage] character restore failed for key ${key}:`, err.message);
-        return false;
-    }
-}
-
-function promoteFailedColdStorageStub(char) {
-    const coldKey = char.coldstorage;
-    // Fill in missing fields with safe defaults matching createBlankChar() in src/ts/characters.ts.
-    // SYNC: if createBlankChar() defaults change, update this object to match.
-    const defaults = {
-        firstMessage: '', desc: '', notes: '', chatFolders: [],
-        emotionImages: [], bias: [], viewScreen: 'none', globalLore: [],
-        sdData: [
-            ['always', 'solo, 1girl'], ['negative', ''],
-            ["|character's appearance", ''], ['current situation', ''],
-            ["$character's pose", ''], ["$character's emotion", ''],
-            ['current location', ''],
-        ],
-        utilityBot: false, customscript: [], exampleMessage: '',
-        creatorNotes: '', systemPrompt: '', postHistoryInstructions: '',
-        alternateGreetings: [], tags: [], creator: '', characterVersion: '',
-        personality: '', scenario: '',
-        firstMsgIndex: -1,
-        replaceGlobalNote: '', additionalText: '',
-        triggerscript: [
-            { comment: '', type: 'manual', conditions: [], effect: [{ type: 'v2Header', code: '', indent: 0 }] },
-            { comment: 'New Event', type: 'manual', conditions: [], effect: [] },
-        ],
-    };
-    for (const [key, value] of Object.entries(defaults)) {
-        if (char[key] === undefined || char[key] === null) {
-            char[key] = value;
-        }
-    }
-    // Force firstMsgIndex to -1 even if stub had 0 — prevents alternateGreetings[0] access on empty array
-    char.firstMsgIndex = -1;
-    // Ensure chats array is valid
-    if (!Array.isArray(char.chats) || char.chats.length === 0) {
-        char.chats = [{ message: [], note: '', name: 'Chat 1', localLore: [] }];
-    }
-    // Leave recovery breadcrumb and remove cold storage markers
-    char.desc = `[Cold storage restore failed. Original key: ${coldKey}]\n\n${char.desc || ''}`.trim();
-    delete char.coldstorage;
-    delete char.coldStoragedChats;
-}
-
-function restoreColdStorageCharactersInDb(dbObj) {
-    const result = { restored: 0, failed: 0, failedNames: [] };
-    if (!Array.isArray(dbObj?.characters)) return result;
-    for (let i = 0; i < dbObj.characters.length; i++) {
-        const char = dbObj.characters[i];
-        if (!char?.coldstorage) continue;
-        if (restoreColdStorageCharacter(char)) {
-            result.restored++;
-        } else {
-            result.failed++;
-            result.failedNames.push(char.name || `(index ${i})`);
-            promoteFailedColdStorageStub(char);
-        }
-    }
-    return result;
-}
-
-function isColdStorageChat(chat) {
-    return chat?.message?.[0]?.data?.startsWith(COLD_STORAGE_HEADER);
-}
-
-function restoreColdStorageChat(chat) {
-    if (!isColdStorageChat(chat)) return true;
-    const key = chat.message[0].data.slice(COLD_STORAGE_HEADER.length);
-    const entry = readColdStorageJsonEntry(key, {
-        migrateLegacy: true,
-    });
-    if (!entry) {
-        logger.error(`[ColdStorage] data not found for key: ${key}`);
-        return false;
-    }
-    try {
-        const coldData = entry.coldData;
-        if (Array.isArray(coldData)) {
-            chat.message = coldData;
-        } else if (coldData?.message) {
-            chat.message = coldData.message;
-            if (coldData.hypaV3Data) chat.hypaV3Data = coldData.hypaV3Data;
-            if (coldData.scriptstate) chat.scriptstate = coldData.scriptstate;
-            if (coldData.localLore) chat.localLore = coldData.localLore;
-        }
-        chat.lastDate = Date.now();
-        return true;
-    } catch (err) {
-        logger.error(`[ColdStorage] restore failed for key ${key}:`, err.message);
-        return false;
-    }
-}
+// Cold-storage compatibility is provided by dataRestore/legacyRestore.cjs.
 
 // GET /api/chat-content/:chaId/:chatIndex — retrieve full chat from server
 app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
@@ -4497,6 +4582,15 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
         const expectedChatId = req.headers['x-chat-id'];
 
         await ensureChatStore();
+        if (isCloudflareTunnelRequest(req)) {
+            const raw = kvGet('database/database.bin');
+            if (raw) {
+                const dbObj = await decodeDatabaseWithPersistentChatIds(raw);
+                if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
+                    return res.status(404).json({ error: 'Chat not found' });
+                }
+            }
+        }
         // First try fullChatStore (fast path)
         const charChats = fullChatStore.get(chaId);
         if (charChats && expectedChatId) {
@@ -4540,7 +4634,7 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
 // POST /api/chat-content/:chaId/:chatIndex — save chat content to server
 app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         await queueStorageOperation(async () => {
             const chaId = req.params.chaId;
@@ -4564,6 +4658,15 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
             }
 
             await ensureChatStore();
+            if (isCloudflareTunnelRequest(req)) {
+                const raw = kvGet('database/database.bin');
+                if (raw) {
+                    const dbObj = await decodeDatabaseWithPersistentChatIds(raw);
+                    if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
+                        return res.status(404).json({ error: 'Chat not found' });
+                    }
+                }
+            }
 
             // Update fullChatStore
             if (!fullChatStore.has(chaId)) {
@@ -4613,6 +4716,9 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 }
             }, SAVE_INTERVAL);
 
+            broadcastDatabaseInvalidated(req, {
+                chats: [{ characterId: chaId, chatId: expectedChatId }],
+            });
             res.json({ success: true });
         });
     } catch (error) {
@@ -4621,116 +4727,11 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
 });
 
 // ── Save-folder migration endpoints ──────────────────────────────────────────
-const migrationMarkerPath = path.join(savePath, '.migrated_to_sqlite');
-
-function scanHexFilesInDir(dirPath) {
-    let files;
-    try {
-        files = readdirSync(dirPath);
-    } catch {
-        return { hexFiles: [], count: 0, totalSize: 0, hasDatabase: false };
-    }
-    const hexFiles = files.filter(f => hexRegex.test(f));
-    let totalSize = 0;
-    let hasDatabase = false;
-    for (const f of hexFiles) {
-        try {
-            const stat = require('fs').statSync(path.join(dirPath, f));
-            totalSize += stat.size;
-        } catch { /* skip unreadable files */ }
-        try {
-            if (Buffer.from(f, 'hex').toString('utf-8') === 'database/database.bin') hasDatabase = true;
-        } catch { /* invalid hex */ }
-    }
-    return { hexFiles, count: hexFiles.length, totalSize, hasDatabase };
-}
-
-function clearExistingData() {
-    kvDelPrefix('assets/');
-    kvDelPrefix('inlay/');
-    kvDelPrefix('inlay_thumb/');
-    kvDelPrefix('inlay_meta/');
-    kvDelPrefix('inlay_info/');
-    // Composer drafts aren't part of a save folder; clear stale ones on import.
-    kvDelPrefix('drafts/');
-    // Drop the previous user's remote payloads. The new save folder usually
-    // brings its own remotes/<id>.local.bin files (INSERT OR REPLACE), but if
-    // the imported character ids reuse names from the prior user without
-    // shipping a matching payload, the migration's resolveRemote would silently
-    // stitch in stale cross-user data. Wiping here ensures only payloads
-    // that arrived in this import survive.
-    kvDelPrefix('remotes/');
-    // Clear remote-block migration marker — newly imported database.bin may
-    // contain REMOTE blocks (it usually does, since save-folder imports
-    // preserve upstream's split-character format) and we want the migration
-    // to re-evaluate against the new contents on the next ensureChatStore.
-    kvDel(REMOTE_MIGRATION_MARKER_KEY);
-    clearEntities();
-}
-
-async function importHexFilesFromDir(dirPath) {
-    const { hexFiles, hasDatabase } = scanHexFilesInDir(dirPath);
-    if (hexFiles.length === 0) return { imported: 0 };
-    if (!hasDatabase) throw new Error('Save folder does not contain database/database.bin');
-
-    await flushPendingDb();
-    createBackupAndRotate();
-    invalidateDbCache();
-
-    const insert = sqliteDb.prepare(
-        `INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)`
-    );
-    const now = Date.now();
-
-    const run = sqliteDb.transaction(() => {
-        clearExistingData();
-        for (const hexFile of hexFiles) {
-            const key = Buffer.from(hexFile, 'hex').toString('utf-8');
-            const value = readFileSync(path.join(dirPath, hexFile));
-            // Chunk the DB blob so an oversized database.bin imports instead of
-            // failing the BLOB bind limit; other keys keep the bulk fast path.
-            if (key === DB_BLOB_KEY) { kvSet(key, value); continue; }
-            insert.run(key, value, now);
-        }
-    });
-    run();
-
-    writeFileSync(migrationMarkerPath, new Date().toISOString(), 'utf-8');
-    return { imported: hexFiles.length };
-}
-
-async function importHexEntries(entries) {
-    if (entries.length === 0) return { imported: 0 };
-    const hasDb = entries.some(e => e.key === 'database/database.bin');
-    if (!hasDb) throw new Error('Data does not contain database/database.bin');
-
-    await flushPendingDb();
-    createBackupAndRotate();
-    invalidateDbCache();
-
-    const insert = sqliteDb.prepare(
-        `INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)`
-    );
-    const now = Date.now();
-
-    const run = sqliteDb.transaction(() => {
-        clearExistingData();
-        for (const { key, value } of entries) {
-            // Chunk the DB blob so an oversized database.bin imports instead of
-            // failing the BLOB bind limit; other keys keep the bulk fast path.
-            if (key === DB_BLOB_KEY) { kvSet(key, value); continue; }
-            insert.run(key, value, now);
-        }
-    });
-    run();
-
-    writeFileSync(migrationMarkerPath, new Date().toISOString(), 'utf-8');
-    return { imported: entries.length };
-}
+// Save-folder import engines are provided by dataRestore/legacyRestore.cjs.
 
 app.post('/api/migrate/save-folder/scan', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         const folderPath = req.body?.path || savePath;
         const resolved = path.resolve(folderPath);
@@ -4753,7 +4754,7 @@ app.post('/api/migrate/save-folder/scan', async (req, res, next) => {
 
 app.post('/api/migrate/save-folder/execute', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     if (importInProgress) {
         res.status(409).json({ error: 'Another import is already in progress' });
         return;
@@ -4783,7 +4784,7 @@ app.post('/api/migrate/save-folder/execute', async (req, res, next) => {
 
 app.post('/api/migrate/save-folder/upload', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     if (importInProgress) {
         res.status(409).json({ error: 'Another import is already in progress' });
         return;
@@ -4847,7 +4848,7 @@ app.post('/api/migrate/save-folder/upload', async (req, res, next) => {
 
 app.post('/api/migrate/save-folder/cleanup/scan', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         if (!existsSync(migrationMarkerPath)) {
             res.status(400).json({ error: 'Migration has not been completed yet' });
@@ -4862,7 +4863,7 @@ app.post('/api/migrate/save-folder/cleanup/scan', async (req, res, next) => {
 
 app.post('/api/migrate/save-folder/cleanup/execute', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         if (!existsSync(migrationMarkerPath)) {
             res.status(400).json({ error: 'Migration has not been completed yet' });
@@ -4890,7 +4891,17 @@ app.post('/api/migrate/save-folder/cleanup/execute', async (req, res, next) => {
 
 const DB_BLOB_KEY = 'database/database.bin';
 const DB_BACKUP_PREFIX = 'database/dbbackup-';
-const ASSET_PREFIXES = ['assets/', 'remotes/', 'inlay/', 'inlay_thumb/', 'inlay_meta/', 'inlay_info/', 'coldstorage/'];
+const ASSET_PREFIXES = [
+    'assets/',
+    'remotes/',
+    'inlay/',
+    'inlay_thumb/',
+    'inlay_meta/',
+    'inlay_info/',
+    'coldstorage/',
+    'cache/hypa-vector/',
+    'cache/llm-translate/',
+];
 
 function statsBasename(s) {
     if (!s) return '';
@@ -4898,15 +4909,24 @@ function statsBasename(s) {
 }
 
 // Mirrors src/ts/globalApi.svelte.ts:getUncleanables — every asset reference reachable from the DB.
-function buildUncleanableSet(dbObj) {
+function buildUncleanableSet(dbObj, assetsOnly = false) {
     const set = new Set();
     const add = (v) => {
+        if (assetsOnly) {
+            const normalized = typeof v === 'string' ? v.replace(/\\/g, '/') : '';
+            if (!normalized.startsWith('assets/')) return;
+        }
         const bn = statsBasename(v);
         if (bn) set.add(bn);
     };
     if (!dbObj) return set;
     add(dbObj.customBackground);
     add(dbObj.userIcon);
+    add(dbObj.messageSound);
+    add(dbObj.translateSound);
+    if (Array.isArray(dbObj.customSounds)) {
+        for (const sound of dbObj.customSounds) add(sound?.path);
+    }
     if (Array.isArray(dbObj.characters)) {
         for (const cha of dbObj.characters) {
             if (!cha) continue;
@@ -4918,13 +4938,30 @@ function buildUncleanableSet(dbObj) {
         }
     }
     if (Array.isArray(dbObj.modules)) {
-        for (const m of dbObj.modules) if (Array.isArray(m?.assets)) for (const a of m.assets) add(a?.[1]);
+        for (const m of dbObj.modules) {
+            if (Array.isArray(m?.assets)) for (const a of m.assets) add(a?.[1]);
+            add(m?.icon);
+        }
     }
-    if (Array.isArray(dbObj.personas)) for (const p of dbObj.personas) add(p?.icon);
+    if (Array.isArray(dbObj.personas)) {
+        for (const persona of dbObj.personas) {
+            add(persona?.icon);
+            if (Array.isArray(persona?.embeddedModule?.assets)) {
+                for (const asset of persona.embeddedModule.assets) add(asset?.[1]);
+            }
+            add(persona?.embeddedModule?.icon);
+        }
+    }
     if (Array.isArray(dbObj.characterOrder)) {
         for (const item of dbObj.characterOrder) {
-            if (item && typeof item === 'object' && 'imgFile' in item) add(item.imgFile);
+            if (item && typeof item === 'object') {
+                add(item.img);
+                add(item.imgFile);
+            }
         }
+    }
+    if (Array.isArray(dbObj.botPresets)) {
+        for (const preset of dbObj.botPresets) add(preset?.image);
     }
     return set;
 }
@@ -4966,9 +5003,9 @@ async function sumInlayFsBytes() {
 // /api/backup/server/save without writing anything. Inlay files live on the
 // filesystem (post-migration), so we have to fs.stat them rather than read
 // kvSize. Cost: ~5-50 ms typical, ~200 ms for users with thousands of inlays.
-async function estimateServerBackupSize() {
+async function estimateServerBackupSize(dbBytesOverride = null) {
     let total = 0;
-    total += kvSize(DB_BLOB_KEY) || 0;
+    total += typeof dbBytesOverride === 'number' ? dbBytesOverride : (kvSize(DB_BLOB_KEY) || 0);
     for (const it of kvListWithSizes('assets/')) total += it.size;
     for (const it of kvListWithSizes('inlay_meta/')) total += it.size;
     for (const e of listColdStorageBackupEntries()) total += e.size;
@@ -5277,7 +5314,7 @@ app.get('/api/db/stats/modules', async (req, res, next) => {
 
 app.post('/api/db/optimize', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         const saveDir = path.join(process.cwd(), 'save');
         const dbFilePath = path.join(saveDir, 'risuai.db');
@@ -5322,7 +5359,7 @@ app.post('/api/db/optimize', async (req, res, next) => {
 
 app.post('/api/db/wal-checkpoint', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         const saveDir = path.join(process.cwd(), 'save');
         const walFilePath = path.join(saveDir, 'risuai.db-wal');
@@ -5375,7 +5412,7 @@ app.get('/api/db/snapshots/limits', async (req, res, next) => {
 
 app.put('/api/db/snapshots/limits', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         const rawCount = Number(req.body?.maxCount);
         const rawBytes = Number(req.body?.maxBytes);
@@ -5421,7 +5458,7 @@ app.get('/api/db/snapshots', async (req, res, next) => {
 
 app.delete('/api/db/snapshots', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         const key = typeof req.query?.key === 'string' ? req.query.key : '';
         // Restrict to snapshot prefix — never let this endpoint touch other kv keys.
@@ -5433,13 +5470,48 @@ app.delete('/api/db/snapshots', async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
+async function restoreDatabaseBlob(blob) {
+    await queueStorageOperation(async () => {
+        // Drain any pending debounced persist first — same pattern as
+        // /api/db/optimize. Without this, an in-flight save could land
+        // after the restore and overwrite the restored snapshot.
+        await flushPendingDb();
+        kvSet(DB_BLOB_KEY, Buffer.from(blob));
+        invalidateDbCache();
+        // Snapshot may pre-date the remote-block migration. Clear the marker
+        // so migrateRemoteBlocksIfNeeded re-evaluates against the restored
+        // bytes instead of skipping based on the prior post-migration state.
+        kvDel(remoteMigrationMarkerKey);
+        // Pre-warm chat store from the just-restored blob so subsequent
+        // /api/read fetches and patch-sync baselines see the new data.
+        // Use decodeDatabaseWithPersistentChatIds so it runs the migration
+        // (now unmarked) and refreshes stale raw if the snapshot was a
+        // REMOTE-block format.
+        try {
+            const raw = kvGet(DB_BLOB_KEY);
+            if (raw) {
+                const dbObj = await decodeDatabaseWithPersistentChatIds(raw, {
+                    createBackup: false,
+                });
+                initChatStore(dbObj);
+                // Migration may have rewritten database.bin — etag must
+                // reflect the post-migration bytes the next /api/read sends.
+                const finalRaw = kvGet(DB_BLOB_KEY);
+                if (finalRaw) dbEtag = computeBufferEtag(Buffer.from(finalRaw));
+            }
+        } catch (e) {
+            logger.warn('[Snapshot restore] post-restore decode failed:', e?.message || e);
+        }
+    });
+}
+
 // Restore a snapshot atomically server-side: copy snapshot blob → live blob,
 // invalidate caches, rebuild chat store. Client-side setDatabase + reload is
 // racy because the patch-sync save loop is debounced and the reload can fire
 // before the snapshot data lands on disk.
 app.post('/api/db/snapshots/restore', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         const key = typeof req.body?.key === 'string' ? req.body.key : '';
         if (!key.startsWith(DB_BACKUP_PREFIX)) {
@@ -5449,38 +5521,126 @@ app.post('/api/db/snapshots/restore', async (req, res, next) => {
         if (!blob) {
             return res.status(404).json({ error: 'Snapshot not found' });
         }
-        await queueStorageOperation(async () => {
-            // Drain any pending debounced persist first — same pattern as
-            // /api/db/optimize. Without this, an in-flight save could land
-            // after kvCopyValue and overwrite the restored snapshot.
-            await flushPendingDb();
-            kvCopyValue(key, DB_BLOB_KEY);
-            invalidateDbCache();
-            // Snapshot may pre-date the remote-block migration. Clear the marker
-            // so migrateRemoteBlocksIfNeeded re-evaluates against the restored
-            // bytes instead of skipping based on the prior post-migration state.
-            kvDel(REMOTE_MIGRATION_MARKER_KEY);
-            // Pre-warm chat store from the just-restored blob so subsequent
-            // /api/read fetches and patch-sync baselines see the new data.
-            // Use decodeDatabaseWithPersistentChatIds so it runs the migration
-            // (now unmarked) and refreshes stale raw if the snapshot was a
-            // REMOTE-block format.
-            try {
-                const raw = kvGet(DB_BLOB_KEY);
-                if (raw) {
-                    const dbObj = await decodeDatabaseWithPersistentChatIds(raw, {
-                        createBackup: false,
-                    });
-                    initChatStore(dbObj);
-                    // Migration may have rewritten database.bin — etag must
-                    // reflect the post-migration bytes the next /api/read sends.
-                    const finalRaw = kvGet(DB_BLOB_KEY);
-                    if (finalRaw) dbEtag = computeBufferEtag(Buffer.from(finalRaw));
-                }
-            } catch (e) {
-                logger.warn('[Snapshot restore] post-restore decode failed:', e?.message || e);
+        await restoreDatabaseBlob(blob);
+        broadcastDatabaseInvalidated(req);
+        res.json({ ok: true });
+    } catch (err) { next(err); }
+});
+
+app.get('/api/db/manual-snapshots', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        const dir = getManualSnapshotsDir();
+        let entries;
+        try {
+            entries = await fs.readdir(dir, { withFileTypes: true });
+        } catch {
+            return res.json({ snapshots: [], path: dir });
+        }
+        const snapshots = [];
+        for (const entry of entries) {
+            if (!entry.isFile() || !MANUAL_SNAPSHOT_FILENAME_REGEX.test(entry.name)) continue;
+            const stat = await fs.stat(path.join(dir, entry.name));
+            const tsMatch = entry.name.match(/^dbbackup-(\d+)\.bin$/);
+            snapshots.push({
+                filename: entry.name,
+                size: stat.size,
+                timestamp: tsMatch ? Number(tsMatch[1]) * 100 : stat.mtimeMs,
+            });
+        }
+        snapshots.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+        res.json({ snapshots, path: dir });
+    } catch (err) { next(err); }
+});
+
+app.post('/api/db/manual-snapshots', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        await flushPendingDb();
+        const blob = kvGet(DB_BLOB_KEY);
+        if (!blob) {
+            return res.status(404).json({ error: 'Database not found' });
+        }
+        const dir = getManualSnapshotsDir();
+        await fs.mkdir(dir, { recursive: true });
+
+        try {
+            const sf = await fs.statfs(dir);
+            const free = sf.bsize * sf.bavail;
+            const required = Math.ceil(blob.length * 1.05);
+            if (free < required) {
+                return res.status(400).json({
+                    error: `Insufficient disk space (need ~${(required / 1024 / 1024).toFixed(0)} MB, free ${(free / 1024 / 1024).toFixed(0)} MB)`,
+                    code: 'insufficient_space',
+                    required,
+                    free,
+                });
             }
+        } catch (e) {
+            console.warn('[Manual Snapshot] pre-flight disk check failed:', e?.message || e);
+        }
+
+        const filename = makeManualSnapshotFilename();
+        const finalPath = path.join(dir, filename);
+        const tmpPath = finalPath + '.tmp';
+        await fs.writeFile(tmpPath, Buffer.from(blob));
+        await fs.rename(tmpPath, finalPath);
+        const stat = await fs.stat(finalPath);
+        const tsMatch = filename.match(/^dbbackup-(\d+)\.bin$/);
+        res.json({
+            ok: true,
+            snapshot: {
+                filename,
+                size: stat.size,
+                timestamp: tsMatch ? Number(tsMatch[1]) * 100 : stat.mtimeMs,
+            },
+            path: dir,
         });
+    } catch (err) { next(err); }
+});
+
+app.delete('/api/db/manual-snapshots', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        const filename = typeof req.query?.filename === 'string' ? req.query.filename : '';
+        if (!MANUAL_SNAPSHOT_FILENAME_REGEX.test(filename)) {
+            return res.status(400).json({ error: 'Invalid snapshot filename' });
+        }
+        const filePath = path.join(getManualSnapshotsDir(), filename);
+        try {
+            await fs.unlink(filePath);
+        } catch (err) {
+            if (err.code === 'ENOENT') {
+                return res.status(404).json({ error: 'Snapshot not found' });
+            }
+            throw err;
+        }
+        res.json({ ok: true });
+    } catch (err) { next(err); }
+});
+
+app.post('/api/db/manual-snapshots/restore', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        const filename = typeof req.body?.filename === 'string' ? req.body.filename : '';
+        if (!MANUAL_SNAPSHOT_FILENAME_REGEX.test(filename)) {
+            return res.status(400).json({ error: 'Invalid snapshot filename' });
+        }
+        const filePath = path.join(getManualSnapshotsDir(), filename);
+        let blob;
+        try {
+            blob = await fs.readFile(filePath);
+        } catch (err) {
+            if (err.code === 'ENOENT') {
+                return res.status(404).json({ error: 'Snapshot not found' });
+            }
+            throw err;
+        }
+        await restoreDatabaseBlob(blob);
+        broadcastDatabaseInvalidated(req);
         res.json({ ok: true });
     } catch (err) { next(err); }
 });
@@ -5506,11 +5666,30 @@ app.get('/api/backup/boot-reminder', async (req, res, next) => {
 
 app.put('/api/backup/boot-reminder', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         const enabled = !!req.body?.enabled;
         kvSet(BOOT_REMINDER_KEY, Buffer.from(enabled ? '1' : '0', 'utf-8'));
         res.json({ enabled });
+    } catch (err) { next(err); }
+});
+
+// ── Boot-time automatic backup schedule ─────────────────────────────────────
+
+app.get('/api/backup/schedule', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        res.json(readBackupSchedule());
+    } catch (err) { next(err); }
+});
+
+app.put('/api/backup/schedule', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        const schedule = normalizeBackupSchedule(req.body ?? {});
+        kvSet(BACKUP_SCHEDULE_KEY, Buffer.from(JSON.stringify(schedule), 'utf-8'));
+        res.json(schedule);
     } catch (err) { next(err); }
 });
 
@@ -5529,7 +5708,7 @@ app.get('/api/backup/server/path', async (req, res, next) => {
 
 app.put('/api/backup/server/path', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     try {
         const next = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
         if (!next) {
@@ -5570,7 +5749,7 @@ app.put('/api/backup/server/path', async (req, res, next) => {
 const COMPRESS_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp']);
 
 app.post('/api/inlays/compress', sessionAuthMiddleware, async (req, res) => {
-    if (!checkActiveSession(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
     const quality = typeof req.body?.quality === 'number' ? req.body.quality : 85;
 
     res.writeHead(200, {
@@ -6084,7 +6263,10 @@ function startTunnelProcess(cfPath) {
     tunnelUrl = null;
 
     try {
-        tunnelProcess = spawn(cfPath, ['tunnel', '--url', 'http://localhost:' + port], {
+        const originScheme = serverIsHttps ? 'https' : 'http';
+        const args = ['tunnel', '--url', `${originScheme}://localhost:${port}`];
+        if (serverIsHttps) args.push('--no-tls-verify');
+        tunnelProcess = spawn(cfPath, args, {
             stdio: ['ignore', 'pipe', 'pipe']
         });
 
@@ -6186,6 +6368,7 @@ async function startServer() {
 
         if (httpsOptions) {
             // HTTPS
+            serverIsHttps = true;
             server = https.createServer(httpsOptions, app);
             setupProxyStreamWebSocket(server);
             server.listen(port, () => {
@@ -6214,6 +6397,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
         stopTunnel();
         try { await flushPendingDb(); } catch (e) { logger.error('[Server] Flush error:', e); }
         try { checkpointWal('TRUNCATE'); } catch { /* non-fatal */ }
+        try { checkpointGenerationDb('TRUNCATE'); } catch { /* non-fatal */ }
         process.exit(0);
     });
 }
@@ -6243,6 +6427,8 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
     // pointer — required for journal_size_limit to actually take effect.
     setInterval(() => {
         try { checkpointWal('TRUNCATE'); }
+        catch { /* non-fatal */ }
+        try { checkpointGenerationDb('PASSIVE'); }
         catch { /* non-fatal */ }
     }, 5 * 60 * 1000); // every 5 minutes
 

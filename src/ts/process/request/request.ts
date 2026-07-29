@@ -1,45 +1,54 @@
 import { Ollama } from 'ollama/dist/browser.mjs';
 import { language } from "../../../lang";
 import { globalFetch, fetchNative } from "../../globalApi.svelte";
-import { getModelInfo, LLMFlags, LLMFormat, type LLMModel } from "../../model/modellist";
+import { getModelInfo, isV3PluginModel, LLMFlags, LLMFormat, type LLMModel } from "../../model/modellist";
 import { risuChatParser, risuEscape, risuUnescape } from "../../parser/parser.svelte";
-import { pluginProcess, pluginV2 } from "../../plugins/plugins.svelte";
+import { pluginProcess, pluginProviderRequestContextKey, pluginV2 } from "../../plugins/plugins.svelte";
 import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
 import { tokenizeNum, encodeWithTokenizer } from "../../tokenizer";
 import { v4 as uuidv4 } from "uuid";
 import { simplifySchema, sleep } from "../../util";
 import type { OpenAIChat } from "../index.svelte";
+import { setInlayAsset } from "../files/inlays";
 import { getTools, callTool, encodeToolCall, decodeToolCall } from "../mcp/mcp";
 import type { MCPTool, RPCToolCallContent } from "../mcp/mcplib";
 import { NovelAIBadWordIds, stringlizeNAIChat } from "../models/nai";
 import { OobaParams } from "../prompt";
 import { getStopStrings, stringlizeAINChat, unstringlizeAIN, unstringlizeChat } from "../stringlize";
 import { applyChatTemplate } from "../templates/chatTemplate";
+import { getGeneralJSONSchema } from "../templates/jsonSchema";
 import { runTransformers } from "../transformers";
 import { runTrigger } from "../triggers";
 import { requestClaude } from './anthropic';
 import { requestGoogleCloudVertex } from './google';
 import { requestOpenAI, requestOpenAILegacyInstruct, requestOpenAIResponseAPI } from "./openAI/requests";
-import { applyParameters, collectStreamingText, type ModelModeExtended } from './shared';
+import { applyParameters, buildGenerationContext, collectStreamingText, type ModelModeExtended } from './shared';
 import {
-    sendChatRequest, streamChatRequest, previewChatRequest,
-    sendAnthropicChatRequest, streamAnthropicChatRequest, previewAnthropicChatRequest,
-    sendGoogleChatRequest, streamGoogleChatRequest, previewGoogleChatRequest,
     runToolLoop,
     type AdapterCacheContext,
-    type AdapterChatMessage, type AdapterChatOptions, type AdapterChatResponse,
-    type AdapterChatStreamDelta, type AdapterCredential,
+    type AdapterChatMessage, type AdapterChatOptions, type AdapterCredential,
+    type AdapterGeneratedMedia,
     type AdapterReasoningPart, type AdapterToolCall, type AdapterToolDef,
+    type ModelPresetAdapterDefinition,
 } from "src/ts/preset/adapter";
-import { TOOL_CAPABLE_ADAPTER_KINDS, VISION_CAPABLE_ADAPTER_KINDS, type AdapterKind, type ModelPreset } from "src/ts/preset/types";
+import type { ModelPreset } from "src/ts/preset/types";
+import {
+    compileModelPreset,
+    type CompiledModelPreset,
+    type CompiledPluginModelPreset,
+} from "src/ts/preset/runtime/compilePreset";
 import { pumpPresetStream } from "./presetStreamPump";
 import { resolveChatModelBinding, buildModelPresetCredential, applyPromptPresetParams } from "./modelPresetBinding";
 import { expandAdapterMessages, toAdapterMessage, toolResponseText } from "./modelPresetMessages";
+import { pluginArgumentValues, pluginProviderName } from "src/ts/preset/pluginModels";
 import { isLocalNetworkUrl } from "src/ts/network/localNetwork";
 import {
     startStatus, appendText, endStatus, setStatusTokenCounter, addBadge,
     type RequestKind,
 } from "src/ts/status/requestStatus";
+import type { RevenantGenerationContext, RevenantOperationContext } from "../revenantGeneration/types";
+import { reportRevenantGenerationUsage } from "../revenantGeneration/client";
+import { MODELS_DEV_REGISTRY_ID } from "src/ts/preset/registry/modelsDev";
 
 export type ToolCall = {
     name: string;
@@ -71,7 +80,9 @@ interface requestDataArgument{
     rememberToolUsage?: boolean
     forceStreaming?: boolean
     blockPlugins?: boolean
-    forceLocalNetwork?: boolean
+    /** Persisted data needed to apply an auxiliary result after a reload. */
+    revenantOperationContext?:RevenantOperationContext
+    onRevenantJobCreated?:(jobId:string) => void
 }
 
 export interface RequestDataArgumentExtended extends requestDataArgument{
@@ -84,6 +95,8 @@ export interface RequestDataArgumentExtended extends requestDataArgument{
     key?:string
     additionalOutput?:string
     saveSignatures?:boolean
+    /** Internal id shared by the wire calls of one auxiliary provider attempt. */
+    revenantRequestId?:string
 }
 
 export type requestDataResponse = {
@@ -372,6 +385,9 @@ export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[]){
 export async function requestChatDataMain(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
     const db = getDatabase()
     const targ:RequestDataArgumentExtended = arg
+    // ModelPreset dispatch happens before the classic argument-normalization
+    // block, so publish the mode here for revenant auxiliary generation too.
+    targ.mode = model
 
     // P4 dual-regime dispatch (plan v6 §7). Resolve the per-chat ModelPreset
     // binding BEFORE any classic model selection so a binding chat never touches
@@ -492,43 +508,193 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
 }
 
 
-function sendModelPreset(
-    kind: AdapterKind,
-    preset: ModelPreset,
-    options: AdapterChatOptions,
-    credential: AdapterCredential | undefined,
-): Promise<AdapterChatResponse> {
-    switch (kind) {
-        case 'openai-compatible': return sendChatRequest(preset, options, credential)
-        case 'anthropic-messages': return sendAnthropicChatRequest(preset, options, credential)
-        case 'google-gemini': return sendGoogleChatRequest(preset, options, credential)
+async function requestEchoPreset(preset: ModelPreset, abortSignal: AbortSignal | null): Promise<requestDataResponse> {
+    const rawDelay = preset.userValues?.echoDelay
+    const delay = typeof rawDelay === 'number' ? rawDelay : 0
+    const rawMessage = preset.userValues?.echoMessage
+    const message = typeof rawMessage === 'string' ? rawMessage : "Echo Message"
+
+    if(delay > 0){
+        await sleep(delay * 1000)
+    }
+
+    if(abortSignal?.aborted){
+        return {
+            type: 'fail',
+            result: 'Aborted',
+            model: preset.name,
+        }
+    }
+
+    return {
+        type: 'success',
+        result: message,
+        model: preset.name,
     }
 }
 
-function streamModelPreset(
-    kind: AdapterKind,
-    preset: ModelPreset,
-    options: AdapterChatOptions,
-    credential: AdapterCredential | undefined,
-): AsyncGenerator<AdapterChatStreamDelta, void, void> {
-    switch (kind) {
-        case 'openai-compatible': return streamChatRequest(preset, options, credential)
-        case 'anthropic-messages': return streamAnthropicChatRequest(preset, options, credential)
-        case 'google-gemini': return streamGoogleChatRequest(preset, options, credential)
+async function requestPluginPreset(
+    arg: RequestDataArgumentExtended,
+    compiled: CompiledPluginModelPreset,
+    abortSignal: AbortSignal | null,
+    mode: ModelModeExtended,
+): Promise<requestDataResponse> {
+    const preset = compiled.preset
+    if (arg.blockPlugins) {
+        return {
+            type: 'fail',
+            result: 'Plugin calls are blocked by the caller.',
+            model: preset.name,
+        }
     }
-}
 
-function previewModelPreset(
-    kind: AdapterKind,
-    preset: ModelPreset,
-    options: AdapterChatOptions,
-    credential: AdapterCredential | undefined,
-) {
-    switch (kind) {
-        case 'openai-compatible': return previewChatRequest(preset, options, credential)
-        case 'anthropic-messages': return previewAnthropicChatRequest(preset, options, credential)
-        case 'google-gemini': return previewGoogleChatRequest(preset, options, credential)
+    const modelId = preset.profileSnapshot.modelId
+    const providerName = pluginProviderName(modelId)
+    if (!providerName) {
+        return {
+            type: 'fail',
+            result: language.pluginModelUnavailable,
+            model: preset.name,
+        }
     }
+    // addProvider exists in API 2.x too. A crafted/imported snapshot must not
+    // turn that legacy provider into a ModelPreset execution path; only a live
+    // API 3.0 metadata registration is eligible.
+    if (!isV3PluginModel(modelId)) {
+        return {
+            type: 'fail',
+            result: language.pluginModelUnavailable,
+            model: preset.name,
+        }
+    }
+
+    const modelInfo = getModelInfo(modelId)
+    const foldSystem = compiled.behavior.foldSystemPrompt
+    const flags: LLMFlags[] = []
+    if (!foldSystem) flags.push(LLMFlags.hasFullSystemPrompt)
+    else if (compiled.behavior.keepFirstSystemPrompt) flags.push(LLMFlags.hasFirstSystemPrompt)
+    if (compiled.behavior.alternateRole) flags.push(LLMFlags.requiresAlternateRole)
+    if (compiled.behavior.startWithUserInput) flags.push(LLMFlags.mustStartWithUserInput)
+
+    try {
+        arg.formated = reformater(safeStructuredClone(arg.formated), flags)
+    } catch (err) {
+        return {
+            type: 'fail',
+            result: err instanceof Error ? err.message : String(err),
+            model: preset.name,
+        }
+    }
+
+    const values = pluginArgumentValues(preset.profileSnapshot, preset.userValues ?? {})
+    arg.aiModel = modelId
+    arg.modelInfo = modelInfo
+    arg.abortSignal = abortSignal ?? new AbortController().signal
+    arg.mode = mode
+    arg.biasString ??= []
+    arg.maxTokens ??= compiled.generation.maxOutputTokens
+        ?? getDatabase().modelPresetDefaultMaxResponse
+        ?? getDatabase().maxResponse
+    const exposeStreaming = resolvePresetStreaming(
+        preset,
+        arg,
+        compiled.features.streaming,
+    )
+
+    const genId = arg.chatId ?? `aux-${uuidv4()}`
+    const reportStatus = !arg.previewBody && statusEnabled()
+    if (reportStatus) {
+        safeStatus(() => startStatus(genId, {
+            kind: toRequestKind(mode),
+            label: preset.name,
+            chatId: arg.chatId,
+            phase: 'connecting',
+            now: Date.now(),
+        }))
+    }
+
+    const result = await requestPlugin(arg, values)
+    if (result.type === 'streaming') {
+        const source = result.result
+        let responseStream = source
+        if (reportStatus) {
+            let sourceReader: ReadableStreamDefaultReader<StreamResponseChunk> | undefined
+            let previousText = ''
+            let ended = false
+            const finish = (outcome: 'done' | 'failed' | 'aborted', error?: unknown) => {
+                if (ended) return
+                ended = true
+                safeStatus(() => endStatus(genId, outcome, {
+                    now: Date.now(),
+                    error: outcome === 'failed'
+                        ? (error instanceof Error ? error.message : String(error))
+                        : undefined,
+                }))
+            }
+            responseStream = new ReadableStream<StreamResponseChunk>({
+                start() {
+                    sourceReader = source.getReader()
+                },
+                async pull(controller) {
+                    try {
+                        const { done, value } = await sourceReader!.read()
+                        if (done) {
+                            finish('done')
+                            sourceReader!.releaseLock()
+                            sourceReader = undefined
+                            controller.close()
+                            return
+                        }
+                        const fullText = value?.["0"] ?? ''
+                        const delta = fullText.startsWith(previousText)
+                            ? fullText.slice(previousText.length)
+                            : fullText
+                        previousText = fullText
+                        if (delta) {
+                            safeStatus(() => appendText(genId, { response: delta }, Date.now()))
+                        }
+                        controller.enqueue(value)
+                    } catch (error) {
+                        finish(abortSignal?.aborted ? 'aborted' : 'failed', error)
+                        controller.error(error)
+                        sourceReader?.releaseLock()
+                        sourceReader = undefined
+                    }
+                },
+                async cancel(reason) {
+                    finish('aborted')
+                    const reader = sourceReader
+                    if (!reader) return
+                    try {
+                        await reader.cancel(reason)
+                    } finally {
+                        reader.releaseLock()
+                        sourceReader = undefined
+                    }
+                },
+            })
+        }
+        if (!exposeStreaming || preset.decoupledStreaming) {
+            const text = await collectStreamingText(responseStream)
+            return { type: 'success', result: text, model: preset.name }
+        }
+        return { ...result, result: responseStream, model: preset.name }
+    }
+
+    if (reportStatus && result.type === 'success') {
+        const responseText = result.result
+        if (responseText) {
+            safeStatus(() => appendText(genId, { response: responseText }, Date.now()))
+        }
+        safeStatus(() => endStatus(genId, 'done', { now: Date.now() }))
+    } else if (reportStatus) {
+        const outcome = abortSignal?.aborted ? 'aborted' : 'failed'
+        safeStatus(() => endStatus(genId, outcome, {
+            now: Date.now(),
+            error: outcome === 'failed' ? String(result.result) : undefined,
+        }))
+    }
+    return { ...result, model: preset.name }
 }
 
 // Route adapter requests through the proxy-aware fetch (fetchNative) instead of
@@ -539,20 +705,44 @@ function previewModelPreset(
 // chatId (= the message generationId) is threaded into fetchNative so the
 // request is recorded in the fetch log against the message — otherwise the
 // per-message "view log" shows "deleted log" for binding requests.
-function makeProxiedFetch(chatId?: string): typeof fetch {
+function modelsDevUsageIdentity(
+    preset: ModelPreset,
+): Pick<
+    RevenantGenerationContext,
+    'usageProviderId' | 'usageModelId' | 'usageServiceTier'
+> | undefined {
+    const source = preset.sourceProfile
+    if (source?.registryId !== MODELS_DEV_REGISTRY_ID) return undefined
+
+    const separator = source.profileId.indexOf(':')
+    if (separator <= 0 || separator >= source.profileId.length - 1) return undefined
+    return {
+        usageProviderId: source.profileId.slice(0, separator),
+        usageModelId: source.profileId.slice(separator + 1),
+        usageServiceTier: preset.claudeBatching ? 'batch' : undefined,
+    }
+}
+
+function makeProxiedFetch(arg: RequestDataArgumentExtended, preset: ModelPreset): typeof fetch {
+    const usageIdentity = modelsDevUsageIdentity(preset)
     return ((input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === 'string' ? input : input.toString()
+        const isLocalNetworkRequest = isLocalNetworkUrl(url)
         return fetchNative(url, {
             method: (init?.method as 'POST' | 'GET' | 'PUT' | 'DELETE') ?? 'POST',
             headers: (init?.headers as Record<string, string>) ?? {},
             body: init?.body as string,
             signal: init?.signal ?? undefined,
-            chatId,
+            chatId: arg.chatId,
+            interceptor: 'model_preset',
+            generationContext: buildGenerationContext(arg, usageIdentity),
             // Local providers (e.g. self-hosted Ollama) must route through the node
             // proxy rather than a browser-direct fetch to a private address.
-            networkRoute: isLocalNetworkUrl(url) ? 'local_network' : 'auto',
+            networkRoute: isLocalNetworkRequest ? 'local_network' : 'auto',
             // Honor the same request-timeout the classic path uses.
-            requestTimeoutMs: (getDatabase().localNetworkTimeoutSec ?? 600) * 1000,
+            requestTimeoutMs: isLocalNetworkRequest
+                ? 600_000
+                : undefined,
         })
     }) as typeof fetch
 }
@@ -597,11 +787,9 @@ function statusEnabled(): boolean {
 // Register a LOCAL tokenizer with the status store so the render tick counts
 // streamed tokens language-aware (real subwords, good for CJK) instead of a
 // char/N estimate. Uses encodeWithTokenizer with a fixed local tokenizer — NOT
-// tokenizeNum/encode, which routes by db.aiModel and can fire the Google
-// countTokens NETWORK API (sending chat text + key, consuming quota) every
-// render tick for googleClaudeTokenizing users. Status is an approximate live
-// display (the final count is reconciled from provider usage), so a fixed local
-// tokenizer is the right tradeoff: never network, never quota, never leaks text.
+// tokenizeNum/encode routes by db.aiModel, while status is only an approximate
+// live display (the final count is reconciled from provider usage). A fixed local
+// tokenizer avoids unnecessary model-specific work on every render tick.
 setStatusTokenCounter(async (text) => {
     const encoded = await encodeWithTokenizer(text, 'tik')
     return encoded.length
@@ -625,15 +813,16 @@ function toRequestKind(mode: ModelModeExtended): RequestKind {
     }
 }
 
-// Per-preset streaming resolution. Independent of the global db.useStreaming:
-// the preset's own on/off decides (default off). Forced off when the profile
-// does not declare the 'streaming' capability, or when the caller opted out
-// (arg.useStreaming === false, e.g. aux/summarization requests).
-function resolvePresetStreaming(preset: ModelPreset, arg: RequestDataArgumentExtended): boolean {
+// Per-preset streaming preference. Adapter/profile support is compiled once and
+// passed in; forceStreaming deliberately overrides the profile declaration for
+// internal callers, while the concrete adapter must still implement streaming.
+function resolvePresetStreaming(
+    preset: ModelPreset,
+    arg: RequestDataArgumentExtended,
+    profileSupportsStreaming: boolean,
+): boolean {
     if (arg.forceStreaming) return true
-    const caps = preset.profileSnapshot.capabilities
-    const supportsStreaming = !caps || caps.includes('streaming')
-    if (!supportsStreaming) return false
+    if (!profileSupportsStreaming) return false
     return !!preset.useStreaming && (arg.useStreaming ?? true)
 }
 
@@ -676,10 +865,67 @@ function formatPresetReasoning(reasoning?: AdapterReasoningPart[]): string {
     return `<Thoughts>\n${body}\n</Thoughts>\n\n`
 }
 
+async function formatPresetMedia(media?: AdapterGeneratedMedia[]): Promise<string> {
+    if (!media || media.length === 0) return ''
+    const markers: string[] = []
+    for (const item of media) {
+        const id = uuidv4()
+        const ext = item.mime.split('/')[1]?.split(';')[0] || (item.kind === 'image' ? 'png' : 'mp3')
+        await setInlayAsset(id, {
+            name: `generated-${item.kind}.${ext}`,
+            type: item.kind,
+            data: `data:${item.mime};base64,${item.base64}`,
+            ext,
+        })
+        markers.push(`{{inlayeddata::${id}}}`)
+    }
+    return markers.join('\n')
+}
+
 async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelPreset, abortSignal:AbortSignal=null, mode:ModelModeExtended='model'):Promise<requestDataResponse> {
+    let compiled: CompiledModelPreset
+    try {
+        compiled = compileModelPreset(preset, {
+            jsonSchemaRequested: getDatabase().jsonSchemaEnabled || !!arg.schema,
+        })
+    } catch (error) {
+        return {
+            type: 'fail',
+            result: error instanceof Error ? error.message : String(error),
+            model: preset.name,
+        }
+    }
+    // From here on every policy decision consumes the same compiled view. In
+    // particular, Developer/Custom no longer gets reinterpreted independently
+    // by capability gates, UI policy, and adapter dispatch.
+    preset = compiled.preset
+    if (compiled.backend === 'plugin') {
+        return requestPluginPreset(arg, compiled, abortSignal, mode)
+    }
+    if (compiled.backend === 'echo') {
+        if (arg.previewBody) {
+            return {
+                type: 'success',
+                result: JSON.stringify({
+                    adapterKind: 'echo',
+                    message: typeof preset.userValues?.echoMessage === 'string'
+                        ? preset.userValues.echoMessage
+                        : "Echo Message",
+                    delay: typeof preset.userValues?.echoDelay === 'number'
+                        ? preset.userValues.echoDelay
+                        : 0,
+                }),
+                model: preset.name,
+            }
+        }
+        return requestEchoPreset(preset, abortSignal)
+    }
+    const kind = compiled.adapterKind
+    const adapter = compiled.adapter
+
     const credential = buildModelPresetCredential(preset)
-    const kind = preset.profileSnapshot.adapterKind
-    const fetchImpl = makeProxiedFetch(arg.chatId)
+    const usageIdentity = modelsDevUsageIdentity(preset)
+    const fetchImpl = makeProxiedFetch(arg, preset)
     // arg.chatId is the per-request generationId for main chat (sendChat passes
     // it under that name; see generation-state-keying.md §1-bis). Aux requests
     // (translate/memory/emotion/sub) don't supply one, so mint a per-request key
@@ -698,16 +944,12 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     //     nothing": the adapters strip any customBody-provided tools /
     //     tool_choice / toolConfig so OFF is a true text gate — a request that
     //     manually smuggled tool fields via customBody will lose them.
-    //  2) Adapter-kind allowlist — only adapters whose tool wire is implemented.
+    //  2) Adapter registry support — only adapters whose tool wire is implemented.
     //  3) Capability gate: the profile must EXPLICITLY declare 'tools'. Stricter
     //     than the streaming convention (no `!caps` shortcut) so it matches the
     //     editor toggle's visibility — a capability-less custom profile (e.g.
     //     after a profile swap that kept toolUse) can never activate tools.
-    const caps = preset.profileSnapshot.capabilities
-    const supportsTools = preset.toolUse === true
-        && TOOL_CAPABLE_ADAPTER_KINDS.includes(kind)
-        && (caps?.includes('tools') ?? false)
-    const tools = (supportsTools && arg.tools && arg.tools.length > 0)
+    const tools = (compiled.features.tools && arg.tools && arg.tools.length > 0)
         ? arg.tools.map(toAdapterToolDef)
         : undefined
 
@@ -716,8 +958,10 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     // the preset's imageInput toggle (for profiles like ollama / openai-compatible
     // whose snapshot does not declare 'vision'). Additive — both branches default
     // off, so OFF is byte-identical to the prior text-only behavior.
-    const supportsVision = VISION_CAPABLE_ADAPTER_KINDS.includes(kind)
-        && ((caps?.includes('vision') ?? false) || preset.imageInput === true)
+    const supportsVision = compiled.features.vision
+    const supportsAudioInput = compiled.features.audioInput
+    const supportsVideoInput = compiled.features.videoInput
+    const producesMedia = compiled.features.mediaOutput
 
     // Gemini context caching: MAIN chat requests on the google-gemini adapter
     // (AI Studio key auth OR Vertex native service-account auth) — tool runs and
@@ -737,8 +981,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     // byte-identical to before.
     const cacheAuthKind = preset.profileSnapshot.auth.kind
     let cache: AdapterCacheContext | undefined
-    if (kind === 'google-gemini' && preset.promptCaching?.enabled && mode === 'model'
-        && (caps?.includes('cache') ?? false)
+    if (compiled.features.cache && mode === 'model'
         && !tools && !arg.previewBody
         && (cacheAuthKind === 'x-goog-api-key' || cacheAuthKind === 'google-service-account')) {
         const cacheChatKey = getCurrentChat()?.id
@@ -767,12 +1010,12 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     // system instruction — and gating on `kind` also defuses a stale foldSystemPrompt
     // left over from a profile swap (its UI toggle is hidden on the new kind). Sequence
     // shaping (alternate role / user-first) is adapter-agnostic and applies to all kinds.
-    const foldSystem = kind === 'openai-compatible' && preset.foldSystemPrompt === true
+    const foldSystem = compiled.behavior.foldSystemPrompt
     const presetFlags: LLMFlags[] = []
     if (!foldSystem) presetFlags.push(LLMFlags.hasFullSystemPrompt)
-    else if (preset.keepFirstSystemPrompt) presetFlags.push(LLMFlags.hasFirstSystemPrompt)
-    if (preset.alternateRole) presetFlags.push(LLMFlags.requiresAlternateRole)
-    if (preset.startWithUserInput) presetFlags.push(LLMFlags.mustStartWithUserInput)
+    else if (compiled.behavior.keepFirstSystemPrompt) presetFlags.push(LLMFlags.hasFirstSystemPrompt)
+    if (compiled.behavior.alternateRole) presetFlags.push(LLMFlags.requiresAlternateRole)
+    if (compiled.behavior.startWithUserInput) presetFlags.push(LLMFlags.mustStartWithUserInput)
     // reformater mutates its input in place (requiresAlternateRole appends merged
     // content onto the first message of a run). The preset path returns before the
     // classic clone at ~405, and the retry loop (while(true)) only re-clones per
@@ -791,9 +1034,46 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     // behave exactly as before (literal passthrough; no tool-role messages that a
     // text-only adapter would reject). Guards regression P1#2. Image attachments
     // ride along in both branches, gated by supportsVision.
+    const includeDeepSeekThinkingInput = compiled.behavior.deepSeekThinkingInput
     const messages = tools
-        ? await expandAdapterMessages(arg.formated, decodeToolCall, supportsVision)
-        : arg.formated.map((m) => toAdapterMessage(m, supportsVision))
+        ? await expandAdapterMessages(
+            arg.formated,
+            decodeToolCall,
+            supportsVision,
+            includeDeepSeekThinkingInput,
+            supportsAudioInput,
+            supportsVideoInput,
+        )
+        : arg.formated.map((m, index) => toAdapterMessage(
+            m,
+            supportsVision,
+            includeDeepSeekThinkingInput && index === arg.formated.length - 1,
+            supportsAudioInput,
+            supportsVideoInput,
+        ))
+    // OpenAI-compatible endpoints that opt into the historical DeveloperRole
+    // flag receive developer-role instructions instead of system-role ones.
+    // Other wire formats do not accept this role, so the flag is inert there.
+    if (compiled.behavior.developerRole) {
+        for (const message of messages) {
+            if (message.role === 'system') message.role = 'developer'
+        }
+    }
+    let structuredOutput: AdapterChatOptions['structuredOutput']
+    if (compiled.features.jsonSchema) {
+        try {
+            structuredOutput = {
+                schema: getGeneralJSONSchema(arg.schema),
+                strict: getDatabase().strictJsonSchema,
+            }
+        } catch (err) {
+            return {
+                type: 'fail',
+                result: err instanceof Error ? err.message : String(err),
+                model: preset.name,
+            }
+        }
+    }
 
     // previewBody never calls the chat endpoint and never runs tools — it just
     // builds and returns the prepared request. (One caveat: a google-service-
@@ -803,7 +1083,11 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     // classic adapters' previewBody handling.
     if (arg.previewBody) {
         try {
-            const prepared = await previewModelPreset(kind, preset, { messages, tools, fetchImpl }, credential)
+            const prepared = await adapter.preview(
+                preset,
+                { messages, tools, structuredOutput, fetchImpl },
+                credential,
+            )
             return {
                 type: 'success',
                 result: JSON.stringify({ url: prepared.url, body: prepared.body, headers: prepared.headers }),
@@ -820,23 +1104,53 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         // streaming tool_call assembly is a later stage. Status is NOT reported
         // for the tool path in v1 (it bypasses the pump); see the toast infra note.
         if (tools) {
-            const { result, toolsExecuted } = await runModelPresetToolLoop(arg, preset, kind, credential, fetchImpl, messages, tools, abortSignal)
+            const { result, toolsExecuted } = await runModelPresetToolLoop(
+                arg,
+                preset,
+                adapter,
+                credential,
+                fetchImpl,
+                messages,
+                tools,
+                abortSignal,
+                structuredOutput,
+            )
             return { type: 'success', result, model: preset.name, toolExecuted: toolsExecuted }
         }
 
-        const useStreaming = resolvePresetStreaming(preset, arg)
-        const options: AdapterChatOptions = { messages, abortSignal: abortSignal ?? undefined, fetchImpl, generationId: genId, cache }
+        // Anthropic's Message Batches API is asynchronous and has no streaming
+        // transport. Keep the preset's streaming preference intact, but force
+        // this request through the non-streaming adapter path while batching is on.
+        const useStreaming = producesMedia ? false : adapter.support.streaming
+            && resolvePresetStreaming(preset, arg, compiled.features.streaming)
+            && !(kind === 'anthropic-messages'
+                && preset.profileSnapshot.providerBaseId === 'anthropic'
+                && preset.claudeBatching)
+        const options: AdapterChatOptions = {
+            messages,
+            abortSignal: abortSignal ?? undefined,
+            fetchImpl,
+            generationId: genId,
+            cache,
+            structuredOutput,
+        }
         if (reportStatus) {
             safeStatus(() => startStatus(genId, { kind: statusKind, label: preset.name, chatId: arg.chatId, phase: 'connecting', now: Date.now() }))
         }
         if(useStreaming){
-            const gen = streamModelPreset(kind, preset, options, credential)
+            const gen = adapter.stream(preset, options, credential)
             const stream = new ReadableStream<StreamResponseChunk>({
                 start(controller){
                     return pumpPresetStream(gen, controller, {
                         intervalMs: STREAM_FLUSH_INTERVAL_MS,
                         formatReasoning: (text) => formatPresetReasoning([{ text }]),
-                        onError: (err) => console.error('[ModelPreset] stream error', describeModelPresetError(err)),
+                        // A user cancellation terminates the stream with an
+                        // AbortError. It is reflected as an aborted request
+                        // status, not persisted as an application error.
+                        onError: (err) => {
+                            if (abortSignal?.aborted) return
+                            console.error('[ModelPreset] stream error', describeModelPresetError(err))
+                        },
                         // appendText owns the phase transition (thinking/responding)
                         // from which kind of text arrives, and recovers from 'stalled'
                         // when chunks resume — no local phase tracking needed here.
@@ -871,7 +1185,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             // provider's lenient streaming limits), but we drain the stream here
             // and return a single text result. The final chunk already holds the
             // full reasoning-prefixed text, so this matches the non-streaming
-            // sendModelPreset return byte-for-byte — the chat renderer paints it
+            // adapter.send return byte-for-byte — the chat renderer paints it
             // once instead of token-by-token.
             if(preset.decoupledStreaming){
                 const text = await collectStreamingText(stream)
@@ -881,7 +1195,25 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             // the stream — NOT here, because the stream outlives this return.
             return { type: 'streaming', result: stream, model: preset.name }
         }
-        const response = await sendModelPreset(kind, preset, options, credential)
+        const response = await adapter.send(preset, options, credential)
+        if (response.deferredUsageJobId && response.usage) {
+            try {
+                const raw = response.raw as { usage?: unknown } | undefined
+                await reportRevenantGenerationUsage({
+                    jobId: response.deferredUsageJobId,
+                    timestamp: Date.now(),
+                    chatId: arg.chatId,
+                    provider: usageIdentity?.usageProviderId,
+                    model: usageIdentity?.usageModelId,
+                    serviceTier: 'batch',
+                    usage: raw?.usage ?? response.usage,
+                })
+            } catch (usageError) {
+                // Usage accounting must never turn a successful generation into
+                // a failed chat response.
+                console.error('[ModelPreset] failed to report deferred batch usage', usageError)
+            }
+        }
         if (reportStatus) {
             safeStatus(() => {
                 // Cache-hit badge: same rule as the streaming onFinish above.
@@ -897,7 +1229,13 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                 })
             })
         }
-        return { type: 'success', result: formatPresetReasoning(response.reasoning) + response.text, model: preset.name }
+        const media = await formatPresetMedia(response.media)
+        const separator = response.text && media ? '\n' : ''
+        return {
+            type: 'success',
+            result: formatPresetReasoning(response.reasoning) + response.text + separator + media,
+            model: preset.name,
+        }
     } catch (err) {
         console.error('[ModelPreset] request failed', describeModelPresetError(err))
         if (reportStatus) {
@@ -952,12 +1290,13 @@ export async function testModelPreset(preset: ModelPreset, message: string, abor
 async function runModelPresetToolLoop(
     arg: RequestDataArgumentExtended,
     preset: ModelPreset,
-    kind: AdapterKind,
+    adapter: ModelPresetAdapterDefinition,
     credential: AdapterCredential | undefined,
     fetchImpl: typeof fetch,
     messages: AdapterChatMessage[],
     tools: AdapterToolDef[],
     abortSignal: AbortSignal | null,
+    structuredOutput?: AdapterChatOptions['structuredOutput'],
 ): Promise<{ result: string; toolsExecuted: boolean }> {
     // Tracks whether any tool actually ran, so the caller can block outer
     // success-path retries that would otherwise re-execute side-effecting tools.
@@ -966,9 +1305,9 @@ async function runModelPresetToolLoop(
         maxSteps: MODEL_PRESET_MAX_TOOL_STEPS,
         formatReasoning: formatPresetReasoning,
         abortSignal: abortSignal ?? undefined,
-        send: (convo) => sendModelPreset(
-            kind, preset,
-            { messages: convo, tools, abortSignal: abortSignal ?? undefined, fetchImpl },
+        send: (convo) => adapter.send(
+            preset,
+            { messages: convo, tools, structuredOutput, abortSignal: abortSignal ?? undefined, fetchImpl },
             credential,
         ),
         executeTool: async (call) => {
@@ -1333,7 +1672,10 @@ async function requestOoba(arg:RequestDataArgumentExtended):Promise<requestDataR
     
 }
 
-async function requestPlugin(arg:RequestDataArgumentExtended):Promise<requestDataResponse> {
+async function requestPlugin(
+    arg:RequestDataArgumentExtended,
+    parameterOverrides?: Record<string, unknown>,
+):Promise<requestDataResponse> {
     const db = getDatabase()
     const isV3Model = arg.aiModel.startsWith('pluginmodel:::')
     const responseModel = isV3Model ? arg.aiModel : 'custom'
@@ -1352,8 +1694,16 @@ async function requestPlugin(arg:RequestDataArgumentExtended):Promise<requestDat
                 })
             }
         }
-    
-        const d = v2Function ? (await v2Function(applyParameters({
+
+        if (isV3Model && !v2Function) {
+            return {
+                type: 'fail',
+                result: language.pluginModelUnavailable,
+                model: responseModel,
+            }
+        }
+
+        const providerArgs = applyParameters({
             prompt_chat: formated,
             mode: arg.mode,
             bias: [],
@@ -1362,7 +1712,25 @@ async function requestPlugin(arg:RequestDataArgumentExtended):Promise<requestDat
             'frequency_penalty','min_p','presence_penalty','repetition_penalty','top_k','top_p','temperature'
         ], {}, arg.mode, {
             modelId: arg.aiModel
-        }) as any, arg.abortSignal)) : await pluginProcess({
+        })
+        if (parameterOverrides) {
+            Object.assign(providerArgs, parameterOverrides)
+            // The resolved request budget wins over a duplicated user value.
+            providerArgs.max_tokens = maxTokens
+        }
+        if (isV3Model) {
+            arg.abortSignal ??= new AbortController().signal
+            Object.defineProperty(providerArgs, pluginProviderRequestContextKey, {
+                value: {
+                    chatId: arg.chatId,
+                    generationContext: buildGenerationContext(arg),
+                    interceptor: 'model_preset',
+                },
+                enumerable: false,
+            })
+        }
+
+        const d = v2Function ? (await v2Function(providerArgs as any, arg.abortSignal)) : await pluginProcess({
             bias: bias,
             prompt_chat: formated,
             temperature: (db.temperature / 100),
@@ -1414,7 +1782,7 @@ async function requestPlugin(arg:RequestDataArgumentExtended):Promise<requestDat
         console.error(error)
         return {
             type: 'fail',
-            result: `Plugin Error from ${db.currentPluginProvider}: ` + JSON.stringify(error),
+            result: `Plugin Error from ${isV3Model ? arg.aiModel.replace('pluginmodel:::', '') : db.currentPluginProvider}: ` + JSON.stringify(error),
             model: responseModel
         }
     }

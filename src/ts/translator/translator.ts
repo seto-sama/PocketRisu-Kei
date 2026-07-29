@@ -12,11 +12,16 @@ import { requestChatData } from "../process/request/request"
 import { doingChat, type OpenAIChat } from "../process/index.svelte"
 import { applyMarkdownToNode, type simpleCharacterArgument } from "../parser/parser.svelte"
 import { selectedCharID } from "../stores.svelte"
-import { clearPersistentPrefix, listPersistentKeys, makeHashedStorageKey, readPersistentJson, writePersistentJson } from "../storage/persistentKv"
+import { clearPersistentPrefix, listPersistentKeys, makeHashedStorageKey, readPersistentJson, removePersistentKey, writePersistentJson } from "../storage/persistentKv"
 import { getModuleRegexScripts } from "../process/modules"
-import { getNodetextToSentence, sleep } from "../util"
+import { getNodetextToSentence } from "../util"
 import { processScriptFull } from "../process/scripts"
 import { playNotificationSound } from '../notificationSound'
+import {
+    completeRevenantTranslation,
+    prepareRevenantTranslationRequest,
+    recoverRevenantTranslationJobs,
+} from '../process/revenantGeneration/translationRecovery'
 
 let cache={
     origin: [''],
@@ -26,7 +31,23 @@ let cache={
 let bergamotTranslate: (text: string, from: string, to: string, html?: boolean) => Promise<string>|null = null
 
 const llmTranslateCache = new Map<string, string>()
-const llmTranslateCachePrefix = 'cache/llm-translate/'
+export const llmTranslateCachePrefix = 'cache/llm-translate/'
+// Keep cache invalidation outside Svelte's global reactive graph: a single
+// translation must not reparse every visible chat message.
+const llmTranslationCacheListeners = new Set<(key: string | null) => void>()
+
+function notifyLLMTranslationCacheChanged(key: string | null) {
+    for (const listener of llmTranslationCacheListeners) {
+        listener(key)
+    }
+}
+
+export function subscribeLLMTranslationCache(listener: (key: string | null) => void) {
+    llmTranslationCacheListeners.add(listener)
+    return () => {
+        llmTranslationCacheListeners.delete(listener)
+    }
+}
 
 async function getPersistentLLMCache(text: string): Promise<string | null> {
     const storageKey = await makeHashedStorageKey(llmTranslateCachePrefix, text)
@@ -46,13 +67,32 @@ async function setPersistentLLMCache(text: string, value: string) {
     })
 }
 
-let waitTrans = 0
+async function storeLLMTranslation(key: string, value: string) {
+    llmTranslateCache.set(key, value)
+    await setPersistentLLMCache(key, value)
+    notifyLLMTranslationCacheChanged(key)
+}
+
+const revenantTranslationCache = {
+    get: getLLMCache,
+    store: storeLLMTranslation,
+}
+
+export async function recoverAuxiliaryTranslationJobs(
+    force = false,
+    notifyScope?: { characterId: string, roomId: string },
+): Promise<number> {
+    return recoverRevenantTranslationJobs(revenantTranslationCache, {
+        force,
+        scope: notifyScope,
+    })
+}
 
 export function getCurrentTranslatorPreset(): TranslatorPreset {
     return getCurrentTranslatorPresetFromState(getDatabase())
 }
 
-export async function translate(text:string, reverse:boolean) {
+export async function translate(text:string, reverse:boolean, signal?:AbortSignal) {
     let db = getDatabase()
     if(!reverse){
         const ind = cache.origin.indexOf(text)
@@ -67,10 +107,10 @@ export async function translate(text:string, reverse:boolean) {
         }
     }
 
-    return runTranslator(text, reverse, db.translator,db.aiModel.startsWith('novellist') ? 'ja' : 'en')
+    return runTranslator(text, reverse, db.translator,db.aiModel.startsWith('novellist') ? 'ja' : 'en', undefined, signal)
 }
 
-export async function runTranslator(text:string, reverse:boolean, from:string,target:string, exarg?:{translatorNote?:string}) {
+export async function runTranslator(text:string, reverse:boolean, from:string,target:string, exarg?:{translatorNote?:string}, signal?:AbortSignal) {
     const arg = {
 
         from: reverse ? from : target,
@@ -108,7 +148,9 @@ export async function runTranslator(text:string, reverse:boolean, from:string,ta
                 fullResult.push(chunk[0])
                 continue
             }
-            const result = await translateMain(trimed, arg);
+            signal?.throwIfAborted()
+            const result = await translateMain(trimed, arg, signal);
+            signal?.throwIfAborted()
 
             if(result.startsWith('ERR::')){
                 notifyError(result)
@@ -134,11 +176,11 @@ export async function runTranslator(text:string, reverse:boolean, from:string,ta
 
 }
 
-async function translateMain(text:string, arg:{from:string, to:string, host:string, translatorNote?:string}){
+async function translateMain(text:string, arg:{from:string, to:string, host:string, translatorNote?:string}, signal?:AbortSignal){
     let db = getDatabase()
     if(db.translatorType === 'llm'){
         const tr = arg.to || 'en'
-        return translateLLM(text, {to: tr, from: arg.from, translatorNote: arg.translatorNote})
+        return translateLLM(text, {to: tr, from: arg.from, translatorNote: arg.translatorNote, signal})
     }
     if(db.translatorType === 'deepl'){
         const body = {
@@ -151,7 +193,8 @@ async function translateMain(text:string, arg:{from:string, to:string, host:stri
                 "Authorization": "DeepL-Auth-Key " + db.deeplOptions.key,
                 "Content-Type": "application/json"
             },
-            body: body
+            body: body,
+            abortSignal: signal
         })
 
         if(!f.ok){
@@ -161,14 +204,6 @@ async function translateMain(text:string, arg:{from:string, to:string, host:stri
 
     }
     if(db.translatorType === 'deeplX'){
-        if(!db.noWaitForTranslate){
-            if(waitTrans - Date.now() > 0){
-                const waitTime = waitTrans - Date.now()
-                waitTrans = Date.now() + 3000
-                await sleep(waitTime)
-            }
-        }
-
         let url = db.deeplXOptions.url ?? 'http://localhost:1188'
 
         if(url.endsWith('/')){
@@ -187,7 +222,7 @@ async function translateMain(text:string, arg:{from:string, to:string, host:stri
         if(db.deeplXOptions.token.trim() !== '') { headers["Authorization"] = "Bearer " + db.deeplXOptions.token}
         
         //Since the DeepLX API is non-CORS restricted, we can use the plain fetch function
-        const f = await globalFetch(url, { method: "POST", headers: headers, body: body, plainFetchForce:true })
+        const f = await globalFetch(url, { method: "POST", headers: headers, body: body, plainFetchForce:true, abortSignal: signal })
 
         if(!f.ok){ return 'ERR::DeepLX API Error' + (await f.data) }
 
@@ -199,7 +234,9 @@ async function translateMain(text:string, arg:{from:string, to:string, host:stri
             bergamotTranslate = bergamotTranslator.bergamotTranslate
         }
 
-        return bergamotTranslate(text, arg.from, arg.to, false);
+        const result = await bergamotTranslate(text, arg.from, arg.to, false);
+        signal?.throwIfAborted()
+        return result
     }
     if(db.useExperimentalGoogleTranslator){
 
@@ -214,6 +251,7 @@ async function translateMain(text:string, arg:{from:string, to:string, host:stri
                         "Accept": "*/*",
                     },
                     method: "GET",
+                    abortSignal: signal,
                 })
                 const parser = new DOMParser()
                 const dom = parser.parseFromString(d.data, 'text/html')
@@ -235,6 +273,7 @@ async function translateMain(text:string, arg:{from:string, to:string, host:stri
     const f = await fetch(url, {
 
         method: "GET",
+        signal,
 
     })
 
@@ -270,7 +309,8 @@ export function isExpTranslator(){
     return db.translatorType === 'llm' || db.translatorType === 'deepl' || db.translatorType === 'deeplX'
 }
 
-export async function translateHTML(html: string, reverse:boolean, charArg:simpleCharacterArgument|string = '', chatID:number, regenerate = false): Promise<string> {
+export async function translateHTML(html: string, reverse:boolean, charArg:simpleCharacterArgument|string = '', chatID:number, regenerate = false, signal?:AbortSignal): Promise<string> {
+    signal?.throwIfAborted()
     let alwaysExistChar: character | simpleCharacterArgument;
     if(charArg !== ''){
         if(typeof(charArg) === 'string'){
@@ -303,7 +343,8 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
         const tr = db.translator || 'en'
         const from = db.translatorInputLanguage
         let translated = false
-        const r = await translateLLM(html, {to: tr, from: from, regenerate, onCacheState: (cached) => { translated = !cached }})
+        const r = await translateLLM(html, {to: tr, from: from, regenerate, signal, onCacheState: (cached) => { translated = !cached }})
+        signal?.throwIfAborted()
         if(translated && db.playMessageOnTranslateEnd){
             playNotificationSound(db.translateSound, db.translateSoundVolume)
         }
@@ -319,7 +360,9 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
             bergamotTranslate = bergamotTranslator.bergamotTranslate
         }
  
-        return applyEdittransRegex(await bergamotTranslate(html, from, to, true), charArg, alwaysExistChar)
+        const result = await bergamotTranslate(html, from, to, true)
+        signal?.throwIfAborted()
+        return applyEdittransRegex(result, charArg, alwaysExistChar)
     }
     const dom = new DOMParser().parseFromString(html, 'text/html');
     console.log(html)
@@ -355,7 +398,7 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
             return
         }
 
-        const translated = await translate(text, reverse)
+        const translated = await translate(text, reverse, signal)
 
         const split = translated.split('■')
 
@@ -366,7 +409,7 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
             for(let i = 0; i < currentChunk.chunks.length; i++){
                 currentChunk.resolvers[i](
                     await translate(currentChunk.chunks[i]
-                , reverse))
+                , reverse, signal))
             }
         }
         
@@ -394,7 +437,7 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
             const translateChunks = (node.textContent || '').split(/\n\n+/g);
             let translatedChunksPromises: Promise<string>[] = [];
             for (const chunk of translateChunks) {
-                const translatedPromise = translate(chunk, reverse);
+                const translatedPromise = translate(chunk, reverse, signal);
                 translatedChunksPromises.push(translatedPromise);
             }
 
@@ -517,7 +560,8 @@ function needSuperChunkedTranslate(){
     return getDatabase().translatorType === 'deeplX'
 }
 
-async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string, onCacheState?:(cached:boolean) => void}):Promise<string>{
+async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string, signal?:AbortSignal, onCacheState?:(cached:boolean) => void}):Promise<string>{
+    arg.signal?.throwIfAborted()
     if(!arg.regenerate){
         const cacheMatch = llmTranslateCache.get(text)
         if(cacheMatch){
@@ -530,12 +574,28 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
             return persistedCacheMatch
         }
     }
-    const styleDecodeRegex = /\<risu-style\>(.+?)\<\/risu-style\>/gms
-    let styleDecodes:string[] = []
-    text = text.replace(styleDecodeRegex, (match, p1) => {
-        styleDecodes.push(p1)
-        return `<style-data style-index="${styleDecodes.length-1}"></style-data>`
+    // A cache miss may belong to a detached revenant job discovered just after
+    // the throttled background poll. Force one authoritative recovery pass
+    // before creating another model request.
+    await recoverRevenantTranslationJobs(revenantTranslationCache, {
+        force: true,
+        cacheKey: text,
     })
+    arg.signal?.throwIfAborted()
+    if(!arg.regenerate){
+        const recoveredCacheMatch = llmTranslateCache.get(text)
+            ?? await getPersistentLLMCache(text)
+        if(recoveredCacheMatch !== null && recoveredCacheMatch !== undefined){
+            arg.onCacheState?.(true)
+            return recoveredCacheMatch
+        }
+    }
+    const revenantRequest = prepareRevenantTranslationRequest(
+        text,
+        arg.regenerate === true,
+    )
+    text = revenantRequest.requestText
+    const revenantJob = { id: null as string | null }
 
     const db = getDatabase()
     const charIndex = get(selectedCharID)
@@ -575,12 +635,18 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
     const rq = await requestChatData({
         formated,
         bias: {},
+        currentChar,
         useStreaming: false,
         noMultiGen: true,
         maxTokens: preset.maxResponse,
-    }, 'translate')
+        revenantOperationContext: revenantRequest.operationContext,
+        onRevenantJobCreated: jobId => {
+            revenantJob.id = jobId
+        },
+    }, 'translate', arg.signal)
 
     if(rq.type === 'fail'){
+        arg.signal?.throwIfAborted()
         notifyError(rq.result)
         return text
     }
@@ -588,11 +654,13 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
         notifyError('Unexpected response type')
         return text
     }
-    const result = rq.result.replace(/<style-data style-index="(\d+)" ?\/?>/g, (match, p1) => {
-        return styleDecodes[parseInt(p1)] ?? ''
-    }).replace(/<\/style-data>/g, '')
-    llmTranslateCache.set(text, result)
-    void setPersistentLLMCache(text, result)
+    arg.signal?.throwIfAborted()
+    const result = await completeRevenantTranslation(
+        revenantTranslationCache,
+        revenantRequest,
+        rq.result,
+        revenantJob.id,
+    )
     arg.onCacheState?.(false)
     return result
 }
@@ -600,6 +668,7 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
 export async function clearLLMCache(): Promise<void> {
     llmTranslateCache.clear()
     await clearPersistentPrefix(llmTranslateCachePrefix)
+    notifyLLMTranslationCacheChanged(null)
 }
 
 export async function getLLMCache(text:string):Promise<string | null>{
@@ -629,8 +698,24 @@ export async function searchLLMCache(partialKey:string):Promise<{key: string, va
 }
 
 export async function setLLMCache(key:string, value:string):Promise<void>{
+    await storeLLMTranslation(key, value)
+}
+
+export async function deleteLLMCache(key:string):Promise<void>{
+    llmTranslateCache.delete(key)
+    await removePersistentKey(await makeHashedStorageKey(llmTranslateCachePrefix, key))
+    notifyLLMTranslationCacheChanged(key)
+}
+
+export type LLMCacheEntry = {key: string, value: string}
+
+export function loadedLLMCacheEntries(): LLMCacheEntry[] {
+    return Array.from(llmTranslateCache, ([key, value]) => ({ key, value }))
+}
+
+export function cacheLoadedLLMEntry(key:string, value:string): void {
     llmTranslateCache.set(key, value)
-    await setPersistentLLMCache(key, value)
+    notifyLLMTranslationCacheChanged(key)
 }
 
 export async function exportLLMCacheAsJSON():Promise<Record<string, string>>{
@@ -660,19 +745,23 @@ export async function importLLMCacheFromJSON(data:Record<string, string>):Promis
             failed++
         }
     }
+    if (count > 0) {
+        notifyLLMTranslationCacheChanged(null)
+    }
     return {count, failed}
 }
 
 
 function applyEdittransRegex(
-      text: string, 
-      charArg: simpleCharacterArgument | string, 
+      text: string,
+      charArg: simpleCharacterArgument | string,
       alwaysExistChar: character | simpleCharacterArgument
   ): string {
       if (charArg === '') return text
 
+      const db = getDatabase()
       let scripts: customscript[] = []
-      scripts = (getModuleRegexScripts() ?? []).concat(alwaysExistChar?.customscript ?? [])
+      scripts = (db.presetRegex ?? []).concat(getModuleRegexScripts() ?? []).concat(alwaysExistChar?.customscript ?? [])
 
       for (const script of scripts) {
           if (script.type === 'edittrans') {

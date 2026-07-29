@@ -1,5 +1,5 @@
-import { allowedDbKeys, customProviderStore, getV2PluginAPIs, handlePluginInstallViaPlugin, pluginV2, type PluginV2ProviderArgument, type PluginV2ProviderOptions, type RisuPlugin } from "../plugins.svelte";
-import { SandboxHost } from "./factory";
+import { allowedDbKeys, customProviderStore, getV2PluginAPIs, handlePluginInstallViaPlugin, pluginProviderRequestContextKey, pluginV2, type PluginProviderRequestContext, type PluginV2ProviderArgument, type PluginV2ProviderOptions, type RisuPlugin } from "../plugins.svelte";
+import { getRpcAbortSignalMetadata, SandboxHost, setRpcAbortSignalMetadata } from "./factory";
 import { getDatabase, normalizeChat } from "src/ts/storage/database.svelte";
 import { SafeLocalPluginStorage, tagWhitelist } from "../pluginSafeClass";
 import { recordOwner, removeOwner, clearOwners } from "../pluginStorageMeta";
@@ -14,13 +14,15 @@ import { changeColorScheme, updateColorScheme, updateTextThemeAndCSS, type Color
 import { get } from "svelte/store";
 import { registerMCPModule, unregisterMCPModule } from "src/ts/process/mcp/pluginmcp";
 import { getLLMCache, searchLLMCache } from "src/ts/translator/translator";
-import { hasher } from "src/ts/parser/parser.svelte";
+import { hasher, risuChatParser, type CbsConditions } from "src/ts/parser/parser.svelte";
 import { LLMFlags, LLMFormat, LLMProvider, LLMTokenizer, type LLMModel } from "src/ts/model/types";
 import { readPersistentJson, removePersistentKey, writePersistentJson } from "src/ts/storage/persistentKv";
 import { sendChat as processSendChat, doingChat } from "src/ts/process/index.svelte";
+import { processScriptFull } from "src/ts/process/scripts";
 import { getModelInfo } from "src/ts/model/modellist";
 import type { ModelModeExtended } from "src/ts/process/request/shared";
 import { requestChatDataMain } from "src/ts/process/request/request";
+import { resolveChatModelBinding } from "src/ts/process/request/modelPresetBinding";
 import type { OpenAIChat } from "src/ts/process/index.svelte";
 import { getModuleLorebooks } from "src/ts/process/modules";
 import {
@@ -629,10 +631,12 @@ async function persistPluginPermissionState() {
 }
 
 type PluginV3ProviderOptions = PluginV2ProviderOptions & {
-    model?: LLMModel
+    model?: Partial<LLMModel>
 }
 
-export const customV3ProviderMetaStore:LLMModel[] = []
+// Module-level rune so model/profile pickers react when API 3.0 plugins finish
+// registering providers asynchronously after their UI has already mounted.
+export const customV3ProviderMetaStore:LLMModel[] = $state([])
 
 // Serializes permission dialogs. Every plugin shares the single global
 // alertStore, so when several plugins request permission at boot they would
@@ -750,9 +754,12 @@ const authorizationHeaders = [
     'proxy-authorization',
 ]
 
+const providerRequestContextMetadataKey = 'risuai.pluginProviderRequestContext'
+
 const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
     const oldApis = getV2PluginAPIs();
+    const pluginRequestContexts = new Map<string, PluginProviderRequestContext>()
     return {
 
         //Old APIs from v2.1
@@ -787,7 +794,22 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                     console.warn(`Request contains potentially sensitive header '${headerName}'. handling of such headers may be changed to use server-side approch with write-only api access in the future for better security.`);
                 }
             }
-            return oldApis.nativeFetch(url, options);
+            const contextToken = getRpcAbortSignalMetadata(options?.signal, providerRequestContextMetadataKey)
+            // Some older API 3.0 providers do not forward addProvider's
+            // AbortSignal into nativeFetch. The single-active-request fallback
+            // keeps those providers observable without ever guessing between
+            // concurrent generations.
+            const requestContext = contextToken
+                ? pluginRequestContexts.get(contextToken)
+                : pluginRequestContexts.size === 1
+                    ? pluginRequestContexts.values().next().value
+                    : undefined
+            return oldApis.nativeFetch(url, requestContext ? {
+                ...(options ?? {}),
+                chatId: requestContext.chatId,
+                generationContext: requestContext.generationContext,
+                interceptor: requestContext.interceptor,
+            } : options);
         },
         getChar: oldApis.getChar,
         setChar: oldApis.setChar,
@@ -800,7 +822,19 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                //mode is overridden to v3, due to vulnerabilities using mode.
                //Alternative to mode will be added in future
                arg.mode = 'v3'
-               return await func(arg, abortSignal);
+               const requestContext = arg[pluginProviderRequestContextKey]
+               if (!requestContext || !abortSignal) {
+                   return await func(arg, abortSignal);
+               }
+
+               const contextToken = v4()
+               pluginRequestContexts.set(contextToken, requestContext)
+               setRpcAbortSignalMetadata(abortSignal, providerRequestContextMetadataKey, contextToken)
+               try {
+                   return await func(arg, abortSignal);
+               } finally {
+                   pluginRequestContexts.delete(contextToken)
+               }
             }),
             pluginV2.providerOptions.set(name, options ?? {})
             customProviderStore.set(provs)
@@ -979,6 +1013,49 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 }
             }
             return null;
+        },
+        parseRisuChat: async (text:string, options?:{
+            messageIndex?: number
+            role?: string
+            processRegex?: boolean
+            runVar?: boolean
+            rmVar?: boolean
+            tokenizeAccurate?: boolean
+            cbsConditions?: CbsConditions
+        }) => {
+            const db = DBState.db
+            const char = db.characters[get(selectedCharID)];
+            if(!char){
+                throw new Error('No character selected');
+            }
+            const chat = char.chats?.[char.chatPage];
+            if(!chat){
+                throw new Error('No active chat found');
+            }
+            const chatID = options?.messageIndex ?? -1;
+            if(!Number.isInteger(chatID) || chatID < -1 || chatID >= chat.message.length){
+                throw new Error(`Invalid messageIndex: ${chatID}`);
+            }
+            const role = options?.role;
+            const cbsConditions:CbsConditions = {
+                ...(role ? { chatRole: role } : {}),
+                ...(options?.cbsConditions ?? {}),
+            };
+            const parsed = risuChatParser(text ?? '', {
+                chara: char,
+                chatID,
+                role,
+                runVar: options?.runVar,
+                rmVar: options?.rmVar,
+                tokenizeAccurate: options?.tokenizeAccurate,
+                cbsConditions,
+            });
+
+            if(!options?.processRegex){
+                return parsed;
+            }
+
+            return (await processScriptFull(char, parsed, 'editprocess', chatID, cbsConditions)).data;
         },
         setChatToIndex: (characterIndex:number, chatIndex:number, chat:any) => {
             const db = DBState.db
@@ -1420,6 +1497,12 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             if(!chat){
                 throw new Error("No active chat found");
             }
+            const binding = resolveChatModelBinding(chat, 'model');
+            if(binding.kind === 'modelPreset' && binding.preset.profileSnapshot.adapterKind === 'plugin'){
+                // Keep the existing provider-to-sendChat loop guard effective
+                // when the chat selects its plugin through ModelPreset.
+                throw new Error("Sending chat with plugin-based model is currently blocked");
+            }
 
             if(message){
                 chat.message.push({
@@ -1490,6 +1573,7 @@ export async function loadV3Plugins(plugins:RisuPlugin[]){
     await Promise.all(v3PluginInstances.map(async (instance) => {
         await unloadV3Plugin(instance.name);
     }));
+    customV3ProviderMetaStore.length = 0;
     const loadPromises = plugins.map(plugin => executePluginV3(plugin));
     await Promise.all(loadPromises);
 }
