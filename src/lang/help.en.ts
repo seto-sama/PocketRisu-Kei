@@ -11,6 +11,9 @@
  */
 
 export const helpEn = {
+        "usageEntryTokens": "Input is shown as total input (cache read | cache creation), and output as total output (reasoning). When no cache is created, only cache read is shown.",
+        "translationCacheSearchLimit": "Only the first 20 entries matching the search criteria are displayed.",
+        "banCharacterset": "Automatically regenerates the response if it contains any character from a selected character set.",
         model: "Model option is a main model used in chat.",
         submodel: "Auxiliary Model is a model that used in analyzing emotion images and auto suggestions and etc. gpt3.5 is recommended.",
         oaiapikey: "API key for OpenAI. you can get it in https://platform.openai.com/account/api-keys",
@@ -26,12 +29,16 @@ export const helpEn = {
         presensePenalty: "Higher values prevent the use of duplicate words in all context, but character's response can break down more easily.",
         sdProvider: "provider for image generation.",
         msgSound: "Plays *ding* sound when character responses",
+        descBrowserNotification: "Show a browser notification when a response completes.",
+        descMessageSound: "Play a sound when a response completes.",
+        descTranslateSound: "Play a sound when a translation completes.",
         charDesc: "Brief description of the character. This affects characters response.",
         charFirstMessage: "First message of the character. This highly affects characters response.",
         charNote: "A note that strongly affects model behavior. Embbedded to current character, also known as UJB.",
         toggleNsfw: "toggles jailbreak prompt on and off.",
         lorebook: "Lorebook is a user-made dictionary for AI. AI only sees it when where is an activation keys in the context.",
         loreName: "Name of the lore. It doesn't affect the Ai.",
+        loreActivationMode: "The chain icon uses activation keys normally. Left-click it to switch to the sun icon and keep this lore always active. Right-click it to switch to the moon icon and require matches from both Activation Keys and Secondary Keys. Click the active icon again to return to normal activation.",
         loreActivationKey: "If one of the activation key exists in context, the lore will be activated and prompt will go in. seperated by commas.",
         loreorder: "If insert Order is higher, it will effect the model more, and it will more lessly cuted when activated lore are many.",
         bias: "bias is a key-value data which modifies the likelihood of string appearing.\nit can be -100 to 100, higher values will be more likely to appear, and lower values will be more unlikely to appear. \nAdditionaly, if its set to -101, it would work as 'strong ban word' for some models. \nWarning: if the tokenizer is wrong, it not work properly.",
@@ -58,6 +65,7 @@ export const helpEn = {
             "\n- `<order n>` - sets the order of the result. higher order will be shown first. `n` is a number. (like `<order 1>`) if this flag is not set, it will be set to 0." +
             "\n- `<cbs>` - parses curly braced synatxes in IN." +
             "\n\nTo use with native flags, you can use like `gi<cbs><move_top>`.",
+        regexOrder: "Regex scripts with a higher order run first.",
         experimental: "This is a experimental feature. it might be unstable.",
         oogaboogaURL:
             "If your WebUI supports older version of api, your url should look *like https:.../run/textgen*\n\n" +
@@ -73,7 +81,7 @@ export const helpEn = {
         personality: "A brief description about character's personality. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
         scenario: "A brief description about character's scenario. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
         utilityBot: "When activated, it ignores main prompt, jailbreak and other prompts. used for bot made for utility, not for roleplay.",
-        loreSelective: "If Selective mode is toggled, both Activation Key and Secondary key should have a match to activate the lore.",
+        loreSelective: "In multiple-key mode, the lore activates only when the context contains at least one match from Activation Keys and at least one match from Secondary Keys. Separate multiple keys in each field with commas.",
         loreRandomActivation:
             "If Use Probability Condition is abled, if the lore's other conditions are all met, the lore will be activated with a set probability which is set by 'Probability' each time a chat is sent.",
         additionalAssets:
@@ -96,22 +104,21 @@ export const helpEn = {
         showUnrecommended: "If enabled, it will show unrecommended, deprecated settings. it is NOT RECOMMENDED to use these settings.",
         allowV2Plugin: "Warning: This enables deprecated V2.0 plugin execution. V2.0 plugins bypass the V2.1 safety check and may be unsafe. Leave this disabled unless you explicitly trust the plugin and cannot migrate it to V3 yet.",
         imageCompression: "If enabled, it will compress images when exporting character. if animated images doesn't works, try disabling this option.",
+        disableGlobalLorebookRecursiveScanning: "Turns off lorebook recursive scanning. If recursive scanning is enabled in a character's individual settings, that setting takes precedence.",
         inlayImageLossless: "If enabled, inlay images will be saved as lossless PNG instead of compressed WebP. This preserves original quality but uses significantly more storage.",
         inlayImagePriority: "If enabled, inlays render as images first for faster loading. Video/audio inlays auto-switch after image load fails. Disable if you use many video/audio inlays.",
+        inlayCompressAllDesc: "Compresses all inlay images.",
         modelModeLock: "Choose how chats pick their model system. Lock everything to the legacy model system or to the model preset binding system, or leave it unlocked so each chat decides.",
         newChatModelMode: "Which model system new chats start in when the mode is not locked.",
         showModelInSidebar: "Show the current AI model name in the sidebar for quick reference.",
         showPresetInSidebar: "Show the active prompt preset name in the sidebar for quick reference.",
         showPersonaInSidebar: "Show the active persona name in the sidebar for quick reference.",
+        showModuleSidebar: "Show the module selection button in the sidebar for quick access.",
         disableMobileDragDrop: "Disable drag-and-drop for chat reordering on mobile devices. Enable this if you experience accidental drags while scrolling.",
         disableToggleBinding: "Disable the toggle binding feature that pins toggle values to individual chats. When disabled, the bind/save/preset buttons are hidden and previously bound values are not restored on chat switch.",
         useExperimental: "If enabled, it will show some experimental features.",
-        forceProxyAsOpenAI: "If enabled, it will force to use OpenAI format when using reverse proxy.",
-        forcePlainFetch: "If enabled, it will use the browser Fetch API instead of the native HTTP request. This can cause CORS errors.",
-        autoFillRequestURL: "If enabled, it will automatically fill the request URL to match the current model.",
-        localNetworkModeDesc: "Routes private/LAN model URLs through the local server instead of browser direct fetch.\n\n**Purpose**\n- Avoid browser private-network/CORS restrictions\n- Mitigate timeout risk for slow first-token local inference\n\n**How it works**\n- Streaming uses experimental Job+WebSocket relay first (fallback to /proxy2)\n- Non-streaming uses /proxy2 relay\n\n**Constraints**\n- Scope is OpenAI-compatible request paths only",
         chainOfThought: "If enabled, it will add chain of thought prompt to the prompt.",
-        gptVisionQuality: "This option is used to set the quality of the image detection model. the higher the quality, the more accurate the detection, but more tokens are used.",
+        gptVisionQuality: "Controls the detail or media resolution used for image inputs. Higher quality can recognize finer details but uses more input tokens and may increase latency.",
         genTimes:
             "This option is used to set the number of responses to generate on support models. other then first response will be act as cached reroll. this can reduce the cost of the model, but it can also increase the cost if you use it without reroll.",
         requestretrys: "This option is used to set the number of request retrys when request fails.",
@@ -120,11 +127,12 @@ export const helpEn = {
         emotionPrompt: "This option is used to set the prompt that is used to detect emotion. if it is blank, it will use the default prompt.",
         additionalParams:
             'Additional parameters that would be added to the request body. if you want to exclude some parameters, you can put `{{none}}` to the value. if you want to add a header instead of body, you can put `header::` in front of the key like `header::Authorization`. if you want value as json, you can put `json::` in front of the value like `json::{"key":"value"}`. otherwise, type of the value would be determined automatically.',
+        additionalParamsHelp: "One per line. Supports `key=value`, `key=json::{...}`, `header::Name=value`, `key={{none}}`.",
+        tokenizerOverrideHelp: "Used for token counting. Leave Auto to use the profile recommendation.",
         antiClaudeOverload:
             "If Claude overload happens, PocketRisu would try to prevent it by continuing with same prompt, making it less likely to happen. works only for streamed responses. this could not work for non-official api endpoints.",
         triggerScript:
             'Trigger Script is a custom script that runs when a condition is met. it can be used to modify the chat data, run a command, change variable, and etc. the type depends when it is triggered. it can also be run by buttons, which can be used with {{button::Display::TriggerName}}, or HTML buttons with `risu-trigger="<TriggerName>"` attribute.',
-        autoContinueChat: "If enabled, it will try to continue the chat if it doesn't ends with a punctuation. DONT USE THIS WITH LANGUAGES THAT DOESN'T USE PUNCTUATION.",
         combineTranslation:
             "If enabled, text that is one sentence but separated by HTML tags will be combined together and translated, then Modify Display script will be reapplied to the translated output.\nThis helps the translator to make the correct translation.\nIf the UI becomes weird when you enable this option, please turn off the option and report it.",
         dynamicAssets:
@@ -158,6 +166,7 @@ export const helpEn = {
         moduleIntergration:
             "You can enable modules by putting the module namespace in the module intergartion sections. if you want to enable multiple modules, you can seperate them by comma. for example, `module1,module2,module3`. this is for advanced users, who wants to vary the use of modules by presets.",
         customCSS: "Custom CSS for styling.",
+        globalCustomCSS: "Global custom CSS that remains active when switching themes.",
         betaMobileGUI: "If enabled, it will use beta mobile GUI on small (less than 800px) screens. requires refresh.",
         enableScrollToActiveChar: "If enabled, pressing the hotkey or holding Ctrl while dragging a character will scroll to the currently active character. Folders will be opened automatically if closed.",
         unrecommended: "This is a unrecommended setting. it is not recommended to use this setting.",
@@ -191,12 +200,9 @@ export const helpEn = {
         translateBeforeHTMLFormatting:
             "If enabled, it will translate the text before Regex scripts and HTML formatting. this could make the token lesser but could break the formatting.",
         autoTranslateCachedOnly: "If enabled with Auto Translation option on, it will automatically translate only the messages that the user has translated previously.",
-        presetChain:
-            "If it is not blank, the preset will be changed and applied randomly every time when user sends a message in the preset list in this input. preset list should be seperated by comma, for example, `preset1,preset2`.",
-        legacyMediaFindings: "If enabled, it will use the old method to find media assets, without using the additional search algorithm.",
         comfyWorkflow:
             "Put the API workflow of comfy UI. you can get your API workflow in comfy UI by pressing the 'Workflow > Export (API)' button. you must also put {{risu_prompt}} in you workflow text. the {{risu_prompt}} will be replaced with the prompt provided by the Risu.",
-        automaticCachePoint: "Automatically creates cache point after the chat ends, if the caching point doesn't exist.",
+        automaticCachePoint: "When no cache point is explicitly configured, automatically adds cache points to up to the 3 most recent user messages.",
         experimentalChatCompressionDesc:
             "Compresses the unused chat data and saves in seperate file. this greatly reduces the size of the chat data, and greatly improves the performance, however its experimental and can be unstable, causing issues in backup feature and more.",
         promptInfoInsideChatDesc:
@@ -216,8 +222,6 @@ export const helpEn = {
             "Only use the providers in this list, if all the provider is not available, the request will failed. See detail on https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
         openRouterProviderIgnore:
             "Ignore the providers in this list, if all the provider is ingored, the request will failed. See detail on https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",
-        additionalPrompt:
-            "Text that gets appended to the Main Prompt when Prompt Preprocess is enabled. Default is 'The assistant must act as {{char}}. user is {{user}}.' This helps set up basic roleplay context.",
         hideAllImagesDesc: "Hides bot icons, bot image assets, and RisuRealm cover images.",
         hideMessagePageCountDesc: "Hides the page counter (e.g. 1/3) for regenerated messages and first message greetings. Navigation arrows and the regenerate button remain visible.",
         embedding:
@@ -228,8 +232,9 @@ export const helpEn = {
             "- **Trigger Scripts**: Similarity conditions in trigger scripts\n" +
             "- **File Attachments**: Searching within PDF/TXT/XML attachments",
         keepSessionAlive:
-            "Keeps the tab active and prevents the session from expiring due to inactivity in browsers. This may require refresh to take effect.\n\n" +
-            "- **Via Sound**: Plays a silent audio at regular intervals to keep the session alive. This method is known as most compatible and effective in most browsers.\n",
+            "Keeps the tab active by playing silent audio, preventing the browser session from expiring due to inactivity. This may require a refresh to take effect.",
+        disableMobileBackNavigation:
+            "Prevents the browser back button or back gesture from accidentally leaving the current tab on mobile devices. Some browsers may show a confirmation before leaving.",
         reSummarizationPrompt:
             "The prompt used when merging multiple selected summaries into one via bulk edit. If blank, the default prompt is used. The summary output is split by double newlines (\\n\\n) into chunks for similarity search.",
         hypaV3MemoryTokensRatio:
@@ -282,6 +287,10 @@ export const helpEn = {
             "Higher values use more chat context to determine similarity.",
         nodeOnlyScrollButtonType: "How the chat scroll buttons are shown. 4 Buttons adds jump-to-top and jump-to-bottom controls; 2 Buttons keeps only previous/next message navigation; Off hides them.",
         confirmReroll: "Ask for confirmation before regenerating a message.",
+        confirmMessageDelete:
+            "Ask for confirmation after choosing a message deletion action. When disabled, the selected deletion action runs without the extra confirmation.",
+        showPreviousChatSwipeButtons:
+            "Show swipe navigation for older regenerated character messages and first-message alternate greetings. Older messages can be moved between existing swipes and delete the selected regenerated message, but they do not show the regenerate button.",
         sendWithEnter: "Send the message with Enter.",
         sendKeyPC: "Which key sends a message on desktop.",
         sendKeyMobile: "How messages are sent on mobile.",
@@ -297,7 +306,7 @@ export const helpEn = {
         goCharacterOnImport: "After importing a character card, switch to that character automatically.",
         sideMenuRerollButton: "Show a regenerate/reroll button in the chat side menu.",
         localActivationInGlobalLorebook:
-            "Allow global lorebooks to use local activation options such as activating only for the current character.",
+            "Show an \"Always active in this chat\" option on character lorebook entries. Enabled entries stay active in the current chat regardless of keyword matches.",
         requestInfoInsideChat: "Allow LLM request information such as sent prompts and token counts to be displayed inside the chat area.",
         inlayErrorResponse: "When a model request fails, show the error as an inlaid chat response.",
         bulkEnabling: "Show buttons in the lorebook editor for enabling or disabling multiple entries at once.",
@@ -312,39 +321,23 @@ export const helpEn = {
         loreBookDepth:
             "Number of previous messages to scan for lorebook activation keywords. `0` disables scanning; higher values can find older keywords but may activate unnecessary lore. (0-20)",
         loreBookToken:
-            "Maximum number of tokens lorebook entries may occupy in one response. When the limit is exceeded, lower-priority entries are cut first. (0-4096)",
-        autoContinueMinTokens:
-            "Minimum token count for Auto Continue Chat. Responses shorter than this value will not trigger automatic continuation.",
-        descriptionPrefix:
-            "Prefix string added before the character description when sending it to the model. Leave blank to use the default. Change this only if you need a custom header or formatting style.",
+            "Maximum number of tokens lorebook entries may occupy in one response. When the limit is exceeded, lower-priority entries are cut first.",
         assetMaxDifference:
             "Allowed difference when matching dynamic asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
         heightMode:
             "CSS unit used to measure chat screen height. If the mobile browser address bar cuts off the screen, try another unit (`svh`, `lvh`, `dvh`).\n\n- **Normal**: automatic (`100%`)\n- **Percent / VH**: traditional units, sometimes broken on mobile\n- **DVH**: dynamic viewport, changes with address-bar size\n- **SVH**: small viewport, safest visible area\n- **LVH**: large viewport, address bar hidden",
-        removeIncompleteResponse:
-            "Automatically remove responses that were cut off by a network error, token limit, or similar interruption. When off, truncated responses stay in chat so you can inspect or reroll them manually.",
         newOAIHandle:
             "Use the newer OpenAI response-handling path. Try this when a model or response breaks under the legacy handler. The default is recommended for normal use.",
-        noWaitForTranslate:
-            "Show the original message before automatic translation finishes. The translated result replaces or augments it when ready.",
         newImageHandlingBeta:
-            "Use the newer inlay image handling path. This is beta behavior and may differ in some edge cases.",
+            "Add asset prompt controls to character settings. Characters can instruct the model to insert registered character or module assets into responses.",
         allowAllExtentionFiles:
             "Disable extension filtering in file pickers and allow every file type. Useful for importing character cards saved with unusual or incorrect extensions.",
-        dynamicModelRegistry:
-            "Fetch model lists dynamically from providers such as OpenRouter at runtime. When off, only the built-in static list is shown.",
-        disableSeperateParameterChangeOnPresetChange:
-            "Keep separate auxiliary parameters (memory, emotion, translation model settings, etc.) from following prompt preset changes. Enable when you want helper models fixed independently from presets.",
-        googleCloudTokenization:
-            "Use the Google Cloud / Vertex / Gemini tokenizer API to count tokens. More accurate, but may add API calls and cost. Experimental; shown only when experimental settings are enabled.",
-        localNetworkTimeoutSec:
-            "Maximum seconds to wait in Local Network Mode. Local LLMs can be slow to produce the first token, so 30 seconds or more is recommended. (30-3600)",
         enableDevTools:
             "Show developer tools for debugging chat and UI behavior. Most users can leave this off.",
         promptTextInfoInsideChat:
             "When prompt info inside chat is enabled, also store and display the actual prompt text sent to the model. This can make chats heavier, so use it mainly for debugging.",
         returnCSSError:
-            "Show notification details when custom CSS compilation fails. When off, CSS errors are ignored silently.",
+            "When custom CSS contains an error, display the error details at the corresponding style location.",
         antiServerOverload:
             "Automatically increase retry intervals when an API server responds as overloaded (for example 429 or 503). Helps reduce pressure on unstable providers.",
         claude1HourCaching:
@@ -357,16 +350,10 @@ export const helpEn = {
             "Enable bookmarks on chat messages and collect them in the menu. Useful for finding important messages in long chats.",
         simplifiedToolUse:
             "Show tool-call results in a simplified chat-friendly format. Use this when raw tool output is too long or noisy.",
-        useTokenizerCaching:
-            "Cache token counts for repeated text instead of recalculating them. This improves performance in long chats and is generally safe to keep enabled.",
-        auxModelUnderModelSettings:
-            "Show auxiliary model settings directly below the main model settings, making it easier to compare and adjust both in one place.",
-        pluginDevelopMode:
-            "Enable plugin development helpers such as logs, reload behavior, and hot-reload support. Regular users should leave this off.",
+        exportCurrentSettings:
+            "Exports the complete current settings as a JSON file for bug reports.",
         unrecommendedNewGoogleTrans:
             "Use the new experimental Google Translate path. It may be faster than the old path, but can break in some cases.",
-        unrecommendedClaudeCachingRetrival:
-            "Try reusing cached Claude responses for repeated requests. Cache invalidation is tricky and can return unintended results, so this is not recommended.",
         lightningRealmImport:
             "Use a faster import path when importing characters from RisuRealm while account sync is enabled. Experimental.",
         unrecommendedTriggerV1:
@@ -378,6 +365,7 @@ export const helpEn = {
         waifuWidth2: "Width of the second character or secondary visual in the Waifulike theme.",
         nodeOnlyStandardChatWidth: "Maximum chat card width in the PocketRisu Standard theme.",
         colorScheme: "Color palette used across the Risu UI.",
+        colorSchemeTransferDesc: "Import or export a color palette JSON file.",
         textColor: "Message text color theme.",
         font: "Message font.",
         customFont: "Font name to use.",
@@ -427,6 +415,8 @@ export const helpEn = {
             "Disable the default quote formatting such as italics or colors and render quotes as normal text. Enable if your text already includes its own formatting.",
         blockquoteStyling:
             "Render Markdown `>` blockquotes with the styled quote design. When off, they appear as plain indented text.",
+        cornerBracketStyling:
+            "Render corner brackets, double corner brackets, guillemets, and double angle brackets with the styled quote design.",
         customQuotes:
             "Automatically replace single and double quote marks with custom characters. Useful for forcing language-specific quote marks.",
         customQuotesDoubleLeading:
@@ -504,7 +494,7 @@ export const helpEn = {
         mistralKey:
             "Mistral AI API key from https://console.mistral.ai/api-keys/. Only needed for direct Mistral calls. If you reach Mistral models through another provider (e.g. OpenRouter), leave this blank.",
         novelaiToken:
-            "Bearer token for the NovelAI API. NovelAI does not expose an official API-key page — extract the token via your browser's dev tools after signing in, or use a helper tool.",
+            "Bearer token used with the NovelAI (`https://novelai.net`) API. The same token can be used for text generation, image generation, and speech synthesis.",
         proxyAPIKey:
             "API key the reverse proxy expects for authentication. Leave blank if your proxy doesn't require one. The value is sent as `Authorization: Bearer <key>`.",
         proxyRequestModel:
@@ -557,12 +547,57 @@ export const helpEn = {
             "Custom models are powered by a plugin. Pick the plugin provider that should generate responses. If the plugin is disabled the response will come back empty.",
         maxContextSize:
             "Maximum input tokens to send to the model. Going over the model's own limit (e.g. 128K for GPT-4o) causes errors, so keep it within bounds. Larger values increase input cost.",
+        streamingOverrideHelp: "When enabled, show the response a little at a time as it is generated instead of waiting for the whole answer.",
+        decoupledStreamingHelp: "Send the request over the streaming wire but display the full response at once after it completes. Bypasses some providers' non-streaming output limits and timeouts, and avoids token-by-token render cost.",
+        modelPresetToolUseHelp: "Let this preset call your configured tools (MCP). Off by default. Tool runs are sent without streaming.",
+        modelPresetCustomProfileHelp: "Advanced profile for configuring an endpoint, request format, authentication, generation parameters, body/header values, and compatibility flags directly.",
+        modelPresetRequestFormatHelp: "Select the request/response protocol implemented by the endpoint. Compatible servers such as Mistral, Ollama, and vLLM usually use OpenAI Chat Completions.",
+        modelPresetEndpointUrlHelp: "Enter the complete request URL, including the final API path.",
+        modelPresetRequestModelIdHelp: "The actual model identifier used in the request body or Gemini URL.",
+        modelPresetPromptCacheModeHelp: "GPT-5.6 and later only. Implicit uses an automatic breakpoint; explicit uses only prompt cache cards and explicit breakpoints.",
+        modelPresetAuthenticationHelp: "Select how the key or password is attached to the request.",
+        modelPresetKeyPasswordHelp: "Select a key/password from the shared key pool or save one directly on this preset.",
+        modelPresetStopSequencesHelp: "Strings that stop response generation. Enter one per line.",
+        modelPresetLocationHelp: "Google Cloud location used by Vertex AI. Keep `global` unless the selected model or your project requires a specific region.",
+        cloudflareAccountIdHelp: "Cloudflare account identifier used in the Workers AI API endpoint. Find it in the Cloudflare dashboard.",
+        thinkingBudgetHelp: "Maximum thinking-token budget used by Claude and Gemini when Reasoning Effort is set to Budget. The minimum is 1,024 tokens.",
+        customFlagHasImageOutputHelp: "Treat the model as capable of returning generated images.",
+        customFlagHasAudioInputHelp: "Allow audio attachments in model input.",
+        customFlagHasAudioOutputHelp: "Treat the model as capable of returning generated audio.",
+        customFlagHasPrefillHelp: "Enable assistant prefill for Custom OpenAI-compatible endpoints. The model ID selects Kimi `partial` or DeepSeek `prefix` automatically.",
+        customFlagHasVideoInputHelp: "Allow video attachments in model input.",
+        customFlagOAICompletionTokensHelp: "Use `max_completion_tokens` instead of `max_tokens` for OpenAI Chat Completions.",
+        customFlagDeveloperRoleHelp: "Use OpenAI's developer role for system-level instructions when supported.",
+        customFlagGeminiIncludeThoughtsHelp: "When enabled, show a summary of the Gemini model's reasoning alongside its answer.",
+        customFlagDeepSeekThinkingInputHelp: "When enabled, send saved reasoning from the final assistant prefill as `reasoning_content`, falling back to `<think>` tags when needed.",
+        customFlagDeepSeekThinkingOutputHelp: "When enabled, show DeepSeek reasoning separately from the final answer, falling back to `<think>` tags when `reasoning_content` is absent.",
+        modelPresetImageInputHelp: "Send images to the model. Off by default. Turn on only for models that accept images (e.g. Ollama gemma3, llava).",
+        modelPresetFoldSystemHelp: "Convert system messages into user turns before sending. Off by default. Turn on for models without a native system role (e.g. Ollama gemma3).",
+        modelPresetKeepFirstSystemHelp: "When folding, leave the leading system message as-is instead of converting it. For models that allow a single leading system message.",
+        modelPresetAlternateRoleHelp: "Merge consecutive same-role messages into one. Off by default. Turn on for models that require alternating user/assistant turns (e.g. gemma).",
+        modelPresetStartWithUserHelp: "Prepend an empty user turn when the conversation does not start with user. Off by default. For models that reject a non-user first turn.",
+        maxContextHelp: "Input (prompt) token budget for this preset. Leave empty for the default (65000), capped at the model's context window. Not the response length (that is Max Tokens).",
+        modelPresetGlobalBindingHelp: "Used as the main model binding for new chats.",
+        modelPresetGlobalSubBindingHelp: "Used as the auxiliary model binding for new chats.",
+        modelPresetGlobalAuxBindingHelp: "Use separate presets for auxiliary tasks in new chats.",
+        modelPresetOverwriteDesc: "Apply the current defaults to every existing chat.",
+        modelPresetCacheEnableHelp: "Cache the repeated prompt prefix on Google's servers to cut input token cost. The cache boundary is set by the cache card in your prompt template (or Automatic Cache Point).",
+        modelPresetCacheTtlHelp: "How long the server keeps the cache. Longer covers think time between turns, but storage cost accrues for the lifetime.",
+        modelPresetCacheExtendHelp: "Renew the cache lifetime whenever a request hits the cache.",
+        modelPresetCacheMinTokensHelp: "Do not create a cache while the prompt is below this size.",
+        modelPresetCacheGrowthHelp: "Recreate the cache once the prompt has grown by this many tokens since it was created.",
+        modelPresetTestHelp: "Send a single message to this preset to check its credentials and endpoint respond. Not saved to any chat.",
+        apiKeyManagerDesc: "Save API keys to reuse across multiple presets.",
+        modelPresetPromptPresetFirst:
+            "Use the prompt preset values for maximum context and response size.",
+        modelPresetPromptParamsFirst:
+            "Apply the prompt preset's sampling parameters ahead of the model preset for main-model requests in every chat. Auxiliary model parameters are never overridden.",
+        modelPresetDefaultMaxContext:
+            "Default context size to use when a model preset leaves its own maximum context empty.",
+        modelPresetDefaultMaxResponse:
+            "Default max response size (Max Tokens) to use when a model preset leaves its own output cap empty.",
         profileVisibilityLevel:
-            "Hide outdated or deprecated model profiles from the catalog list and update notices.",
-        useCustomRegistry:
-            "Download model profiles from your own registry fork or branch instead of the official one.",
-        customRegistryUrl:
-            "An https base URL ending in a slash; index.json and catalog.json are fetched from it. An empty or non-https URL is rejected.",
+            "Hide outdated or deprecated model profiles from the catalog list.",
         maxResponseSize:
             "Maximum output tokens for a single response. Too low and replies get cut off; too high costs more and can let the model ramble. 256–1024 covers most cases.",
         seed:
@@ -585,8 +620,6 @@ export const helpEn = {
             "For OpenAI o-series reasoning models. Controls how much effort goes into reasoning.\n\n- **-1**: model default\n- **0–2**: low / medium / high (deeper reasoning is slower and more expensive)",
         verbosity:
             "Response-length control on some OpenAI models. `0` is concise, `2` is long-form. Only meaningful on models that support it.",
-        promptPreprocess:
-            "Append an extra prompt (the `additionalPrompt` setting, default \"The assistant must act as {{char}}. user is {{user}}.\") to the end of the main prompt. Helps lock in roleplay context. When off, only the raw main prompt is sent.",
         usePromptTemplate:
             "Use a custom prompt template (Settings → Prompt Template) instead of the four prompt fields above (main / jailbreak / note / order). Templates allow more sophisticated prompt composition but have a steeper learning curve.",
         customFlags:
@@ -626,10 +659,15 @@ export const helpEn = {
 
         memType:
             "Long-term memory mode.\n\n- **None**: disabled (chat is sent as-is up to the max context limit)\n- **HypaV3**: PocketRisu's long-term memory that auto-summarizes and retrieves older chat to inject into the context. Slightly more cost / latency, but consistency in long chats improves a lot.",
+        hypaV3Description: "HypaMemory V3 is a long-term memory system that uses both summarization and vector search.",
         hypaV3SummaryModel:
             "Model used to summarize chat.\n\n- **subModel**: use the auxiliary model (most common)\n- **Qwen3 4B/14B**: free local summarization (runs in the browser or Node instance directly, downloads on first use)\n\nUsing a lighter model than the main model saves cost.",
         hypaV3Preset:
             "HypaV3 settings preset. Save and load groups of frequently used settings; switching presets also swaps every ratio / model option above.",
+        hypaV3EmbeddingModel: "The embedding model to use from the selected provider.",
+        hypaV3OpenAIKeyList: "Select an OpenAI key saved in API Key Management.",
+        hypaV3VoyageKeyList: "Select a Voyage key saved in API Key Management.",
+        hypaV3CustomKeyList: "Select a key saved in API Key Management.",
         embeddingOpenAIKey:
             "API key used when an OpenAI embedding model is selected. Set this only if you want to manage embedding cost separately from the main-model key. If empty, the main OpenAI key is reused.",
         embeddingCustomURL:
@@ -641,6 +679,7 @@ export const helpEn = {
         embeddingVoyageKey:
             "Voyage AI API key (`https://www.voyageai.com/`). Required when the embedding model is set to voyageContext3 etc.",
 
+        ttsEnable: "Enable the TTS button and related settings so messages can be played as speech.",
         ttsAutoSpeech:
             "Automatically play the character's response as speech when it arrives. Mobile browsers may block this in the background — after enabling, tap the screen once to grant permission.",
         ttsElevenLabsKey:
@@ -649,8 +688,6 @@ export const helpEn = {
             "URL of a locally running VOICEVOX (`https://voicevox.hiroshiba.jp/`) engine (e.g. `http://localhost:50021`). Strong on Japanese synthesis.",
         ttsOpenAIKey:
             "OpenAI TTS API key. The same key as your main OpenAI key works, but use a separate one if you want to track TTS spend separately.",
-        ttsNAIKey:
-            "API key for NovelAI voice synthesis. Same as the regular NovelAI Bearer token.",
         ttsHuggingfaceKey:
             "HuggingFace Inference API key. Required to call HuggingFace's free or paid TTS models.",
         ttsFishSpeechKey:
@@ -659,6 +696,8 @@ export const helpEn = {
         emotionMethod:
             "Method used to detect emotion in the character's response and pick the matching emotion image.\n\n- **Ax. Model**: ask the auxiliary LLM to classify the emotion (high accuracy, small cost)\n- **MiniLM-L6-v2**: local embedding-based classifier (free, fast, lower accuracy)\n\nThe emotion images themselves work only after you register emotion assets on the character card.",
 
+        webuiApiWarning:
+            "You must use WebUI with the `--api` flag. Use either a WebUI without an AGPL license or an unmodified AGPL-licensed version in compliance with its license terms.",
         webuiUrl:
             "URL of an AUTOMATIC1111 or compatible WebUI (e.g. `http://localhost:7860`). The WebUI must be launched with the `--api` flag.",
         webuiSteps:
@@ -682,8 +721,6 @@ export const helpEn = {
 
         naiImgUrl:
             "NovelAI image generation endpoint. Rarely needs to be changed from the default — leave blank to use it.",
-        naiImgKey:
-            "NovelAI Bearer token. Same as the token used for the text models.",
         naiModel:
             "NovelAI image model to use. Newer models look better and cost slightly more (Anlas drawn from your subscription plan).",
         naiWidth:
@@ -701,7 +738,13 @@ export const helpEn = {
         naiCFGRescale:
             "CFG rescale correction. 0 disables; 0.5–0.7 is typical. Helps with color / contrast on some models.",
         naiImageReference:
-            "Image reference mode.\n\n- **None**: text only\n- **Vibe Transfer**: borrow the mood of the reference image\n- **Character Reference**: borrow the character from the reference image (NAI Diffusion 4-5 only)",
+            "Image reference mode.\n\n- **None**: text only\n- **Vibe Transfer**: borrow the mood of the reference image\n- **Reference**: use Precise Reference for character appearance, style, or both (NAI Diffusion 4.5 only)\n\nVibe Transfer and Precise Reference cannot be used together.",
+        naiReferenceType:
+            "Choose what Precise Reference copies from the image: the character appearance, the visual style, or both.",
+        naiReferenceStrength:
+            "How strongly the reference influences the result. Higher values follow visual cues from the reference more closely. (0–1)",
+        naiReferenceFidelity:
+            "How strictly the reference is enforced. Higher values are harder to override with the prompt. (0–1)",
         naiVibeModel:
             "NAI model used to extract the Vibe Transfer encoding. Usually pick the same model you generate with.",
         naiInfoExtracted:
@@ -784,4 +827,13 @@ export const helpEn = {
 
         bootBackupReminder:
             "When enabled, PocketRisu prompts you on every boot whether to create a server backup right away. Useful as a lightweight safety net before opening the app each session. Confirming runs a full server backup (the loading screen waits while it finishes); skipping continues straight to the app.",
+        autoBackupSchedule:
+            "When enabled, backups are created automatically once the specified number of days has passed since the last backup.",
+        systemLogsExplicitOnlyHint: "Excludes console, uncaught exceptions, framework captures",
+        migrationUpstreamExportDesc: "Export a backup in the original RisuAI-compatible format.",
+        migrationUpstreamRestoreDesc: "Restore from a local backup exported by the original RisuAI.",
+        migrationPartialBackupDesc: "Save a smaller local backup with database and essential images only.",
+        migrationDatasetExportDesc: "Export save data as a dataset file.",
+        backupLocalDownloadDesc: "Generate a fresh backup from current data and download it directly to your device.",
+        backupLocalRestoreDesc: "Restore from a backup file on your device.",
 }

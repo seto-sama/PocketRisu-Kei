@@ -21,7 +21,6 @@
     import { setDatabase, type folder } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import BarIcon from "./BarIcon.svelte";
-    import SidebarIndicator from "./SidebarIndicator.svelte";
     import {
     ShellIcon,
     Settings,
@@ -30,7 +29,8 @@
     FolderIcon,
     FolderOpenIcon,
     HomeIcon,
-    WrenchIcon,
+    MessageSquareIcon,
+    PlusIcon,
     User2Icon,
     ChevronsLeft,
     ArrowRight,
@@ -45,6 +45,8 @@
     import isEqual from "lodash/isEqual";
     import SidebarAvatar from "./SidebarAvatar.svelte";
     import ShSwitch from "../UI/GUI/ShSwitch.svelte";
+    import ShSortableList from "../UI/GUI/ShSortableList.svelte";
+    import type { MoveEvent } from "sortablejs";
     import BaseRoundedButton from "../UI/BaseRoundedButton.svelte";
     import { getCharacterIndexObject, makeAgoText, selectSingleFile } from "src/ts/util";
     import { v4 } from "uuid";
@@ -54,10 +56,12 @@
 
   import { sideBarSize } from "src/ts/gui/guisize";
   import DevTool from "./DevTool.svelte";
+  import CharConfigHeader from "./CharConfigHeader.svelte";
     import QuickSettingsGui from "../Others/QuickSettingsGUI.svelte";
     import PluginDefinedIcon from "../Others/PluginDefinedIcon.svelte";
+    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
   const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
-  const touchDragEnabled = $derived(isTouchDevice && !DBState.db.disableMobileDragDrop);
+    const sidebarSortingDisabled = $derived(isTouchDevice && DBState.db.disableMobileDragDrop);
 
   let sideBarMode = $state(0);
   let editMode = $state(false);
@@ -65,6 +69,7 @@
   let devTool = $state(false)
 
   function reseter() {
+    onNavigate();
     menuMode = 0;
     sideBarMode = 0;
     editMode = false;
@@ -73,7 +78,7 @@
   }
 
   type sortTypeNormal = { type:'normal',img: string, index: number, name:string }
-  type sortType =  sortTypeNormal|{type:'folder',folder:sortTypeNormal[],id:string, name:string, color:string, img?:string}
+  type sortType =  sortTypeNormal|{type:'folder',folder:sortTypeNormal[],id:string, name:string, color:string, localOnly?:boolean, img?:string}
   let charImages: sortType[] = $state([]);
   // Recently interacted characters for the home sidebar. Character-level
   // `lastInteraction` is already in memory (no chat hydration needed), so this
@@ -89,13 +94,25 @@
   let recentVisible = $state(10);
   let IconRounded = $state(false)
   let openFolders:string[] = $state([])
-  let currentDrag: DragData = $state(null)
+  let sidebarSortElement: HTMLDivElement | undefined = $state()
+  let mergeTargetId: string | null = null
+  const characterFolderColorOptions = [
+    { label: 'Color 1', value: 'red' },
+    { label: 'Color 2', value: 'orange' },
+    { label: 'Color 3', value: 'yellow' },
+    { label: 'Color 4', value: 'green' },
+    { label: 'Color 5', value: 'blue' },
+    { label: 'Color 6', value: 'indigo' },
+    { label: 'Color 7', value: 'purple' },
+    { label: 'Default', value: 'default' },
+  ] as const
   interface Props {
     openGrid?: any;
+    onNavigate?: () => void;
     hidden?: boolean;
   }
 
-  let { openGrid = () => {}, hidden = false }: Props = $props();
+  let { openGrid = () => {}, onNavigate = () => {}, hidden = false }: Props = $props();
 
   sideBarClosing.set(false)
 
@@ -136,6 +153,7 @@
           id: folder.id,
           name: folder.name,
           color: folder.color,
+          localOnly: folder.localOnly,
           img: folder.imgFile,
         });
       }
@@ -149,95 +167,84 @@
   })
 
 
-  const inserter = (mainIndex:DragData, targetIndex:DragData) => {
-    if(mainIndex.index === targetIndex.index && mainIndex.folder === targetIndex.folder){
-      return
-    }
-    let db = DBState.db
-    let mainFolderIndex = mainIndex.folder ? getFolderIndex(mainIndex.folder) : null
-    let targetFolderIndex = targetIndex.folder ? getFolderIndex(targetIndex.folder) : null
-    let mainFolderId = mainIndex.folder ? (db.characterOrder[mainFolderIndex] as folder).id : ''
-    let movingFolder:folder|false = false
-    let mainId = ''
-    if(mainIndex.folder){
-      mainId = (db.characterOrder[mainFolderIndex] as folder).data[mainIndex.index]
-    }
-    else{
-      const da = db.characterOrder[mainIndex.index]
-      if(typeof(da) !== 'string'){
-        mainId = da.id
-        movingFolder = $state.snapshot(da)
-        if(targetIndex.folder){
-          return
+  function syncSidebarOrderFromDom() {
+    if (!sidebarSortElement) return
+    const existingFolders = new Map(
+      DBState.db.characterOrder
+        .filter((item): item is folder => typeof item !== 'string')
+        .map(item => [item.id, item])
+    )
+    const nextOrder: (string | folder)[] = []
+    const seenCharacterIds = new Set<string>()
+
+    for (const element of sidebarSortElement.querySelectorAll<HTMLElement>(':scope > [data-sidebar-order-key]')) {
+      const key = element.dataset.sidebarOrderKey
+      if (!key) continue
+      const existingFolder = existingFolders.get(key)
+      if (existingFolder) {
+        const folderContainer = element.querySelector<HTMLElement>(`:scope [data-sortable-container-key="${CSS.escape(key)}"]`)
+        if (folderContainer) {
+          existingFolder.data = Array.from(
+            folderContainer.querySelectorAll<HTMLElement>(':scope > [data-sidebar-order-key]')
+          ).map(child => child.dataset.sidebarOrderKey ?? '').filter(id => id && !seenCharacterIds.has(id))
         }
-      }
-      else{
-        mainId = da
-      }
-    }
-    if(targetIndex.folder){
-        const folder = db.characterOrder[targetFolderIndex] as folder
-        folder.data.splice(targetIndex.index,0,mainId)
-        db.characterOrder[targetFolderIndex] = folder
-    }
-    else if(movingFolder){
-        db.characterOrder.splice(targetIndex.index,0,movingFolder)
-    }
-    else{
-        db.characterOrder.splice(targetIndex.index,0,mainId)
-    }
-    if(mainIndex.folder){
-      mainFolderIndex = -1
-      for(let i=0;i<db.characterOrder.length;i++){
-        const a =db.characterOrder[i]
-        if(typeof(a) !== 'string'){
-          if(a.id === mainFolderId){
-            mainFolderIndex = i
-            break
-          }
-        }
-      }
-      if(mainFolderIndex !== -1){
-        const folder:folder = db.characterOrder[mainFolderIndex] as folder
-        const ind = mainIndex.index > targetIndex.index ? folder.data.lastIndexOf(mainId) : folder.data.indexOf(mainId) 
-        if(ind !== -1){
-          folder.data.splice(ind, 1)
-        }
-        db.characterOrder[mainFolderIndex] = folder
-      }
-      else{
-        console.log('folder not found')
-      }
-    }
-    else if(movingFolder){
-      let idList:string[] = []
-      for(const ord of db.characterOrder){
-        idList.push(typeof(ord) === 'string' ? ord : ord.id)
-      }
-      const ind = mainIndex.index > targetIndex.index ? idList.lastIndexOf(mainId) : idList.indexOf(mainId) 
-      if(ind !== -1){
-        db.characterOrder.splice(ind, 1)
-      }
-    }
-    else{
-      const ind = mainIndex.index > targetIndex.index ? db.characterOrder.lastIndexOf(mainId) : db.characterOrder.indexOf(mainId) 
-      if(ind !== -1){
-        db.characterOrder.splice(ind, 1)
+        existingFolder.data.forEach(id => seenCharacterIds.add(id))
+        nextOrder.push(existingFolder)
+      } else if (!seenCharacterIds.has(key)) {
+        seenCharacterIds.add(key)
+        nextOrder.push(key)
       }
     }
 
-    DBState.db.characterOrder = db.characterOrder
+    DBState.db.characterOrder = nextOrder
     checkCharOrder()
   }
 
-  function getFolderIndex(id:string){
-    for(let i=0;i<DBState.db.characterOrder.length;i++){
-      const data = DBState.db.characterOrder[i]
-      if(typeof(data) !== 'string' && data.id === id){
-        return i
-      }
+  function createFolderById(sourceId: string, targetId: string) {
+    if (sourceId === targetId) return
+    const order = DBState.db.characterOrder
+    const sourceIndex = order.indexOf(sourceId)
+    const targetIndex = order.indexOf(targetId)
+    const sourceFolder = sourceIndex === -1
+      ? order.find((item): item is folder => typeof item !== 'string' && item.data.includes(sourceId))
+      : undefined
+    if ((!sourceFolder && sourceIndex === -1) || targetIndex === -1) return
+    const newFolder: folder = {
+      name: "New Folder",
+      data: [sourceId, targetId],
+      color: "",
+      id: v4(),
     }
-    return -1
+    order[targetIndex] = newFolder
+    if (sourceFolder) {
+      sourceFolder.data.splice(sourceFolder.data.indexOf(sourceId), 1)
+    } else {
+      order.splice(sourceIndex, 1)
+    }
+    DBState.db.characterOrder = order
+    checkCharOrder()
+  }
+
+  function moveSidebarItem(event: MoveEvent, originalEvent: Event) {
+    const dragged = event.dragged as HTMLElement
+    const related = event.related as HTMLElement
+    if (dragged.dataset.sidebarKind === 'folder' && event.to !== sidebarSortElement) return false
+    if (
+      event.to === sidebarSortElement &&
+      dragged.dataset.sidebarKind === 'character' &&
+      related.dataset.sidebarKind === 'character'
+    ) {
+      const pointerY = originalEvent instanceof TouchEvent
+        ? originalEvent.touches[0]?.clientY
+        : (originalEvent as MouseEvent).clientY
+      const rect = related.getBoundingClientRect()
+      const inCenter = pointerY !== undefined && pointerY > rect.top + rect.height * 0.3 && pointerY < rect.bottom - rect.height * 0.3
+      mergeTargetId = inCenter ? related.dataset.sidebarOrderKey ?? null : null
+      if (inCenter) return false
+    } else {
+      mergeTargetId = null
+    }
+    return true
   }
 
   function scrollToActiveCharacter() {
@@ -291,215 +298,7 @@
     }
   })
 
-
-  const createFolder = (mainIndex:DragData, targetIndex:DragData) => {
-    if(mainIndex.index === targetIndex.index && mainIndex.folder === targetIndex.folder){
-      return
-    }
-    let db = DBState.db
-    let mainFolderIndex = mainIndex.folder ? getFolderIndex(mainIndex.folder) : null
-    let mainFolder = db.characterOrder[mainFolderIndex] as folder
-    if(targetIndex.folder){
-      return
-    }
-    const main = mainIndex.folder ? mainFolder.data[mainIndex.index] : db.characterOrder[mainIndex.index]
-    const target = db.characterOrder[targetIndex.index]
-    if(typeof(main) !== 'string'){
-      return
-    }
-    if(typeof (target) === 'string'){
-      const newFolder:folder = {
-        name: "New Folder",
-        data: [main, target],
-        color: "",
-        id: v4()
-      }
-      db.characterOrder[targetIndex.index] = newFolder
-      if(mainIndex.folder){
-        mainFolder.data.splice(mainIndex.index, 1)
-        db.characterOrder[mainFolderIndex] = mainFolder
-      }
-      else{
-        db.characterOrder.splice(mainIndex.index, 1)
-      }
-    }
-    else{
-      target.data.push(main)
-      if(mainIndex.folder){
-        mainFolder.data.splice(mainIndex.index, 1)
-        db.characterOrder[mainFolderIndex] = mainFolder
-      }
-      else{
-        db.characterOrder.splice(mainIndex.index, 1)
-      }
-    }
-  }
-
-  type DragEv = DragEvent & {
-    currentTarget: EventTarget & HTMLDivElement;
-  }
-  type DragData = {
-    index:number,
-    folder?:string
-  }
-  const avatarDragStart = (ind:DragData, e:DragEv) => {
-    e.dataTransfer.setData('text/plain', '');
-    e.dataTransfer.setData('application/x-risu-internal', 'true');
-    currentDrag = ind
-    const avatar = e.currentTarget.querySelector('.avatar')
-    if(avatar){
-      e.dataTransfer.setDragImage(avatar, 10, 10);
-    }
-  }
-
-  const avatarDragOver = (e:DragEv) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-  }
-
-  const avatarDrop = (ind:DragData, e:DragEv) => {
-    e.preventDefault()
-    try {
-      if(currentDrag){
-        createFolder(currentDrag,ind)
-      }
-    } catch (error) {}
-  }
-
-  const preventAll = (e:Event) => {
-    e.preventDefault()
-    e.stopPropagation()
-    return false
-  }
-
-  // Touch long-press drag for mobile devices
-  let touchDragState: {
-    data: DragData
-    element: HTMLElement
-    ghost: HTMLElement | null
-    highlighted: HTMLElement | null
-  } | null = null
-  let touchDragTimer = 0
-  let touchStartPos = { x: 0, y: 0 }
   let suppressNextClick = false
-
-  function onTouchDragStart(data: DragData, e: TouchEvent & { currentTarget: HTMLElement }) {
-    const touch = e.touches[0]
-    touchStartPos = { x: touch.clientX, y: touch.clientY }
-    const el = e.currentTarget
-
-    if (touchDragTimer) clearTimeout(touchDragTimer)
-    touchDragTimer = window.setTimeout(() => {
-      touchDragState = { data, element: el, ghost: null, highlighted: null }
-      el.style.opacity = '0.4'
-      try { navigator.vibrate?.(30) } catch {}
-
-      const rect = el.getBoundingClientRect()
-      const ghost = el.cloneNode(true) as HTMLElement
-      ghost.style.cssText = `position:fixed;pointer-events:none;z-index:9999;opacity:0.7;width:${rect.width}px;left:${touch.clientX - rect.width / 2}px;top:${touch.clientY - rect.height / 2}px;`
-      document.body.appendChild(ghost)
-      touchDragState.ghost = ghost
-    }, 400)
-  }
-
-  function onTouchDragMove(e: TouchEvent) {
-    const touch = e.touches[0]
-
-    if (!touchDragState) {
-      const dx = Math.abs(touch.clientX - touchStartPos.x)
-      const dy = Math.abs(touch.clientY - touchStartPos.y)
-      if (dx > 8 || dy > 8) {
-        if (touchDragTimer) { clearTimeout(touchDragTimer); touchDragTimer = 0 }
-      }
-      return
-    }
-
-    e.preventDefault()
-
-    if (touchDragState.ghost) {
-      const rect = touchDragState.element.getBoundingClientRect()
-      touchDragState.ghost.style.left = `${touch.clientX - rect.width / 2}px`
-      touchDragState.ghost.style.top = `${touch.clientY - rect.height / 2}px`
-    }
-
-    // Find drop target under finger
-    if (touchDragState.ghost) touchDragState.ghost.style.display = 'none'
-    const el = document.elementFromPoint(touch.clientX, touch.clientY)
-    if (touchDragState.ghost) touchDragState.ghost.style.display = ''
-
-    if (touchDragState.highlighted) {
-      touchDragState.highlighted.classList.remove('bg-green-500', 'ring-2', 'ring-green-400')
-      touchDragState.highlighted = null
-    }
-
-    if (!el) return
-    const spacer = el.closest('[data-spacer-index]') as HTMLElement | null
-    const item = el.closest('[data-drag-index]') as HTMLElement | null
-
-    if (spacer) {
-      spacer.classList.add('bg-green-500')
-      touchDragState.highlighted = spacer
-    } else if (item && item !== touchDragState.element) {
-      item.classList.add('ring-2', 'ring-green-400')
-      touchDragState.highlighted = item
-    }
-  }
-
-  function cleanupTouchDrag() {
-    if (touchDragTimer) { clearTimeout(touchDragTimer); touchDragTimer = 0 }
-    if (!touchDragState) return false
-    touchDragState.element.style.opacity = ''
-    if (touchDragState.highlighted) {
-      touchDragState.highlighted.classList.remove('bg-green-500', 'ring-2', 'ring-green-400')
-    }
-    if (touchDragState.ghost) touchDragState.ghost.remove()
-    touchDragState = null
-    return true
-  }
-
-  function onTouchDragEnd(e: TouchEvent) {
-    if (touchDragTimer) { clearTimeout(touchDragTimer); touchDragTimer = 0 }
-    if (!touchDragState) return
-
-    const touch = e.changedTouches[0]
-
-    if (touchDragState.ghost) touchDragState.ghost.style.display = 'none'
-    const el = document.elementFromPoint(touch.clientX, touch.clientY)
-
-    const spacer = el?.closest('[data-spacer-index]') as HTMLElement | null
-    const item = el?.closest('[data-drag-index]') as HTMLElement | null
-
-    if (spacer) {
-      const idx = parseInt(spacer.dataset.spacerIndex!)
-      const folder = spacer.dataset.spacerFolder || undefined
-      inserter(touchDragState.data, { index: idx, folder })
-    } else if (item && item !== touchDragState.element) {
-      const idx = parseInt(item.dataset.dragIndex!)
-      const folder = item.dataset.dragFolder || undefined
-      createFolder(touchDragState.data, { index: idx, folder })
-    }
-
-    cleanupTouchDrag()
-    suppressNextClick = true
-    requestAnimationFrame(() => { suppressNextClick = false })
-  }
-
-  function onTouchDragCancel() {
-    cleanupTouchDrag()
-  }
-
-  function touchDragContainer(node: HTMLElement) {
-    node.addEventListener('touchmove', onTouchDragMove, { passive: false })
-    node.addEventListener('touchend', onTouchDragEnd)
-    node.addEventListener('touchcancel', onTouchDragCancel)
-    return {
-      destroy() {
-        node.removeEventListener('touchmove', onTouchDragMove)
-        node.removeEventListener('touchend', onTouchDragEnd)
-        node.removeEventListener('touchcancel', onTouchDragCancel)
-      }
-    }
-  }
 </script>
 {#if DBState.db.menuSideBar}
 <div
@@ -510,8 +309,9 @@
   class:hidden={hidden}
   class:flex={!hidden}
 >
+<IconButtonGroup size="xl" direction="vertical" className="mt-4 w-full">
 <button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full mt-4"
+  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
   class:text-textcolor2={!(
     $selectedCharID < 0 &&
     $PlaygroundStore === 0 &&
@@ -572,6 +372,7 @@
   <ShellIcon />
   <span class="text-xs">{language.playground.playground}</span>
 </button>
+</IconButtonGroup>
 </div>
 {:else}
 <div
@@ -583,111 +384,142 @@
   class:hidden={hidden}
   class:flex={!hidden}
 >
-  {#if !DBState.db.hamburgerButtonBottom}
-  <button
-    class="flex h-8 min-h-8 w-14 min-w-14 cursor-pointer text-white mt-2 items-center justify-center rounded-md bg-textcolor2 transition-colors hover:bg-primary"
-    class:max-xs:hidden={$leftBarCollapsed}
-    onclick={() => {
-      menuMode = 1 - menuMode;
-    }}><ListIcon />
-  </button>
-  {#if !DBState.db.hideLeftBarCollapseButton}
-  <button
-    class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer mt-2 items-center justify-center rounded-md border border-borderc text-textcolor transition-colors hover:border-primary hover:text-primary"
-    aria-label="Collapse sidebar"
-    onclick={() => leftBarCollapsed.set(true)}
+  <div
+    class="flex w-full flex-col items-center"
+    class:order-last={DBState.db.hamburgerButtonBottom}
+    class:flex-col-reverse={DBState.db.hamburgerButtonBottom}
   >
-    <ChevronsLeft size={20} />
-  </button>
-  {/if}
-  <div class="mt-2 border-b border-b-selected w-full relative text-white" class:max-xs:hidden={$leftBarCollapsed}>
-    {#if menuMode === 1}
-      <div class="absolute w-20 min-w-20 flex border-b-selected border-b bg-bgcolor flex-col items-center pt-2 rounded-b-md z-20 pb-2 max-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto hamburger-menu">
-        <BarIcon
-        onClick={() => {
-          if ($settingsOpen) {
-            reseter();
-            settingsOpen.set(false);
-          } else {
-            reseter();
-            settingsOpen.set(true);
-          }
-        }}><Settings /></BarIcon
+    <IconButtonGroup size="xl" direction="vertical" className="w-full">
+    <button
+      class="flex h-8 min-h-8 w-14 min-w-14 cursor-pointer text-white items-center justify-center rounded-md bg-textcolor2 transition-colors hover:bg-primary"
+      class:mt-2={!DBState.db.hamburgerButtonBottom}
+      class:my-2={DBState.db.hamburgerButtonBottom}
+      class:max-xs:hidden={$leftBarCollapsed}
+      onclick={() => {
+        menuMode = 1 - menuMode;
+      }}
+    >
+      <ListIcon />
+    </button>
+
+    {#if !DBState.db.hideLeftBarCollapseButton}
+      <button
+        class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer mt-2 items-center justify-center rounded-md border border-borderc text-textcolor transition-colors hover:border-primary hover:text-primary"
+        aria-label="Collapse sidebar"
+        onclick={() => leftBarCollapsed.set(true)}
       >
-      <div class="mt-2"></div>
-      <BarIcon
-        onClick={() => {
-          reseter();
-          selectedCharID.set(-1)
-          PlaygroundStore.set(0)
-          OpenRealmStore.set(false)
-        }}><HomeIcon /></BarIcon>
-      <div class="mt-2"></div>
-      <BarIcon
-        onClick={() => {
-          reseter()
-          if($selectedCharID === -1 && $PlaygroundStore !== 0){
-            PlaygroundStore.set(0)
-            return
-          }
-          selectedCharID.set(-1)
-          PlaygroundStore.set(1)
-        }}
-      ><ShellIcon /></BarIcon>
-      <div class="mt-2"></div>
-      <BarIcon
-        onClick={() => {
-          reseter();
-          openGrid();
-        }}><LayoutGridIcon /></BarIcon
-      >
-      {#if additionalHamburgerMenu.length > 0}
-        <div class="mt-2 h-px w-10 bg-selected shrink-0"></div>
-        {#each additionalHamburgerMenu as menu}
+        <ChevronsLeft />
+      </button>
+    {/if}
+
+    <div class="w-full relative text-white" class:max-xs:hidden={$leftBarCollapsed}>
+      {#if menuMode === 1}
+        <div
+          class="absolute w-20 min-w-20 flex bg-bgcolor flex-col items-center z-20 py-4 max-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto hamburger-menu"
+          class:bottom-full={DBState.db.hamburgerButtonBottom}
+          class:top-0={!DBState.db.hamburgerButtonBottom}
+          class:rounded-t-md={DBState.db.hamburgerButtonBottom}
+          class:rounded-b-md={!DBState.db.hamburgerButtonBottom}
+        >
+          <BarIcon
+            onClick={() => {
+              if ($settingsOpen) {
+                reseter();
+                settingsOpen.set(false);
+              } else {
+                reseter();
+                settingsOpen.set(true);
+              }
+            }}
+          >
+            <Settings />
+          </BarIcon>
           <div class="mt-2"></div>
           <BarIcon
             onClick={() => {
               reseter();
-              menu.callback();
-            }}>
-              <PluginDefinedIcon ico={menu} />
-            </BarIcon
+              selectedCharID.set(-1)
+              PlaygroundStore.set(0)
+              OpenRealmStore.set(false)
+            }}
           >
-        {/each}
+            <HomeIcon />
+          </BarIcon>
+          <div class="mt-2"></div>
+          <BarIcon
+            onClick={() => {
+              reseter()
+              if($selectedCharID === -1 && $PlaygroundStore !== 0){
+                PlaygroundStore.set(0)
+                return
+              }
+              selectedCharID.set(-1)
+              PlaygroundStore.set(1)
+            }}
+          >
+            <ShellIcon />
+          </BarIcon>
+          <div class="mt-2"></div>
+          <BarIcon
+            onClick={() => {
+              reseter();
+              openGrid();
+            }}
+          >
+            <LayoutGridIcon />
+          </BarIcon>
+          {#if additionalHamburgerMenu.length > 0}
+            <div class="mt-2 h-px w-10 bg-selected shrink-0"></div>
+            {#each additionalHamburgerMenu as menu}
+              <div class="mt-2"></div>
+              <BarIcon
+                onClick={() => {
+                  reseter();
+                  menu.callback();
+                }}
+              >
+                <PluginDefinedIcon ico={menu} />
+              </BarIcon>
+            {/each}
+          {/if}
+        </div>
       {/if}
     </div>
-    {/if}
+    </IconButtonGroup>
   </div>
-  {/if}
-  <div class="character-list flex grow w-full flex-col items-center overflow-x-hidden overflow-y-auto pr-0" class:max-xs:hidden={$leftBarCollapsed} use:touchDragContainer>
-    <div class="h-4 min-h-4 w-14" role="listitem" data-spacer-index="0" ondragover={(e) => {
-      e.preventDefault()
-      e.dataTransfer.dropEffect = 'move'
-      e.currentTarget.classList.add('bg-green-500')
-    }} ondragleave={(e) => {
-      e.currentTarget.classList.remove('bg-green-500')
-    }} ondrop={(e) => {
-      e.preventDefault()
-      e.currentTarget.classList.remove('bg-green-500')
-      const da = currentDrag
-      if(da){
-        inserter(da,{index:0})
-      }
-    }} ondragenter={preventAll}></div>
+  <div class="character-list flex grow w-full flex-col items-center overflow-x-hidden overflow-y-auto pr-0" class:max-xs:hidden={$leftBarCollapsed}>
+    <ShSortableList
+      bind:element={sidebarSortElement}
+      disabled={sidebarSortingDisabled}
+      className="sidebar-character-root flex w-full flex-col items-center gap-4 py-4"
+      draggable="[data-sidebar-order-key]"
+      dataAttribute="data-sidebar-order-key"
+      options={{
+        group: {
+          name: 'sidebar-characters',
+          pull: true,
+          put: true,
+        },
+        onMove: moveSidebarItem,
+      }}
+      onReorder={syncSidebarOrderFromDom}
+      onDragStart={() => { mergeTargetId = null }}
+      onDragEnd={(sourceId) => {
+        if (mergeTargetId) createFolderById(sourceId, mergeTargetId)
+        mergeTargetId = null
+        suppressNextClick = true
+        requestAnimationFrame(() => { suppressNextClick = false })
+      }}
+    >
     {#each charImages as char, ind}
-      <div class="group relative flex items-center px-2"
-        role="listitem"
-        data-drag-index={ind}
-        draggable={!isTouchDevice ? "true" : undefined}
-        ondragstart={!isTouchDevice ? (e) => {avatarDragStart({index:ind}, e)} : undefined}
-        ondragover={!isTouchDevice ? avatarDragOver : undefined}
-        ondrop={!isTouchDevice ? (e) => {avatarDrop({index:ind}, e)} : undefined}
-        ondragenter={!isTouchDevice ? preventAll : undefined}
-        ontouchstart={touchDragEnabled ? (e) => {onTouchDragStart({index:ind}, e)} : undefined}
+      <div
+        class="flex flex-col items-center"
+        data-sidebar-order-key={char.type === 'normal' ? DBState.db.characters[char.index]?.chaId : char.id}
+        data-sidebar-kind={char.type === 'normal' ? 'character' : 'folder'}
       >
-        <SidebarIndicator
-          isActive={char.type === 'normal' && $selectedCharID === char.index && sideBarMode !== 1}
-        />
+      <div class="group relative flex items-center"
+        role="listitem"
+      >
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div
             role="button" tabindex="0"
@@ -707,19 +539,24 @@
           >
           {#if char.type === 'normal'}
             <SidebarAvatar 
-              src={char.img ? getCharImage(char.img, "plain") : "/none.webp"} 
+              src={char.img ? getCharImage(char.img, "plain") : ""}
               size="56" 
               rounded={IconRounded} 
               name={char.name}
               chaId={DBState.db.characters[char.index]?.chaId}
+              selected={$selectedCharID === char.index && sideBarMode !== 1}
             />
           {:else if char.type === "folder"}
             {#key char.color}
             {#key char.name}
               <SidebarAvatar src="slot" size="56" rounded={IconRounded} bordered name={char.name} color={char.color} backgroundimg={char.img ? getCharImage(char.img, "plain") : ""}
+              selected={sideBarMode !== 1 && char.folder.some(folderChar => folderChar.index === $selectedCharID)}
               oncontextmenu={async (e) => {
                 e.preventDefault()
-                const sel = parseInt(await alertSelect([language.renameFolder,language.changeFolderColor,language.changeFolderImage,language.cancel]))
+                const remoteVisibilityLabel = char.localOnly
+                  ? language.showFolderOnRemoteAccess
+                  : language.hideFolderOnRemoteAccess
+                const sel = parseInt(await alertSelect([language.renameFolder,language.changeFolderColor,language.changeFolderImage,remoteVisibilityLabel,language.cancel]))
                 if(sel === 0){
                   const v = await alertInput(language.changeFolderName, [], char.name)
                   const db = DBState.db
@@ -733,14 +570,19 @@
                   }
                 }
                 else if(sel === 1){
-                  const colors = ["red","green","blue","yellow","indigo","purple","pink","default"]
-                  const sel = parseInt(await alertSelect(colors))
+                  const colorSelection = parseInt(await alertSelect(
+                    characterFolderColorOptions.map(({ label }) => label)
+                  ))
+                  const selectedColor = characterFolderColorOptions[colorSelection]?.value
+                  if(!selectedColor){
+                    return
+                  }
                   const db = DBState.db
                   const oder = db.characterOrder[ind]
                   if(typeof(oder) === 'string'){
                     return
                   }
-                  oder.color = colors[sel].toLocaleLowerCase()
+                  oder.color = selectedColor
                   db.characterOrder[ind] = oder
                 }
                 else if(sel === 2) {
@@ -776,6 +618,15 @@
                       break;
                   }
                 }
+                else if(sel === 3) {
+                  const db = DBState.db
+                  const oder = db.characterOrder[ind]
+                  if(typeof(oder) === 'string'){
+                    return
+                  }
+                  oder.localOnly = !oder.localOnly
+                  db.characterOrder[ind] = oder
+                }
               }}
               onClick={() => {
                 if(suppressNextClick) return
@@ -807,46 +658,33 @@
       </div>
       {#if char.type === 'folder' && openFolders.includes(char.id)}
         {#key char.color}
-        <div class="p-1 flex flex-col items-center py-1 mt-1 rounded-lg relative">
-          <div class="absolute top-0 left-1 border border-selected w-full h-full rounded-lg z-0 {
-            char.color === 'red' ? 'bg-red-700/20' :
-            char.color === 'yellow' ? 'bg-yellow-700/20' :
-            char.color === 'green' ? 'bg-green-700/20' :
-            char.color === 'blue' ? 'bg-blue-700/20' :
-            char.color === 'indigo' ? 'bg-indigo-700/20' :
-            char.color === 'purple' ? 'bg-purple-700/20' :
-            char.color === 'pink' ? 'bg-pink-700/20' :
-            'bg-darkbg/20'
-          }"></div>
-          <div class="h-4 min-h-4 w-14 relative z-10" role="listitem" data-spacer-index="0" data-spacer-folder={char.type === 'folder' ? char.id : undefined} ondragover={(e) => {
-            e.preventDefault()
-            e.dataTransfer.dropEffect = 'move'
-            e.currentTarget.classList.add('bg-green-500')
-          }} ondragleave={(e) => {
-            e.currentTarget.classList.remove('bg-green-500')
-          }} ondrop={(e) => {
-            e.preventDefault()
-            e.currentTarget.classList.remove('bg-green-500')
-            const da = currentDrag
-            if(da && char.type === 'folder'){
-              inserter(da,{index:0,folder:char.id})
-            }
-          }} ondragenter={preventAll}></div>
+        <div class="mt-1 flex flex-col items-center">
+          <ShSortableList
+            containerKey={char.id}
+            disabled={sidebarSortingDisabled}
+            className="sidebar-folder-characters flex flex-col items-center gap-3 py-2"
+            draggable="[data-sidebar-order-key]"
+            dataAttribute="data-sidebar-order-key"
+            options={{
+              group: {
+                name: 'sidebar-characters',
+                pull: true,
+                put: (_to, _from, dragged) => (dragged as HTMLElement).dataset.sidebarKind === 'character',
+              },
+              onMove: moveSidebarItem,
+            }}
+            onReorder={syncSidebarOrderFromDom}
+            onDragEnd={() => {
+              suppressNextClick = true
+              requestAnimationFrame(() => { suppressNextClick = false })
+            }}
+          >
           {#each char.folder as char2, ind}
-              <div class="group relative flex items-center px-2 z-10"
+              <div class="group relative flex items-center z-10"
               role="listitem"
-              data-drag-index={ind}
-              data-drag-folder={char.type === 'folder' ? char.id : undefined}
-              draggable={!isTouchDevice ? "true" : undefined}
-              ondragstart={!isTouchDevice ? (e) => {if(char.type === 'folder'){avatarDragStart({index: ind, folder:char.id}, e)}} : undefined}
-              ondragover={!isTouchDevice ? avatarDragOver : undefined}
-              ondrop={!isTouchDevice ? (e) => {if(char.type === 'folder'){avatarDrop({index: ind, folder:char.id}, e)}} : undefined}
-              ondragenter={!isTouchDevice ? preventAll : undefined}
-              ontouchstart={touchDragEnabled && char.type === 'folder' ? (e) => {onTouchDragStart({index: ind, folder:char.id}, e)} : undefined}
+              data-sidebar-order-key={DBState.db.characters[char2.index]?.chaId}
+              data-sidebar-kind="character"
             >
-              <SidebarIndicator
-                isActive={$selectedCharID === char2.index && sideBarMode !== 1}
-              />
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <div
                   role="button" tabindex="0"
@@ -865,143 +703,37 @@
                   }}
                 >
                 <SidebarAvatar 
-                  src={char2.img ? getCharImage(char2.img, "plain") : "/none.webp"} 
-                  size="56" 
+                  src={char2.img ? getCharImage(char2.img, "plain") : ""}
+                  size="48"
                   rounded={IconRounded} 
                   name={char2.name}
                   chaId={DBState.db.characters[char2.index]?.chaId}
+                  selected={$selectedCharID === char2.index && sideBarMode !== 1}
                 />
               </div>
             </div>
-            <div class="h-4 min-h-4 w-14 relative z-20" role="listitem" data-spacer-index={ind+1} data-spacer-folder={char.type === 'folder' ? char.id : undefined} ondragover={(e) => {
-              e.preventDefault()
-              e.dataTransfer.dropEffect = 'move'
-              e.currentTarget.classList.add('bg-green-500')
-            }} ondragleave={(e) => {
-              e.currentTarget.classList.remove('bg-green-500')
-            }} ondrop={(e) => {
-              e.preventDefault()
-              e.currentTarget.classList.remove('bg-green-500')
-              const da = currentDrag
-              if(da && char.type === 'folder'){
-                inserter(da,{index:ind+1,folder:char.id})
-              }
-            }} ondragenter={preventAll}></div>
           {/each}
+          </ShSortableList>
         </div>
         {/key}
       {/if}
-      <div class="h-4 min-h-4 w-14" role="listitem" data-spacer-index={ind+1} ondragover={((e) => {
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'move'
-        e.currentTarget.classList.add('bg-green-500')
-      })} ondragleave={(e) => {
-        e.currentTarget.classList.remove('bg-green-500')
-      }} ondrop={(e) => {
-        e.preventDefault()
-        e.currentTarget.classList.remove('bg-green-500')
-        const da = currentDrag
-        if(da){
-          inserter(da,{index:ind+1})
-        }
-      }} ondragenter={preventAll}></div>
+      </div>
     {/each}
+    </ShSortableList>
     <div class="flex flex-col items-center gap-2 px-2">
       <BaseRoundedButton
+        rounded={IconRounded}
         onClick={async () => {
           addCharacter({reseter}) 
         }}
-        ><svg viewBox="0 0 24 24" width="1.2em" height="1.2em"
-          ><path
-            fill="none"
-            stroke="currentColor"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-          /></svg
-        ></BaseRoundedButton
       >
+        <PlusIcon size={20} />
+      </BaseRoundedButton>
     </div>
   </div>
-  {#if DBState.db.hamburgerButtonBottom}
-  <div class="border-t border-t-selected w-full relative text-white" class:max-xs:hidden={$leftBarCollapsed}>
-    {#if menuMode === 1}
-      <div class="absolute bottom-full w-20 min-w-20 flex border-t-selected border-t bg-bgcolor flex-col items-center pt-2 rounded-t-md z-20 pb-2 max-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto hamburger-menu">
-        <BarIcon
-        onClick={() => {
-          if ($settingsOpen) {
-            reseter();
-            settingsOpen.set(false);
-          } else {
-            reseter();
-            settingsOpen.set(true);
-          }
-        }}><Settings /></BarIcon
-      >
-      <div class="mt-2"></div>
-      <BarIcon
-        onClick={() => {
-          reseter();
-          selectedCharID.set(-1)
-          PlaygroundStore.set(0)
-          OpenRealmStore.set(false)
-        }}><HomeIcon /></BarIcon>
-      <div class="mt-2"></div>
-      <BarIcon
-        onClick={() => {
-          reseter()
-          if($selectedCharID === -1 && $PlaygroundStore !== 0){
-            PlaygroundStore.set(0)
-            return
-          }
-          selectedCharID.set(-1)
-          PlaygroundStore.set(1)
-        }}
-      ><ShellIcon /></BarIcon>
-      <div class="mt-2"></div>
-      <BarIcon
-        onClick={() => {
-          reseter();
-          openGrid();
-        }}><LayoutGridIcon /></BarIcon
-      >
-      {#if additionalHamburgerMenu.length > 0}
-        <div class="mt-2 h-px w-10 bg-selected shrink-0"></div>
-        {#each additionalHamburgerMenu as menu}
-          <div class="mt-2"></div>
-          <BarIcon
-            onClick={() => {
-              reseter();
-              menu.callback();
-            }}>
-              <PluginDefinedIcon ico={menu} />
-            </BarIcon
-          >
-        {/each}
-      {/if}
-    </div>
-    {/if}
-  </div>
-  {#if !DBState.db.hideLeftBarCollapseButton}
-  <button
-    class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer mt-2 items-center justify-center rounded-md border border-borderc text-textcolor transition-colors hover:border-primary hover:text-primary"
-    aria-label="Collapse sidebar"
-    onclick={() => leftBarCollapsed.set(true)}
-  >
-    <ChevronsLeft size={20} />
-  </button>
-  {/if}
-  <button
-    class="flex h-8 min-h-8 w-14 min-w-14 cursor-pointer text-white mb-2 mt-2 items-center justify-center rounded-md bg-textcolor2 transition-colors hover:bg-primary"
-    class:max-xs:hidden={$leftBarCollapsed}
-    onclick={() => {
-      menuMode = 1 - menuMode;
-    }}><ListIcon />
-  </button>
-  {/if}
 </div>
 {/if}
+
 <div
   class="setting-area h-full max-xs:relative flex-col overflow-y-auto overflow-x-hidden bg-darkbg py-6 text-textcolor max-h-full"
   class:risu-sidebar={!$sideBarClosing}
@@ -1070,7 +802,7 @@
             >
               <div class="shrink-0">
                 <SidebarAvatar
-                  src={rc.image ? getCharImage(rc.image, "plain") : "/none.webp"}
+                  src={rc.image ? getCharImage(rc.image, "plain") : ""}
                   size="36"
                   rounded={IconRounded}
                   name={rc.name}
@@ -1097,29 +829,52 @@
     {:else if DBState.db.characters[$selectedCharID]?.chaId === '§playground'}
       <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} />
     {:else}
-      <div class="w-full h-8 min-h-8 border-l border-b border-r border-selected relative bottom-6 rounded-b-md flex">
-        <button onclick={() => {
-          devTool = false
-          botMakerMode.set(false)
-        }} class="grow border-r border-r-selected rounded-bl-md" class:text-textcolor2={$botMakerMode || devTool}>{language.Chat}</button>
-        <button onclick={() => {
-          devTool = false
-          botMakerMode.set(true)
-        }} class="grow rounded-br-md" class:text-textcolor2={!$botMakerMode || devTool}>{language.character}</button>
-        {#if DBState.db.enableDevTools}
-          <button onclick={() => {
-            devTool = true
-          }} class="border-l border-l-selected rounded-br-md px-1" class:text-textcolor2={!devTool}>
-            <WrenchIcon size={18} />
-          </button>
-        {/if}
-      </div>
+      <nav class="sidebar-mode-switch" aria-label={language.sidebarView}>
+        <IconButtonGroup size="sm" className="contents">
+        <button
+          type="button"
+          class="sidebar-mode-button sidebar-mode-tab"
+          class:active={!$botMakerMode && !devTool}
+          aria-current={!$botMakerMode && !devTool ? "page" : undefined}
+          onclick={() => {
+            devTool = false
+            botMakerMode.set(false)
+          }}
+        >
+          <MessageSquareIcon />
+          <span>{language.Chat}</span>
+        </button>
+        <button
+          type="button"
+          class="sidebar-mode-button sidebar-mode-tab"
+          class:active={$botMakerMode}
+          aria-current={$botMakerMode ? "page" : undefined}
+          onclick={() => {
+            devTool = false
+            botMakerMode.set(true)
+          }}
+        >
+          <User2Icon />
+          <span>{language.character}</span>
+        </button>
+        </IconButtonGroup>
+      </nav>
       {#if QuickSettings.open}
         <QuickSettingsGui />
-      {:else if devTool}
-        <DevTool />
-      {:else if $botMakerMode}
-        <CharConfig />
+      {:else if $botMakerMode || devTool}
+        <CharConfigHeader
+          {devTool}
+          onDevToolChange={(active) => {
+            devTool = active
+            if(active) botMakerMode.set(true)
+          }}
+        />
+        {#if devTool}
+          <h2 class="mb-2 mt-2 text-2xl font-bold">{language.devTools}</h2>
+          <DevTool />
+        {:else}
+          <CharConfig />
+        {/if}
       {:else}
         <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} />
       {/if}
@@ -1150,6 +905,79 @@
 {/if}
 
 <style>
+  .sidebar-mode-switch {
+    position: relative;
+    bottom: 1.5rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    height: 2rem;
+    min-height: 2rem;
+    overflow: hidden;
+    border-bottom: 1px solid color-mix(in srgb, var(--risu-theme-darkborderc) 75%, transparent);
+  }
+
+  .sidebar-mode-button {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0 0.5rem;
+    border: 0;
+    color: var(--risu-theme-textcolor2);
+    font-size: 0.8rem;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    transition: color 150ms ease;
+  }
+
+  .sidebar-mode-button:hover:not(.active) {
+    color: var(--risu-theme-textcolor);
+  }
+
+  .sidebar-mode-button.active {
+    color: var(--risu-theme-textcolor);
+    background: linear-gradient(
+      to top,
+      color-mix(in srgb, var(--risu-theme-primary) 16%, transparent) 0%,
+      color-mix(in srgb, var(--risu-theme-primary) 7%, transparent) 45%,
+      transparent 100%
+    );
+  }
+
+  .sidebar-mode-button.active::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    background: var(--risu-theme-primary);
+    box-shadow: 0 -4px 12px color-mix(in srgb, var(--risu-theme-primary) 38%, transparent);
+  }
+
+  .sidebar-mode-button:focus-visible {
+    z-index: 1;
+    outline: 2px solid var(--risu-theme-primary);
+    outline-offset: -3px;
+  }
+
+  .sidebar-mode-button :global(svg) {
+    flex: none;
+  }
+
+  @media (max-width: 420px) {
+    .sidebar-mode-tab {
+      gap: 0.3rem;
+      padding-inline: 0.35rem;
+      font-size: 0.75rem;
+    }
+  }
+
   .editMode {
     min-width: 6rem;
   }
@@ -1288,4 +1116,5 @@
   .character-list::-webkit-scrollbar {
     display: none;
   }
+
 </style>

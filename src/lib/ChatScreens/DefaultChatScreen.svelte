@@ -6,6 +6,7 @@
     import ShDropdownMenuTrigger from 'src/lib/UI/GUI/ShDropdownMenuTrigger.svelte';
     import ShDropdownMenuContent from 'src/lib/UI/GUI/ShDropdownMenuContent.svelte';
     import ShDropdownMenuItem from 'src/lib/UI/GUI/ShDropdownMenuItem.svelte';
+    import IconButtonGroup from 'src/lib/UI/GUI/IconButtonGroup.svelte';
     import { selectedCharID, PlaygroundStore, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
     import { tick, untrack } from 'svelte';
     import Chat from "./Chat.svelte";
@@ -13,13 +14,14 @@
     import { type Chat as ChatData, type Message } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
-    import { chatProcessStage, doingChat, sendChat } from "../../ts/process/index.svelte";
+    import { chatProcessStage, doingChat, recoverRevenantGenerationsForChat, sendChat } from "../../ts/process/index.svelte";
     import { ensureCurrentChatReady } from "../../ts/storage/chatStorage";
     import { sleep } from "../../ts/util";
     import { language } from "../../lang";
-    import { isExpTranslator, translate } from "../../ts/translator/translator";
+    import { isExpTranslator, recoverAuxiliaryTranslationJobs, translate } from "../../ts/translator/translator";
     import { alertError, alertWait, notifySuccess, notifyError } from "../../ts/alert";
     import { playNotificationSound } from '../../ts/notificationSound'
+    import { endStatus, startStatus } from '../../ts/status/requestStatus'
 import { isMobile } from 'src/ts/platform'
     import { processScript } from "src/ts/process/scripts";
     import CreatorQuote from "./CreatorQuote.svelte";
@@ -28,6 +30,9 @@ import { isMobile } from 'src/ts/platform'
     import AssetInput from './AssetInput.svelte';
     import { scrollWithinContainer } from './scrollWithin';
     import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile } from 'src/ts/globalApi.svelte';
+    import { isRevenantGenerationLocallyOwned } from 'src/ts/process/revenantGeneration/client';
+    import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenantGeneration/auxiliary';
+    import type { RevenantRerollSnapshot } from 'src/ts/process/revenantGeneration/types';
     import { runTrigger } from 'src/ts/process/triggers';
     import { v4 } from 'uuid';
     import { processMultiCommand } from 'src/ts/process/command';
@@ -37,6 +42,7 @@ import { isMobile } from 'src/ts/platform'
     import { loadChatDraft, scheduleSaveChatDraft, flushChatDraft, removeChatDraft } from 'src/ts/storage/chatDraft';
 
     import Chats from './Chats.svelte';
+    import PartialEditManager from './PartialEditManager.svelte';
     import Button from '../UI/GUI/Button.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
 
@@ -73,6 +79,7 @@ import { isMobile } from 'src/ts/platform'
     let showScrollNav = $state(false)
     let scrollNavTimer: ReturnType<typeof setTimeout> | null = null
     let chatsInstance: any = $state()
+    let chatScreenRoot: HTMLDivElement | null = $state(null)
     let isScrollingToMessage = $state(false)
     let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '' }: Props = $props();
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
@@ -159,6 +166,81 @@ import { isMobile } from 'src/ts/platform'
         if (!chat._placeholder) return chat
         return await ensureCurrentChatReady(char.chats, char.chatPage, char.chaId)
     }
+
+    // A generation belongs to the server once submitted. If its originating
+    // mobile tab disappeared before client-side output scripts completed, open
+    // the target chat and resume only that chat's pending generations.
+    $effect(() => {
+        const selectedChar = $selectedCharID
+        const char = DBState.db.characters[selectedChar]
+        const chatId = char?.chats?.[char.chatPage]?.id
+        if (!char?.chaId || !chatId) return
+        let recoveryInFlight = false
+        const recover = () => {
+            if (recoveryInFlight) return
+            recoveryInFlight = true
+            void ensureActiveChatReady(selectedChar).then(async chat => {
+                if (!chat) return
+                const detachedTranslationJobs = await listRecoverableAuxiliaryGenerations()
+                    .then(jobs => jobs.filter(job =>
+                        job.jobType === 'translate'
+                        && job.characterId === char.chaId
+                        && job.roomId === chat.id
+                        && !isRevenantGenerationLocallyOwned(job.jobId)
+                    ))
+                    .catch(error => {
+                        console.warn('[GenerationJob] Translation recovery list unavailable:', error)
+                        return []
+                    })
+                detachedTranslationJobs.forEach(job => startStatus(job.jobId, {
+                    kind: 'translate',
+                    label: '',
+                    chatId: chat.id,
+                    phase: 'connecting',
+                    now: Date.now(),
+                }))
+                const [recoveredTranslations, recoveredOther] = await Promise.all([
+                    detachedTranslationJobs.length > 0
+                        ? recoverAuxiliaryTranslationJobs(false, {
+                            characterId: char.chaId,
+                            roomId: chat.id,
+                        })
+                        : Promise.resolve(0),
+                    recoverRevenantGenerationsForChat(char, chat, {
+                        onDeferredRecovered: recovered => {
+                            if (recovered > 0 && DBState.db.playMessage) {
+                                playNotificationSound(DBState.db.messageSound, DBState.db.messageSoundVolume)
+                            }
+                        },
+                    }),
+                ])
+                detachedTranslationJobs.forEach(job =>
+                    endStatus(
+                        job.jobId,
+                        job.status === 'failed' || job.status === 'failed_partial'
+                            ? 'failed'
+                            : 'done',
+                        { now: Date.now(), error: job.error },
+                    ))
+                if (recoveredTranslations + recoveredOther === 0) return
+
+                if (recoveredOther > 0 && DBState.db.playMessage) {
+                    playNotificationSound(DBState.db.messageSound, DBState.db.messageSoundVolume)
+                }
+                else if (recoveredTranslations > 0 && DBState.db.playMessageOnTranslateEnd) {
+                    playNotificationSound(DBState.db.translateSound, DBState.db.translateSoundVolume)
+                }
+            }).catch(error => {
+                console.error('[GenerationJob] Failed to recover pending chat work:', error)
+            }).finally(() => {
+                recoveryInFlight = false
+            })
+        }
+        recover()
+        const onOnline = () => recover()
+        window.addEventListener('online', onOnline)
+        return () => window.removeEventListener('online', onOnline)
+    })
 
     function scrollToBottom() {
         chatsInstance?.scrollToLatestMessage();
@@ -445,6 +527,59 @@ import { isMobile } from 'src/ts/platform'
         return null
     }
 
+    function getSwipeTargetMsg(idx?: number) {
+        const msgs = DBState.db.characters[$selectedCharID]?.chats[DBState.db.characters[$selectedCharID].chatPage]?.message
+        if (idx === undefined) return getLastCharMsg()
+        if (!DBState.db.showPreviousChatSwipeButtons || !msgs?.[idx]) return null
+        const msg = msgs[idx]
+        if (msg.role !== 'char' || msg.isComment || msg.disabled) return null
+        return msg
+    }
+
+    type ActiveRerollSession = {
+        charId: number
+        chatPage: number
+        savedSwipes: string[]
+        generatedMessageIndex: number
+        trailingComments: Message[]
+    }
+
+    let activeRerollSession: ActiveRerollSession | null = null
+    let chatAbortRequested = false
+
+    function finishCancelledRerollSession() {
+        if (!activeRerollSession) return false
+        const { charId, chatPage, savedSwipes, generatedMessageIndex, trailingComments } = activeRerollSession
+        const char = DBState.db.characters[charId]
+        const chat = char?.chats?.[chatPage]
+        if (!char || !chat) {
+            activeRerollSession = null
+            return false
+        }
+
+        const messages = chat.message
+        const generatedMsg = messages[generatedMessageIndex]
+        const generatedData = generatedMsg?.role === 'char' ? generatedMsg.data ?? '' : ''
+
+        if (!generatedMsg || generatedMsg.role !== 'char' || !generatedData.trim()) {
+            activeRerollSession = null
+            return false
+        }
+
+        generatedMsg.swipes = [...savedSwipes, generatedData]
+        generatedMsg.swipeId = generatedMsg.swipes.length - 1
+        generatedMsg.data = generatedData
+        messages.splice(generatedMessageIndex + 1)
+        if (trailingComments.length > 0) {
+            messages.push(...safeStructuredClone(trailingComments))
+        }
+        chat.message = messages
+        chat.isStreaming = false
+        char.reloadKeys += 1
+        activeRerollSession = null
+        return true
+    }
+
     async function reroll() {
         if($doingChat) return
         const lastMsg = getLastCharMsg()
@@ -476,34 +611,44 @@ import { isMobile } from 'src/ts/platform'
             let msg = cha.pop()
             if(!msg) return
         }
-        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = cha
-        const generated = await sendChatMain()
+        const generatedMessageIndex = cha.length
+        const rerollSnapshot: RevenantRerollSnapshot = {
+            targetMessage: safeStructuredClone(originalMessages[generatedMessageIndex]),
+            targetIndex: generatedMessageIndex,
+            trailingMessages: safeStructuredClone(trailingComments),
+        }
+        activeRerollSession = {
+            charId: $selectedCharID,
+            chatPage: DBState.db.characters[$selectedCharID].chatPage,
+            savedSwipes,
+            generatedMessageIndex,
+            trailingComments: safeStructuredClone(trailingComments),
+        }
+        const rerollChat = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
+        rerollChat.isStreaming = true
+        rerollChat.message = cha
+        const generated = await sendChatMain(false, rerollSnapshot)
 
-        const currentMsgs = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message
-
-        // If generation failed, restore original messages
+        // A user-triggered cancel keeps the partial reroll as the active swipe.
         if (!generated) {
+            if (chatAbortRequested && finishCancelledRerollSession()) {
+                chatAbortRequested = false
+                return
+            }
             DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = originalMessages
+            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].isStreaming = false
+            activeRerollSession = null
+            chatAbortRequested = false
             return
         }
-
-        // Restore trailing comments after the new message
-        if (trailingComments.length > 0) {
-            currentMsgs.push(...trailingComments)
-            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = currentMsgs
-        }
-
-        // Save new response to swipes
-        const newLastMsg = getLastCharMsg()
-        if (newLastMsg && !newLastMsg.swipes) {
-            newLastMsg.swipes = [...savedSwipes, newLastMsg.data]
-            newLastMsg.swipeId = newLastMsg.swipes.length - 1
-        }
+        chatAbortRequested = false
+        activeRerollSession = null
+        activeRerollSession = null
     }
 
-    async function unReroll() {
+    async function unReroll(idx?: number) {
         if($doingChat) return
-        const lastMsg = getLastCharMsg()
+        const lastMsg = getSwipeTargetMsg(idx)
         if (!lastMsg || !lastMsg.swipes || lastMsg.swipeId === undefined) return
 
         lastMsg.swipeId = lastMsg.swipeId <= 0 ? lastMsg.swipes.length - 1 : lastMsg.swipeId - 1
@@ -511,8 +656,8 @@ import { isMobile } from 'src/ts/platform'
         DBState.db.characters[$selectedCharID].reloadKeys += 1
     }
 
-    function nextSwipe() {
-        const lastMsg = getLastCharMsg()
+    function nextSwipe(idx?: number) {
+        const lastMsg = getSwipeTargetMsg(idx)
         if (!lastMsg || !lastMsg.swipes || lastMsg.swipeId === undefined) return
 
         lastMsg.swipeId = lastMsg.swipeId >= lastMsg.swipes.length - 1 ? 0 : lastMsg.swipeId + 1
@@ -520,14 +665,14 @@ import { isMobile } from 'src/ts/platform'
         DBState.db.characters[$selectedCharID].reloadKeys += 1
     }
 
-    function deleteSwipe() {
-        const lastMsg = getLastCharMsg()
+    function deleteSwipe(idx?: number) {
+        const lastMsg = getSwipeTargetMsg(idx)
         if (!lastMsg || !lastMsg.swipes || lastMsg.swipes.length <= 1) return
 
-        const idx = lastMsg.swipeId ?? 0
-        lastMsg.swipes.splice(idx, 1)
+        const swipeIdx = lastMsg.swipeId ?? 0
+        lastMsg.swipes.splice(swipeIdx, 1)
 
-        if (idx >= lastMsg.swipes.length) {
+        if (swipeIdx >= lastMsg.swipes.length) {
             lastMsg.swipeId = lastMsg.swipes.length - 1
         }
         lastMsg.data = lastMsg.swipes[lastMsg.swipeId]
@@ -541,15 +686,20 @@ import { isMobile } from 'src/ts/platform'
 
     let abortController:null|AbortController = null
 
-    async function sendChatMain(continued:boolean = false) {
+    async function sendChatMain(
+        continued:boolean = false,
+        rerollSnapshot?: RevenantRerollSnapshot,
+    ) {
 
         messageInput = ''
         abortController = new AbortController()
+        chatAbortRequested = false
         let generated = false
         try {
             generated = await sendChat(-1, {
                 signal:abortController.signal,
-                continue:continued
+                continue:continued,
+                rerollSnapshot,
             })
         } catch (error) {
             console.error(error)
@@ -564,6 +714,7 @@ import { isMobile } from 'src/ts/platform'
 
     function abortChat(){
         if(abortController){
+            chatAbortRequested = true
             abortController.abort()
         }
     }
@@ -861,14 +1012,14 @@ import { isMobile } from 'src/ts/platform'
 
         {#if DBState.db.newMessageButtonStyle === 'right-center'}
             <button class="absolute top-1/2 right-2 -translate-y-1/2 bg-primary text-white px-2 py-3 rounded-l-lg shadow-lg z-50 flex flex-col items-center gap-1 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
-                <ArrowDown size={14} />
+                <ArrowDown size={12} />
                 <span class="text-xs writing-mode-vertical">{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'top-bar'}
             <button class="absolute top-2 left-1/2 -translate-x-1/2 bg-primary text-white px-6 py-1.5 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors text-sm" onclick={scrollToBottom}>
-                <ArrowDown size={14} />
+                <ArrowDown size={12} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
@@ -901,7 +1052,7 @@ import { isMobile } from 'src/ts/platform'
                      plugins that locate the composer via div[class*="items-stretch"] (e.g. gemini-cache-keeper)
                      relied on the pre-redesign container class. Keep it so they can still find/anchor their UI,
                      and it scopes the timer re-flow rules in <style> below. -->
-                <div class="flex flex-wrap items-center gap-1 rounded-3xl border border-darkborderc bg-bgcolor px-2 py-1.5 transition-colors focus-within:border-textcolor plugin-compat-items-stretch">
+                <IconButtonGroup size="lg" className="flex-wrap gap-1 rounded-3xl border border-darkborderc bg-bgcolor px-2 py-1.5 transition-colors focus-within:border-textcolor plugin-compat-items-stretch">
                 {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
                     <ShDropdownMenu bind:open={openMenu}>
                         <ShDropdownMenuTrigger>
@@ -909,97 +1060,80 @@ import { isMobile } from 'src/ts/platform'
                                 <button {...props}
                                         aria-label="menu"
                                         class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors">
-                                    <MenuIcon size={20} />
+                                    <MenuIcon />
                                 </button>
                             {/snippet}
                         </ShDropdownMenuTrigger>
                         <ShDropdownMenuContent side="top" align="start" class="min-w-48 max-h-[70vh] overflow-y-auto">
-                            {#if DBState.db.characters[$selectedCharID].ttsMode === 'webspeech' || DBState.db.characters[$selectedCharID].ttsMode === 'elevenlab'}
-                                <ShDropdownMenuItem onSelect={() => stopTTS()}>
-                                    <MicOffIcon /><span>{language.ttsStop}</span>
-                                </ShDropdownMenuItem>
-                            {/if}
-                            <ShDropdownMenuItem
-                                disabled={(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length < 2) || (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length - 1].role !== 'char')}
-                                onSelect={() => sendContinue()}>
-                                <StepForwardIcon /><span>{language.continueResponse}</span>
-                            </ShDropdownMenuItem>
-                            {#if DBState.db.showMenuChatList}
-                                <ShDropdownMenuItem onSelect={() => { openChatList = true }}>
-                                    <DatabaseIcon /><span>{language.chatList}</span>
-                                </ShDropdownMenuItem>
-                            {/if}
-                            {#each additionalChatMenu as menu}
-                                <ShDropdownMenuItem onSelect={() => { menu.callback() }}>
-                                    <PluginDefinedIcon ico={menu} /><span>{menu.name}</span>
-                                </ShDropdownMenuItem>
-                            {/each}
-                            {#if DBState.db.showMenuHypaMemoryModal && DBState.db.hypaV3}
-                                <ShDropdownMenuItem onSelect={() => { $hypaV3ModalOpen = true }}>
-                                    <BrainIcon /><span>{language.hypaMemoryV3Modal}</span>
-                                </ShDropdownMenuItem>
-                            {/if}
-                            {#if DBState.db.translator !== ''}
-                                <ShDropdownMenuItem class={DBState.db.useAutoTranslateInput ? 'text-green-500' : ''} onSelect={() => { DBState.db.useAutoTranslateInput = !DBState.db.useAutoTranslateInput }}>
-                                    <GlobeIcon /><span>{language.autoTranslateInput}</span>
-                                </ShDropdownMenuItem>
-                            {/if}
-                            <ShDropdownMenuItem onSelect={() => { screenShot() }}>
-                                <CameraIcon /><span>{language.screenshot}</span>
-                            </ShDropdownMenuItem>
-                            <ShDropdownMenuItem onSelect={async () => {
-                                const results = await postChatFile(messageInput)
-                                if(!results) return
-                                for(const res of results){
-                                    if(res?.type === 'asset'){
-                                        fileInput.push(res.data)
+                            <IconButtonGroup size="sm" direction="vertical" className="w-full items-stretch">
+                                {#if DBState.db.ttsEnabled && (DBState.db.characters[$selectedCharID].ttsMode === 'webspeech' || DBState.db.characters[$selectedCharID].ttsMode === 'elevenlab')}
+                                    <ShDropdownMenuItem onSelect={() => stopTTS()}>
+                                        <MicOffIcon /><span>{language.ttsStop}</span>
+                                    </ShDropdownMenuItem>
+                                {/if}
+                                {#if DBState.db.showMenuChatList}
+                                    <ShDropdownMenuItem onSelect={() => { openChatList = true }}>
+                                        <DatabaseIcon /><span>{language.chatList}</span>
+                                    </ShDropdownMenuItem>
+                                {/if}
+                                {#each additionalChatMenu as menu}
+                                    <ShDropdownMenuItem onSelect={() => { menu.callback() }}>
+                                        <PluginDefinedIcon ico={menu} /><span>{menu.name}</span>
+                                    </ShDropdownMenuItem>
+                                {/each}
+                                {#if DBState.db.hypaV3}
+                                    <ShDropdownMenuItem onSelect={() => { $hypaV3ModalOpen = true }}>
+                                        <BrainIcon /><span>{language.hypaMemoryV3Modal}</span>
+                                    </ShDropdownMenuItem>
+                                {/if}
+                                <ShDropdownMenuItem onSelect={async () => {
+                                    const results = await postChatFile(messageInput)
+                                    if(!results) return
+                                    for(const res of results){
+                                        if(res?.type === 'asset'){
+                                            fileInput.push(res.data)
+                                        }
+                                        if(res?.type === 'text'){
+                                            messageInput += `{{file::${res.name}::${res.data}}}`
+                                        }
                                     }
-                                    if(res?.type === 'text'){
-                                        messageInput += `{{file::${res.name}::${res.data}}}`
-                                    }
-                                }
-                                updateInputSizeAll()
-                            }}>
-                                <ImagePlusIcon /><span>{language.postFile}</span>
-                            </ShDropdownMenuItem>
-                            <ShDropdownMenuItem class={DBState.db.useAutoSuggestions ? 'text-green-500' : ''} onSelect={() => { DBState.db.useAutoSuggestions = !DBState.db.useAutoSuggestions }}>
-                                <ReplyIcon /><span>{language.autoSuggest}</span>
-                            </ShDropdownMenuItem>
-                            <ShDropdownMenuItem onSelect={() => {
-                                DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules ??= []
-                                openModuleList = true
-                            }}>
-                                <PackageIcon /><span>{language.modules}</span>
-                            </ShDropdownMenuItem>
-                            {#if DBState.db.sideMenuRerollButton}
-                                <ShDropdownMenuItem onSelect={() => { reroll() }}>
-                                    <RefreshCcwIcon /><span>{language.reroll}</span>
+                                    updateInputSizeAll()
+                                }}>
+                                    <ImagePlusIcon /><span>{language.postFile}</span>
                                 </ShDropdownMenuItem>
-                            {/if}
-                            <ShDropdownMenuItem onSelect={() => { quickMenu() }}>
-                                <ZapIcon /><span>{language.hotkeyDesc.quickMenu}</span>
-                            </ShDropdownMenuItem>
+                                <ShDropdownMenuItem onSelect={() => {
+                                    DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules ??= []
+                                    openModuleList = true
+                                }}>
+                                    <PackageIcon /><span>{language.modules}</span>
+                                </ShDropdownMenuItem>
+                                {#if DBState.db.sideMenuRerollButton}
+                                    <ShDropdownMenuItem onSelect={() => { reroll() }}>
+                                        <RefreshCcwIcon /><span>{language.reroll}</span>
+                                    </ShDropdownMenuItem>
+                                {/if}
+                            </IconButtonGroup>
                         </ShDropdownMenuContent>
                     </ShDropdownMenu>
                 {:else}
-                    <div onclick={(e) => {
+                    <button type="button" onclick={(e) => {
                         DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.push({
                             role: 'char',
                             data: ''
                         })
                         DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
                     }}
-                         class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors cursor-pointer"
+                         class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit text-textcolor hover:bg-primary/20 transition-colors cursor-pointer"
                     >
-                        <Plus size={20} />
-                    </div>
+                        <Plus />
+                    </button>
                 {/if}
 
                 {#if DBState.db.useChatSticker}
-                    <div onclick={()=>{toggleStickers = !toggleStickers}}
-                         class={"shrink-0 flex justify-center items-center w-9 h-9 rounded-full hover:bg-primary/20 transition-colors cursor-pointer "+(toggleStickers ? 'text-green-500':'text-textcolor')}>
-                        <Laugh size={20}/>
-                    </div>
+                    <button type="button" onclick={()=>{toggleStickers = !toggleStickers}}
+                         class={"shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit hover:bg-primary/20 transition-colors cursor-pointer "+(toggleStickers ? 'text-green-500':'text-textcolor')}>
+                        <Laugh />
+                    </button>
                 {/if}
 
                 <textarea class="text-input-area outline-hidden text-textcolor px-2 py-1.5 min-w-0 bg-transparent input-text text-base resize-none overflow-x-hidden max-w-full"
@@ -1073,7 +1207,7 @@ import { isMobile } from 'src/ts/platform'
                         class="composer-expand-btn order-1 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors"
                         class:ml-auto={multiline}
                 >
-                    <Maximize2 size={18} />
+                    <Maximize2 />
                 </button>
 
                 {#if $doingChat || doingChatInputTranslate}
@@ -1090,19 +1224,19 @@ import { isMobile } from 'src/ts/platform'
                             class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full bg-primary text-white hover:bg-primary/80 transition-colors button-icon-send"
                     >
                         {#if willResend}
-                            <RefreshCcwIcon size={18} />
+                            <RefreshCcwIcon />
                         {:else}
-                            <Send size={18} />
+                            <Send />
                         {/if}
                     </button>
                 {/if}
-                </div>
+                </IconButtonGroup>
               </div>
             </div>
             {#if DBState.db.useAutoTranslateInput && DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
                 <div class="flex items-center mt-2 mb-2">
                     <label for='messageInputTranslate' class="text-textcolor ml-4">
-                        <LanguagesIcon />
+                        <LanguagesIcon size={20} />
                     </label>
                     <textarea id = 'messageInputTranslate' class="text-textcolor rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 border-darkbutton resize-none focus:bg-selected overflow-y-hidden overflow-x-hidden max-w-full"
                               bind:value={messageInputTranslate}
@@ -1187,6 +1321,7 @@ import { isMobile } from 'src/ts/platform'
         {/snippet}
 
         <div class="h-full w-full flex flex-col-reverse overflow-y-auto relative default-chat-screen"
+            bind:this={chatScreenRoot}
             class:nodeonly-standard={DBState.db.theme === ''}
             class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
             class:no-chat-width-full={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'full'}
@@ -1236,6 +1371,18 @@ import { isMobile } from 'src/ts/platform'
                 </button>
             {/if}
             
+            {#if chatScreenRoot && (DBState.db.enableBlockPartialEdit || DBState.db.enableDragPartialEdit)}
+                <PartialEditManager
+                    screenRoot={chatScreenRoot}
+                    messages={currentChat}
+                    characterIndex={$selectedCharID}
+                    chatPage={currentCharacter.chatPage}
+                    chatId={currentChatSlot?.id ?? null}
+                    blockEditEnabled={DBState.db.enableBlockPartialEdit}
+                    dragEditEnabled={DBState.db.enableDragPartialEdit}
+                />
+            {/if}
+
             <Chats
                 bind:this={chatsInstance}
                 messages={currentChat}
@@ -1260,7 +1407,7 @@ import { isMobile } from 'src/ts/platform'
                     role='char'
                     img={getCharImage(DBState.db.characters[$selectedCharID].image, 'css')}
                     idx={-1}
-                    altGreeting={DBState.db.characters[$selectedCharID].alternateGreetings.length > 0}
+                    altGreeting={DBState.db.characters[$selectedCharID].alternateGreetings.length > 0 && (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0 || DBState.db.showPreviousChatSwipeButtons)}
                     disabled={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].firstMessageDisabled === true}
                     largePortrait={DBState.db.characters[$selectedCharID].largePortrait}
                     firstMessage={true}
@@ -1348,23 +1495,23 @@ import { isMobile } from 'src/ts/platform'
 <style>
 
     .chat-process-stage-1{
-        border-top: 0.4rem solid #60a5fa;
-        border-left: 0.4rem solid #60a5fa;
+        border-top-color: var(--risu-theme-primary);
+        border-left-color: var(--risu-theme-primary);
     }
 
     .chat-process-stage-2{
-        border-top: 0.4rem solid #db2777;
-        border-left: 0.4rem solid #db2777;
+        border-top-color: var(--risu-theme-draculared);
+        border-left-color: var(--risu-theme-draculared);
     }
 
     .chat-process-stage-3{
-        border-top: 0.4rem solid #34d399;
-        border-left: 0.4rem solid #34d399;
+        border-top-color: var(--risu-theme-success);
+        border-left-color: var(--risu-theme-success);
     }
 
     .chat-process-stage-4{
-        border-top: 0.4rem solid #8b5cf6;
-        border-left: 0.4rem solid #8b5cf6;
+        border-top-color: var(--risu-theme-scoped);
+        border-left-color: var(--risu-theme-scoped);
     }
 
 
