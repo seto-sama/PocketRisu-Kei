@@ -14,9 +14,51 @@ describe('applyModelPresetDefaults', () => {
             registries: {},
         })
         expect(db.modelProfileRegistryLastFetched).toBe(0)
+        expect(db.modelProfileVisibilityLevel).toBe('hideDeprecated')
+        expect(db.modelProfileHiddenProviderIds).toEqual([])
+        expect(db.modelProfileProviderFilterInitialized).toBe(false)
     })
 
-    test('preserves migration metadata and existing values', () => {
+    test('migrates the removed current-only visibility level', () => {
+        const db: any = { modelProfileVisibilityLevel: 'currentOnly' }
+
+        applyModelPresetDefaults(db)
+
+        expect(db.modelProfileVisibilityLevel).toBe('hideDeprecated')
+    })
+
+    test.each(['hideDeprecated', 'all'])('preserves the supported %s visibility level', (level) => {
+        const db: any = { modelProfileVisibilityLevel: level }
+
+        applyModelPresetDefaults(db)
+
+        expect(db.modelProfileVisibilityLevel).toBe(level)
+    })
+
+    test('normalizes the hidden provider filter', () => {
+        const db: any = {
+            modelProfileHiddenProviderIds: ['openai', 'openai', '', 42, 'anthropic'],
+        }
+
+        applyModelPresetDefaults(db)
+
+        expect(db.modelProfileHiddenProviderIds).toEqual(['openai', 'anthropic'])
+        expect(db.modelProfileProviderFilterInitialized).toBe(true)
+    })
+
+    test('preserves an explicitly initialized provider filter', () => {
+        const db: any = {
+            modelProfileHiddenProviderIds: [],
+            modelProfileProviderFilterInitialized: true,
+        }
+
+        applyModelPresetDefaults(db)
+
+        expect(db.modelProfileHiddenProviderIds).toEqual([])
+        expect(db.modelProfileProviderFilterInitialized).toBe(true)
+    })
+
+    test('preserves migration metadata and drops legacy official catalog data', () => {
         const existingCache = createEmptyRegistryCache()
         existingCache.registries.official = { fetchedAt: 123, indexVersion: 7 }
         const db: any = {
@@ -33,25 +75,59 @@ describe('applyModelPresetDefaults', () => {
 
         expect(db.modelPresets).toEqual([{ id: 'preset-a' }])
         expect(db.apiKeyPool).toEqual({ keyA: { id: 'keyA' } })
-        expect(db.modelProfileRegistryCache).toBe(existingCache)
+        expect(db.modelProfileRegistryCache).toEqual({ schemaVersion: 4, registries: {} })
         expect(db.modelProfileRegistryLastFetched).toBe(456)
         expect(db.modelPresetMigrationVersion).toBe(1)
         expect(db.modelPresetMigrationAppliedAt).toBe(789)
         expect(db.modelPresetMigrationReport).toEqual({ version: 1 })
     })
 
-    // A healthy registry cache (under the bundled id) that resolves `testprofile`
+    test('removes retired profile revision counters from persisted data', () => {
+        const db: any = {
+            modelPresets: [{
+                id: 'preset-a',
+                profileSnapshot: { profileVersion: 3, providerBaseVersion: 2 },
+                sourceProfile: {
+                    registryId: 'custom',
+                    profileId: 'profile-a',
+                    profileVersion: 3,
+                    providerBaseVersion: 2,
+                    fetchedAt: 1,
+                },
+            }],
+            modelProfileRegistryCache: {
+                schemaVersion: 4,
+                registries: {
+                    custom: {
+                        fetchedAt: 1,
+                        profiles: { 'profile-a': { id: 'profile-a', version: 3 } },
+                        baseProviders: { 'base-a': { id: 'base-a', version: 2 } },
+                    },
+                },
+            },
+        }
+
+        applyModelPresetDefaults(db)
+
+        expect(db.modelPresets[0].profileSnapshot.profileVersion).toBeUndefined()
+        expect(db.modelPresets[0].profileSnapshot.providerBaseVersion).toBeUndefined()
+        expect(db.modelPresets[0].sourceProfile.profileVersion).toBeUndefined()
+        expect(db.modelPresets[0].sourceProfile.providerBaseVersion).toBeUndefined()
+        expect(db.modelProfileRegistryCache.registries.custom.profiles['profile-a'].version).toBeUndefined()
+        expect(db.modelProfileRegistryCache.registries.custom.baseProviders['base-a'].version).toBeUndefined()
+    })
+
+    // A healthy imported custom registry that resolves `testprofile`
     // to a complete snapshot: apiKey + modelId in both schema and uiSchema.
     function healthyCache(): any {
         return {
             schemaVersion: 4,
             registries: {
-                bundled: {
+                custom: {
                     fetchedAt: 1,
                     baseProviders: {
                         testbase: {
                             id: 'testbase',
-                            version: 2,
                             adapterKind: 'openai-compatible',
                             requestSchema: [
                                 { key: 'apiKey', type: 'string', label: 'API Key', secret: true, mapsTo: { target: 'auth', path: 'apiKey' } },
@@ -69,7 +145,6 @@ describe('applyModelPresetDefaults', () => {
                     profiles: {
                         testprofile: {
                             id: 'testprofile',
-                            version: 3,
                             providerBaseId: 'testbase',
                             auth: { kind: 'bearer', fields: ['apiKey'] },
                             endpoint: { kind: 'static', url: 'https://x/v1' },
@@ -88,7 +163,7 @@ describe('applyModelPresetDefaults', () => {
     function degeneratePreset(): any {
         return {
             id: 'p1',
-            sourceProfile: { registryId: 'bundled', profileId: 'testprofile', profileVersion: 1, providerBaseVersion: 1, fetchedAt: 0, profileUpdatedAt: 100 },
+            sourceProfile: { registryId: 'custom', profileId: 'testprofile', fetchedAt: 0, profileUpdatedAt: 100 },
             profileSnapshot: {
                 profileId: 'testprofile',
                 schema: [{ key: 'modelId', type: 'string', label: 'Model' }],
@@ -148,6 +223,38 @@ describe('applyModelPresetDefaults', () => {
         expect(healed.orphanValues).toEqual({ modelId: 'gpt-x' })   // preserved as orphan
     })
 
+    test('preserves existing orphans while moving removed values during structural repair', () => {
+        const preset = degeneratePreset()
+        preset.profileSnapshot.schema.push({
+            key: 'removedField',
+            type: 'string',
+            label: 'Removed',
+        })
+        preset.userValues.removedField = 'legacy-value'
+        preset.orphanValues = { olderField: 'older-value' }
+        const db: any = { modelPresets: [preset], modelProfileRegistryCache: healthyCache() }
+
+        applyModelPresetDefaults(db)
+
+        expect(db.modelPresets[0].userValues).toEqual({ modelId: 'gpt-x' })
+        expect(db.modelPresets[0].orphanValues).toEqual({
+            olderField: 'older-value',
+            removedField: 'legacy-value',
+        })
+    })
+
+    test('rebuilds a legacy preset whose snapshot object is entirely missing', () => {
+        const preset = degeneratePreset()
+        delete preset.profileSnapshot
+        const db: any = { modelPresets: [preset], modelProfileRegistryCache: healthyCache() }
+
+        expect(() => applyModelPresetDefaults(db)).not.toThrow()
+        expect(db.modelPresets[0].profileSnapshot.profileId).toBe('testprofile')
+        expect(db.modelPresets[0].profileSnapshot.schema.map((f: any) => f.key))
+            .toEqual(['apiKey', 'modelId'])
+        expect(db.modelPresets[0].userValues).toEqual({ modelId: 'gpt-x' })
+    })
+
     test('advances sourceProfile.profileUpdatedAt on heal so the update badge does not re-appear', () => {
         const db: any = { modelPresets: [degeneratePreset()], modelProfileRegistryCache: healthyCache() }
 
@@ -155,7 +262,6 @@ describe('applyModelPresetDefaults', () => {
 
         const sp = db.modelPresets[0].sourceProfile
         expect(sp.profileUpdatedAt).toBe(9999) // registry profile's updatedAt, not the stale 100
-        expect(sp.profileVersion).toBe(3)
     })
 
     test('heals a preset whose persisted snapshot mirrors the real report (schema:[null], null auth/endpoint)', () => {
@@ -195,7 +301,7 @@ describe('applyModelPresetDefaults', () => {
     function authDroppedPreset(): any {
         return {
             id: 'p3',
-            sourceProfile: { registryId: 'bundled', profileId: 'testprofile', profileVersion: 1, providerBaseVersion: 1, fetchedAt: 0, profileUpdatedAt: 100 },
+            sourceProfile: { registryId: 'custom', profileId: 'testprofile', fetchedAt: 0, profileUpdatedAt: 100 },
             profileSnapshot: {
                 profileId: 'testprofile',
                 schema: [{ key: 'modelId', type: 'string', label: 'Model' }],
@@ -228,7 +334,7 @@ describe('applyModelPresetDefaults', () => {
         // field mapping to auth → healthy. Must be left untouched (regression).
         const healthy: any = {
             id: 'p4',
-            sourceProfile: { registryId: 'bundled', profileId: 'testprofile', profileVersion: 3, providerBaseVersion: 2, fetchedAt: 0 },
+            sourceProfile: { registryId: 'bundled', profileId: 'testprofile', fetchedAt: 0 },
             profileSnapshot: {
                 profileId: 'testprofile',
                 schema: [
@@ -254,7 +360,7 @@ describe('applyModelPresetDefaults', () => {
     test('does not touch a healthy preset', () => {
         const healthy: any = {
             id: 'p2',
-            sourceProfile: { registryId: 'bundled', profileId: 'testprofile', profileVersion: 3, providerBaseVersion: 2, fetchedAt: 0 },
+            sourceProfile: { registryId: 'bundled', profileId: 'testprofile', fetchedAt: 0 },
             profileSnapshot: {
                 profileId: 'testprofile',
                 schema: [{ key: 'apiKey', type: 'string', label: 'API Key', mapsTo: { target: 'auth', path: 'apiKey' } }],
@@ -269,9 +375,41 @@ describe('applyModelPresetDefaults', () => {
 
         applyModelPresetDefaults(db)
 
-        // Same object reference, untouched (no version bump, no updatedAt change).
+        // Same object reference, untouched (no updatedAt change).
         expect(db.modelPresets[0]).toBe(healthy)
         expect(db.modelPresets[0].updatedAt).toBe(555)
+    })
+
+    test('does not heal an intentionally fixed profile with an empty settings form', () => {
+        const fixed: any = {
+            id: 'fixed',
+            sourceProfile: {
+                registryId: 'custom',
+                profileId: 'testprofile',
+                fetchedAt: 0,
+            },
+            profileSnapshot: {
+                profileId: 'testprofile',
+                providerBaseId: 'developer-plugin',
+                adapterKind: 'plugin',
+                modelId: 'pluginmodel:::fixed',
+                schema: [],
+                uiSchema: { groups: [], fields: [] },
+                auth: { kind: 'none', fields: [] },
+                endpoint: { kind: 'static', url: 'plugin://fixed' },
+                defaults: {},
+            },
+            userValues: {},
+            updatedAt: 444,
+        }
+        const db: any = { modelPresets: [fixed], modelProfileRegistryCache: healthyCache() }
+
+        applyModelPresetDefaults(db)
+
+        expect(db.modelPresets[0]).toBe(fixed)
+        expect(db.modelPresets[0].profileSnapshot.adapterKind).toBe('plugin')
+        expect(db.modelPresets[0].profileSnapshot.schema).toEqual([])
+        expect(db.modelPresets[0].updatedAt).toBe(444)
     })
 
     test('strips null elements from persisted profileSnapshot schema/uiSchema arrays', () => {

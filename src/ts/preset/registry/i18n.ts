@@ -3,6 +3,7 @@
 // Used by SchemaFormRenderer/SchemaFieldRenderer + ModelProfileBrowser.
 
 import { DBState } from 'src/ts/stores.svelte'
+import { language } from 'src/lang'
 
 export type RegistryLocale = 'ko' | 'en'
 
@@ -26,15 +27,34 @@ export function localizeDisplayName(
 }
 
 export function localizeDescription(
-    item: { description?: string; descriptionI18n?: Record<string, string> },
+    item: { description?: string; descriptionI18n?: Record<string, string>; helpKey?: string },
     locale: RegistryLocale = pickRegistryLocale(),
 ): string {
+    const keyed = languageString(language.help, item.helpKey)
+    if (keyed !== undefined) return keyed
     return item.descriptionI18n?.[locale] ?? item.description ?? ''
 }
 
 export function localizeGroupLabel(
-    group: { label: string; labelI18n?: Record<string, string> },
+    group: { label: string; labelKey?: string; labelI18n?: Record<string, string> },
     locale: RegistryLocale = pickRegistryLocale(),
 ): string {
+    const keyed = languageString(language, group.labelKey)
+    if (keyed !== undefined) return keyed
     return group.labelI18n?.[locale] ?? group.label
+}
+
+export function localizeFieldLabel(
+    field: { label: string; labelKey?: string; labelI18n?: Record<string, string> },
+    locale: RegistryLocale = pickRegistryLocale(),
+): string {
+    return languageString(language, field.labelKey)
+        ?? field.labelI18n?.[locale]
+        ?? field.label
+}
+
+function languageString(source: object, key?: string): string | undefined {
+    if (!key) return undefined
+    const value = (source as Record<string, unknown>)[key]
+    return typeof value === 'string' ? value : undefined
 }

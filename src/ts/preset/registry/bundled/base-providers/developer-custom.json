@@ -1,0 +1,33 @@
+{
+  "id": "developer-custom",
+  "displayName": "Developer",
+  "providerGroupId": "developer",
+  "providerGroupDisplayName": "Developer",
+  "adapterKind": "custom",
+  "authKinds": [
+    "none",
+    "bearer",
+    "x-api-key",
+    "x-goog-api-key",
+    "query"
+  ],
+  "endpointKinds": [
+    "static"
+  ],
+  "defaultHeaders": {
+    "Content-Type": "application/json"
+  },
+  "defaultBody": {},
+  "requestSchema": [],
+  "uiSchema": {
+    "groups": [],
+    "fields": []
+  },
+  "capabilities": [
+    "streaming",
+    "tools",
+    "json",
+    "reasoning"
+  ],
+  "sourceUrls": []
+}

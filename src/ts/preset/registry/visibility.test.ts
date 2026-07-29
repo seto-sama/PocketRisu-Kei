@@ -16,15 +16,8 @@ describe('isProfileVisible', () => {
         expect(isProfileVisible('deprecated', 'hideDeprecated')).toBe(false)
     })
 
-    test("level 'currentOnly' shows only current", () => {
-        expect(isProfileVisible('current', 'currentOnly')).toBe(true)
-        expect(isProfileVisible('outdated', 'currentOnly')).toBe(false)
-        expect(isProfileVisible('deprecated', 'currentOnly')).toBe(false)
-    })
-
     test('missing status is treated as current (visible at every level)', () => {
         expect(isProfileVisible(undefined, 'all')).toBe(true)
         expect(isProfileVisible(undefined, 'hideDeprecated')).toBe(true)
-        expect(isProfileVisible(undefined, 'currentOnly')).toBe(true)
     })
 })

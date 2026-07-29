@@ -1,0 +1,19 @@
+{
+  "id": "developer",
+  "displayName": "Developer",
+  "adapterKind": "echo",
+  "authKinds": [
+    "none"
+  ],
+  "endpointKinds": [
+    "static"
+  ],
+  "defaultBody": {},
+  "requestSchema": [],
+  "uiSchema": {
+    "groups": [],
+    "fields": []
+  },
+  "capabilities": [],
+  "sourceUrls": []
+}

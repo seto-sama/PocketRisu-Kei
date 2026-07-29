@@ -1,15 +1,11 @@
-import {
-    RegistryProfileNotFoundError,
-    resolveSnapshot,
-} from './registry/snapshot'
+import { resolveSnapshot } from './registry/snapshot'
+import { migrateUserValues } from './customProfiles'
 import type {
-    BaseProviderDefinition,
     ModelPreset,
     ModelPresetSourceProfile,
     ModelProfile,
     OrphanedUserValue,
     ProfileSnapshotUpdateResult,
-    ProfileUpdateAvailability,
     RegistryAuth,
     RegistryCache,
     RegistryEndpoint,
@@ -27,91 +23,161 @@ export interface ProfileUpdateOptions {
     now?: () => number
 }
 
+export type ModelPresetAbilityDefaults = Partial<Pick<
+    ModelPreset,
+    'foldSystemPrompt'
+    | 'keepFirstSystemPrompt'
+    | 'alternateRole'
+    | 'startWithUserInput'
+>>
+
 export interface ProfileSnapshotUpdateOptions extends ProfileUpdateOptions {
     sourceProfile?: ModelPresetSourceProfile
 }
 
-export function getProfileUpdateAvailability(
-    preset: ModelPreset,
-    registry: RegistryCache,
-    options: ProfileUpdateOptions = {},
-): ProfileUpdateAvailability {
-    const source = preset.sourceProfile
-    if (!source) return { status: 'no-source' }
+export interface ModelPresetProfileTarget {
+    registry: RegistryCache
+    registryId: string
+    profileId: string
+    /** Transient profiles (currently Plugin API 3.0) remain self-contained. */
+    transient?: boolean
+}
 
-    let latestSnapshot: ResolvedModelProfileSnapshot
-    try {
-        latestSnapshot = resolveSourceSnapshot(registry, source)
-    } catch (err) {
-        if (err instanceof RegistryProfileNotFoundError) {
-            return { status: 'profile-missing', profileId: source.profileId }
-        }
-        throw err
-    }
+/** Compatibility name retained for the existing bulk-refresh caller. */
+export type ModelPresetProfileRefreshTarget = ModelPresetProfileTarget
 
-    const currentVersion = source.profileVersion
-    const latestVersion = latestSnapshot.profileVersion
-    const currentBaseVersion = source.providerBaseVersion
-    const latestBaseVersion = latestSnapshot.providerBaseVersion
-    // Optional field on the source profile (legacy presets persisted before
-    // it existed leave it undefined). Treat undefined as "matches latest" so
-    // legacy presets do not light up a spurious update card on every
-    // base-provider bump. Once they go through an update apply they pick up
-    // the providerBaseVersion and start participating in normal detection.
-    const baseVersionsMatch = currentBaseVersion === undefined
-        || currentBaseVersion === latestBaseVersion
-    const baseVersionDowngrade = currentBaseVersion !== undefined
-        && currentBaseVersion > latestBaseVersion
+export interface ModelPresetProfileRefreshResult {
+    preset: ModelPreset
+    droppedKeys: string[]
+}
 
-    if (currentVersion === latestVersion && baseVersionsMatch) {
-        return { status: 'current', profileId: source.profileId, version: currentVersion }
-    }
-    if (currentVersion > latestVersion || baseVersionDowngrade) {
-        return {
-            status: 'downgrade',
-            profileId: source.profileId,
-            currentVersion,
-            registryVersion: latestVersion,
-        }
-    }
+export interface CreateModelPresetFromProfileOptions extends ProfileUpdateOptions {
+    id: string
+    name?: string
+    apiKeyRef?: string
+    abilityDefaults?: ModelPresetAbilityDefaults
+}
 
-    const now = options.now ?? Date.now
+export interface ReplaceModelPresetProfileOptions extends ProfileUpdateOptions {
+    abilityDefaults?: ModelPresetAbilityDefaults
+}
+
+interface ResolvedProfileTarget {
+    profile: ModelProfile
+    snapshot: ResolvedModelProfileSnapshot
+}
+
+/**
+ * A persisted preset must be self-contained enough to render its form and
+ * dispatch a request without consulting the source registry again.
+ */
+export function isUsableModelProfileSnapshot(
+    snapshot: ResolvedModelProfileSnapshot | null | undefined,
+): boolean {
+    return !!snapshot
+        && !!snapshot.auth
+        && !!snapshot.endpoint
+        && Array.isArray(snapshot.schema)
+        && Array.isArray(snapshot.uiSchema?.groups)
+        && Array.isArray(snapshot.uiSchema?.fields)
+}
+
+/**
+ * Create a self-contained preset from a registry profile. Registry metadata is
+ * retained only as an optional update pointer; transient plugin profiles stay
+ * snapshot-only.
+ */
+export function createModelPresetFromProfile(
+    target: ModelPresetProfileTarget,
+    options: CreateModelPresetFromProfileOptions,
+): ModelPreset | undefined {
+    const resolved = resolveProfileTarget(target)
+    if (!resolved || !isUsableModelProfileSnapshot(resolved.snapshot)) return undefined
+
+    const updatedAt = (options.now ?? Date.now)()
+    const { values } = migrateUserValues(undefined, resolved.snapshot.schema)
+
     return {
-        status: 'available',
-        profileId: source.profileId,
-        fromVersion: currentVersion,
-        toVersion: latestVersion,
-        latestSnapshot,
-        latestSourceProfile: {
-            registryId: source.registryId,
-            profileId: source.profileId,
-            profileVersion: latestVersion,
-            providerBaseVersion: latestBaseVersion,
-            fetchedAt: now(),
+        ...options.abilityDefaults,
+        id: options.id,
+        name: options.name ?? resolved.profile.displayName,
+        profileSnapshot: resolved.snapshot,
+        sourceProfile: buildSourceProfile(target, resolved, updatedAt),
+        userValues: values,
+        apiKeyRef: options.apiKeyRef,
+        createdAt: updatedAt,
+        updatedAt,
+    }
+}
+
+/**
+ * Replace or refresh a preset profile through the same migration path. The
+ * caller decides whether to ask for confirmation before committing the pure
+ * result.
+ */
+export function replaceModelPresetProfile(
+    preset: ModelPreset,
+    target: ModelPresetProfileTarget,
+    options: ReplaceModelPresetProfileOptions = {},
+): ModelPresetProfileRefreshResult | undefined {
+    const resolved = resolveProfileTarget(target)
+    if (!resolved || !isUsableModelProfileSnapshot(resolved.snapshot)) return undefined
+
+    const { values, droppedKeys } = migrateUserValues(
+        preset.userValues,
+        resolved.snapshot.schema,
+        {
+            currentSchema: Array.isArray(preset.profileSnapshot?.schema)
+                ? preset.profileSnapshot.schema.filter(Boolean)
+                : [],
         },
+    )
+    const updatedAt = (options.now ?? Date.now)()
+    const orphanValues = preserveDroppedUserValues(preset, droppedKeys)
+
+    return {
+        preset: {
+            ...preset,
+            ...options.abilityDefaults,
+            profileSnapshot: resolved.snapshot,
+            sourceProfile: buildSourceProfile(target, resolved, updatedAt),
+            userValues: values,
+            orphanValues,
+            updatedAt,
+        },
+        droppedKeys,
     }
 }
 
 export function diffProfileSnapshot(
-    current: ResolvedModelProfileSnapshot,
+    current: ResolvedModelProfileSnapshot | null | undefined,
     latest: ResolvedModelProfileSnapshot,
 ): SnapshotDiff {
+    const currentSchema = Array.isArray(current?.schema)
+        ? current.schema.filter(Boolean)
+        : []
+    const currentUiSchema: RegistryUiSchema = {
+        groups: Array.isArray(current?.uiSchema?.groups)
+            ? current.uiSchema.groups.filter(Boolean)
+            : [],
+        fields: Array.isArray(current?.uiSchema?.fields)
+            ? current.uiSchema.fields.filter(Boolean)
+            : [],
+    }
     return {
         profileId: latest.profileId,
-        fromVersion: current.profileVersion,
-        toVersion: latest.profileVersion,
-        providerBaseChanged: current.providerBaseId !== latest.providerBaseId,
-        adapterKindChanged: current.adapterKind !== latest.adapterKind,
-        modelIdChanged: current.modelId !== latest.modelId,
-        endpointChanged: !endpointEqual(current.endpoint, latest.endpoint),
-        authChanged: !authEqual(current.auth, latest.auth),
-        capabilitiesChanged: !arrayEqual(current.capabilities, latest.capabilities),
-        defaultsChanged: !deepEqual(current.defaults, latest.defaults),
-        bodyTemplateChanged: !deepEqual(current.bodyTemplate, latest.bodyTemplate),
-        headerTemplateChanged: !deepEqual(current.headerTemplate, latest.headerTemplate),
-        schemaChanges: diffSchemaFields(current.schema, latest.schema),
-        uiSchemaFieldChanges: diffUiFields(current.uiSchema, latest.uiSchema),
-        uiSchemaGroupChanges: diffUiGroups(current.uiSchema, latest.uiSchema),
+        providerBaseChanged: current?.providerBaseId !== latest.providerBaseId,
+        adapterKindChanged: current?.adapterKind !== latest.adapterKind,
+        modelIdChanged: current?.modelId !== latest.modelId,
+        endpointChanged: !endpointEqual(current?.endpoint, latest.endpoint),
+        authChanged: !authEqual(current?.auth, latest.auth),
+        capabilitiesChanged: !arrayEqual(current?.capabilities, latest.capabilities),
+        defaultsChanged: !deepEqual(current?.defaults, latest.defaults),
+        bodyTemplateChanged: !deepEqual(current?.bodyTemplate, latest.bodyTemplate),
+        headerTemplateChanged: !deepEqual(current?.headerTemplate, latest.headerTemplate),
+        schemaChanges: diffSchemaFields(currentSchema, latest.schema),
+        uiSchemaFieldChanges: diffUiFields(currentUiSchema, latest.uiSchema),
+        uiSchemaGroupChanges: diffUiGroups(currentUiSchema, latest.uiSchema),
     }
 }
 
@@ -124,24 +190,32 @@ export function applyProfileSnapshotUpdate(
     const updatedAt = now()
     const diff = diffProfileSnapshot(preset.profileSnapshot, latestSnapshot)
 
-    const currentSchemaByKey = new Map(preset.profileSnapshot.schema.map((f) => [f.key, f]))
+    const currentSchema = Array.isArray(preset.profileSnapshot?.schema)
+        ? preset.profileSnapshot.schema.filter(Boolean)
+        : []
+    const currentSchemaByKey = new Map(currentSchema.map((f) => [f.key, f]))
     const latestSchemaByKey = new Map(latestSnapshot.schema.map((f) => [f.key, f]))
-
-    const nextUserValues: Record<string, unknown> = {}
+    const { values: nextUserValues, droppedKeys } = migrateUserValues(
+        preset.userValues,
+        latestSnapshot.schema,
+        {
+            currentSchema,
+            // Snapshot updates preserve the historical behaviour of exposing
+            // new fields without materialising their defaults into userValues.
+            seedDefaults: false,
+        },
+    )
+    const droppedKeySet = new Set(droppedKeys)
     const movedToOrphan: OrphanedUserValue[] = []
 
-    for (const [key, value] of Object.entries(preset.userValues)) {
+    for (const [key, value] of Object.entries(preset.userValues ?? {})) {
+        if (!droppedKeySet.has(key)) continue
         const latestField = latestSchemaByKey.get(key)
         if (!latestField) {
             movedToOrphan.push({ key, value, reason: 'removed' })
             continue
         }
-        const currentField = currentSchemaByKey.get(key)
-        if (currentField && currentField.type !== latestField.type) {
-            movedToOrphan.push({ key, value, reason: 'type-changed' })
-            continue
-        }
-        nextUserValues[key] = value
+        movedToOrphan.push({ key, value, reason: 'type-changed' })
     }
 
     const newFieldKeys: string[] = []
@@ -149,10 +223,7 @@ export function applyProfileSnapshotUpdate(
         if (!currentSchemaByKey.has(key)) newFieldKeys.push(key)
     }
 
-    const orphanValues = { ...(preset.orphanValues ?? {}) }
-    for (const orphan of movedToOrphan) {
-        orphanValues[orphan.key] = orphan.value
-    }
+    const orphanValues = preserveDroppedUserValues(preset, droppedKeys)
 
     let sourceProfile: ModelPresetSourceProfile | undefined
     if (options.sourceProfile) {
@@ -160,8 +231,6 @@ export function applyProfileSnapshotUpdate(
     } else if (preset.sourceProfile && preset.sourceProfile.profileId === latestSnapshot.profileId) {
         sourceProfile = {
             ...preset.sourceProfile,
-            profileVersion: latestSnapshot.profileVersion,
-            providerBaseVersion: latestSnapshot.providerBaseVersion,
             fetchedAt: updatedAt,
         }
     }
@@ -171,7 +240,7 @@ export function applyProfileSnapshotUpdate(
         profileSnapshot: latestSnapshot,
         sourceProfile,
         userValues: nextUserValues,
-        orphanValues: Object.keys(orphanValues).length > 0 ? orphanValues : undefined,
+        orphanValues,
         updatedAt,
     }
 
@@ -183,26 +252,60 @@ export function applyProfileSnapshotUpdate(
     }
 }
 
-function resolveSourceSnapshot(
-    registry: RegistryCache,
-    source: ModelPresetSourceProfile,
-): ResolvedModelProfileSnapshot {
-    const entry = registry.registries[source.registryId]
-    if (!entry?.profiles?.[source.profileId]) {
-        throw new RegistryProfileNotFoundError(source.profileId)
-    }
+/**
+ * Re-resolve a preset from its current registry profile without comparing
+ * profile/base versions first. This is deliberately a force-refresh path:
+ * presentation-only schema changes may ship without a version bump.
+ */
+export function refreshModelPresetProfile(
+    preset: ModelPreset,
+    target: ModelPresetProfileRefreshTarget,
+    options: ProfileUpdateOptions = {},
+): ModelPresetProfileRefreshResult | undefined {
+    return replaceModelPresetProfile(preset, target, options)
+}
 
-    return resolveSnapshot({
-        schemaVersion: registry.schemaVersion,
-        registries: {
-            [source.registryId]: {
-                fetchedAt: entry.fetchedAt,
-                indexVersion: entry.indexVersion,
-                profiles: entry.profiles as Record<string, ModelProfile>,
-                baseProviders: entry.baseProviders as Record<string, BaseProviderDefinition>,
-            },
-        },
-    }, source.profileId)
+function resolveProfileTarget(
+    target: ModelPresetProfileTarget,
+): ResolvedProfileTarget | undefined {
+    const entry = target.registry.registries[target.registryId]
+    const profile = entry?.profiles?.[target.profileId]
+    if (!entry || !profile) return undefined
+
+    return {
+        profile,
+        snapshot: resolveSnapshot({
+            schemaVersion: target.registry.schemaVersion,
+            registries: { [target.registryId]: entry },
+        }, target.profileId),
+    }
+}
+
+function buildSourceProfile(
+    target: ModelPresetProfileTarget,
+    resolved: ResolvedProfileTarget,
+    fetchedAt: number,
+): ModelPresetSourceProfile | undefined {
+    if (target.transient) return undefined
+    return {
+        registryId: target.registryId,
+        profileId: resolved.snapshot.profileId,
+        fetchedAt,
+        profileUpdatedAt: resolved.profile.updatedAt,
+    }
+}
+
+function preserveDroppedUserValues(
+    preset: ModelPreset,
+    droppedKeys: readonly string[],
+): Record<string, unknown> | undefined {
+    const orphanValues = { ...(preset.orphanValues ?? {}) }
+    for (const key of droppedKeys) {
+        if (Object.prototype.hasOwnProperty.call(preset.userValues ?? {}, key)) {
+            orphanValues[key] = preset.userValues[key]
+        }
+    }
+    return Object.keys(orphanValues).length > 0 ? orphanValues : undefined
 }
 
 function diffSchemaFields(
@@ -248,6 +351,7 @@ function compareSchemaField(
     if (a.step !== b.step) modified.push('step')
     if ((a.required ?? false) !== (b.required ?? false)) modified.push('required')
     if ((a.secret ?? false) !== (b.secret ?? false)) modified.push('secret')
+    if (a.semantic !== b.semantic) modified.push('semantic')
     if (!deepEqual(a.mapsTo, b.mapsTo)) modified.push('mapsTo')
     if (modified.length === 0) return null
     return {
@@ -330,11 +434,19 @@ function diffUiGroups(
     return changes
 }
 
-function endpointEqual(a: RegistryEndpoint, b: RegistryEndpoint): boolean {
-    return a.kind === b.kind && a.url === b.url
+function endpointEqual(
+    a: RegistryEndpoint | null | undefined,
+    b: RegistryEndpoint | null | undefined,
+): boolean {
+    if (!a || !b) return a === b
+    return a.kind === b.kind && a.url === b.url && a.path === b.path
 }
 
-function authEqual(a: RegistryAuth, b: RegistryAuth): boolean {
+function authEqual(
+    a: RegistryAuth | null | undefined,
+    b: RegistryAuth | null | undefined,
+): boolean {
+    if (!a || !b) return a === b
     if (a.kind !== b.kind) return false
     return arrayEqual(a.fields, b.fields)
 }

@@ -1,0 +1,769 @@
+{
+  "id": "developer:custom",
+  "updatedAt": 1785331785494,
+  "displayName": "Custom",
+  "providerBaseId": "developer-custom",
+  "profileStatus": "current",
+  "description": "Power-user profile for manually configuring a model endpoint, wire format, authentication, generation parameters, request body, headers, and compatibility flags.",
+  "helpKey": "modelPresetCustomProfileHelp",
+  "tags": [
+    "developer",
+    "custom",
+    "bring-your-own-endpoint"
+  ],
+  "sortOrder": 9001,
+  "recommendedTokenizer": "tik",
+  "modelId": "custom-model",
+  "endpoint": {
+    "kind": "static",
+    "url": ""
+  },
+  "auth": {
+    "kind": "bearer",
+    "fields": [
+      "apiKey"
+    ]
+  },
+  "defaults": {},
+  "schema": [
+    {
+      "key": "customFormat",
+      "type": "string",
+      "label": "Request Format",
+      "labelKey": "modelPresetRequestFormat",
+      "helpKey": "modelPresetRequestFormatHelp",
+      "description": "Select the wire protocol implemented by your endpoint. Mistral, Ollama, vLLM and similar servers normally use OpenAI Chat Completions.",
+      "default": "openai-chat",
+      "required": true,
+      "enum": [
+        {
+          "value": "openai-chat",
+          "label": "OpenAI Chat Completions / Compatible"
+        },
+        {
+          "value": "openai-responses",
+          "label": "OpenAI Responses"
+        },
+        {
+          "value": "anthropic-messages",
+          "label": "Anthropic Messages"
+        },
+        {
+          "value": "google-gemini",
+          "label": "Google Gemini generateContent"
+        }
+      ],
+      "mapsTo": {
+        "target": "custom",
+        "path": "format"
+      }
+    },
+    {
+      "key": "endpointUrl",
+      "type": "string",
+      "label": "Endpoint URL",
+      "labelKey": "modelPresetEndpointUrl",
+      "helpKey": "modelPresetEndpointUrlHelp",
+      "description": "Enter the complete request URL, including the final API path.",
+      "required": true,
+      "mapsTo": {
+        "target": "custom",
+        "path": "endpointUrl"
+      }
+    },
+    {
+      "key": "modelId",
+      "semantic": "modelId",
+      "type": "string",
+      "label": "Request Model ID",
+      "labelKey": "modelPresetRequestModelId",
+      "helpKey": "modelPresetRequestModelIdHelp",
+      "description": "The model identifier sent in the request body or Gemini URL semantics.",
+      "default": "custom-model",
+      "required": true,
+      "mapsTo": {
+        "target": "custom",
+        "path": "modelId"
+      }
+    },
+    {
+      "key": "reasoning_effort",
+      "semantic": "reasoningEffort",
+      "type": "string",
+      "label": "Reasoning Effort",
+      "labelKey": "reasoningEffort",
+      "helpKey": "reasoningEffort",
+      "enum": [
+        {
+          "value": "none",
+          "label": "None"
+        },
+        {
+          "value": "budget",
+          "label": "Budget"
+        },
+        {
+          "value": "minimal",
+          "label": "Minimal"
+        },
+        {
+          "value": "low",
+          "label": "Low"
+        },
+        {
+          "value": "medium",
+          "label": "Medium"
+        },
+        {
+          "value": "high",
+          "label": "High"
+        },
+        {
+          "value": "xhigh",
+          "label": "Extra high"
+        },
+        {
+          "value": "max",
+          "label": "Max"
+        }
+      ],
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.reasoningEffort"
+      }
+    },
+    {
+      "key": "thinking_tokens",
+      "semantic": "thinkingBudgetTokens",
+      "type": "integer",
+      "label": "Thinking Tokens",
+      "labelKey": "thinkingTokens",
+      "helpKey": "thinkingBudgetHelp",
+      "description": "Maximum thinking-token budget used by Claude and Gemini when reasoning effort is set to Budget.",
+      "default": 1024,
+      "min": 1024,
+      "step": 1
+    },
+    {
+      "key": "verbosity",
+      "type": "string",
+      "label": "Verbosity",
+      "labelKey": "verbosity",
+      "helpKey": "verbosity",
+      "enum": [
+        {
+          "value": "low",
+          "label": "Low"
+        },
+        {
+          "value": "medium",
+          "label": "Medium"
+        },
+        {
+          "value": "high",
+          "label": "High"
+        }
+      ],
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.verbosity"
+      }
+    },
+    {
+      "key": "prompt_cache_mode",
+      "type": "string",
+      "label": "Prompt Cache Mode",
+      "labelKey": "modelPresetPromptCacheMode",
+      "helpKey": "modelPresetPromptCacheModeHelp",
+      "description": "GPT-5.6 and later only. Implicit uses an automatic breakpoint; explicit uses only prompt cache cards/breakpoints.",
+      "default": "implicit",
+      "enum": [
+        {
+          "value": "implicit",
+          "label": "Implicit"
+        },
+        {
+          "value": "explicit",
+          "label": "Explicit"
+        }
+      ],
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.promptCacheMode"
+      }
+    },
+    {
+      "key": "customAuthKind",
+      "type": "string",
+      "label": "Authentication",
+      "labelKey": "modelPresetAuthentication",
+      "helpKey": "modelPresetAuthenticationHelp",
+      "description": "How the key/password is attached to the request.",
+      "default": "bearer",
+      "required": true,
+      "enum": [
+        {
+          "value": "none",
+          "label": "None"
+        },
+        {
+          "value": "bearer",
+          "label": "Authorization: Bearer"
+        },
+        {
+          "value": "x-api-key",
+          "label": "x-api-key"
+        },
+        {
+          "value": "x-goog-api-key",
+          "label": "x-goog-api-key"
+        },
+        {
+          "value": "query",
+          "label": "Query: ?key="
+        }
+      ],
+      "mapsTo": {
+        "target": "custom",
+        "path": "authKind"
+      }
+    },
+    {
+      "key": "apiKey",
+      "type": "string",
+      "label": "Key / Password",
+      "labelKey": "modelPresetKeyPassword",
+      "helpKey": "modelPresetKeyPasswordHelp",
+      "description": "Stored directly in this preset or selected from the shared key pool.",
+      "secret": true,
+      "mapsTo": {
+        "target": "auth",
+        "path": "apiKey"
+      }
+    },
+    {
+      "key": "max_tokens",
+      "semantic": "maxOutputTokens",
+      "type": "integer",
+      "label": "Max Response Size",
+      "labelKey": "maxResponseSize",
+      "helpKey": "maxResponseSize",
+      "min": 1,
+      "max": 25600,
+      "step": 1,
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.maxTokens"
+      }
+    },
+    {
+      "key": "temperature",
+      "semantic": "temperature",
+      "type": "number",
+      "label": "Temperature",
+      "labelKey": "temperature",
+      "helpKey": "tempature",
+      "min": 0,
+      "max": 2,
+      "step": 0.01,
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.temperature"
+      }
+    },
+    {
+      "key": "top_p",
+      "type": "number",
+      "label": "Top P",
+      "labelKey": "topP",
+      "helpKey": "topP",
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.topP"
+      }
+    },
+    {
+      "key": "top_k",
+      "type": "integer",
+      "label": "Top K",
+      "helpKey": "topK",
+      "min": 0,
+      "max": 100,
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.topK"
+      }
+    },
+    {
+      "key": "frequency_penalty",
+      "type": "number",
+      "label": "Frequency Penalty",
+      "labelKey": "frequencyPenalty",
+      "helpKey": "frequencyPenalty",
+      "min": 0,
+      "max": 2,
+      "step": 0.01,
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.frequencyPenalty"
+      }
+    },
+    {
+      "key": "presence_penalty",
+      "type": "number",
+      "label": "Presense Penalty",
+      "labelKey": "presensePenalty",
+      "helpKey": "presensePenalty",
+      "min": 0,
+      "max": 2,
+      "step": 0.01,
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.presencePenalty"
+      }
+    },
+    {
+      "key": "repetition_penalty",
+      "type": "number",
+      "label": "Repetition penalty",
+      "labelKey": "modelPresetRepetitionPenalty",
+      "helpKey": "repetitionPenalty",
+      "min": 0,
+      "max": 2,
+      "step": 0.01,
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.repetitionPenalty"
+      }
+    },
+    {
+      "key": "min_p",
+      "type": "number",
+      "label": "Min P",
+      "helpKey": "minP",
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.minP"
+      }
+    },
+    {
+      "key": "top_a",
+      "type": "number",
+      "label": "Top A",
+      "helpKey": "topA",
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.topA"
+      }
+    },
+    {
+      "key": "seed",
+      "type": "integer",
+      "label": "Seed",
+      "labelKey": "seed",
+      "helpKey": "seed",
+      "min": -1,
+      "max": 2147483647,
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.seed"
+      }
+    },
+    {
+      "key": "stopSequences",
+      "type": "stringArray",
+      "label": "Stop Sequences",
+      "labelKey": "modelPresetStopSequences",
+      "helpKey": "modelPresetStopSequencesHelp",
+      "description": "Strings that stop response generation. Enter one per line.",
+      "mapsTo": {
+        "target": "custom",
+        "path": "generation.stop"
+      }
+    },
+    {
+      "key": "customFlag_hasImageOutput",
+      "type": "boolean",
+      "label": "hasImageOutput",
+      "helpKey": "customFlagHasImageOutputHelp",
+      "description": "Treat the model as capable of returning generated images.",
+      "default": false
+    },
+    {
+      "key": "customFlag_hasAudioInput",
+      "type": "boolean",
+      "label": "hasAudioInput",
+      "helpKey": "customFlagHasAudioInputHelp",
+      "description": "Allow audio attachments in model input.",
+      "default": false
+    },
+    {
+      "key": "customFlag_hasAudioOutput",
+      "type": "boolean",
+      "label": "hasAudioOutput",
+      "helpKey": "customFlagHasAudioOutputHelp",
+      "description": "Treat the model as capable of returning generated audio.",
+      "default": false
+    },
+    {
+      "key": "customFlag_hasVideoInput",
+      "type": "boolean",
+      "label": "hasVideoInput",
+      "helpKey": "customFlagHasVideoInputHelp",
+      "description": "Allow video attachments in model input.",
+      "default": false
+    },
+    {
+      "key": "customFlag_hasPrefill",
+      "type": "boolean",
+      "label": "hasPrefill",
+      "helpKey": "customFlagHasPrefillHelp",
+      "description": "Enable model-ID-aware assistant prefill for Kimi and DeepSeek OpenAI-compatible endpoints.",
+      "default": false
+    },
+    {
+      "key": "customFlag_OAICompletionTokens",
+      "type": "boolean",
+      "label": "OAICompletionTokens",
+      "helpKey": "customFlagOAICompletionTokensHelp",
+      "description": "Use max_completion_tokens instead of max_tokens for OpenAI Chat Completions.",
+      "default": false
+    },
+    {
+      "key": "customFlag_DeveloperRole",
+      "type": "boolean",
+      "label": "DeveloperRole",
+      "helpKey": "customFlagDeveloperRoleHelp",
+      "description": "Use OpenAI's developer role for system-level instructions when supported.",
+      "default": false
+    },
+    {
+      "key": "customFlag_geminiIncludeThoughts",
+      "type": "boolean",
+      "label": "geminiIncludeThoughts",
+      "helpKey": "customFlagGeminiIncludeThoughtsHelp",
+      "description": "When enabled, show a summary of the Gemini model's reasoning alongside its answer.",
+      "default": false
+    },
+    {
+      "key": "customFlag_deepSeekThinkingInput",
+      "type": "boolean",
+      "label": "deepSeekThinkingInput",
+      "helpKey": "customFlagDeepSeekThinkingInputHelp",
+      "description": "Send saved reasoning from the final assistant prefill as reasoning_content.",
+      "default": false
+    },
+    {
+      "key": "customFlag_deepSeekThinkingOutput",
+      "type": "boolean",
+      "label": "deepSeekThinkingOutput",
+      "helpKey": "customFlagDeepSeekThinkingOutputHelp",
+      "description": "Show DeepSeek reasoning separately from the final answer.",
+      "default": false
+    }
+  ],
+  "uiSchema": {
+    "groups": [
+      {
+        "id": "connection",
+        "label": "Connection",
+        "labelKey": "modelPresetConnectionGroup",
+        "order": 1
+      },
+      {
+        "id": "generation",
+        "label": "Parameters",
+        "labelKey": "modelPresetParametersGroup",
+        "order": 2
+      },
+      {
+        "id": "capabilities",
+        "label": "Features",
+        "labelKey": "modelPresetFeaturesGroup",
+        "order": 3
+      },
+      {
+        "id": "flags",
+        "label": "Custom Flags",
+        "labelKey": "modelPresetCustomFlagsGroup",
+        "order": 4
+      }
+    ],
+    "fields": [
+      {
+        "key": "customFormat",
+        "widget": "select",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "connection",
+        "order": 1
+      },
+      {
+        "key": "endpointUrl",
+        "widget": "text",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "connection",
+        "order": 2,
+        "placeholder": "https://example.com/v1/chat/completions"
+      },
+      {
+        "key": "modelId",
+        "widget": "text",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "connection",
+        "order": 3,
+        "placeholder": "model-id"
+      },
+      {
+        "key": "reasoning_effort",
+        "widget": "select",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "connection",
+        "order": 4
+      },
+      {
+        "key": "thinking_tokens",
+        "widget": "number-input",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "connection",
+        "order": 5,
+        "showIf": {
+          "key": "reasoning_effort",
+          "equals": "budget"
+        }
+      },
+      {
+        "key": "verbosity",
+        "widget": "select",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "connection",
+        "order": 6
+      },
+      {
+        "key": "prompt_cache_mode",
+        "widget": "select",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "connection",
+        "order": 7
+      },
+      {
+        "key": "customAuthKind",
+        "widget": "select",
+        "visibility": "info",
+        "layout": "row",
+        "group": "connection",
+        "order": 8
+      },
+      {
+        "key": "apiKey",
+        "widget": "secret",
+        "visibility": "info",
+        "group": "connection",
+        "order": 9
+      },
+      {
+        "key": "max_tokens",
+        "widget": "slider",
+        "visibility": "basic",
+        "layout": "row",
+        "disableable": true,
+        "group": "generation",
+        "order": 1,
+        "placeholder": "4096"
+      },
+      {
+        "key": "temperature",
+        "widget": "slider",
+        "visibility": "basic",
+        "layout": "row",
+        "disableable": true,
+        "fixed": 2,
+        "group": "generation",
+        "order": 2
+      },
+      {
+        "key": "top_k",
+        "widget": "slider",
+        "visibility": "basic",
+        "layout": "row",
+        "disableable": true,
+        "group": "generation",
+        "order": 3
+      },
+      {
+        "key": "top_p",
+        "widget": "slider",
+        "visibility": "basic",
+        "layout": "row",
+        "disableable": true,
+        "fixed": 2,
+        "group": "generation",
+        "order": 4
+      },
+      {
+        "key": "min_p",
+        "widget": "slider",
+        "visibility": "basic",
+        "layout": "row",
+        "disableable": true,
+        "fixed": 2,
+        "group": "generation",
+        "order": 5
+      },
+      {
+        "key": "top_a",
+        "widget": "slider",
+        "visibility": "basic",
+        "layout": "row",
+        "disableable": true,
+        "fixed": 2,
+        "group": "generation",
+        "order": 6
+      },
+      {
+        "key": "repetition_penalty",
+        "widget": "slider",
+        "visibility": "basic",
+        "layout": "row",
+        "disableable": true,
+        "fixed": 2,
+        "group": "generation",
+        "order": 7
+      },
+      {
+        "key": "frequency_penalty",
+        "widget": "slider",
+        "visibility": "basic",
+        "layout": "row",
+        "disableable": true,
+        "fixed": 2,
+        "group": "generation",
+        "order": 8
+      },
+      {
+        "key": "presence_penalty",
+        "widget": "slider",
+        "visibility": "basic",
+        "layout": "row",
+        "disableable": true,
+        "fixed": 2,
+        "group": "generation",
+        "order": 9
+      },
+      {
+        "key": "seed",
+        "widget": "number-input",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "generation",
+        "order": 10
+      },
+      {
+        "key": "stopSequences",
+        "widget": "string-array",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "generation",
+        "order": 11,
+        "placeholder": "</s>\n###"
+      },
+      {
+        "key": "customFlag_hasImageOutput",
+        "widget": "toggle",
+        "visibility": "advanced",
+        "group": "flags",
+        "order": 1
+      },
+      {
+        "key": "customFlag_hasAudioInput",
+        "widget": "toggle",
+        "visibility": "advanced",
+        "group": "flags",
+        "order": 2
+      },
+      {
+        "key": "customFlag_hasAudioOutput",
+        "widget": "toggle",
+        "visibility": "advanced",
+        "group": "flags",
+        "order": 3
+      },
+      {
+        "key": "customFlag_hasVideoInput",
+        "widget": "toggle",
+        "visibility": "advanced",
+        "group": "flags",
+        "order": 4
+      },
+      {
+        "key": "customFlag_hasPrefill",
+        "widget": "toggle",
+        "visibility": "advanced",
+        "group": "flags",
+        "order": 5
+      },
+      {
+        "key": "customFlag_OAICompletionTokens",
+        "widget": "toggle",
+        "visibility": "advanced",
+        "group": "flags",
+        "order": 6
+      },
+      {
+        "key": "customFlag_DeveloperRole",
+        "widget": "toggle",
+        "visibility": "advanced",
+        "group": "flags",
+        "order": 7
+      },
+      {
+        "key": "customFlag_geminiIncludeThoughts",
+        "widget": "toggle",
+        "visibility": "advanced",
+        "group": "flags",
+        "order": 8
+      },
+      {
+        "key": "customFlag_deepSeekThinkingInput",
+        "widget": "toggle",
+        "visibility": "advanced",
+        "group": "flags",
+        "order": 9
+      },
+      {
+        "key": "customFlag_deepSeekThinkingOutput",
+        "widget": "toggle",
+        "visibility": "advanced",
+        "group": "flags",
+        "order": 10
+      }
+    ]
+  },
+  "bodyTemplate": {},
+  "headerTemplate": {},
+  "capabilities": [
+    "streaming",
+    "tools",
+    "json"
+  ],
+  "limits": {
+    "known": false,
+    "notes": "Configured by the user."
+  },
+  "sourceUrls": []
+}

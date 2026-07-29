@@ -1,0 +1,98 @@
+{
+  "id": "developer:echo",
+  "displayName": "Echo",
+  "displayNameI18n": {
+    "ko": "Echo"
+  },
+  "providerBaseId": "developer",
+  "description": "Local developer model that returns the configured echo message without calling an LLM.",
+  "descriptionI18n": {
+    "ko": "LLM을 호출하지 않고 설정한 Echo 메시지를 그대로 반환하는 개발자용 로컬 모델."
+  },
+  "tags": [
+    "developer",
+    "local",
+    "echo"
+  ],
+  "sortOrder": 9000,
+  "modelId": "echo_model",
+  "updatedAt": 1785240662478,
+  "endpoint": {
+    "kind": "static",
+    "url": "local://echo"
+  },
+  "auth": {
+    "kind": "none",
+    "fields": []
+  },
+  "defaults": {
+    "echoMessage": "Echo Message",
+    "echoDelay": 0
+  },
+  "schema": [
+    {
+      "key": "echoMessage",
+      "type": "string",
+      "label": "Echo Message",
+      "labelKey": "modelPresetEchoMessage",
+      "description": "Message returned by this preset. The default is \"Echo Message\".",
+      "descriptionI18n": {
+        "ko": "이 프리셋이 반환할 메시지입니다. 기본값은 \"Echo Message\"입니다."
+      },
+      "default": "Echo Message"
+    },
+    {
+      "key": "echoDelay",
+      "type": "number",
+      "label": "Echo Delay (Seconds)",
+      "labelKey": "modelPresetEchoDelay",
+      "description": "Delay before the preset returns its echo message. The default is 0 seconds.",
+      "min": 0,
+      "step": 0.1,
+      "descriptionI18n": {
+        "ko": "Echo 메시지를 반환하기 전 기다릴 시간입니다. 기본값은 0초입니다."
+      },
+      "default": 0
+    }
+  ],
+  "uiSchema": {
+    "groups": [
+      {
+        "id": "echo",
+        "label": "Echo",
+        "order": 1,
+        "labelI18n": {
+          "ko": "Echo"
+        }
+      }
+    ],
+    "fields": [
+      {
+        "key": "echoMessage",
+        "widget": "textarea",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "echo",
+        "order": 1,
+        "placeholder": "Echo Message"
+      },
+      {
+        "key": "echoDelay",
+        "widget": "number-input",
+        "visibility": "basic",
+        "layout": "row",
+        "group": "echo",
+        "order": 2
+      }
+    ]
+  },
+  "capabilities": [],
+  "limits": {
+    "known": true,
+    "contextWindowTokens": 0,
+    "maxOutputTokens": 0,
+    "notes": "No remote model is called."
+  },
+  "sourceUrls": [],
+  "profileStatus": "current"
+}

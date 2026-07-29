@@ -56,9 +56,6 @@ describe('computeRegistryNotice', () => {
             b: { updatedAt: 1, profileStatus: 'outdated' },
             c: { updatedAt: 1, profileStatus: 'deprecated' },
         })
-        // currentOnly: only the current profile may notify.
-        const currentOnly = computeRegistryNotice(reg, {}, 'currentOnly')
-        expect(currentOnly.newProfiles.map((p) => p.id)).toEqual(['a'])
         // hideDeprecated: current + outdated notify, deprecated is suppressed.
         const hideDeprecated = computeRegistryNotice(reg, {}, 'hideDeprecated')
         expect(hideDeprecated.newProfiles.map((p) => p.id).sort()).toEqual(['a', 'b'])

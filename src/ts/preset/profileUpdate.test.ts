@@ -1,9 +1,14 @@
 import { describe, expect, test } from 'vitest'
 import {
     applyProfileSnapshotUpdate,
+    createModelPresetFromProfile,
     diffProfileSnapshot,
-    getProfileUpdateAvailability,
+    isUsableModelProfileSnapshot,
+    refreshModelPresetProfile,
+    replaceModelPresetProfile,
 } from './profileUpdate'
+import { resolveSnapshot } from './registry/snapshot'
+import { compileModelPreset } from './runtime/compilePreset'
 import type {
     BaseProviderDefinition,
     ModelPreset,
@@ -34,7 +39,6 @@ function makeRegistry(profiles: ModelProfile[], baseProviders: BaseProviderDefin
 function makeBaseProvider(overrides: Partial<BaseProviderDefinition> = {}): BaseProviderDefinition {
     return {
         id: 'demo',
-        version: 1,
         displayName: 'Demo',
         adapterKind: 'openai-compatible',
         authKinds: ['bearer'],
@@ -71,7 +75,6 @@ function makeBaseProvider(overrides: Partial<BaseProviderDefinition> = {}): Base
 function makeProfile(overrides: Partial<ModelProfile> = {}): ModelProfile {
     return {
         id: 'demo:standard',
-        version: 1,
         displayName: 'Demo Standard',
         providerBaseId: 'demo',
         profileStatus: 'current',
@@ -89,9 +92,7 @@ function makeProfile(overrides: Partial<ModelProfile> = {}): ModelProfile {
 function makeSnapshot(overrides: Partial<ResolvedModelProfileSnapshot> = {}): ResolvedModelProfileSnapshot {
     return {
         profileId: 'demo:standard',
-        profileVersion: 1,
         providerBaseId: 'demo',
-        providerBaseVersion: 1,
         adapterKind: 'openai-compatible',
         auth: { kind: 'bearer', fields: ['apiKey'] },
         endpoint: { kind: 'static', url: 'https://demo.test/v1/chat/completions' },
@@ -134,7 +135,6 @@ function makePreset(overrides: Partial<ModelPreset> = {}): ModelPreset {
         sourceProfile: {
             registryId: 'synthetic',
             profileId: 'demo:standard',
-            profileVersion: 1,
             fetchedAt: 100,
         },
         createdAt: 100,
@@ -143,207 +143,343 @@ function makePreset(overrides: Partial<ModelPreset> = {}): ModelPreset {
     }
 }
 
-describe('getProfileUpdateAvailability', () => {
-    test('returns no-source when preset has no sourceProfile', () => {
-        const preset = makePreset({ sourceProfile: undefined })
+describe('ModelPreset profile lifecycle', () => {
+    test('creates a self-contained preset with seeded defaults and one timestamp', () => {
+        const profile = makeProfile({
+            updatedAt: 500,
+            schema: [{
+                key: 'verbosity',
+                type: 'string',
+                label: 'Verbosity',
+                default: 'medium',
+            }],
+            uiSchema: {
+                groups: [],
+                fields: [{ key: 'verbosity', widget: 'select', visibility: 'basic' }],
+            },
+        })
+        const registry = makeRegistry([profile], [makeBaseProvider()])
+
+        const preset = createModelPresetFromProfile({
+            registry,
+            registryId: 'synthetic',
+            profileId: profile.id,
+        }, {
+            id: 'new-preset',
+            apiKeyRef: 'key-1',
+            abilityDefaults: {
+                foldSystemPrompt: true,
+                alternateRole: true,
+            },
+            now: () => 900,
+        })
+
+        expect(preset).toMatchObject({
+            id: 'new-preset',
+            name: 'Demo Standard',
+            apiKeyRef: 'key-1',
+            userValues: { verbosity: 'medium' },
+            sourceProfile: {
+                registryId: 'synthetic',
+                profileId: 'demo:standard',
+                fetchedAt: 900,
+                profileUpdatedAt: 500,
+            },
+            foldSystemPrompt: true,
+            alternateRole: true,
+            createdAt: 900,
+            updatedAt: 900,
+        })
+        expect(preset?.profileSnapshot.modelId).toBe('demo-fast')
+    })
+
+    test('keeps transient plugin-style creations snapshot-only', () => {
         const registry = makeRegistry([makeProfile()], [makeBaseProvider()])
-        expect(getProfileUpdateAvailability(preset, registry)).toEqual({ status: 'no-source' })
-    })
 
-    test('returns profile-missing when registry lacks the source profile id', () => {
-        const preset = makePreset()
-        const registry = makeRegistry(
-            [makeProfile({ id: 'demo:other' })],
-            [makeBaseProvider()],
-        )
-        expect(getProfileUpdateAvailability(preset, registry)).toEqual({
-            status: 'profile-missing',
-            profileId: 'demo:standard',
-        })
-    })
-
-    test('returns current when versions match', () => {
-        const preset = makePreset()
-        const registry = makeRegistry([makeProfile({ version: 1 })], [makeBaseProvider()])
-        expect(getProfileUpdateAvailability(preset, registry)).toEqual({
-            status: 'current',
-            profileId: 'demo:standard',
-            version: 1,
-        })
-    })
-
-    test('returns available with latest snapshot when registry version is higher', () => {
-        const preset = makePreset()
-        const registry = makeRegistry(
-            [makeProfile({ version: 2, modelId: 'demo-faster' })],
-            [makeBaseProvider()],
-        )
-        const result = getProfileUpdateAvailability(preset, registry, { now: () => 999 })
-        if (result.status !== 'available') throw new Error(`expected available, got ${result.status}`)
-        expect(result.fromVersion).toBe(1)
-        expect(result.toVersion).toBe(2)
-        expect(result.latestSnapshot.profileVersion).toBe(2)
-        expect(result.latestSnapshot.modelId).toBe('demo-faster')
-        expect(result.latestSourceProfile).toEqual({
+        const preset = createModelPresetFromProfile({
+            registry,
             registryId: 'synthetic',
             profileId: 'demo:standard',
-            profileVersion: 2,
-            providerBaseVersion: 1,
-            fetchedAt: 999,
+            transient: true,
+        }, {
+            id: 'plugin-preset',
+            abilityDefaults: { startWithUserInput: true },
+            now: () => 700,
         })
+
+        expect(preset?.sourceProfile).toBeUndefined()
+        expect(preset?.startWithUserInput).toBe(true)
     })
 
-    test('uses the source registry id when multiple registries contain the same profile id', () => {
-        const preset = makePreset({
-            sourceProfile: {
-                registryId: 'remote',
-                profileId: 'demo:standard',
-                profileVersion: 1,
-                fetchedAt: 100,
+    test('replaces a profile through the shared value migration path', () => {
+        const profile = makeProfile({
+            id: 'demo:replacement',
+            displayName: 'Replacement',
+            modelId: 'demo-v2',
+            updatedAt: 600,
+            schema: [{
+                key: 'verbosity',
+                type: 'string',
+                label: 'Verbosity',
+                default: 'high',
+            }],
+            uiSchema: {
+                groups: [],
+                fields: [{ key: 'verbosity', widget: 'select', visibility: 'basic' }],
             },
         })
-        const baseProvider = makeBaseProvider()
-        const registry: RegistryCache = {
-            schemaVersion: 4,
-            registries: {
-                bundled: {
-                    fetchedAt: 0,
-                    baseProviders: { demo: baseProvider },
-                    profiles: { 'demo:standard': makeProfile({ version: 1 }) },
-                },
-                remote: {
-                    fetchedAt: 0,
-                    baseProviders: { demo: baseProvider },
-                    profiles: {
-                        'demo:standard': makeProfile({ version: 2, modelId: 'demo-remote' }),
-                    },
-                },
+        const registry = makeRegistry([profile], [makeBaseProvider()])
+        const original = makePreset({
+            userValues: {
+                apiKey: 'sk-test',
+                modelId: 'custom-model',
+                removed: 'drop-me',
             },
-        }
+        })
 
-        const result = getProfileUpdateAvailability(preset, registry, { now: () => 1234 })
-        if (result.status !== 'available') throw new Error(`expected available, got ${result.status}`)
-        expect(result.toVersion).toBe(2)
-        expect(result.latestSnapshot.modelId).toBe('demo-remote')
-        expect(result.latestSourceProfile).toEqual({
-            registryId: 'remote',
-            profileId: 'demo:standard',
-            profileVersion: 2,
-            providerBaseVersion: 1,
-            fetchedAt: 1234,
+        const result = replaceModelPresetProfile(original, {
+            registry,
+            registryId: 'synthetic',
+            profileId: profile.id,
+        }, {
+            now: () => 950,
         })
+
+        expect(result?.droppedKeys).toEqual(['removed'])
+        expect(result?.preset.userValues).toEqual({
+            apiKey: 'sk-test',
+            modelId: 'custom-model',
+            verbosity: 'high',
+        })
+        expect(result?.preset.orphanValues).toEqual({ removed: 'drop-me' })
+        expect(result?.preset.sourceProfile).toEqual({
+            registryId: 'synthetic',
+            profileId: 'demo:replacement',
+            fetchedAt: 950,
+            profileUpdatedAt: 600,
+        })
+        expect(result?.preset.profileSnapshot.modelId).toBe('demo-v2')
+        expect(result?.preset.updatedAt).toBe(950)
+        expect(original.profileSnapshot.profileId).toBe('demo:standard')
+        expect(original.userValues).toHaveProperty('removed')
     })
 
-    test('returns downgrade when registry version is lower than current', () => {
-        const preset = makePreset({
-            sourceProfile: {
-                registryId: 'synthetic',
-                profileId: 'demo:standard',
-                profileVersion: 5,
-                fetchedAt: 100,
+    test('moves same-key type changes to orphanValues during replacement', () => {
+        const profile = makeProfile({
+            id: 'demo:typed-replacement',
+            displayName: 'Typed Replacement',
+            schema: [{
+                key: 'verbosity',
+                type: 'integer',
+                label: 'Verbosity',
+                default: 1,
+            }],
+            uiSchema: {
+                groups: [],
+                fields: [{ key: 'verbosity', widget: 'number-input', visibility: 'basic' }],
             },
         })
-        const registry = makeRegistry([makeProfile({ version: 2 })], [makeBaseProvider()])
-        expect(getProfileUpdateAvailability(preset, registry)).toEqual({
-            status: 'downgrade',
-            profileId: 'demo:standard',
-            currentVersion: 5,
-            registryVersion: 2,
+        const registry = makeRegistry([profile], [makeBaseProvider()])
+        const currentSnapshot = makeSnapshot({
+            schema: [
+                ...makeSnapshot().schema,
+                { key: 'verbosity', type: 'string', label: 'Verbosity' },
+            ],
+            uiSchema: {
+                groups: [],
+                fields: [
+                    ...makeSnapshot().uiSchema.fields,
+                    { key: 'verbosity', widget: 'text', visibility: 'basic' },
+                ],
+            },
         })
+        const original = makePreset({
+            profileSnapshot: currentSnapshot,
+            userValues: {
+                apiKey: 'sk-test',
+                modelId: 'custom-model',
+                verbosity: 'high',
+            },
+            orphanValues: { older: 'kept' },
+        })
+
+        const result = replaceModelPresetProfile(original, {
+            registry,
+            registryId: 'synthetic',
+            profileId: profile.id,
+        })
+
+        expect(result?.droppedKeys).toEqual(['verbosity'])
+        expect(result?.preset.userValues).toEqual({
+            apiKey: 'sk-test',
+            modelId: 'custom-model',
+            verbosity: 1,
+        })
+        expect(result?.preset.orphanValues).toEqual({
+            older: 'kept',
+            verbosity: 'high',
+        })
+        expect(original.userValues.verbosity).toBe('high')
+        expect(original.orphanValues).toEqual({ older: 'kept' })
     })
 
-    test('returns available when only the base provider version bumped', () => {
-        // Mirrors the Anthropic max_tokens scenario (option B+C round 1 P1):
-        // base provider v1 → v2 introduces a new `defaultBody` but the profile
-        // version stays the same. Detection should now flag the update so the
-        // user can refresh the snapshot.
-        const preset = makePreset({
-            sourceProfile: {
-                registryId: 'synthetic',
-                profileId: 'demo:standard',
-                profileVersion: 1,
-                providerBaseVersion: 1,
-                fetchedAt: 100,
+    test('accepts executable fixed profiles with an empty settings form', () => {
+        const profile = makeProfile({
+            id: 'plugin:fixed',
+            displayName: 'Fixed Plugin',
+            providerBaseId: 'fixed-plugin',
+            modelId: 'pluginmodel:::fixed',
+            auth: { kind: 'none', fields: [] },
+            endpoint: { kind: 'static', url: 'plugin://fixed' },
+            schema: [],
+            uiSchema: { groups: [], fields: [] },
+        })
+        const registry = makeRegistry([profile], [makeBaseProvider({
+            id: 'fixed-plugin',
+            adapterKind: 'plugin',
+            authKinds: ['none'],
+            requestSchema: [],
+            uiSchema: { groups: [], fields: [] },
+        })])
+
+        const snapshot = resolveSnapshot(registry, profile.id)
+        expect(isUsableModelProfileSnapshot(snapshot)).toBe(true)
+        const preset = createModelPresetFromProfile({
+            registry,
+            registryId: 'synthetic',
+            profileId: profile.id,
+            transient: true,
+        }, {
+            id: 'fixed-preset',
+        })
+        expect(preset).toMatchObject({
+            id: 'fixed-preset',
+            sourceProfile: undefined,
+            userValues: {},
+            profileSnapshot: {
+                adapterKind: 'plugin',
+                schema: [],
+                uiSchema: { groups: [], fields: [] },
             },
         })
+        expect(compileModelPreset(preset!).backend).toBe('plugin')
+    })
+
+    test('refuses snapshots missing runtime connection metadata', () => {
         const registry = makeRegistry(
-            [makeProfile({ version: 1 })],
-            [makeBaseProvider({ version: 2, defaultBody: { max_tokens: 4096 } })],
+            [makeProfile({ endpoint: null as any })],
+            [makeBaseProvider({ requestSchema: [], uiSchema: { groups: [], fields: [] } })],
         )
-        const result = getProfileUpdateAvailability(preset, registry, { now: () => 500 })
-        if (result.status !== 'available') throw new Error(`expected available, got ${result.status}`)
-        expect(result.latestSnapshot.providerBaseVersion).toBe(2)
-        expect(result.latestSourceProfile.providerBaseVersion).toBe(2)
-        expect(result.latestSourceProfile.profileVersion).toBe(1)
-    })
 
-    test('treats legacy sourceProfile (no providerBaseVersion) as current to avoid mass update noise', () => {
-        // Presets persisted before providerBaseVersion existed leave the field
-        // undefined. Detection treats undefined as "matches latest" so legacy
-        // presets do not flood the UI with update cards on every base bump.
-        // Adapter-side safety nets (e.g., ANTHROPIC_FALLBACK_MAX_TOKENS)
-        // cover the functional gap for those legacy snapshots.
-        const preset = makePreset({
-            sourceProfile: {
-                registryId: 'synthetic',
-                profileId: 'demo:standard',
-                profileVersion: 1,
-                // providerBaseVersion intentionally omitted
-                fetchedAt: 100,
-            },
-        })
-        const registry = makeRegistry(
-            [makeProfile({ version: 1 })],
-            [makeBaseProvider({ version: 2 })],
-        )
-        expect(getProfileUpdateAvailability(preset, registry)).toEqual({
-            status: 'current',
+        const snapshot = resolveSnapshot(registry, 'demo:standard')
+        expect(isUsableModelProfileSnapshot(snapshot)).toBe(false)
+        expect(createModelPresetFromProfile({
+            registry,
+            registryId: 'synthetic',
             profileId: 'demo:standard',
-            version: 1,
-        })
-    })
-
-    test('available when both profile version and base provider version bumped', () => {
-        const preset = makePreset({
-            sourceProfile: {
-                registryId: 'synthetic',
-                profileId: 'demo:standard',
-                profileVersion: 1,
-                providerBaseVersion: 1,
-                fetchedAt: 100,
-            },
-        })
-        const registry = makeRegistry(
-            [makeProfile({ version: 2 })],
-            [makeBaseProvider({ version: 2 })],
-        )
-        const result = getProfileUpdateAvailability(preset, registry, { now: () => 700 })
-        if (result.status !== 'available') throw new Error(`expected available, got ${result.status}`)
-        expect(result.fromVersion).toBe(1)
-        expect(result.toVersion).toBe(2)
-        expect(result.latestSourceProfile.providerBaseVersion).toBe(2)
-    })
-
-    test('returns downgrade when source providerBaseVersion is higher than registry', () => {
-        const preset = makePreset({
-            sourceProfile: {
-                registryId: 'synthetic',
-                profileId: 'demo:standard',
-                profileVersion: 1,
-                providerBaseVersion: 5,
-                fetchedAt: 100,
-            },
-        })
-        const registry = makeRegistry(
-            [makeProfile({ version: 1 })],
-            [makeBaseProvider({ version: 2 })],
-        )
-        expect(getProfileUpdateAvailability(preset, registry)).toEqual({
-            status: 'downgrade',
+        }, {
+            id: 'invalid',
+        })).toBeUndefined()
+        expect(replaceModelPresetProfile(makePreset(), {
+            registry,
+            registryId: 'synthetic',
             profileId: 'demo:standard',
-            currentVersion: 1,
-            registryVersion: 1,
+        })).toBeUndefined()
+    })
+})
+
+describe('refreshModelPresetProfile', () => {
+    test('force-refreshes schema UI without revision metadata', () => {
+        const preset = makePreset()
+        const profile = makeProfile({
+            updatedAt: 500,
+            schema: [{
+                key: 'verbosity',
+                type: 'string',
+                label: 'Verbosity',
+                default: 'medium',
+            }],
+            uiSchema: {
+                groups: [{ id: 'connection', label: 'Connection' }],
+                fields: [{
+                    key: 'verbosity',
+                    widget: 'select',
+                    visibility: 'basic',
+                    layout: 'row',
+                    group: 'connection',
+                }],
+            },
         })
+        const registry = makeRegistry([profile], [makeBaseProvider()])
+
+        const result = refreshModelPresetProfile(preset, {
+            registry,
+            registryId: 'synthetic',
+            profileId: 'demo:standard',
+        }, { now: () => 900 })
+
+        expect(result?.preset.profileSnapshot.uiSchema.fields).toContainEqual(
+            expect.objectContaining({
+                key: 'verbosity',
+                visibility: 'basic',
+                layout: 'row',
+            }),
+        )
+        expect(result?.preset.userValues).toEqual({
+            apiKey: 'sk-test',
+            modelId: 'demo-fast',
+            verbosity: 'medium',
+        })
+        expect(result?.preset.sourceProfile).toEqual({
+            registryId: 'synthetic',
+            profileId: 'demo:standard',
+            fetchedAt: 900,
+            profileUpdatedAt: 500,
+        })
+        expect(result?.preset.updatedAt).toBe(900)
+    })
+
+    test('keeps transient plugin presets self-contained', () => {
+        const preset = makePreset({ sourceProfile: undefined })
+        const registry = makeRegistry([makeProfile()], [makeBaseProvider()])
+
+        const result = refreshModelPresetProfile(preset, {
+            registry,
+            registryId: 'synthetic',
+            profileId: 'demo:standard',
+            transient: true,
+        })
+
+        expect(result?.preset.sourceProfile).toBeUndefined()
+    })
+
+    test('backfills source metadata for a legacy self-contained preset', () => {
+        const preset = makePreset({ sourceProfile: undefined })
+        const registry = makeRegistry([makeProfile({ updatedAt: 700 })], [makeBaseProvider()])
+
+        const result = refreshModelPresetProfile(preset, {
+            registry,
+            registryId: 'synthetic',
+            profileId: 'demo:standard',
+        }, { now: () => 800 })
+
+        expect(result?.preset.sourceProfile).toEqual({
+            registryId: 'synthetic',
+            profileId: 'demo:standard',
+            fetchedAt: 800,
+            profileUpdatedAt: 700,
+        })
+    })
+
+    test('returns undefined when the exact source registry has no matching profile', () => {
+        const preset = makePreset()
+        const registry = makeRegistry([makeProfile()], [makeBaseProvider()])
+
+        expect(refreshModelPresetProfile(preset, {
+            registry,
+            registryId: 'missing',
+            profileId: 'demo:standard',
+        })).toBeUndefined()
     })
 })
 
@@ -368,7 +504,6 @@ describe('diffProfileSnapshot', () => {
     test('detects added, removed, and modified schema fields', () => {
         const current = makeSnapshot()
         const latest = makeSnapshot({
-            profileVersion: 2,
             schema: [
                 {
                     key: 'apiKey',
@@ -407,6 +542,25 @@ describe('diffProfileSnapshot', () => {
         expect(modelChange?.fromType).toBe('string')
         expect(modelChange?.toType).toBe('integer')
         expect(modelChange?.modifiedAttributes).toContain('type')
+    })
+
+    test('detects canonical semantic metadata changes', () => {
+        const current = makeSnapshot()
+        const latest = makeSnapshot({
+            schema: current.schema.map((field) =>
+                field.key === 'modelId'
+                    ? { ...field, semantic: 'modelId' }
+                    : field,
+            ),
+        })
+
+        const diff = diffProfileSnapshot(current, latest)
+
+        expect(diff.schemaChanges.find((change) => change.key === 'modelId'))
+            .toMatchObject({
+                changeKind: 'modified',
+                modifiedAttributes: ['semantic'],
+            })
     })
 
     test('detects endpoint url change', () => {
@@ -469,13 +623,12 @@ describe('applyProfileSnapshotUpdate', () => {
         const preset = makePreset({
             userValues: { apiKey: 'sk-test', modelId: 'demo-fast' },
         })
-        const latestSnapshot = makeSnapshot({ profileVersion: 2 })
+        const latestSnapshot = makeSnapshot()
         const result = applyProfileSnapshotUpdate(preset, latestSnapshot, { now: () => 200 })
         expect(result.preset.userValues).toEqual({ apiKey: 'sk-test', modelId: 'demo-fast' })
         expect(result.preset.orphanValues).toBeUndefined()
         expect(result.movedToOrphan).toEqual([])
         expect(result.newFieldKeys).toEqual([])
-        expect(result.preset.profileSnapshot.profileVersion).toBe(2)
         expect(result.preset.updatedAt).toBe(200)
     })
 
@@ -494,7 +647,7 @@ describe('applyProfileSnapshotUpdate', () => {
                 ],
             }),
         })
-        const latestSnapshot = makeSnapshot({ profileVersion: 2 })
+        const latestSnapshot = makeSnapshot()
         const result = applyProfileSnapshotUpdate(preset, latestSnapshot, { now: () => 300 })
         expect(result.preset.userValues).toEqual({ apiKey: 'sk-test', modelId: 'demo-fast' })
         expect(result.preset.orphanValues).toEqual({ removedKey: 'gone' })
@@ -508,7 +661,6 @@ describe('applyProfileSnapshotUpdate', () => {
             userValues: { apiKey: 'sk-test', modelId: 'demo-fast' },
         })
         const latestSnapshot = makeSnapshot({
-            profileVersion: 2,
             schema: [
                 makePreset().profileSnapshot.schema[0],
                 {
@@ -530,7 +682,6 @@ describe('applyProfileSnapshotUpdate', () => {
     test('reports new field keys added in the latest snapshot', () => {
         const preset = makePreset()
         const latestSnapshot = makeSnapshot({
-            profileVersion: 2,
             schema: [
                 ...makeSnapshot().schema,
                 {
@@ -548,21 +699,19 @@ describe('applyProfileSnapshotUpdate', () => {
 
     test('uses provided sourceProfile and falls back to bumping the current one', () => {
         const preset = makePreset()
-        const latestSnapshot = makeSnapshot({ profileVersion: 3 })
+        const latestSnapshot = makeSnapshot()
 
         const explicit = applyProfileSnapshotUpdate(preset, latestSnapshot, {
             now: () => 500,
             sourceProfile: {
                 registryId: 'custom',
                 profileId: 'demo:standard',
-                profileVersion: 3,
                 fetchedAt: 500,
             },
         })
         expect(explicit.preset.sourceProfile).toEqual({
             registryId: 'custom',
             profileId: 'demo:standard',
-            profileVersion: 3,
             fetchedAt: 500,
         })
 
@@ -570,8 +719,6 @@ describe('applyProfileSnapshotUpdate', () => {
         expect(bumped.preset.sourceProfile).toEqual({
             registryId: 'synthetic',
             profileId: 'demo:standard',
-            profileVersion: 3,
-            providerBaseVersion: 1,
             fetchedAt: 600,
         })
 
@@ -586,7 +733,7 @@ describe('applyProfileSnapshotUpdate', () => {
     test('does not keep stale sourceProfile fallback when latest snapshot is for a different profile', () => {
         const result = applyProfileSnapshotUpdate(
             makePreset(),
-            makeSnapshot({ profileId: 'demo:other', profileVersion: 2 }),
+            makeSnapshot({ profileId: 'demo:other' }),
             { now: () => 800 },
         )
         expect(result.preset.sourceProfile).toBeUndefined()
@@ -596,7 +743,7 @@ describe('applyProfileSnapshotUpdate', () => {
         let currentTime = 900
         const result = applyProfileSnapshotUpdate(
             makePreset(),
-            makeSnapshot({ profileVersion: 2 }),
+            makeSnapshot(),
             { now: () => currentTime++ },
         )
         expect(result.preset.sourceProfile?.fetchedAt).toBe(900)
@@ -629,7 +776,6 @@ describe('applyProfileSnapshotUpdate', () => {
         const afterFirst = applyProfileSnapshotUpdate(
             preset,
             makeSnapshot({
-                profileVersion: 2,
                 schema: [
                     ...makeSnapshot().schema,
                     {
@@ -646,18 +792,17 @@ describe('applyProfileSnapshotUpdate', () => {
 
         const afterSecond = applyProfileSnapshotUpdate(
             afterFirst,
-            makeSnapshot({ profileVersion: 3 }),
+            makeSnapshot(),
             { now: () => 900 },
         ).preset
         expect(afterSecond.orphanValues).toEqual({ legacyA: 'a-value', legacyB: 'b-value' })
     })
 
-    test('available result feeds applyProfileSnapshotUpdate end-to-end', () => {
+    test('resolved registry snapshot feeds applyProfileSnapshotUpdate end-to-end', () => {
         const preset = makePreset()
         const registry = makeRegistry(
             [
                 makeProfile({
-                    version: 4,
                     schema: [
                         {
                             key: 'reasoning',
@@ -680,15 +825,16 @@ describe('applyProfileSnapshotUpdate', () => {
             ],
             [makeBaseProvider()],
         )
-        const availability = getProfileUpdateAvailability(preset, registry, { now: () => 1000 })
-        if (availability.status !== 'available') {
-            throw new Error(`expected available, got ${availability.status}`)
-        }
-        const result = applyProfileSnapshotUpdate(preset, availability.latestSnapshot, {
+        const latestSnapshot = resolveSnapshot(registry, 'demo:standard')
+        const result = applyProfileSnapshotUpdate(preset, latestSnapshot, {
             now: () => 1000,
-            sourceProfile: availability.latestSourceProfile,
+            sourceProfile: {
+                registryId: 'synthetic',
+                profileId: 'demo:standard',
+                fetchedAt: 1000,
+            },
         })
-        expect(result.preset.sourceProfile?.profileVersion).toBe(4)
+        expect(result.preset.sourceProfile?.fetchedAt).toBe(1000)
         expect(result.newFieldKeys).toContain('reasoning')
         expect(result.preset.profileSnapshot.schema.map((f) => f.key)).toEqual([
             'apiKey',
