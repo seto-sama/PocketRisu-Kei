@@ -475,6 +475,14 @@ export class HypaProcessorV2<TMetadata> {
         "https://api.openai.com/v1/embeddings",
         fetchArgs
       );
+    } else if (this.options.model === "voyage4large") {
+      const models = {
+        voyage4large: "voyage-4-large",
+      };
+      response = await globalFetch("https://api.voyageai.com/v1/embeddings", {
+        headers: { Authorization: "Bearer " + db.voyageApiKey.trim() },
+        body: { input: contents, model: models[this.options.model], input_type: inputType },
+      });
     } else if (isContextModel(this.options.model)) {
       const provider = getContextProvider(this.options.model);
       return await provider.embedQueries(contents);

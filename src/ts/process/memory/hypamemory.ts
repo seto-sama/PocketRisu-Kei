@@ -6,7 +6,7 @@ import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "s
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { isLocalNetworkUrl } from "src/ts/network/localNetwork";
 
-export type HypaModel = 'custom'|'ada'|'openai3small'|'openai3large'|'MiniLM'|'MiniLMGPU'|'nomic'|'nomicGPU'|'bgeSmallEn'|'bgeSmallEnGPU'|'bgem3'|'bgem3GPU'|'multiMiniLM'|'multiMiniLMGPU'|'bgeM3Ko'|'bgeM3KoGPU'|'voyageContext3'
+export type HypaModel = 'custom'|'ada'|'openai3small'|'openai3large'|'MiniLM'|'MiniLMGPU'|'nomic'|'nomicGPU'|'bgeSmallEn'|'bgeSmallEnGPU'|'bgem3'|'bgem3GPU'|'multiMiniLM'|'multiMiniLMGPU'|'bgeM3Ko'|'bgeM3KoGPU'|'voyage4large'|'voyageContext3'|'voyageContext4'
 
 // In a typical environment, bge-m3 is a heavy model.
 // If your GPU can't handle this model, you'll see errror below.
@@ -38,7 +38,7 @@ export const localModels = {
 
 // Shared embedding vector cache across all HypaProcesser instances
 export const hypaVectorCache = new Map<string, memoryVector>();
-const hypaVectorCachePrefix = 'cache/hypa-vector/';
+export const hypaVectorCachePrefix = 'cache/hypa-vector/';
 
 export async function getPersistedHypaVector(cacheKey: string): Promise<memoryVector | undefined> {
     if (hypaVectorCache.has(cacheKey)) {
@@ -155,6 +155,16 @@ export class HypaProcesser{
                     "input": input,
                     "model": models[this.model]
                 }
+            })
+        }
+        if(this.model === 'voyage4large'){
+            const db = getDatabase()
+            const models = {
+                voyage4large: 'voyage-4-large'
+            }
+            gf = await globalFetch('https://api.voyageai.com/v1/embeddings', {
+                headers: { 'Authorization': 'Bearer ' + db.voyageApiKey.trim() },
+                body: { input, model: models[this.model], input_type: 'document' }
             })
         }
         const data = gf.data

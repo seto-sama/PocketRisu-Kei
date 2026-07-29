@@ -4,6 +4,12 @@ import { type Message } from "src/ts/storage/database.svelte";
 import { alertConfirm } from "src/ts/alert";
 import { DBState, selectedCharID } from "src/ts/stores.svelte";
 import { language } from "src/lang";
+import type { Category } from "./types";
+import {
+  getCurrentHypaV3Preset,
+  type SerializableHypaV3Data,
+  type SerializableSummary,
+} from "src/ts/process/memory/hypav3";
 
 export async function alertConfirmTwice(
   firstMessage: string,
@@ -118,9 +124,59 @@ export async function processRegexScript(
   };
 }
 
-export function getCategoryName(categoryId: string | undefined, categories: any[]): string {
+export async function getNextSummarizationTarget(
+  hypaV3Data: SerializableHypaV3Data
+): Promise<Message | null> {
+  const char = DBState.db.characters[get(selectedCharID)];
+  const chat = char.chats[char.chatPage];
+  const shouldProcess = getCurrentHypaV3Preset().settings.processRegexScript;
+
+  const lastSummary = hypaV3Data.summaries.at(-1);
+  if (lastSummary) {
+    const lastMessageIndex = chat.message.findIndex(
+      (message) => message.chatId === lastSummary.chatMemos.at(-1)
+    );
+    if (lastMessageIndex !== -1) {
+      const nextMessage = chat.message[lastMessageIndex + 1] ?? null;
+      return nextMessage && shouldProcess
+        ? await processRegexScript(nextMessage, lastMessageIndex + 1)
+        : nextMessage;
+    }
+  }
+
+  const firstMessage = getFirstMessage();
+  if (firstMessage) {
+    const message: Message = {
+      role: "char",
+      chatId: "first",
+      data: firstMessage,
+    };
+    return shouldProcess ? await processRegexScript(message) : message;
+  }
+
+  const firstChatMessage = chat.message[0] ?? null;
+  return firstChatMessage && shouldProcess
+    ? await processRegexScript(firstChatMessage, 0)
+    : firstChatMessage;
+}
+
+export function getCategoryName(
+  categoryId: string | undefined,
+  categories: Category[]
+): string {
   const category = categories.find(c => c.id === (categoryId || ""));
   return category?.name || language.hypaV3Modal.unclassified;
+}
+
+export function getCategoriesWithUnclassified(
+  categories: Category[] | undefined
+): Category[] {
+  const unclassified = { id: "", name: language.hypaV3Modal.unclassified };
+
+  return [
+    unclassified,
+    ...(categories ?? []).filter((category) => category.id !== ""),
+  ];
 }
 
 export function createCategoryId(): string {
@@ -128,7 +184,7 @@ export function createCategoryId(): string {
 }
 
 export function shouldShowSummary(
-  summary: any, 
+  summary: SerializableSummary,
   index: number, 
   showImportantOnly: boolean, 
   selectedCategoryFilter: string
