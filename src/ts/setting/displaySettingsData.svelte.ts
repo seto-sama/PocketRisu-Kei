@@ -9,7 +9,7 @@ import { changeFullscreen } from '../util';
 import { updateAnimationSpeed } from '../gui/animation';
 import { updateGuisize } from '../gui/guisize';
 import { updateTextThemeAndCSS } from '../gui/colorscheme';
-import { PRODUCT_NAME } from '../branding';
+import { PRODUCT_BASE_NAME } from '../branding';
 
 export const displayThemeGeneralSettingsItems: SettingItem[] = [
     {
@@ -21,7 +21,7 @@ export const displayThemeGeneralSettingsItems: SettingItem[] = [
         classes: 'mt-4',
         options: {
             selectOptions: [
-                { value: '', label: `${PRODUCT_NAME} Standard` },
+                { value: '', label: `${PRODUCT_BASE_NAME} Standard` },
                 { value: 'standardRisu', label: 'Standard Risu' },
                 { value: 'waifu', label: 'Waifulike' },
                 { value: 'mobilechat', label: 'Mobile Chat' },

@@ -1213,8 +1213,8 @@ export const languageKorean = {
     "삭제된 캐릭터는 휴지통에 보관됩니다. 복구하거나 영구 삭제할 수 있습니다. 3일 후에는 자동으로 영구 삭제됩니다.",
   shareExport: "공유/엑스포트",
   risupresetDesc:
-    "Risupreset 포맷은 포맷을 공유하기 위한 PocketRisu Kei 전용 포맷입니다.",
-  risuMDesc: "RisuM 포맷은 PocketRisu Kei 모듈을 위해 특별히 설계된 포맷입니다.",
+    "Risupreset 포맷은 포맷을 공유하기 위한 PocketRisu 전용 포맷입니다.",
+  risuMDesc: "RisuM 포맷은 PocketRisu 모듈을 위해 특별히 설계된 포맷입니다.",
   jsonDesc: "JSON은 데이터를 저장하고 불러오기 위한 일반적인 포맷입니다.",
   nickname: "닉네임",
   useRegexLorebook: "정규식 사용",

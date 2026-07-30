@@ -363,7 +363,7 @@ export const helpEn = {
         theme: "Overall chat layout theme.",
         waifuWidth: "Width of the character illustration in the Waifulike theme.",
         waifuWidth2: "Width of the second character or secondary visual in the Waifulike theme.",
-        nodeOnlyStandardChatWidth: "Maximum chat card width in the PocketRisu Kei Standard theme.",
+        nodeOnlyStandardChatWidth: "Maximum chat card width in the PocketRisu Standard theme.",
         colorScheme: "Color palette used across the Risu UI.",
         colorSchemeTransferDesc: "Import or export a color palette JSON file.",
         textColor: "Message text color theme.",
@@ -504,7 +504,7 @@ export const helpEn = {
         cohereKey:
             "Cohere API key (https://dashboard.cohere.com/api-keys). Required when using Cohere's own models such as `command-r`.",
         ollamaURL:
-            "URL of your local or remote Ollama server (e.g. `http://localhost:11434`). Pairs well with PocketRisu Kei's local-network mode for stable access to private LAN LLMs.",
+            "URL of your local or remote Ollama server (e.g. `http://localhost:11434`). Pairs well with PocketRisu's local-network mode for stable access to private LAN LLMs.",
         ollamaModel:
             "Model name to call on the Ollama server. Run `ollama list` to see installed models and copy the name verbatim (e.g. `llama3:8b`).",
         nanogptKey:
@@ -658,7 +658,7 @@ export const helpEn = {
             "Use stop strings. The model's response is cut as soon as one of these strings appears. Useful for blocking patterns where the character impersonates the next speaker (e.g. `{{user}}: ...`).",
 
         memType:
-            "Long-term memory mode.\n\n- **None**: disabled (chat is sent as-is up to the max context limit)\n- **HypaV3**: PocketRisu Kei's long-term memory that auto-summarizes and retrieves older chat to inject into the context. Slightly more cost / latency, but consistency in long chats improves a lot.",
+            "Long-term memory mode.\n\n- **None**: disabled (chat is sent as-is up to the max context limit)\n- **HypaV3**: PocketRisu's long-term memory that auto-summarizes and retrieves older chat to inject into the context. Slightly more cost / latency, but consistency in long chats improves a lot.",
         hypaV3Description: "HypaMemory V3 is a long-term memory system that uses both summarization and vector search.",
         hypaV3SummaryModel:
             "Model used to summarize chat.\n\n- **subModel**: use the auxiliary model (most common)\n- **Qwen3 4B/14B**: free local summarization (runs in the browser or Node instance directly, downloads on first use)\n\nUsing a lighter model than the main model saves cost.",
