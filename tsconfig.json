@@ -6,16 +6,14 @@
     "useDefineForClassFields": true,
 
     /* Bundler Mode - Vite handles the actual build */
-    "noEmit": false,
+    "noEmit": true,
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
 
     /* Module Resolution */
-    "baseUrl": ".",
     "paths": {
-      "$lib": ["./src/lib"],
-      "$lib/*": ["./src/lib/*"]
+      "src/*": ["./src/*"]
     },
     "resolveJsonModule": true,
     "esModuleInterop": true,

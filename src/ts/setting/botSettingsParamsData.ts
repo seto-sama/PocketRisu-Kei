@@ -281,7 +281,7 @@ export const modelSpecificParameterItems: SettingItem[] = [
 
 /**
  * All basic parameter items combined for Parameters tab
- * Order: maxContext, maxResponse, seed, thinkingType, thinkingTokens, adaptiveThinkingEffort, temperature, topK, minP, topA, repetitionPenalty, reasoningEffort, verbosity, topP, frequencyPenalty, presencePenalty
+ * Order: maxContext, maxResponse, seed, thinkingType, thinkingTokens, adaptiveThinkingEffort, temperature, topK, topP, minP, topA, repetitionPenalty, reasoningEffort, verbosity, frequencyPenalty, presencePenalty
  */
 export const allBasicParameterItems: SettingItem[] = [
     // Basic settings (always shown)
@@ -294,12 +294,12 @@ export const allBasicParameterItems: SettingItem[] = [
     modelSpecificParameterItems.find(i => i.id === 'params.adaptiveThinkingEffort')!,
     ...samplingParameterItems, // temperature
     modelSpecificParameterItems.find(i => i.id === 'params.topK')!,
+    penaltyParameterItems.find(i => i.id === 'params.topP')!,
     modelSpecificParameterItems.find(i => i.id === 'params.minP')!,
     modelSpecificParameterItems.find(i => i.id === 'params.topA')!,
     modelSpecificParameterItems.find(i => i.id === 'params.repetitionPenalty')!,
     modelSpecificParameterItems.find(i => i.id === 'params.reasoningEffort')!,
     modelSpecificParameterItems.find(i => i.id === 'params.verbosity')!,
-    penaltyParameterItems.find(i => i.id === 'params.topP')!,
     penaltyParameterItems.find(i => i.id === 'params.frequencyPenalty')!,
     penaltyParameterItems.find(i => i.id === 'params.presencePenalty')!,
     // NOTE: separateParametersItem is now handled via custom component below

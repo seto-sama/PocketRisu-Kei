@@ -9,6 +9,7 @@
         reverse?: boolean;
         className?: string;
         grayText?: boolean;
+        card?: boolean;
         children?: import('svelte').Snippet;
     }
 
@@ -21,6 +22,7 @@
         reverse = false,
         className = "",
         grayText = false,
+        card = false,
         children
     }: Props = $props();
 </script>
@@ -46,15 +48,24 @@
         aria-labelledby="{name} {check ? 'abled' : 'disabled'}"
     />
     <span 
-        class="w-5 h-5 min-w-5 min-h-5 rounded-md border-2 border-darkborderc flex justify-center items-center {check ? 'bg-darkborderc' : 'bg-darkbutton'} transition-colors duration-200"
+        class={"w-5 h-5 min-w-5 min-h-5 flex justify-center items-center transition-colors duration-200 "
+            + (card
+                ? `rounded border ${check ? 'border-borderc bg-borderc' : 'border-darkborderc bg-black/50'}`
+                : `rounded-md border-2 border-darkborderc ${check ? 'bg-darkborderc' : 'bg-darkbutton'}`)}
         aria-hidden="true"
         aria-describedby="{name} {check ? 'abled' : 'disabled'}"
         aria-labelledby="{name} {check ? 'abled' : 'disabled'}"
     >
         {#if check}
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="white" class="w-3 h-3" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-            </svg>
+            {#if card}
+                <svg class="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M2 6l3 3 5-5" />
+                </svg>
+            {:else}
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="white" class="w-3 h-3" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+            {/if}
         {/if}
     </span>
     {#if !hiddenName && !reverse}

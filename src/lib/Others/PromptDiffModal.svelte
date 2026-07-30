@@ -400,6 +400,7 @@
                     cards.push({
                         kind: 'authorNote',
                         name: item.name ?? item.type.toUpperCase(),
+                        role: item.role ?? 'system',
                         header: `${item.type}`,
                         body: item.innerFormat ? item.innerFormat : null,
                     })

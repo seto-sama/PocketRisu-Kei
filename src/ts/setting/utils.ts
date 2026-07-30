@@ -20,16 +20,18 @@ export function getSettingValue(item: SettingItem, ctx: SettingContext): any {
     if (item.getValue) {
         return item.getValue(DBState.db, ctx);
     }
+    const root: any = ctx.target ?? DBState.db;
     if (item.bindPath) {
         const parts = item.bindPath.split('.');
-        let value: any = DBState.db;
+        let value: any = root;
         for (const part of parts) {
             value = value?.[part];
         }
-        return value;
+        return value === undefined ? item.options?.defaultValue : value;
     }
     if (item.bindKey) {
-        return (DBState.db as any)[item.bindKey];
+        const value = root[item.bindKey];
+        return value === undefined ? item.options?.defaultValue : value;
     }
     return undefined;
 }
@@ -38,14 +40,16 @@ export function setSettingValue(item: SettingItem, newValue: any, ctx: SettingCo
     if (item.setValue) {
         item.setValue(DBState.db, newValue, ctx);
     } else if (item.bindPath) {
+        const root: any = ctx.target ?? DBState.db;
         const parts = item.bindPath.split('.');
-        let obj: any = DBState.db;
+        let obj: any = root;
         for (let i = 0; i < parts.length - 1; i++) {
             obj = obj[parts[i]] ??= {};
         }
         obj[parts[parts.length - 1]] = newValue;
     } else if (item.bindKey) {
-        (DBState.db as any)[item.bindKey] = newValue;
+        const root: any = ctx.target ?? DBState.db;
+        root[item.bindKey] = newValue;
     }
     
     if (item.onChange) {

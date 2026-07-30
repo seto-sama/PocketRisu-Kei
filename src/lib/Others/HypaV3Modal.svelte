@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { ChevronUpIcon, ChevronDownIcon } from "@lucide/svelte";
   import { 
     type SerializableSummary, 
     summarize,
@@ -12,11 +11,12 @@
   import { alertConfirmTwice } from "./HypaV3Modal/utils";
   import ModalHeader from "./HypaV3Modal/modal-header.svelte";
   import ModalSummaryItem from "./HypaV3Modal/modal-summary-item.svelte";
-  import ModalFooter from "./HypaV3Modal/modal-footer.svelte";
+  import NextSummarizationTarget from "./HypaV3Modal/next-summarization-target.svelte";
   import CategoryManagerModal from "./HypaV3Modal/category-manager-modal.svelte";
-  import TagManagerModal from "./HypaV3Modal/tag-manager-modal.svelte";
   import BulkEditActions from "./HypaV3Modal/bulk-edit-actions.svelte";
   import BulkResummaryResult from "./HypaV3Modal/bulk-resummary-result.svelte";
+  import ManualSummaryPanel from "./HypaV3Modal/manual-summary-panel.svelte";
+  import ModalSearch from "./HypaV3Modal/modal-search.svelte";
   
   import type {
     SummaryItemState,
@@ -25,18 +25,17 @@
     SearchResult,
     BulkResummaryState,
     CategoryManagerState,
-    TagManagerState,
     BulkEditState,
     FilterState,
-    UIState,
   } from "./HypaV3Modal/types";
   
   import {
     shouldShowSummary,
     isGuidLike,
     parseSelectionInput,
+    getCategoriesWithUnclassified,
   } from "./HypaV3Modal/utils";
-    import type { OpenAIChat } from "src/ts/process/index.svelte";
+  import type { OpenAIChat } from "src/ts/process/index.svelte";
 
   const hypaV3Data = $derived(
     DBState.db.characters[$selectedCharID].chats[
@@ -44,36 +43,20 @@
     ].hypaV3Data
   );
 
-  let categories = $derived((() => {
-    const savedCategories = hypaV3Data.categories || [];
-    const uncategorized = { id: "", name: language.hypaV3Modal.unclassified };
-
-    const hasUncategorized = savedCategories.some(c => c.id === "");
-
-    if (hasUncategorized) {
-      return [uncategorized, ...savedCategories.filter(c => c.id !== "")];
-    } else {
-      return [uncategorized, ...savedCategories];
-    }
-  })());
+  let categories = $derived(
+    getCategoriesWithUnclassified(hypaV3Data.categories)
+  );
 
   let summaryItemStateMap = new WeakMap<SerializableSummary, SummaryItemState>();
   let expandedMessageState = $state<ExpandedMessageState>(null);
   let searchState = $state<SearchState>(null);
   let filterSelected = $state(false);
   let bulkResummaryState = $state<BulkResummaryState | null>(null);
+  let manualSummaryMode = $state(false);
 
   let categoryManagerState = $state<CategoryManagerState>({
     isOpen: false,
     editingCategory: null,
-    selectedCategoryFilter: "all",
-  });
-
-  let tagManagerState = $state<TagManagerState>({
-    isOpen: false,
-    currentSummaryIndex: -1,
-    editingTag: "",
-    editingTagIndex: -1,
   });
 
   let bulkEditState = $state<BulkEditState>({
@@ -86,13 +69,15 @@
   let filterState = $state<FilterState>({
     showImportantOnly: false,
     selectedCategoryFilter: "all",
-    isManualImportantToggle: false,
   });
 
-  let uiState = $state<UIState>({
-    collapsedSummaries: new Set(),
-    dropdownOpen: false,
-  });
+  let collapsedSummaries = $state(new Set<number>());
+
+  function collapseAllSummaries() {
+    collapsedSummaries = new Set(
+      hypaV3Data.summaries.map((_, index) => index)
+    );
+  }
 
   $effect.pre(() => {
     hypaV3Data?.summaries?.length;
@@ -110,7 +95,7 @@
       expandedMessageState = null;
       searchState = null;
       
-      uiState.collapsedSummaries = new Set(hypaV3Data.summaries.map((_, index) => index));
+      collapseAllSummaries();
     });
   });
 
@@ -119,16 +104,13 @@
       const currentImportantCount = untrack(() => hypaV3Data.summaries.filter(s => s.isImportant).length);
 
       if (currentImportantCount > 0) {
-        categoryManagerState.selectedCategoryFilter = "all";
         filterState.selectedCategoryFilter = "all";
         filterState.showImportantOnly = true;
       } else {
-        categoryManagerState.selectedCategoryFilter = "";
         filterState.selectedCategoryFilter = "";
         filterState.showImportantOnly = false;
       }
 
-      filterState.isManualImportantToggle = false;
     }
   });
 
@@ -142,9 +124,14 @@
     bulkEditState.selectedSummaries = newSelection;
   }
 
-  function handleOpenTagManager(summaryIndex: number) {
-    tagManagerState.currentSummaryIndex = summaryIndex;
-    tagManagerState.isOpen = true;
+  function handleToggleManualSummaryMode() {
+    manualSummaryMode = !manualSummaryMode;
+    searchState = null;
+    bulkEditState.isEnabled = false;
+  }
+
+  function handleManualSummaryApplied() {
+    collapseAllSummaries();
   }
 
   // Search functionality
@@ -276,7 +263,7 @@
       hypaV3Data.summaries.splice(sortedIndices[i], 1);
     }
     
-    uiState.collapsedSummaries = new Set(hypaV3Data.summaries.map((_, index) => index));
+    collapseAllSummaries();
     
     bulkResummaryState = null;
     bulkEditState.selectedSummaries = new Set();
@@ -432,13 +419,13 @@
   }
 
   function handleToggleCollapse(summaryIndex: number) {
-    const newCollapsed = new Set(uiState.collapsedSummaries);
+    const newCollapsed = new Set(collapsedSummaries);
     if (newCollapsed.has(summaryIndex)) {
       newCollapsed.delete(summaryIndex);
     } else {
       newCollapsed.add(summaryIndex);
     }
-    uiState.collapsedSummaries = newCollapsed;
+    collapsedSummaries = newCollapsed;
   }
 
   function getNextSearchResult(backward: boolean): SearchResult | null {
@@ -475,12 +462,17 @@
   }
 
   function navigateToSearchResult(result: SearchResult) {
+    if (!searchState) return;
     searchState.isNavigating = true;
 
     if (result.type === "summary") {
       const summary = hypaV3Data.summaries[result.summaryIndex];
       const summaryItemState = summaryItemStateMap.get(summary);
-      const textarea = summaryItemState.originalRef;
+      const textarea = summaryItemState?.originalRef;
+      if (!textarea) {
+        searchState.isNavigating = false;
+        return;
+      }
 
       // Scroll to element
       textarea.scrollIntoView({
@@ -497,20 +489,14 @@
       textarea.setSelectionRange(result.start, result.end);
       scrollToSelection(textarea);
 
-      // Highlight query on desktop environment
-      if (!("ontouchend" in window)) {
-        // Make readonly temporarily
-        textarea.readOnly = true;
-        textarea.focus();
-        window.setTimeout(() => {
-          searchState.ref.focus(); // Restore focus to search bar
-          textarea.readOnly = false; // Remove readonly after focus moved
-        }, 300);
-      }
     } else {
       const summary = hypaV3Data.summaries[result.summaryIndex];
       const summaryItemState = summaryItemStateMap.get(summary);
-      const button = summaryItemState.chatMemoRefs[result.memoIndex];
+      const button = summaryItemState?.chatMemoRefs[result.memoIndex];
+      if (!button) {
+        searchState.isNavigating = false;
+        return;
+      }
 
       // Scroll to element
       button.scrollIntoView({
@@ -519,11 +505,11 @@
       });
 
       // Highlight chatMemo
-      button.classList.add("ring-2", "ring-zinc-500");
+      button.classList.add("ring-2", "ring-borderc");
 
       // Remove highlight after a short delay
       window.setTimeout(() => {
-        button.classList.remove("ring-2", "ring-zinc-500");
+        button.classList.remove("ring-2", "ring-borderc");
       }, 1000);
     }
 
@@ -583,162 +569,100 @@
     );
   }
 
-  type DualActionParams = {
-    onMainAction?: () => void;
-    onAlternativeAction?: () => void;
-  };
 </script>
 
 <!-- Modal Backdrop -->
-<div class="fixed inset-0 z-40 p-1 sm:p-2 bg-black/50">
+<div class="fixed inset-0 z-40 bg-black/50 p-1 sm:p-2">
   <!-- Modal Wrapper -->
   <div class="flex justify-center w-full h-full">
     <!-- Modal Window -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="flex flex-col w-full max-w-3xl p-3 rounded-lg sm:p-6 bg-zinc-900 {hypaV3Data
-        .summaries.length === 0
+      class="flex flex-col w-full max-w-3xl rounded-md border border-darkborderc bg-darkbg p-3 text-textcolor shadow-lg sm:p-6 {hypaV3Data
+        .summaries.length === 0 && !manualSummaryMode
         ? 'h-fit'
         : 'h-full'}"
-      onclick={(e) => {
-        e.stopPropagation();
-        uiState.dropdownOpen = false;
-      }}
     >
       <!-- Header -->
       <ModalHeader
         bind:searchState
-        bind:filterImportant={filterState.showImportantOnly}
-        bind:dropdownOpen={uiState.dropdownOpen}
-        bind:filterSelected
-        {bulkEditState}
-        {categoryManagerState}
-        {filterState}
-        {uiState}
-        {hypaV3Data}
+        showImportantOnly={filterState.showImportantOnly}
+        {manualSummaryMode}
+        {filterSelected}
+        bulkEditEnabled={bulkEditState.isEnabled}
+        onToggleImportant={() => {
+          filterState.showImportantOnly = !filterState.showImportantOnly;
+        }}
+        onToggleFilterSelected={() => {
+          filterSelected = !filterSelected;
+        }}
         onResetData={handleResetData}
+        onToggleManualSummaryMode={handleToggleManualSummaryMode}
         onToggleBulkEditMode={handleToggleBulkEditMode}
         onOpenCategoryManager={handleOpenCategoryManager}
       />
 
-      <!-- Scrollable Container -->
-      <div class="flex flex-col gap-2 overflow-y-auto sm:gap-4" tabindex="-1">
-        {#if hypaV3Data.summaries.length === 0}
-          <div class="p-4 text-center sm:p-3 md:p-4 text-zinc-400">
-            {language.hypaV3Modal.noSummariesLabel}
-          </div>
+      <ManualSummaryPanel
+        bind:enabled={manualSummaryMode}
+        {hypaV3Data}
+        onApplied={handleManualSummaryApplied}
+      />
 
-          <!-- Search Bar -->
-        {:else if searchState}
-          <div class="sticky top-0 p-2 sm:p-3 bg-zinc-800">
-            <div class="flex items-center gap-2">
-              <div class="relative flex items-center flex-1">
-                <form
-                  class="w-full"
-                  onsubmit={(e) => {
-                    e.preventDefault();
-                    onSearch({ key: "Enter" } as KeyboardEvent);
-                  }}
-                >
-                  <input
-                    class="w-full px-2 py-2 border rounded-sm sm:px-4 sm:py-3 border-zinc-700 focus:outline-hidden focus:ring-2 focus:ring-zinc-500 text-zinc-200 bg-zinc-900"
-                    placeholder={language.hypaV3Modal.searchPlaceholder}
-                    bind:this={searchState.ref}
-                    bind:value={searchState.query}
-                    oninput={() => {
-                      if (searchState) {
-                        searchState.results = [];
-                        searchState.currentResultIndex = -1;
-                      }
-                    }}
-                    onkeydown={(e) => onSearch(e)}
-                  />
-                </form>
-
-                {#if searchState.results.length > 0}
-                  <span
-                    class="absolute right-3 top-1/2 -translate-y-1/2 px-1.5 sm:px-3 py-1 sm:py-2 rounded-sm text-sm font-semibold text-zinc-100 bg-zinc-700/65"
-                  >
-                    {searchState.currentResultIndex + 1}/{searchState.results
-                      .length}
-                  </span>
-                {/if}
-              </div>
-
-              <!-- Previous Button -->
-              <button
-                class="p-2 transition-colors text-zinc-400 hover:text-zinc-200"
-                tabindex="-1"
-                onclick={() => {
-                  onSearch({ shiftKey: true, key: "Enter" } as KeyboardEvent);
-                }}
-              >
-                <ChevronUpIcon class="w-6 h-6" />
-              </button>
-
-              <!-- Next Button -->
-              <button
-                class="p-2 transition-colors text-zinc-400 hover:text-zinc-200"
-                tabindex="-1"
-                onclick={() => {
-                  onSearch({ key: "Enter" } as KeyboardEvent);
-                }}
-              >
-                <ChevronDownIcon class="w-6 h-6" />
-              </button>
-            </div>
-          </div>
+      {#if !manualSummaryMode}
+        {#if searchState && hypaV3Data.summaries.length > 0}
+          <ModalSearch {searchState} {onSearch} />
         {/if}
 
-        <!-- Summaries List -->
-        {#each hypaV3Data.summaries as summary, i (summary)}
-          {#if isSummaryVisible(i)}
-            <!-- Summary Item  -->
-            <ModalSummaryItem
-              summaryIndex={i}
-              {hypaV3Data}
-              {summaryItemStateMap}
-              bind:expandedMessageState
-              bind:searchState
-              {filterSelected}
-              {categories}
-              {bulkEditState}
-              {uiState}
-              onToggleSummarySelection={handleToggleSummarySelection}
-              onOpenTagManager={handleOpenTagManager}
-              onToggleCollapse={handleToggleCollapse}
-            />
+        <!-- Only the summaries list scrolls between the top and bottom controls. -->
+        <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto sm:gap-4" tabindex="-1">
+          {#if hypaV3Data.summaries.length === 0}
+            <div class="p-4 text-center text-textcolor2 sm:p-3 md:p-4">
+              {language.hypaV3Modal.noSummariesLabel}
+            </div>
           {/if}
-        {/each}
 
-        <!-- Footer -->
-        <ModalFooter {hypaV3Data} />
-      </div>
+          {#each hypaV3Data.summaries as summary, i (summary)}
+            {#if isSummaryVisible(i)}
+              <ModalSummaryItem
+                summaryIndex={i}
+                {hypaV3Data}
+                {summaryItemStateMap}
+                bind:expandedMessageState
+                bind:searchState
+                {filterSelected}
+                {categories}
+                {bulkEditState}
+                {collapsedSummaries}
+                onToggleSummarySelection={handleToggleSummarySelection}
+                onToggleCollapse={handleToggleCollapse}
+              />
+            {/if}
+          {/each}
 
-      <!-- Bulk Resummary Result -->
-      <BulkResummaryResult
-        {bulkResummaryState}
-        onToggleTranslation={toggleBulkResummaryTranslation}
-        onReroll={rerollBulkResummary}
-        onApply={applyBulkResummary}
-        onCancel={cancelBulkResummary}
-      />
+          <NextSummarizationTarget {hypaV3Data} />
+        </div>
 
-      <!-- Bulk Edit Actions -->
-      <BulkEditActions
-        {bulkEditState}
-        {categories}
-        showImportantOnly={filterState.showImportantOnly}
-        selectedCategoryFilter={filterState.selectedCategoryFilter}
-        onResummarize={resummarizeBulkSelected}
-        onClearSelection={handleBulkEditClearSelection}
-        onUpdateSelectedCategory={handleBulkEditUpdateSelectedCategory}
-        onUpdateBulkSelectInput={handleBulkEditUpdateBulkSelectInput}
-        onApplyCategory={handleBulkEditApplyCategory}
-        onToggleImportant={handleBulkEditToggleImportant}
-        onParseAndSelectSummaries={handleBulkEditParseAndSelectSummaries}
-      />
+        <BulkResummaryResult
+          {bulkResummaryState}
+          onToggleTranslation={toggleBulkResummaryTranslation}
+          onReroll={rerollBulkResummary}
+          onApply={applyBulkResummary}
+          onCancel={cancelBulkResummary}
+        />
+
+        {#if !bulkResummaryState}
+          <BulkEditActions
+            {bulkEditState}
+            {categories}
+            onResummarize={resummarizeBulkSelected}
+            onClearSelection={handleBulkEditClearSelection}
+            onUpdateSelectedCategory={handleBulkEditUpdateSelectedCategory}
+            onUpdateBulkSelectInput={handleBulkEditUpdateBulkSelectInput}
+            onApplyCategory={handleBulkEditApplyCategory}
+            onToggleImportant={handleBulkEditToggleImportant}
+            onParseAndSelectSummaries={handleBulkEditParseAndSelectSummaries}
+          />
+        {/if}
+      {/if}
     </div>
   </div>
 </div>
@@ -749,8 +673,4 @@
   bind:searchState
   {filterState}
   onCategoryFilter={handleCategoryFilter}
-/>
-
-<TagManagerModal
-  bind:tagManagerState
 />

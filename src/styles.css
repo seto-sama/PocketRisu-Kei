@@ -16,6 +16,10 @@
   --color-darkbutton: var(--risu-theme-darkbutton);
   --color-success: var(--risu-theme-success);
   --color-primary: var(--risu-theme-primary);
+  --color-warning: var(--risu-theme-warning);
+  --color-scoped: var(--risu-theme-scoped);
+  --color-highlight: var(--risu-theme-highlight);
+  --color-accent: var(--risu-theme-accent);
 
   --color-primary-50: var(--risu-theme-primary-50);
   --color-primary-100: var(--risu-theme-primary-100);
@@ -187,19 +191,28 @@ body {
   --risu-theme-darkbg: #21222c;
   --risu-theme-borderc: #6272a4;
   --risu-theme-selected: #44475a;
-  --risu-theme-draculared: #ff5555;
-  --risu-theme-textcolor: #f5f5f5;
-  --risu-theme-textcolor2: #64748b;
   --risu-theme-darkborderc: #4b5563;
   --risu-theme-darkbutton: #374151;
-  /* Semantic token — success/active/positive. Theme-independent: not part
-     of ColorScheme interface, so updateColorScheme() never overrides it.
-     See .agent/guide/ui.md "시맨틱 토큰". */
-  --risu-theme-success: #16a34a;
-  /* Primary — dynamic accent for "active/on" fills (toggle track, primary CTA).
+  --risu-theme-textcolor: #f5f5f5;
+  --risu-theme-textcolor2: #64748b;
+  --risu-theme-draculared: #ef4444;
+  --risu-theme-highlight: #f59e0b;
+  --risu-theme-warning: #ffca1e;
+  --risu-theme-success: #4ade80;
+  /* Primary — dynamic color for "active/on" fills (toggle track, primary CTA).
      Part of ColorScheme: updateColorScheme() overrides it per theme. The default
      here is a fallback for the brief boot window before updateColorScheme runs. */
   --risu-theme-primary: #3b82f6;
+  --risu-theme-accent: #7581ff;
+  --risu-theme-scoped: #a470ff;
+  --risu-status-danger-bg: color-mix(in srgb, var(--risu-theme-draculared) 15%, var(--risu-theme-darkbg));
+  --risu-status-danger-border: color-mix(in srgb, var(--risu-theme-draculared) 45%, var(--risu-theme-darkborderc));
+  --risu-status-warning-bg: color-mix(in srgb, var(--risu-theme-warning) 15%, var(--risu-theme-darkbg));
+  --risu-status-warning-border: color-mix(in srgb, var(--risu-theme-warning) 45%, var(--risu-theme-darkborderc));
+  --risu-status-info-bg: color-mix(in srgb, var(--risu-theme-accent) 15%, var(--risu-theme-darkbg));
+  --risu-status-info-border: color-mix(in srgb, var(--risu-theme-accent) 45%, var(--risu-theme-darkborderc));
+  --risu-status-success-bg: color-mix(in srgb, var(--risu-theme-success) 15%, var(--risu-theme-darkbg));
+  --risu-status-success-border: color-mix(in srgb, var(--risu-theme-success) 45%, var(--risu-theme-darkborderc));
   --risu-height-size: 100%;
   --risu-font-family: Arial, sans-serif, serif;
 
@@ -259,6 +272,58 @@ body {
   --risu-theme-success-900: #14532d;
 }
 
+.risu-status-danger {
+  background: var(--risu-status-danger-bg);
+  border-color: var(--risu-status-danger-border);
+  color: var(--risu-theme-draculared);
+}
+
+.risu-status-warning {
+  background: var(--risu-status-warning-bg);
+  border-color: var(--risu-status-warning-border);
+  color: var(--risu-theme-warning);
+}
+
+.risu-status-info {
+  background: var(--risu-status-info-bg);
+  border-color: var(--risu-status-info-border);
+  color: var(--risu-theme-accent);
+}
+
+.risu-status-success {
+  background: var(--risu-status-success-bg);
+  border-color: var(--risu-status-success-border);
+  color: var(--risu-theme-success);
+}
+
+.risu-toaster {
+  --normal-bg: var(--risu-theme-darkbg) !important;
+  --normal-text: var(--risu-theme-textcolor) !important;
+  --normal-border: var(--risu-theme-darkborderc) !important;
+  --success-bg: var(--risu-status-success-bg) !important;
+  --success-text: var(--risu-theme-success) !important;
+  --success-border: var(--risu-status-success-border) !important;
+  --info-bg: var(--risu-status-info-bg) !important;
+  --info-text: var(--risu-theme-accent) !important;
+  --info-border: var(--risu-status-info-border) !important;
+  --warning-bg: var(--risu-status-warning-bg) !important;
+  --warning-text: var(--risu-theme-warning) !important;
+  --warning-border: var(--risu-status-warning-border) !important;
+  --error-bg: var(--risu-status-danger-bg) !important;
+  --error-text: var(--risu-theme-draculared) !important;
+  --error-border: var(--risu-status-danger-border) !important;
+  font-family: inherit;
+}
+
+.risu-toast {
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+}
+
+.risu-toast-title {
+  font-weight: 500;
+}
+
 .x-risu-language-json {
   overflow-x: hidden;
   white-space: pre-wrap;
@@ -312,27 +377,43 @@ body {
 }
 
 .chattext mark[risu-mark="blockquote1"] {
+  display: block;
+  box-sizing: border-box;
   border-left: 4px solid var(--FontColorQuote1);
   background-color: color-mix(in srgb, transparent 90%, var(--FontColorQuote1) 10%);
-  padding: 0.5rem 1rem;
+  padding: 0.6em 1em 0.6em 1.2em;
+  margin: 1em 0;
+  border-radius: 0 4px 4px 0;
+  font-weight: 500;
+  line-height: 1.5;
   color: var(--FontColorQuote1);
 }
 
 .chattext mark[risu-mark="blockquote2"] {
+  display: block;
+  box-sizing: border-box;
   border-left: 4px solid var(--FontColorQuote2);
   background-color: color-mix(in srgb, transparent 90%, var(--FontColorQuote2) 10%);
-  padding: 0.5rem 1rem;
+  padding: 0.6em 1em 0.6em 1.2em;
+  margin: 1em 0;
+  border-radius: 0 4px 4px 0;
+  font-weight: 500;
+  line-height: 1.5;
   color: var(--FontColorQuote2);
+}
+
+.chattext mark[risu-mark="cornerbracket2"] {
+  background-color: transparent;
+  color: var(--FontColorBold);
+  display: inline;
+  font-style: italic;
+  font-weight: 500;
+  text-shadow: 0 0 12px color-mix(in srgb, transparent 70%, var(--FontColorBold) 30%);
 }
 
 .strokeme {
   color: #000;
   text-shadow: -1px -1px 0 white, 1px -1px 0 white, -1px 1px 0 white, 1px 1px 0 white;
-}
-
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
 }
 
 /* Track */
@@ -365,6 +446,22 @@ body {
 html {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--color-textcolor2) 35%, transparent) transparent;
+}
+
+/* Narrow screens: set UI Text Color 2 on each element instead of relying on
+   inheritance from html. Full-height mobile scroll surfaces may define their
+   own scrollbar color, which wins over an inherited value. */
+@media (max-width: 768px) {
+
+  /* Chromium may promote a single viewport-filling overflow element to its
+     implicit root scroller and paint a native, unstyleable scroll indicator.
+     A non-default opacity keeps these full-screen scrollers as regular element
+     scrollers; this value rounds to fully opaque when composited. */
+  .default-chat-screen,
+  .rs-setting-cont-3,
+  .rs-setting-cont-4 {
+    opacity: 0.999999;
+  }
 }
 
 * {
@@ -420,36 +517,6 @@ html {
   @apply border border-darkborderc bg-darkbg text-textcolor rounded-md shadow-xs focus:outline-hidden transition-colors duration-200 px-4 py-2 min-w-0;
 }
 
-::highlight(cbsnest3) {
-  @apply text-amber-500;
-}
-::highlight(cbsnest2) {
-  @apply text-green-500;
-}
-::highlight(cbsnest1) {
-  @apply text-blue-500;
-}
-::highlight(cbsnest0) {
-  @apply text-purple-500;
-}
-::highlight(cbsnest4) {
-  @apply text-pink-500;
-}
-::highlight(cbsdisplay) {
-  @apply text-cyan-500;
-}
-::highlight(comment) {
-  color: var(--risu-theme-textcolor2);
-}
-
-::highlight(decorator) {
-  color: var(--risu-theme-draculared);
-}
-::highlight(deprecated) {
-  color: var(--risu-theme-textcolor2);
-  text-decoration: line-through;
-}
-
 .prose pre {
   background-color: var(--tw-prose-pre-bg);
   color: var(--tw-prose-pre-code);
@@ -500,6 +567,10 @@ html {
 
 .x-risu-risu-inlay-image img {
   @apply rounded-lg focus:outline-hidden max-w-80 w-full;
+  margin: 0;
+  max-width: 100%;
+  filter: drop-shadow(0 0 0.5rem rgba(0, 0, 0, 0.5));
+  border-radius: 0.5rem;
 }
 
 .x-risu-risu-inlay-image video {

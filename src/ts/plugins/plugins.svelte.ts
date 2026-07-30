@@ -436,6 +436,10 @@ export async function loadPlugins() {
     console.log('Loading plugins...')
     let db = getDatabase()
 
+    // addProvider registrations are rebuilt from enabled plugins on every load.
+    // Clear the display list with the provider maps so disabled/hot-reloaded
+    // plugins cannot leave duplicate or stale models in either model picker.
+    customProviderStore.set([])
 
     const enabledPlugins = safeStructuredClone(db.plugins).filter((p: RisuPlugin) => p.enabled)
     const pluginV2 = enabledPlugins.filter((a: RisuPlugin) => a.version === 2 || a.version === '2.1')
@@ -443,6 +447,16 @@ export async function loadPlugins() {
 
     await loadV2Plugin(pluginV2)
     await loadV3Plugins(pluginV3)
+}
+
+// Host-only metadata for API 3.0 addProvider dispatch. This symbol is removed
+// by structured cloning before provider code enters the sandbox.
+export const pluginProviderRequestContextKey: unique symbol = Symbol('pluginProviderRequestContext')
+
+export type PluginProviderRequestContext = {
+    chatId?: string
+    generationContext?: import('../process/revenantGeneration/types').RevenantGenerationContext
+    interceptor: string
 }
 
 export type PluginV2ProviderArgument = {
@@ -456,6 +470,7 @@ export type PluginV2ProviderArgument = {
     temperature: number
     mode: string
     max_tokens: number
+    [pluginProviderRequestContextKey]?: PluginProviderRequestContext
 }
 
 export type PluginV2ProviderOptions = {
@@ -602,7 +617,7 @@ export const getV2PluginAPIs = () => {
             //compatibility layer with old unsafe APIs
 
             //from PBV2
-            safeGlobal.showDirectoryPicker = window.showDirectoryPicker
+            safeGlobal.showDirectoryPicker = globalThis.showDirectoryPicker
 
             safeGlobal.DBState = {
                 db: toGetter(
@@ -818,6 +833,7 @@ export async function loadV2Plugin(plugins: RisuPlugin[]) {
         }
 
         pluginV2.providers.clear()
+        pluginV2.providerOptions.clear()
         pluginV2.editdisplay.clear()
         pluginV2.editoutput.clear()
         pluginV2.editprocess.clear()

@@ -1,6 +1,10 @@
 import type { ApiKeyPoolEntry, ModelPreset, ModelPresetMigrationSummary, RegistryCache, ResolvedModelProfileSnapshot } from './types'
 import { resolveSnapshot } from './registry/snapshot'
-import { loadBundledRegistry, getBundledRegistryId } from './registry/loader'
+import { loadSpecialRegistry } from './registry/loader'
+import {
+    applyProfileSnapshotUpdate,
+    isUsableModelProfileSnapshot,
+} from './profileUpdate'
 
 export interface ModelPresetDefaultsTarget {
     modelPresets?: ModelPreset[]
@@ -10,7 +14,19 @@ export interface ModelPresetDefaultsTarget {
     apiKeyPool?: Record<string, ApiKeyPoolEntry>
     modelProfileRegistryCache?: RegistryCache
     modelProfileRegistryLastFetched?: number
+    // `currentOnly` is accepted here only to migrate databases written before
+    // the models.dev catalog reduced this setting to two levels.
     modelProfileVisibilityLevel?: 'all' | 'hideDeprecated' | 'currentOnly'
+    modelProfileHiddenProviderIds?: string[]
+    modelProfileProviderFilterInitialized?: boolean
+    modelPresetLocalRegistryOnly?: boolean
+    modelRegistrySeen?: Record<string, number>
+    useCustomModelRegistry?: boolean
+    modelProfileRegistryBaseUrl?: string
+    modelPresetDefaultMaxContext?: number
+    modelPresetDefaultMaxResponse?: number
+    modelPresetPromptPresetFirst?: boolean
+    modelPresetPromptParamsFirst?: boolean
 }
 
 export function createEmptyRegistryCache(): RegistryCache {
@@ -25,45 +41,63 @@ export function createEmptyRegistryCache(): RegistryCache {
 // or uiSchema altogether (legacy/malformed registry data). The resolve path
 // filters these, but already-saved presets keep them and crash every consumer
 // that reads `.key`/`.map()`/`.fields` — the settings UI on render, buildRequest /
-// wireInvariants on send, and the heal path below (applyProfileSnapshotUpdate
-// calls `.schema.map()`). Normalize once at the load boundary so all paths see a
+// wireInvariants on send, and other consumers of the frozen snapshot. Normalize
+// once at the load boundary so all paths see a
 // snapshot whose schema / uiSchema.groups / uiSchema.fields are always (possibly
 // empty) arrays; the cleaned value persists with the next save.
-function sanitizeModelPresetSnapshots(presets: ModelPreset[]): void {
+function sanitizeModelPresetSnapshots(presets: ModelPreset[]): Set<ModelPreset> {
+    const structurallyIncomplete = new Set<ModelPreset>()
     for (const preset of presets) {
         const snapshot = preset?.profileSnapshot as any
-        if (!snapshot) continue
+        // Revision ordering is timestamp-based. Remove retired counters from
+        // older persisted presets so they disappear on the next save.
+        if (preset.sourceProfile) {
+            delete (preset.sourceProfile as any).profileVersion
+            delete (preset.sourceProfile as any).providerBaseVersion
+        }
+        if (!snapshot) {
+            if (preset) structurallyIncomplete.add(preset)
+            continue
+        }
+        delete snapshot.profileVersion
+        delete snapshot.providerBaseVersion
         // schema → array; only reallocate when it isn't already a null-free array
         // so clean snapshots (the normal case) are left untouched on every load.
         if (!Array.isArray(snapshot.schema)) {
+            structurallyIncomplete.add(preset)
             snapshot.schema = []
         } else if (!snapshot.schema.every(Boolean)) {
+            structurallyIncomplete.add(preset)
             snapshot.schema = snapshot.schema.filter(Boolean)
         }
         // uiSchema → object with array groups/fields.
         if (!snapshot.uiSchema || typeof snapshot.uiSchema !== 'object') {
+            structurallyIncomplete.add(preset)
             snapshot.uiSchema = { groups: [], fields: [] }
         }
         const uiSchema = snapshot.uiSchema
         if (!Array.isArray(uiSchema.groups)) {
+            structurallyIncomplete.add(preset)
             uiSchema.groups = []
         } else if (!uiSchema.groups.every(Boolean)) {
+            structurallyIncomplete.add(preset)
             uiSchema.groups = uiSchema.groups.filter(Boolean)
         }
         if (!Array.isArray(uiSchema.fields)) {
+            structurallyIncomplete.add(preset)
             uiSchema.fields = []
         } else if (!uiSchema.fields.every(Boolean)) {
+            structurallyIncomplete.add(preset)
             uiSchema.fields = uiSchema.fields.filter(Boolean)
         }
     }
+    return structurallyIncomplete
 }
 
-// A snapshot is degenerate when it lost the data a settings form / request needs:
-// null auth/endpoint, or an empty schema / uiSchema.fields. Such a snapshot
-// renders a blank form (hiding the API key) — see the "vercel:openai-compatible"
-// report (issues.md). It happens when a preset is resolved against an incomplete
-// base provider at creation (the generic passthrough profile carries no fields of
-// its own, so it's only as complete as the base at that moment).
+// A snapshot is degenerate when it lost data a settings form / request needs:
+// null auth/endpoint, a one-sided schema/UI form, or missing credential mapping.
+// Both schema and UI may intentionally be empty for a fixed model with no
+// configurable fields.
 //
 // A second, subtler shape: the profile's own fields resolve fine (non-empty
 // schema / uiSchema.fields), but the base-provided credential field was dropped —
@@ -72,10 +106,10 @@ function sanitizeModelPresetSnapshots(presets: ModelPreset[]): void {
 // openai presets hit this (13 profile fields present, apiKey missing). Flag these
 // too so heal re-resolves the credential field from the current registry.
 function isDegenerateSnapshot(s: ResolvedModelProfileSnapshot | undefined): boolean {
-    if (!s) return true
-    if (!s.auth || !s.endpoint) return true
-    if (!Array.isArray(s.schema) || s.schema.length === 0) return true
-    if (!Array.isArray(s.uiSchema?.fields) || s.uiSchema.fields.length === 0) return true
+    if (!s || !isUsableModelProfileSnapshot(s)) return true
+    // An intentionally fixed profile may have no configurable fields at all.
+    // A one-sided form, however, cannot render or map all of its schema.
+    if ((s.schema.length === 0) !== (s.uiSchema.fields.length === 0)) return true
     const authFields = s.auth.fields
     if (Array.isArray(authFields) && authFields.length > 0) {
         const hasAuthField = s.schema.some((f) => f?.mapsTo?.target === 'auth')
@@ -92,77 +126,55 @@ function isDegenerateSnapshot(s: ResolvedModelProfileSnapshot | undefined): bool
 // worse — a degenerate-but-unhealable preset falls through to the SchemaFormRenderer
 // schema fallback instead. Runs at the load boundary so the repair persists with
 // the next save (mirrors sanitizeModelPresetSnapshots).
-function healDegenerateSnapshots(data: ModelPresetDefaultsTarget): void {
+function healDegenerateSnapshots(
+    data: ModelPresetDefaultsTarget,
+    structurallyIncomplete: ReadonlySet<ModelPreset>,
+): void {
     const presets = data.modelPresets
     if (!Array.isArray(presets)) return
-    // Candidate registries, best first: the persisted official cache (matches the
-    // live resolution path), then the build-time bundled registry as a
-    // guaranteed-complete fallback.
+    // Candidate registries available synchronously at DB load: imported custom
+    // profiles and the built-in Echo recipe. models.dev hydrates asynchronously,
+    // so healthy saved snapshots remain self-contained and do not depend on it.
     const registries: RegistryCache[] = []
-    const officialEntry = data.modelProfileRegistryCache?.registries?.[getBundledRegistryId()]
-    if (officialEntry?.profiles && Object.keys(officialEntry.profiles).length > 0) {
-        registries.push({ schemaVersion: 4, registries: { [getBundledRegistryId()]: officialEntry } })
+    if (data.modelProfileRegistryCache
+        && Object.keys(data.modelProfileRegistryCache.registries ?? {}).length > 0) {
+        registries.push(data.modelProfileRegistryCache)
     }
-    registries.push(loadBundledRegistry())
+    registries.push(loadSpecialRegistry())
 
     for (let i = 0; i < presets.length; i++) {
         const preset = presets[i]
-        if (!preset || !isDegenerateSnapshot(preset.profileSnapshot)) continue
+        if (
+            !preset
+            || (
+                !structurallyIncomplete.has(preset)
+                && !isDegenerateSnapshot(preset.profileSnapshot)
+            )
+        ) continue
         const profileId = preset.sourceProfile?.profileId
         if (!profileId) continue
         const sourceProfile = preset.sourceProfile
         for (const registry of registries) {
-            // Isolate the whole attempt: resolveSnapshot reads arrays off a
-            // (possibly still-malformed) snapshot, so a throw must never abort app
-            // load — it just skips this preset (stays degenerate; render fallback
-            // covers display). userValues migration is done inline rather than via
-            // applyProfileSnapshotUpdate: that path diffs the OLD snapshot, which
-            // throws on a degenerate one (null auth/endpoint → authEqual reads
-            // `.kind` of null). Heal doesn't need the diff — keep userValues whose
-            // key survives in the fresh schema, orphan the rest.
+            // Isolate the whole attempt: malformed registry data must never abort
+            // app load. The shared snapshot lifecycle owns user-value migration,
+            // including removed/type-changed values and existing orphan retention.
             try {
                 const fresh = resolveSnapshot(registry, profileId)
                 if (isDegenerateSnapshot(fresh)) continue
-                // Mirror applyProfileSnapshotUpdate's userValues contract: keep a
-                // value only if its key survives in the fresh schema AND its type
-                // didn't change; otherwise move it to orphanValues. (sanitize has
-                // already coerced the old schema to a null-free array.)
-                const freshByKey = new Map(fresh.schema.map((f) => [f.key, f]))
-                const currentByKey = new Map(
-                    (preset.profileSnapshot?.schema ?? []).filter(Boolean).map((f) => [f.key, f]),
-                )
-                const nextUserValues: Record<string, unknown> = {}
-                const orphanValues: Record<string, unknown> = { ...(preset.orphanValues ?? {}) }
-                for (const [k, v] of Object.entries(preset.userValues ?? {})) {
-                    const latestField = freshByKey.get(k)
-                    if (!latestField) { orphanValues[k] = v; continue }            // removed
-                    const currentField = currentByKey.get(k)
-                    if (currentField && currentField.type !== latestField.type) {  // type-changed
-                        orphanValues[k] = v
-                        continue
-                    }
-                    nextUserValues[k] = v
-                }
-                // Re-stamp sourceProfile to the resolved profile so an update badge
-                // doesn't immediately re-appear: version AND profileUpdatedAt both
-                // advance to what we just healed to.
-                const profileUpdatedAt = registry.registries?.[getBundledRegistryId()]?.profiles?.[profileId]?.updatedAt
+                const profileUpdatedAt = Object.values(registry.registries)
+                    .map((entry) => entry.profiles?.[profileId]?.updatedAt)
+                    .find((value) => value !== undefined)
                     ?? sourceProfile.profileUpdatedAt
-                presets[i] = {
-                    ...preset,
-                    profileSnapshot: fresh,
+                const updatedAt = Date.now()
+                presets[i] = applyProfileSnapshotUpdate(preset, fresh, {
+                    now: () => updatedAt,
                     sourceProfile: {
                         ...sourceProfile,
                         profileId: fresh.profileId,
-                        profileVersion: fresh.profileVersion,
-                        providerBaseVersion: fresh.providerBaseVersion,
-                        fetchedAt: Date.now(),
+                        fetchedAt: updatedAt,
                         profileUpdatedAt,
                     },
-                    userValues: nextUserValues,
-                    orphanValues: Object.keys(orphanValues).length > 0 ? orphanValues : undefined,
-                    updatedAt: Date.now(),
-                }
+                }).preset
                 break
             } catch {
                 continue
@@ -175,18 +187,57 @@ export function applyModelPresetDefaults(data: ModelPresetDefaultsTarget): void 
     if (!Array.isArray(data.modelPresets)) {
         data.modelPresets = []
     }
-    sanitizeModelPresetSnapshots(data.modelPresets)
+    const structurallyIncompleteSnapshots = sanitizeModelPresetSnapshots(data.modelPresets)
     if (!data.apiKeyPool || typeof data.apiKeyPool !== 'object' || Array.isArray(data.apiKeyPool)) {
         data.apiKeyPool = {}
     }
-    if (!data.modelProfileRegistryCache || data.modelProfileRegistryCache.schemaVersion !== 4) {
-        data.modelProfileRegistryCache = createEmptyRegistryCache()
+    const customEntry = data.modelProfileRegistryCache?.schemaVersion === 4
+        ? data.modelProfileRegistryCache.registries?.custom
+        : undefined
+    for (const profile of Object.values(customEntry?.profiles ?? {})) {
+        delete (profile as any).version
+    }
+    for (const baseProvider of Object.values(customEntry?.baseProviders ?? {})) {
+        delete (baseProvider as any).version
+    }
+    // The official models.dev catalog is intentionally stored in a dedicated KV
+    // cache. Keep only user-imported custom profiles in the main application DB.
+    data.modelProfileRegistryCache = {
+        schemaVersion: 4,
+        registries: customEntry ? { custom: customEntry } : {},
     }
     data.modelProfileRegistryLastFetched ??= 0
-    // Default to current-only: most users want just the latest models; outdated
-    // /deprecated profiles stay downloaded but hidden until opted into.
-    data.modelProfileVisibilityLevel ??= 'currentOnly'
+    // Default to hiding retired models. `currentOnly` was the former default;
+    // models.dev does not produce PocketRisu's `outdated` status, so migrate it
+    // to the equivalent two-level choice.
+    if (
+        data.modelProfileVisibilityLevel !== 'all'
+        && data.modelProfileVisibilityLevel !== 'hideDeprecated'
+    ) {
+        data.modelProfileVisibilityLevel = 'hideDeprecated'
+    }
+    const storedProviderFilter = data.modelProfileHiddenProviderIds
+    const hadStoredProviderFilter = Array.isArray(storedProviderFilter)
+    data.modelProfileHiddenProviderIds = hadStoredProviderFilter
+        ? [...new Set(storedProviderFilter.filter(
+            (id): id is string => typeof id === 'string' && id.length > 0,
+        ))]
+        : []
+    if (typeof data.modelProfileProviderFilterInitialized !== 'boolean') {
+        // Databases that already persisted the old hidden-ID list keep their
+        // exact choice. A genuinely new database receives the curated default
+        // allowlist once the remote provider catalog is available.
+        data.modelProfileProviderFilterInitialized = hadStoredProviderFilter
+    }
+    delete data.modelPresetLocalRegistryOnly
+    delete data.modelRegistrySeen
+    delete data.useCustomModelRegistry
+    delete data.modelProfileRegistryBaseUrl
+    data.modelPresetDefaultMaxContext ??= 65000
+    data.modelPresetDefaultMaxResponse ??= 4096
+    data.modelPresetPromptPresetFirst ??= false
+    data.modelPresetPromptParamsFirst ??= false
     // After the registry cache is normalized above, repair any preset whose
     // snapshot froze degenerate (empty fields) against the now-current registry.
-    healDegenerateSnapshots(data)
+    healDegenerateSnapshots(data, structurallyIncompleteSnapshots)
 }

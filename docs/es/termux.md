@@ -53,8 +53,8 @@ Abra Termux y ejecute este único comando:
 
 ```bash
 pkg install -y git && \
-  git clone https://github.com/PocketRisu/PocketRisu.git && \
-  cd PocketRisu && \
+  git clone https://github.com/seto-sama/PocketRisu-Kei.git && \
+  cd PocketRisu-Kei && \
   bash scripts/termux/build.sh
 ```
 

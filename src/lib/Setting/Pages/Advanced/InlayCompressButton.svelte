@@ -1,7 +1,8 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import { alertConfirm, alertNormal } from "src/ts/alert";
+    import { getSyncClientId } from "src/ts/storage/nodeStorage";
 
     let compressing = $state(false);
     let progress = $state('');
@@ -22,7 +23,10 @@
         try {
             const res = await fetch('/api/inlays/compress', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-sync-client-id': getSyncClientId(),
+                },
                 body: JSON.stringify({ quality: 85 }),
             });
 
@@ -64,15 +68,11 @@
     }
 </script>
 
-<div class="mt-4">
-    <ShButton
-        className="w-full"
-        onclick={compressAll}
-        disabled={compressing}
-    >
-        {compressing ? language.inlayCompressing : language.inlayCompressAll}
-    </ShButton>
-    {#if progress}
-        <p class="text-sm text-textcolor2 mt-2">{progress}</p>
-    {/if}
-</div>
+<SettingLayout
+    variant="row"
+    title={language.inlayCompressAll}
+    description={progress ? `${language.help.inlayCompressAllDesc} ${progress}` : language.help.inlayCompressAllDesc}
+    actionLabel={compressing ? language.inlayCompressing : language.inlayCompressAction}
+    onAction={compressAll}
+    actionDisabled={compressing}
+/>

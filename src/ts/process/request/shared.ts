@@ -1,4 +1,62 @@
 import { getDatabase } from 'src/ts/storage/database.svelte'
+import { v4 as uuidv4 } from 'uuid'
+import type { RequestDataArgumentExtended } from './request'
+import {
+    getRevenantOperationJobType,
+    type RevenantGenerationContext,
+    type ModelModeExtended,
+} from '../revenantGeneration/types'
+import {
+    applyAdditionalParameters,
+    setObjectValue,
+} from 'src/ts/preset/runtime/additionalParameters'
+
+export type { ModelModeExtended } from '../revenantGeneration/types'
+export {
+    applyAdditionalParameters,
+    setObjectValue,
+} from 'src/ts/preset/runtime/additionalParameters'
+
+export function buildGenerationContext(
+    arg: RequestDataArgumentExtended,
+    usageIdentity?: Pick<
+        RevenantGenerationContext,
+        'usageProviderId' | 'usageModelId' | 'usageServiceTier'
+    >,
+): RevenantGenerationContext | undefined {
+    const mode = arg.mode
+    if (!mode) return undefined
+    // Lua LLM()/simpleLLM() intentionally use the main model but do not create
+    // an assistant message. Classify any model request without a message
+    // generation id as auxiliary so it cannot enter chat materialization.
+    const jobType: ModelModeExtended = arg.revenantOperationContext
+        ? getRevenantOperationJobType(arg.revenantOperationContext)
+        : mode === 'model' && !arg.chatId
+            ? 'otherAx'
+            : mode
+
+    // Main generations use the message generation id because they can be
+    // recovered into a chat after a client reload. Auxiliary calls only need a
+    // stable id for the lifetime of this provider attempt. Auxiliary operation
+    // metadata routes their result to a separate recovery queue, never to the
+    // assistant-message recovery path.
+    const chatId = arg.chatId ?? (arg.revenantRequestId ??= `aux-${uuidv4()}`)
+
+    const activeChat = arg.currentChar?.chats?.[arg.currentChar.chatPage]
+    return {
+        chatId,
+        jobType,
+        characterId: arg.currentChar?.chaId,
+        roomId: activeChat?.id,
+        isContinuation: arg.continue === true,
+        continuationPrefix: arg.continue
+            ? activeChat?.message?.at(-1)?.data
+            : undefined,
+        operationContext: arg.revenantOperationContext,
+        ...usageIdentity,
+        onJobCreated: arg.onRevenantJobCreated,
+    }
+}
 
 export type LLMParameter =
     | 'temperature'
@@ -12,23 +70,6 @@ export type LLMParameter =
     | 'reasoning_effort'
     | 'thinking_tokens'
     | 'verbosity'
-
-export type ModelModeExtended = 'model' | 'submodel' | 'memory' | 'emotion' | 'otherAx' | 'translate'
-
-export function setObjectValue<T>(obj: T, key: string, value: any): T {
-    const splitKey = key.split('.')
-    if (splitKey.length > 1) {
-        const firstKey = splitKey.shift()
-        if (!obj[firstKey]) {
-            obj[firstKey] = {}
-        }
-        obj[firstKey] = setObjectValue(obj[firstKey], splitKey.join('.'), value)
-        return obj
-    }
-
-    obj[key] = value
-    return obj
-}
 
 export function getAdditionalParameters(aiModel?: string): [string, string][] {
     const db = getDatabase()
@@ -60,64 +101,6 @@ export function getAdditionalParameters(aiModel?: string): [string, string][] {
     }
 
     return additionalParams
-}
-
-export function applyAdditionalParameters<T extends Record<string, any>>(
-    body: T,
-    headers: Record<string, string>,
-    additionalParams: [string, string][],
-): T {
-    for (const [rawKey, rawValue] of additionalParams) {
-        let key = rawKey
-        let value = rawValue
-
-        if (!key || !value) {
-            continue
-        }
-
-        if (value === '{{none}}') {
-            if (key.startsWith('header::')) {
-                delete headers[key.replace('header::', '')]
-            }
-            else {
-                delete body[key]
-            }
-            continue
-        }
-
-        if (key.startsWith('header::')) {
-            headers[key.replace('header::', '')] = value
-            continue
-        }
-
-        if (value.startsWith('json::')) {
-            try {
-                body = setObjectValue(body, key, JSON.parse(value.replace('json::', '')))
-            }
-            catch (error) {}
-            continue
-        }
-
-        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-            body = setObjectValue(body, key, value.slice(1, -1))
-            continue
-        }
-
-        if (value === 'true' || value === 'false') {
-            body = setObjectValue(body, key, value === 'true')
-            continue
-        }
-
-        if (value === 'null') {
-            body = setObjectValue(body, key, null)
-            continue
-        }
-
-        const num = Number(value)
-        body = setObjectValue(body, key, isNaN(num) ? value : num)
-    }
-
-    return body
 }
 
 // Drain a streaming response to its final text. Every chunk on the

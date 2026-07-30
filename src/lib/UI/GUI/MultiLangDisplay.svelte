@@ -7,9 +7,10 @@
     interface Props {
         value: string;
         markdown?: boolean;
+        showLanguageSelector?: boolean;
     }
 
-    let { value, markdown = false }: Props = $props();
+    let { value, markdown = false, showLanguageSelector = true }: Props = $props();
     let valueObject: {[code:string]:string} = $derived(parseMultilangString(value))
 
     let userLang = $derived(DBState.db.language)
@@ -37,35 +38,37 @@
 </script>
 
 <div class="flex flex-col">
-    <div class="flex flex-wrap max-w-fit p-1 gap-2 items-center">
-        {#if sortedLangs.priority}
-            {#if sortedLangs.priority !== 'xx' || Object.keys(valueObject).length === 1}
-                <button class="bg-bgcolor py-2 rounded-lg px-4" class:ring-1={selectedLang === sortedLangs.priority} onclick={((e) => {
-                    e.stopPropagation()
-                    selectedLang = sortedLangs.priority
-                })}>{toLangName(sortedLangs.priority)}</button>
+    {#if showLanguageSelector}
+        <div class="flex flex-wrap max-w-fit p-1 gap-2 items-center">
+            {#if sortedLangs.priority}
+                {#if sortedLangs.priority !== 'xx' || Object.keys(valueObject).length === 1}
+                    <button class="bg-bgcolor py-2 rounded-lg px-4" class:ring-1={selectedLang === sortedLangs.priority} onclick={((e) => {
+                        e.stopPropagation()
+                        selectedLang = sortedLangs.priority
+                    })}>{toLangName(sortedLangs.priority)}</button>
+                {/if}
+                {#if sortedLangs.rest.length > 0}
+                    <div class="border-l border-l-selected h-6"></div>
+                {/if}
             {/if}
-            {#if sortedLangs.rest.length > 0}
-                <div class="border-l border-l-selected h-6"></div>
-            {/if}
-        {/if}
-        {#each sortedLangs.rest as lang}
-            {#if lang !== 'xx' || Object.keys(valueObject).length === 1}
-                <button class="bg-bgcolor py-2 rounded-lg px-4" class:ring-1={selectedLang === lang} onclick={((e) => {
-                    e.stopPropagation()
-                    selectedLang = lang
-                })}>{toLangName(lang)}</button>
-            {/if}
-        {/each}
-    </div>
+            {#each sortedLangs.rest as lang}
+                {#if lang !== 'xx' || Object.keys(valueObject).length === 1}
+                    <button class="bg-bgcolor py-2 rounded-lg px-4" class:ring-1={selectedLang === lang} onclick={((e) => {
+                        e.stopPropagation()
+                        selectedLang = lang
+                    })}>{toLangName(lang)}</button>
+                {/if}
+            {/each}
+        </div>
+    {/if}
     {#if markdown}
-        <div class="ml-2 max-w-full wrap-break-word text chat chattext prose" class:prose-invert={$ColorSchemeTypeStore}>
+        <div class="ml-2 max-w-full wrap-break-word text chat chattext prose" class:prose-invert={$ColorSchemeTypeStore === 'dark'}>
             {#await ParseMarkdown(valueObject[selectedLang]) then md} 
                 {@html md}
             {/await}
         </div>
     {:else}
-        <div class="ml-2 max-w-full wrap-break-word text chat chattext prose" class:prose-invert={$ColorSchemeTypeStore}>
+        <div class="ml-2 max-w-full wrap-break-word text chat chattext prose" class:prose-invert={$ColorSchemeTypeStore === 'dark'}>
             {valueObject[selectedLang]}
         </div>
     {/if}

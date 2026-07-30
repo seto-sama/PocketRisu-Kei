@@ -7,6 +7,7 @@ export interface TranslatorPreset {
     name: string;
     prompt: string;
     maxResponse: number;
+    folderId?: string;
 }
 
 export interface TranslatorPresetStateLike {
@@ -14,6 +15,7 @@ export interface TranslatorPresetStateLike {
     translatorMaxResponse?: number;
     translatorPresets?: unknown[];
     translatorPresetId?: number;
+    translatorPresetFolders?: { id: string; name: string }[];
 }
 
 interface EncryptedTranslatorPresetFile {
@@ -38,7 +40,8 @@ function isTranslatorPresetValue(value: unknown): value is TranslatorPreset {
         typeof value.name === "string" &&
         typeof value.prompt === "string" &&
         typeof value.maxResponse === "number" &&
-        Number.isFinite(value.maxResponse)
+        Number.isFinite(value.maxResponse) &&
+        (value.folderId === undefined || typeof value.folderId === "string")
     );
 }
 
@@ -98,6 +101,7 @@ export function createTranslatorPreset(
             typeof existing.maxResponse === "number" && Number.isFinite(existing.maxResponse)
                 ? existing.maxResponse
                 : 1000,
+        folderId: typeof existing.folderId === "string" ? existing.folderId : undefined,
     };
 }
 

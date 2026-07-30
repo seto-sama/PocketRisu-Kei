@@ -5,18 +5,24 @@ import { BufferToText, selectSingleFile } from "../util";
 import { notifyError } from "../alert";
 import { isLite } from "../lite";
 import { CustomCSSStore, SafeModeStore } from "../stores.svelte";
+import { normalizeTextTheme } from "./textTheme";
 
 export interface ColorScheme{
     bgcolor: string;
     darkbg: string;
     borderc: string;
     selected: string;
-    draculared: string;
-    textcolor: string;
-    textcolor2: string;
     darkBorderc: string;
     darkbutton: string;
+    textcolor: string;
+    textcolor2: string;
+    draculared: string;
+    highlight?: string;
+    warning?: string;
+    success?: string;
     primary: string;
+    accent?: string;
+    scoped?: string;
     type:'light'|'dark';
 }
 
@@ -26,12 +32,17 @@ export const defaultColorScheme: ColorScheme = {
     darkbg: "#21222c",
     borderc: "#6272a4",
     selected: "#44475a",
-    draculared: "#ff5555",
-    textcolor: "#f8f8f2",
-    textcolor2: "#64748b",
     darkBorderc: "#4b5563",
     darkbutton: "#374151",
+    textcolor: "#f8f8f2",
+    textcolor2: "#64748b",
+    draculared: "#ff5555",
+    highlight: "#f59e0b",
+    warning: "#ffca1e",
+    success: "#4ade80",
     primary: "#3b82f6",
+    accent: "#7581ff",
+    scoped: "#a470ff",
     type:'dark'
 }
 
@@ -45,11 +56,11 @@ const newColorSchemes = {
         darkbg: "#181825",
         borderc: "#b4befe",
         selected: "#6c7086",
-        draculared: "#f38ba8",
-        textcolor: "#cdd6f4",
-        textcolor2: "#a6adc8",
         darkBorderc: "#9399b2",
         darkbutton: "#45475a",
+        textcolor: "#cdd6f4",
+        textcolor2: "#a6adc8",
+        draculared: "#f38ba8",
         primary: "#cba6f7",
         type:'dark'
     },
@@ -58,11 +69,11 @@ const newColorSchemes = {
         darkbg: "#1e2030",
         borderc: "#b7bdf8",
         selected: "#6e738d",
-        draculared: "#ee99a0",
-        textcolor: "#cad3f5",
-        textcolor2: "#a5adcb",
         darkBorderc: "#8087a2",
         darkbutton: "#181926",
+        textcolor: "#cad3f5",
+        textcolor2: "#a5adcb",
+        draculared: "#ee99a0",
         primary: "#f5bde6",
         type:'dark'
     },
@@ -71,11 +82,11 @@ const newColorSchemes = {
         darkbg: "#292c3c",
         borderc: "#8caaee",
         selected: "#737994",
-        draculared: "#e78284",
-        textcolor: "#c6d0f5",
-        textcolor2: "#a5adce",
         darkBorderc: "#949cbb",
         darkbutton: "#303446",
+        textcolor: "#c6d0f5",
+        textcolor2: "#a5adce",
+        draculared: "#e78284",
         primary: "#85c1dc",
         type:'dark'
     },
@@ -84,11 +95,11 @@ const newColorSchemes = {
         darkbg: "#bcc0cc",
         borderc: "#7287fd",
         selected: "#eff1f5",
-        draculared: "#d20f39",
-        textcolor: "#4c4f69",
-        textcolor2: "#5c5f77",
         darkBorderc: "#e6e9ef",
         darkbutton: "#dce0e8",
+        textcolor: "#4c4f69",
+        textcolor2: "#5c5f77",
+        draculared: "#d20f39",
         primary: "#df8e1d",
         type:'light'
     },
@@ -97,11 +108,11 @@ const newColorSchemes = {
         darkbg: "#1d2021",
         borderc: "#3c3836",
         selected: "#504945",
-        draculared: "#fabd2f",
-        textcolor: "#ebdbb2",
-        textcolor2: "#fbf1c7",
         darkBorderc: "#665c64",
         darkbutton: "#7c6f64",
+        textcolor: "#ebdbb2",
+        textcolor2: "#fbf1c7",
+        draculared: "#fabd2f",
         primary: "#fe8019",
         type:'dark'
     },
@@ -110,11 +121,11 @@ const newColorSchemes = {
         darkbg: "#f2e5bc",
         borderc: "#ebdbb2",
         selected: "#d5c4a1",
-        draculared: "#d65d0e",
-        textcolor: "#3c3836",
-        textcolor2: "#282828",
         darkBorderc: "#bdae93",
         darkbutton: "#a89984",
+        textcolor: "#3c3836",
+        textcolor2: "#282828",
+        draculared: "#d65d0e",
         primary: "#fe8019",
         type:'light'
     },
@@ -127,11 +138,11 @@ const colorShemes = {
         darkbg: "#141414",
         borderc: "#525252",
         selected: "#3d3d3d",
-        draculared: "#ff5555",
-        textcolor: "#f5f5f5",
-        textcolor2: "#a3a3a3",
         darkBorderc: "#404040",
         darkbutton: "#2e2e2e",
+        textcolor: "#f5f5f5",
+        textcolor2: "#a3a3a3",
+        draculared: "#ff5555",
         primary: "#3b82f6",
         type:'dark'
     },
@@ -140,11 +151,11 @@ const colorShemes = {
         darkbg: "#f0f0f0",
         borderc: "#0f172a",
         selected: "#e0e0e0",
-        draculared: "#ff5555",
-        textcolor: "#0f172a",
-        textcolor2: "#64748b",
         darkBorderc: "#d1d5db",
         darkbutton: "#e5e7eb",
+        textcolor: "#0f172a",
+        textcolor2: "#64748b",
+        draculared: "#ff5555",
         primary: "#2563eb",
         type:'light'
     },
@@ -153,11 +164,11 @@ const colorShemes = {
         darkbg: "#000000",
         borderc: "#6272a4",
         selected: "#44475a",
-        draculared: "#ff5555",
-        textcolor: "#f8f8f2",
-        textcolor2: "#64748b",
         darkBorderc: "#4b5563",
         darkbutton: "#374151",
+        textcolor: "#f8f8f2",
+        textcolor2: "#64748b",
+        draculared: "#ff5555",
         primary: "#3b82f6",
         type:'dark'
     },
@@ -166,11 +177,11 @@ const colorShemes = {
         darkbg: "#e8e8e3",
         borderc: "#75715e",
         selected: "#d8d8d0",
-        draculared: "#f92672",
-        textcolor: "#272822",
-        textcolor2: "#75715e",
         darkBorderc: "#c0c0b8",
         darkbutton: "#d0d0c8",
+        textcolor: "#272822",
+        textcolor2: "#75715e",
+        draculared: "#f92672",
         primary: "#f92672",
         type:'light'
     },
@@ -179,11 +190,11 @@ const colorShemes = {
         darkbg: "#1e1f1a",
         borderc: "#75715e",
         selected: "#3e3d32",
-        draculared: "#f92672",
-        textcolor: "#f8f8f2",
-        textcolor2: "#a6a68a",
         darkBorderc: "#3e3d32",
         darkbutton: "#3e3d32",
+        textcolor: "#f8f8f2",
+        textcolor2: "#a6a68a",
+        draculared: "#f92672",
         primary: "#f92672",
         type:'dark'
     },
@@ -193,11 +204,11 @@ const colorShemes = {
         darkbg: "#7f1d1d",
         borderc: "#ea580c",
         selected: "#d97706",
-        draculared: "#ff5555",
-        textcolor: "#f8f8f2",
-        textcolor2: "#fca5a5",
         darkBorderc: "#92400e",
         darkbutton: "#b45309",
+        textcolor: "#f8f8f2",
+        textcolor2: "#fca5a5",
+        draculared: "#ff5555",
         primary: "#fb923c",
         type:'dark'
     },
@@ -206,11 +217,11 @@ const colorShemes = {
         darkbg: "#1f2a48",
         borderc: "#8be9fd",
         selected: "#457b9d",
-        draculared: "#ff5555",
-        textcolor: "#f8f8f2",
-        textcolor2: "#8be9fd",
         darkBorderc: "#457b9d",
         darkbutton: "#1f2a48",
+        textcolor: "#f8f8f2",
+        textcolor2: "#8be9fd",
+        draculared: "#ff5555",
         primary: "#a78bfa",
         type:'dark'
     },
@@ -219,11 +230,11 @@ const colorShemes = {
         darkbg: "#2d6a4f",
         borderc: "#a8dadc",
         selected: "#4d908e",
-        draculared: "#ff5555",
-        textcolor: "#f8f8f2",
-        textcolor2: "#4d908e",
         darkBorderc: "#457b9d",
         darkbutton: "#2d6a4f",
+        textcolor: "#f8f8f2",
+        textcolor2: "#4d908e",
+        draculared: "#ff5555",
         primary: "#52b788",
         type:'dark'
     },
@@ -232,11 +243,11 @@ const colorShemes = {
         darkbg: "#1C2533",
         borderc: "#475569",
         selected: "#475569",
-        draculared: "#ff5555",
-        textcolor: "#f8f8f2",
-        textcolor2: "#64748b",
         darkBorderc: "#030712",
         darkbutton: "#374151",
+        textcolor: "#f8f8f2",
+        textcolor2: "#64748b",
+        draculared: "#ff5555",
         primary: "#3b82f6",
         type:'dark'
     }
@@ -302,19 +313,29 @@ export function updateColorScheme(){
             colorScheme = safeStructuredClone(colorShemes.lite)
         }
 
+        colorScheme.highlight ??= defaultColorScheme.highlight
+        colorScheme.warning ??= defaultColorScheme.warning
+        colorScheme.success ??= defaultColorScheme.success
+        colorScheme.primary ??= defaultColorScheme.primary
+        colorScheme.accent ??= defaultColorScheme.accent
+        colorScheme.scoped ??= defaultColorScheme.scoped
+
         //set css variables
         document.documentElement.style.setProperty("--risu-theme-bgcolor", colorScheme.bgcolor);
         document.documentElement.style.setProperty("--risu-theme-darkbg", colorScheme.darkbg);
         document.documentElement.style.setProperty("--risu-theme-borderc", colorScheme.borderc);
         document.documentElement.style.setProperty("--risu-theme-selected", colorScheme.selected);
-        document.documentElement.style.setProperty("--risu-theme-draculared", colorScheme.draculared);
-        document.documentElement.style.setProperty("--risu-theme-textcolor", colorScheme.textcolor);
-        document.documentElement.style.setProperty("--risu-theme-textcolor2", colorScheme.textcolor2);
         document.documentElement.style.setProperty("--risu-theme-darkborderc", colorScheme.darkBorderc);
         document.documentElement.style.setProperty("--risu-theme-darkbutton", colorScheme.darkbutton);
-        // Legacy data may lack `primary` (added later); fall back to default so
-        // the toggle/CTA fill stays usable until the user picks a custom value.
-        document.documentElement.style.setProperty("--risu-theme-primary", colorScheme.primary ?? defaultColorScheme.primary);
+        document.documentElement.style.setProperty("--risu-theme-textcolor", colorScheme.textcolor);
+        document.documentElement.style.setProperty("--risu-theme-textcolor2", colorScheme.textcolor2);
+        document.documentElement.style.setProperty("--risu-theme-draculared", colorScheme.draculared);
+        document.documentElement.style.setProperty("--risu-theme-highlight", colorScheme.highlight);
+        document.documentElement.style.setProperty("--risu-theme-warning", colorScheme.warning);
+        document.documentElement.style.setProperty("--risu-theme-success", colorScheme.success);
+        document.documentElement.style.setProperty("--risu-theme-primary", colorScheme.primary);
+        document.documentElement.style.setProperty("--risu-theme-accent", colorScheme.accent);
+        document.documentElement.style.setProperty("--risu-theme-scoped", colorScheme.scoped);
         ColorSchemeTypeStore.set(colorScheme.type)
     } catch (error) {}
 }
@@ -381,7 +402,7 @@ export function updateTextThemeAndCSS(){
     if(!root){
         return
     }
-    let textTheme = get(isLite) ? 'standard' : db.textTheme
+    let textTheme = normalizeTextTheme(get(isLite) ? 'standard' : db.textTheme)
     let colorScheme = get(isLite) ? 'dark' : db.colorScheme.type
     switch(textTheme){
         case "standard":{
@@ -448,7 +469,7 @@ export function updateTextThemeAndCSS(){
     }
 
     if(!get(SafeModeStore)){
-        CustomCSSStore.set(db.customCSS ?? '')
+        CustomCSSStore.set([db.customCSS, db.globalCustomCSS].filter(Boolean).join('\n'))
     }
     else{
         CustomCSSStore.set('')

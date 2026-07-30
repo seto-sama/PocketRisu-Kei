@@ -14,6 +14,8 @@ import type { LLMModel } from '../model/types';
  */
 export interface SettingContext {
     db: Database;
+    /** Optional binding root. Defaults to DBState.db for backwards compatibility. */
+    target?: object;
     modelInfo: LLMModel;
     subModelInfo: LLMModel;
     /** Render mode for row-capable wrappers (select/text/slider). 'row' puts the
@@ -101,10 +103,14 @@ export interface SettingOptions {
     // text, textarea
     placeholder?: string;
     hideText?: boolean;     // For password-like inputs
+    defaultValue?: unknown; // Display value when a bound field is undefined
     
     // number
     inputClassName?: string;
     marginBottom?: boolean;
+    suffix?: string;
+    disabled?: boolean | ((ctx: SettingContext) => boolean);
+    onCommit?: (value: number, ctx: SettingContext) => void | Promise<void>;
 
     // button
     onClick?: () => void | Promise<void>;
@@ -132,6 +138,9 @@ export interface SettingItem {
     
     /** Fallback label if language key doesn't exist */
     fallbackLabel?: string;
+
+    /** Already-localized description for settings assembled inside a component. */
+    description?: string;
     
     /** Key for help tooltip lookup in language.help */
     helpKey?: string;

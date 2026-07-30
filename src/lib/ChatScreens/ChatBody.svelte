@@ -1,14 +1,14 @@
 <script lang="ts">
     import isEqual from "lodash/isEqual"
     import { DBState } from 'src/ts/stores.svelte'
-    import { sleep } from "src/ts/util"
     import { alertError } from "../../ts/alert"
-    import { tick } from 'svelte'
-    import { addMetadataToElement, getDistance, ParseMarkdown, postTranslationParse, resolveInlayPlaceholders, trimMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
-    import { getLLMCache, translateHTML } from "../../ts/translator/translator"
+    import { onDestroy, tick } from 'svelte'
+    import { addMetadataToElement, getDistance, resolveInlayPlaceholders, trimMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { getModuleAssets } from "src/ts/process/modules";
     import { getCurrentCharacter } from "src/ts/storage/database.svelte";
     import { getFileSrc } from "src/ts/globalApi.svelte";
+    import { createChatBodyRenderController, translationLoadingHTML } from "./chatBodyRenderController.svelte";
+    import type { RevenantChatTranslationRecovery } from "src/ts/process/revenantGeneration/chatRecovery.svelte";
 
     interface Props {
         character?: simpleCharacterArgument|string|null
@@ -18,10 +18,14 @@
         name?: string
         role: string|null
         translated: boolean
-        translating: boolean
         retranslate: boolean
+        onTranslationTaskChange?: (delta:1|-1) => void
+        onTranslationCancelAvailabilityChange?: (cancel: (() => void) | null) => void
         bodyRoot?: HTMLElement|null
         modelShortName: string
+        translationRevision?: number
+        isStreamingDisplay?: boolean
+        revenantTranslationRecovery: RevenantChatTranslationRecovery
     }
 
     let {
@@ -31,16 +35,29 @@
         msgDisplay,
         role,
         translated = $bindable(false),
-        translating = $bindable(false),
         retranslate = $bindable(false),
+        onTranslationTaskChange = () => {},
+        onTranslationCancelAvailabilityChange = () => {},
         bodyRoot,
         modelShortName = '',
+        translationRevision = 0,
+        isStreamingDisplay = false,
+        revenantTranslationRecovery,
     }: Props =  $props()
 
     // svelte-ignore non_reactive_update
     let lastParsed = ''
     let lastCharArg:string|simpleCharacterArgument = null
     let lastChatId = -10
+    let lastTranslationRevision = -1
+    let lastTranslationCacheKey:string|null|undefined
+    // svelte-ignore non_reactive_update
+    let lastParsedTranslated = false
+    const renderController = createChatBodyRenderController(
+        (delta) => onTranslationTaskChange(delta),
+        (cancel) => onTranslationCancelAvailabilityChange(cancel),
+    )
+    onDestroy(() => renderController.dispose())
 
     function getCbsCondition(){
         try{
@@ -62,94 +79,101 @@
         // track 'translated' and 'retranslate' state
         translated;
         retranslate;
+        translationRevision;
+        const recoverySnapshot = revenantTranslationRecovery.capture()
+        const translationRecoveryPending = recoverySnapshot.pending
+        const translationCacheKey = recoverySnapshot.cacheKey
+        const renderPass = renderController.beginRender({
+            streaming: isStreamingDisplay,
+            translationPending: translationRecoveryPending,
+        })
+        const parseMessageMarkdown = (
+            value:string,
+            mode:'normal'|'back'|'pretranslate'|'notrim',
+        ) => renderPass.parseMarkdown(value, charArg, mode, chatID, getCbsCondition())
         let lastParsedQueue = ''
+        let currentParsedTranslated = false
         let mode = 'notrim' as const
         try {
-            if((!isEqual(lastCharArg, charArg)) || (chatID !== lastChatId)){
+            if((!isEqual(lastCharArg, charArg))
+                || (chatID !== lastChatId)
+                || (translationRevision !== lastTranslationRevision)
+                || (translationCacheKey !== lastTranslationCacheKey)
+                || renderPass.invalidated){
                 lastParsedQueue = ''
                 lastCharArg = charArg
                 lastChatId = chatID
-                let translateText = false
+                lastTranslationRevision = translationRevision
+                lastTranslationCacheKey = translationCacheKey
                 try {
-                    if(DBState.db.autoTranslate){
-                        if(DBState.db.autoTranslateCachedOnly && DBState.db.translatorType === 'llm'){
-                            const cache = DBState.db.translateBeforeHTMLFormatting
-                            ? await getLLMCache(data)
-                            : !DBState.db.legacyTranslation
-                            ? await getLLMCache(await ParseMarkdown(data, charArg, 'pretranslate', chatID, getCbsCondition()))
-                            : await getLLMCache(await ParseMarkdown(data, charArg, mode, chatID, getCbsCondition()))
-                  
-                            translateText = cache !== null
-                        }
-                        else{
-                            translateText = true
-                        }
-                    }
+                    const translateText =
+                        await revenantTranslationRecovery.shouldDisplayTranslation(
+                            recoverySnapshot,
+                            {
+                                data,
+                                translated,
+                                streaming: isStreamingDisplay,
+                                parseMarkdown: parseMessageMarkdown,
+                            },
+                        )
 
                     const lastTranslated = translated
 
-                    setTimeout(() => {
-                            translated = translateText
-                    }, 10)
-
-                    // State change of `translated` triggers markParsing again,
-                    // causing redundant translation attempts
                     if (lastTranslated !== translateText) {
-                        return;
+                        const marked = await parseMessageMarkdown(data, mode)
+                        lastParsedQueue = marked
+                        currentParsedTranslated = false
+                        lastCharArg = charArg
+                        setTimeout(() => {
+                            if (msgDisplay === data) translated = translateText
+                        }, 10)
+                        return lastParsedQueue
                     }
                 } catch (error) {
                     console.error(error)
                 }
             }
-            if(retranslate || translated){
-                if (DBState.db.showTranslationLoading) {
-                    lastParsed = `<div style="display:flex;justify-content:center;align-items:center;height:48px;"><div style="animation: spin 1s linear infinite; border-radius: 50%; height: 32px; width: 32px; border: 2px solid #3b82f6; border-top: 2px solid transparent;"></div></div><style>@keyframes spin { to { transform: rotate(360deg); } }</style>`
-                }
-
-                let transResult
-                
-                if(DBState.db.translatorType === 'llm' && DBState.db.translateBeforeHTMLFormatting){
-                    await sleep(100)
-                    translating = true
-                    data = await translateHTML(data, false, charArg, chatID, retranslate)
-                    translating = false
-                    const marked = await ParseMarkdown(data, charArg, mode, chatID, getCbsCondition())
-                    lastParsedQueue = marked
-                    lastCharArg = charArg
-                    transResult = marked
-                }
-                else if(!DBState.db.legacyTranslation){
-                    const marked = await ParseMarkdown(data, charArg, 'pretranslate', chatID, getCbsCondition())
-                    translating = true
-                    const translated = await postTranslationParse(await translateHTML(marked, false, charArg, chatID, retranslate))
-                    translating = false
-                    lastParsedQueue = translated
-                    lastCharArg = charArg
-                    transResult = translated
-                }
-                else{
-                    const marked = await ParseMarkdown(data, charArg, mode, chatID, getCbsCondition())
-                    translating = true
-                    const translated = await translateHTML(marked, false, charArg, chatID, retranslate)
-                    translating = false
-                    lastParsedQueue = translated
-                    lastCharArg = charArg
-                    transResult = translated
-                }
+            if(isStreamingDisplay && translated){
+                setTimeout(() => {
+                    if (msgDisplay === data) translated = false
+                }, 10)
+            }
+            if(!isStreamingDisplay && (retranslate || translated)){
+                await revenantTranslationRecovery.waitForResult(recoverySnapshot)
+                const transResult = await renderController.renderTranslation({
+                    data,
+                    charArg,
+                    chatId: chatID,
+                    retranslate,
+                    translationCacheKey,
+                    parseMarkdown: parseMessageMarkdown,
+                })
+                lastParsedQueue = transResult
+                currentParsedTranslated = true
+                lastCharArg = charArg
 
                 setTimeout(() => {
                     retranslate = false
                 }, 10);
+                await revenantTranslationRecovery.acknowledgeResolved(recoverySnapshot)
 
                 return transResult
             }
             else{
-                const marked = await ParseMarkdown(data, charArg, mode, chatID, getCbsCondition())
+                const marked = await parseMessageMarkdown(data, mode)
                 lastParsedQueue = marked
+                currentParsedTranslated = false
                 lastCharArg = charArg
                 return marked
             }   
         } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') {
+                retranslate = false
+                translated = false
+                lastParsedQueue = await parseMessageMarkdown(data, mode)
+                currentParsedTranslated = false
+                return lastParsedQueue
+            }
             //retry
             if(tries > 2){
 
@@ -161,6 +185,7 @@
         finally{
             //since trimMarkdown is fast, we don't need to cache it
             lastParsed = lastParsedQueue
+            lastParsedTranslated = currentParsedTranslated
         }
     }
 
@@ -241,7 +266,9 @@
         }
     }
 
-    let markParsingResult = $derived.by(() => markParsing(msgDisplay, character, idx))
+    let markParsingResult = $derived.by(async () => {
+        return await markParsing(msgDisplay, character, idx)
+    })
 
     $effect(() => {
         markParsingResult
@@ -255,7 +282,7 @@
 </script>
 
 {#await markParsingResult}
-    {@html addMetadataToElement(trimMarkdown(lastParsed), modelShortName)}
+    {@html addMetadataToElement(trimMarkdown(DBState.db.showTranslationLoading && (renderController.isTranslationBusy(revenantTranslationRecovery.pending, retranslate) || (translated && !lastParsedTranslated)) ? translationLoadingHTML : lastParsed), modelShortName)}
 {:then md}
     {@html addMetadataToElement(trimMarkdown(md), modelShortName)}
 {/await}

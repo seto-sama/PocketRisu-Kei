@@ -33,6 +33,7 @@
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme";
+    import IconButton from "../UI/GUI/IconButton.svelte";
     import Help from "./Help.svelte";
     import { getChatBranches } from "src/ts/gui/branches";
     import { getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
@@ -40,6 +41,8 @@
     import { selectSingleFile } from "src/ts/util";
     import { translateStackTrace } from "../../ts/sourcemap";
     import { getDetailedOSLabel, getFallbackOSLabel, getRisuEnvironmentLabel } from "src/ts/platform";
+    import { formatRequestBody, formatResponseBody, getResponseBodyDetails } from "src/ts/requestLogFormat";
+    import { PRODUCT_NAME } from "src/ts/branding";
 
     let showDetails = $state(false);
     let translatedStackTrace = $state('');
@@ -51,7 +54,7 @@
     const userAgent = typeof navigator === "undefined" ? "Unknown" : navigator.userAgent || "Unknown";
     const stackTraceCodeBlock = $derived.by(() => {
         const lines = [
-            `PocketRisu v${nodeOnlyVer}`,
+            `${PRODUCT_NAME} v${nodeOnlyVer}`,
             `OS: ${osLabel}`,
             `User-Agent: ${userAgent}`,
             `Risu environment: ${risuEnvironment}`,
@@ -85,9 +88,15 @@
     let allExpanded = $state(false)
     let copiedKey: string | null = $state(null)
     let togglePresetShowAll = $state(false)
+    let suppressInputFocusRestore = false
 
     function closeTogglePresets() {
         togglePresetsOpenStore.set(false)
+    }
+
+    function submitAlertInput(restoreFocus = true) {
+        suppressInputFocusRestore = !restoreFocus
+        alertStore.set({ type: 'none', msg: input })
     }
 
     // Register JSON language for syntax highlighting
@@ -183,13 +192,6 @@
         }
     }
 
-    const beautifyJSON = (data:string) =>{
-        try {
-            return JSON.stringify(JSON.parse(data), null, 2)
-        } catch (error) {
-            return data
-        }
-    }
 </script>
 
 <svelte:window onmessage={async (e) => {
@@ -203,13 +205,13 @@
     }
 }}></svelte:window>
 
-{#if $alertStore.type !== 'none' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'branches' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'requestlogs' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress' && $alertStore.type !== 'confirmMulti'}
+{#if $alertStore.type !== 'none' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'branches' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'requestlogs' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress' && $alertStore.type !== 'confirmMulti' && $alertStore.type !== 'addchar'}
     <div class="absolute w-full h-full z-50 bg-black/50 flex justify-center items-center">
         <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
             {#if $alertStore.type === 'selectChar'}
                 <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">Select</h2>
             {/if}
-            {#if $alertStore.type !== 'requestdata' && $alertStore.type !== 'addchar'}
+            {#if $alertStore.type !== 'requestdata'}
                 <span class="text-gray-300 whitespace-pre-wrap">{$alertStore.msg}</span>
                 {#if $alertStore.submsg}
                     <span class="text-gray-500 text-sm">{$alertStore.submsg}</span>
@@ -342,12 +344,37 @@
                             <span class="text-gray-300 text-lg mt-2">{language.errors.requestLogRemoved}</span>
                             <span class="text-gray-500">{language.errors.requestLogRemovedDesc}</span>
                         {:else}
+                            {@const responseDetails = getResponseBodyDetails(data)}
                             <h1 class="text-2xl font-bold my-4">URL</h1>
                             <code class="text-gray-300 border border-darkborderc p-2 rounded-md whitespace-pre-wrap">{data.url}</code>
                             <h1 class="text-2xl font-bold my-4">Request Body</h1>
-                            <code class="text-gray-300 border border-darkborderc p-2 rounded-md whitespace-pre-wrap">{beautifyJSON(data.body)}</code>
+                            <code class="text-gray-300 border border-darkborderc p-2 rounded-md whitespace-pre-wrap">{formatRequestBody(data.body)}</code>
                             <h1 class="text-2xl font-bold my-4">Response</h1>
-                            <code class="text-gray-300 border border-darkborderc p-2 rounded-md whitespace-pre-wrap">{beautifyJSON(data.response)}</code>
+                            {#if responseDetails}
+                                <div class="space-y-2">
+                                    {#each responseDetails.groups as group (group.event)}
+                                        <details class="text-gray-300 border border-darkborderc rounded-md">
+                                            <summary class="cursor-pointer select-none p-2">
+                                                {group.summary}
+                                            </summary>
+                                            <code class="block border-t border-darkborderc p-2 whitespace-pre-wrap max-h-64 overflow-auto">{group.readable}</code>
+                                            <details class="border-t border-darkborderc">
+                                                <summary class="cursor-pointer select-none p-2 text-gray-500">Raw</summary>
+                                                <code class="block border-t border-darkborderc p-2 whitespace-pre-wrap max-h-64 overflow-auto">{group.raw}</code>
+                                            </details>
+                                        </details>
+                                    {/each}
+                                </div>
+                                {#if responseDetails.remainder}
+                                    <code class="block mt-2 text-gray-300 border border-darkborderc p-2 rounded-md whitespace-pre-wrap">{responseDetails.remainder}</code>
+                                    <details class="mt-2 text-gray-500 border border-darkborderc rounded-md">
+                                        <summary class="cursor-pointer select-none p-2">Raw remaining events</summary>
+                                        <code class="block border-t border-darkborderc p-2 whitespace-pre-wrap max-h-64 overflow-auto">{responseDetails.rawRemainder}</code>
+                                    </details>
+                                {/if}
+                            {:else}
+                                <code class="text-gray-300 border border-darkborderc p-2 rounded-md whitespace-pre-wrap">{formatResponseBody(data)}</code>
+                            {/if}
                         {/if}
                     {/await}
                 {/if}
@@ -387,83 +414,6 @@
                         </div>
                     {/if}
                 {/if}
-            {:else if $alertStore.type === 'addchar'}
-                <div class="w-2xl flex flex-col max-w-full">
-
-                    <button class="border-darkborderc border py-12 px-8 flex rounded-md hover:ring-2 justify-center items-center" onclick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        alertStore.set({
-                            type: 'none',
-                            msg: 'importFromRealm'
-                        })
-                    }}>
-                        <div class="flex flex-col justify-start items-start">
-                            <span class="text-2xl font-bold">{language.importFromRealm}</span>
-                            <span class="text-textcolor2">{language.importFromRealmDesc}</span>
-                        </div>
-                        <div class="ml-9 float-right flex-1 flex justify-end">
-                            <ChevronRightIcon />
-                        </div>
-                    </button>
-                    <button class="border-darkborderc border py-2 px-8 flex rounded-md hover:ring-2 items-center mt-2" onclick={((e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        alertStore.set({
-                            type: 'none',
-                            msg: 'importCharacter'
-                        })
-                    })}>
-                        <div class="flex flex-col justify-start items-start">
-                            <span>{language.importCharacter}</span>
-                        </div>
-                        <div class="ml-9 float-right flex-1 flex justify-end">
-                            <ChevronRightIcon />
-                        </div>
-                    </button>
-                    <button class="border-darkborderc border py-2 px-8 flex rounded-md hover:ring-2 items-center mt-2" onclick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        alertStore.set({
-                            type: 'none',
-                            msg: 'createfromScratch'
-                        })
-                    }}>
-                        <div class="flex flex-col justify-start items-start">
-                            <span>{language.createfromScratch}</span>
-                        </div>
-                        <div class="ml-9 float-right flex-1 flex justify-end">
-                            <ChevronRightIcon />
-                        </div>
-                    </button>
-                    <button class="border-darkborderc border py-2 px-8 flex rounded-md hover:ring-2 items-center mt-2" onclick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        alertStore.set({
-                            type: 'none',
-                            msg: 'importPackage'
-                        })
-                    }}>
-                        <div class="flex flex-col justify-start items-start">
-                            <span>{language.characterPackageImport}</span>
-                        </div>
-                        <div class="ml-9 float-right flex-1 flex justify-end">
-                            <ChevronRightIcon />
-                        </div>
-                    </button>
-                    <button class="border-darkborderc border py-2 px-8 flex rounded-md hover:ring-2 items-center mt-2" onclick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        alertStore.set({
-                            type: 'none',
-                            msg: 'cancel'
-                        })
-                    }}>
-                        <div class="flex flex-col justify-start items-start">
-                            <span>{language.cancel}</span>
-                        </div>
-                    </button>
-                </div>
             {/if}
         </div>
     </div>
@@ -478,7 +428,7 @@
                 <span>
                     {language.shareExport}
                 </span>
-                <button class="float-right text-textcolor2 hover:text-primary" onclick={() => {
+                <IconButton size="lg" className="float-right" onclick={() => {
                     alertStore.set({
                         type: 'none',
                         msg: JSON.stringify({
@@ -488,7 +438,7 @@
                     })
                 }}>
                     <XIcon />
-                </button>
+                </IconButton>
             </h1>
             <span class="text-textcolor mt-4">{language.type}</span>
             {#if cardExportType === ''}
@@ -532,6 +482,13 @@
                     <OptionInput value="">PNG</OptionInput>
                     <OptionInput value="json">JSON</OptionInput>
                 </SelectInput>
+                <div class="mt-4 flex items-center justify-between gap-4">
+                    <div class="flex min-w-0 flex-col">
+                        <span class="text-textcolor">{language.imageCompression}</span>
+                        <span class="text-textcolor2 text-sm">{language.help.imageCompression}</span>
+                    </div>
+                    <ShSwitch className="shrink-0" bind:checked={DBState.db.imageCompression} />
+                </div>
             {/if}
             <Button className="mt-4" onclick={() => {
                 alertStore.set({
@@ -571,14 +528,14 @@
         {/if}
 
         <div class="x-50 right-2 top-2 absolute">
-            <button class="bg-darkbg border-darkborderc border p-2 rounded-md" onclick={() => {
+            <IconButton size="lg" className="bg-darkbg border-darkborderc border rounded-md" onclick={() => {
                 alertStore.set({
                     type: 'none',
                     msg: ''
                 })
             }}>
                 <XIcon />
-            </button>
+            </IconButton>
         </div>
 
         {#each getChatBranches() as obj}
@@ -651,11 +608,11 @@
                     }}>
                         {allExpanded ? language.collapseAll : language.expandAll}
                     </Button>
-                    <button class="text-textcolor2 hover:text-textcolor p-1" onclick={() => {
+                    <IconButton size="lg" onclick={() => {
                         alertStore.set({ type: 'none', msg: '' })
                     }}>
                         <XIcon />
-                    </button>
+                    </IconButton>
                 </div>
             </div>
             <div class="flex-1 overflow-y-auto p-4">
@@ -665,6 +622,9 @@
                     <div class="flex flex-col gap-2">
                         {#each logs as log, i}
                             {@const isExpanded = expandedLogs.has(i)}
+                            {@const requestBody = formatRequestBody(log.body)}
+                            {@const responseBody = formatResponseBody(log)}
+                            {@const responseDetails = getResponseBodyDetails(log)}
                             <div class="border border-darkborderc rounded-lg overflow-hidden">
                                 <button
                                     class="w-full flex items-center justify-between p-3 hover:bg-bgcolor/50 transition-colors"
@@ -707,9 +667,9 @@
                                                         title="Copy"
                                                     >
                                                         {#if copiedKey === `${i}-url`}
-                                                            <CheckIcon size={14} />
+                                                            <CheckIcon size={12} />
                                                         {:else}
-                                                            <CopyIcon size={14} />
+                                                            <CopyIcon size={12} />
                                                         {/if}
                                                     </button>
                                                 </div>
@@ -724,13 +684,13 @@
                                                         title="Copy"
                                                     >
                                                         {#if copiedKey === `${i}-body`}
-                                                            <CheckIcon size={14} />
+                                                            <CheckIcon size={12} />
                                                         {:else}
-                                                            <CopyIcon size={14} />
+                                                            <CopyIcon size={12} />
                                                         {/if}
                                                     </button>
                                                 </div>
-                                                <pre class="request-log-code hljs">{@html highlightJson(log.body)}</pre>
+                                                <pre class="request-log-code hljs">{@html highlightJson(requestBody)}</pre>
                                             </div>
                                             <div>
                                                 <div class="flex items-center justify-between mb-2">
@@ -741,9 +701,9 @@
                                                         title="Copy"
                                                     >
                                                         {#if copiedKey === `${i}-header`}
-                                                            <CheckIcon size={14} />
+                                                            <CheckIcon size={12} />
                                                         {:else}
-                                                            <CopyIcon size={14} />
+                                                            <CopyIcon size={12} />
                                                         {/if}
                                                     </button>
                                                 </div>
@@ -754,17 +714,41 @@
                                                     <span class="text-textcolor text-sm font-semibold">Response</span>
                                                     <button
                                                         class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-response` ? 'text-green-500' : 'text-textcolor2 hover:text-textcolor'}"
-                                                        onclick={(e) => { e.stopPropagation(); copyToClipboard(log.response, `${i}-response`) }}
+                                                        onclick={(e) => { e.stopPropagation(); copyToClipboard(responseBody, `${i}-response`) }}
                                                         title="Copy"
                                                     >
                                                         {#if copiedKey === `${i}-response`}
-                                                            <CheckIcon size={14} />
+                                                            <CheckIcon size={12} />
                                                         {:else}
-                                                            <CopyIcon size={14} />
+                                                            <CopyIcon size={12} />
                                                         {/if}
                                                     </button>
                                                 </div>
-                                                <pre class="request-log-code hljs max-h-64">{@html highlightJson(log.response)}</pre>
+                                                {#if responseDetails}
+                                                    <div class="space-y-2">
+                                                        {#each responseDetails.groups as group (group.event)}
+                                                            <details class="border border-darkborderc rounded-md text-textcolor2">
+                                                                <summary class="cursor-pointer select-none p-2 font-mono text-sm">
+                                                                    {group.summary}
+                                                                </summary>
+                                                                <pre class="request-log-code hljs max-h-64 border-t border-darkborderc rounded-none">{group.readable}</pre>
+                                                                <details class="border-t border-darkborderc">
+                                                                    <summary class="cursor-pointer select-none p-2 font-mono text-sm">Raw</summary>
+                                                                    <pre class="request-log-code hljs max-h-64 border-t border-darkborderc rounded-none">{@html highlightJson(group.raw)}</pre>
+                                                                </details>
+                                                            </details>
+                                                        {/each}
+                                                    </div>
+                                                    {#if responseDetails.remainder}
+                                                        <pre class="request-log-code hljs max-h-64 mt-2">{responseDetails.remainder}</pre>
+                                                        <details class="mt-2 border border-darkborderc rounded-md text-textcolor2">
+                                                            <summary class="cursor-pointer select-none p-2 font-mono text-sm">Raw remaining events</summary>
+                                                            <pre class="request-log-code hljs max-h-64 border-t border-darkborderc rounded-none">{@html highlightJson(responseDetails.rawRemainder)}</pre>
+                                                        </details>
+                                                    {/if}
+                                                {:else}
+                                                    <pre class="request-log-code hljs max-h-64">{@html highlightJson(responseBody)}</pre>
+                                                {/if}
                                             </div>
                                         </div>
                                     </div>
@@ -777,6 +761,59 @@
         </div>
     </div>
 {/if}
+
+<ShDialog
+    open={$alertStore.type === 'addchar'}
+    size="lg"
+    closeOnEscape={true}
+    onOpenChange={(v) => {
+        if (!v && $alertStore.type === 'addchar') {
+            alertStore.set({ type: 'none', msg: 'cancel' })
+        }
+    }}
+>
+    {#snippet title()}
+        {language.addCharacter}
+    {/snippet}
+
+    <div class="flex flex-col gap-2">
+        <button
+            class="add-character-option add-character-option-featured"
+            onclick={() => alertStore.set({ type: 'none', msg: 'importFromRealm' })}
+        >
+            <span class="flex min-w-0 flex-col items-start text-left">
+                <span class="text-xl font-bold">{language.importFromRealm}</span>
+                <span class="text-sm text-textcolor2">{language.importFromRealmDesc}</span>
+            </span>
+            <ChevronRightIcon size={20} />
+        </button>
+
+        <button
+            class="add-character-option"
+            onclick={() => alertStore.set({ type: 'none', msg: 'importCharacter' })}
+        >
+            <span>{language.importCharacter}</span>
+            <ChevronRightIcon size={18} />
+        </button>
+
+        <button
+            class="add-character-option"
+            onclick={() => alertStore.set({ type: 'none', msg: 'createfromScratch' })}
+        >
+            <span>{language.createfromScratch}</span>
+            <ChevronRightIcon size={18} />
+        </button>
+
+        <button
+            class="add-character-option"
+            onclick={() => alertStore.set({ type: 'none', msg: 'importPackage' })}
+        >
+            <span>{language.characterPackageImport}</span>
+            <ChevronRightIcon size={18} />
+        </button>
+
+    </div>
+</ShDialog>
 
 <ShDialog
     open={$alertStore.type === 'error'}
@@ -816,9 +853,9 @@
                             aria-label={language.copy}
                         >
                             {#if copiedKey === 'stack-trace'}
-                                <CheckIcon size={14} />
+                                <CheckIcon size={12} />
                             {:else}
-                                <CopyIcon size={14} />
+                                <CopyIcon size={12} />
                             {/if}
                         </button>
                         <pre class="stack-trace">{stackTraceCodeBlock}</pre>
@@ -853,9 +890,14 @@
     {/snippet}
 </ShDialog>
 
+{#snippet markdownFooter()}
+    <ShButton onclick={() => alertStore.set({ type: 'none', msg: '' })}>{language.confirm}</ShButton>
+{/snippet}
+
 <ShDialog
     open={$alertStore.type === 'markdown'}
     size="lg"
+    footer={$alertStore.hideConfirm ? undefined : markdownFooter}
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'markdown') {
             alertStore.set({ type: 'none', msg: '' })
@@ -863,16 +905,13 @@
     }}
 >
     <div class="overflow-y-auto">
-        <span class="chattext prose chattext2" class:prose-invert={$ColorSchemeTypeStore}>
+        <span class="chattext prose chattext2" class:prose-invert={$ColorSchemeTypeStore === 'dark'}>
             {#await ParseMarkdown($alertStore.msg) then msg}
                 {@html msg}
             {/await}
         </span>
     </div>
 
-    {#snippet footer()}
-        <ShButton onclick={() => alertStore.set({ type: 'none', msg: '' })}>{language.confirm}</ShButton>
-    {/snippet}
 </ShDialog>
 
 <ShAlertDialog
@@ -884,7 +923,12 @@
         }
     }}
 >
-    <span class="whitespace-pre-wrap text-textcolor">{$alertStore.msg}</span>
+    <div class="flex flex-col gap-2">
+        <span class="whitespace-pre-wrap text-textcolor">{$alertStore.msg}</span>
+        {#if $alertStore.submsg}
+            <span class="whitespace-pre-wrap text-sm text-textcolor2">{$alertStore.submsg}</span>
+        {/if}
+    </div>
     {#snippet footer()}
         <ShButton variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>{language.no}</ShButton>
         <ShButton onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>{language.yes}</ShButton>
@@ -993,6 +1037,10 @@
     open={$alertStore.type === 'input'}
     closable={false}
     closeOnOutsideClick={false}
+    onCloseAutoFocus={(event) => {
+        if (suppressInputFocusRestore) event.preventDefault()
+        suppressInputFocusRestore = false
+    }}
 >
     <div class="flex flex-col gap-3">
         {#if $alertStore.msg}
@@ -1005,9 +1053,18 @@
             list="alert-input-list"
             fullwidth
             onkeydown={(e) => {
-                if (e.key === 'Enter' && !e.isComposing) {
-                    alertStore.set({ type: 'none', msg: input })
+                if (e.key !== 'Enter') return
+                e.stopPropagation()
+                if (e.isComposing) {
+                    const target = e.currentTarget as HTMLInputElement
+                    setTimeout(() => {
+                        input = target.value
+                        submitAlertInput(false)
+                    }, 0)
+                    return
                 }
+                e.preventDefault()
+                submitAlertInput(false)
             }}
         />
         {#if $alertStore.datalist}
@@ -1023,7 +1080,7 @@
     </div>
     {#snippet footer()}
         <ShButton variant="outline" onclick={() => alertStore.set({ type: 'none', msg: '' })}>{language.cancel}</ShButton>
-        <ShButton onclick={() => alertStore.set({ type: 'none', msg: input })}>{language.confirm}</ShButton>
+        <ShButton onclick={() => submitAlertInput()}>{language.confirm}</ShButton>
     {/snippet}
 </ShDialog>
 
@@ -1107,7 +1164,7 @@
                                                 DBState.db.togglePresets = [...presets];
                                             }
                                         }}>
-                                            <ChevronUpIcon size={14} />
+                                            <ChevronUpIcon />
                                         </ShButton>
                                         <ShButton variant="ghost" size="icon-xs" onclick={() => {
                                             const presets = DBState.db.togglePresets!;
@@ -1116,14 +1173,14 @@
                                                 DBState.db.togglePresets = [...presets];
                                             }
                                         }}>
-                                            <ChevronDownIcon size={14} />
+                                            <ChevronDownIcon />
                                         </ShButton>
                                     {/if}
                                     <ShDropdownMenu>
                                         <ShDropdownMenuTrigger>
                                             {#snippet child({ props })}
                                                 <ShButton {...props} variant="ghost" size="icon-xs">
-                                                    <EllipsisVerticalIcon size={14} />
+                                                    <EllipsisVerticalIcon />
                                                 </ShButton>
                                             {/snippet}
                                         </ShDropdownMenuTrigger>
@@ -1143,7 +1200,7 @@
                                                     notifySuccess((language.togglePresetOverwritten as any)(presetName))
                                                 }
                                             }}>
-                                                <RefreshCwIcon size={14} />
+                                                <RefreshCwIcon size={12} />
                                                 {language.togglePresetMenuOverwrite}
                                             </ShDropdownMenuItem>
                                             <ShDropdownMenuItem onSelect={async () => {
@@ -1156,7 +1213,7 @@
                                                     notifySuccess((language.togglePresetRenamed as any)(oldName, name))
                                                 }
                                             }}>
-                                                <PencilIcon size={14} />
+                                                <PencilIcon size={12} />
                                                 {language.togglePresetMenuRename}
                                             </ShDropdownMenuItem>
                                             <ShDropdownMenuItem onSelect={() => {
@@ -1166,7 +1223,7 @@
                                                 DBState.db.togglePresets = [...DBState.db.togglePresets!];
                                                 notifySuccess((language.togglePresetDuplicated as any)(copy.name))
                                             }}>
-                                                <CopyIcon size={14} />
+                                                <CopyIcon size={12} />
                                                 {language.togglePresetMenuDuplicate}
                                             </ShDropdownMenuItem>
                                             <ShDropdownMenuItem onSelect={() => {
@@ -1174,7 +1231,7 @@
                                                 downloadFile(`${preset.name}_toggle.json`, Buffer.from(JSON.stringify(exportData, null, 2), 'utf-8'))
                                                 notifySuccess((language.togglePresetExported as any)(preset.name))
                                             }}>
-                                                <DownloadIcon size={14} />
+                                                <DownloadIcon size={12} />
                                                 {language.togglePresetMenuExport}
                                             </ShDropdownMenuItem>
                                             <ShDropdownMenuSeparator />
@@ -1188,7 +1245,7 @@
                                                     notifySuccess((language.togglePresetDeleted as any)(presetName))
                                                 }
                                             }}>
-                                                <TrashIcon size={14} />
+                                                <TrashIcon size={12} />
                                                 {language.togglePresetMenuDelete}
                                             </ShDropdownMenuItem>
                                         </ShDropdownMenuContent>
@@ -1222,7 +1279,7 @@
                         notifySuccess((language.togglePresetSaved as any)(name))
                     }}
                 >
-                    <PlusIcon size={16} />
+                    <PlusIcon />
                     {language.togglePresetSaveNew}
                 </ShButton>
                 <ShButton
@@ -1259,7 +1316,7 @@
                         }
                     }}
                 >
-                    <UploadIcon size={16} />
+                    <UploadIcon />
                     {language.togglePresetImport}
                 </ShButton>
             </div>
@@ -1271,6 +1328,44 @@
     .break-any{
         word-break: normal;
         overflow-wrap: anywhere;
+    }
+
+    .add-character-option {
+        display: flex;
+        width: 100%;
+        min-height: 2.75rem;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.625rem 1rem;
+        border: 1px solid var(--risu-theme-darkborderc);
+        border-radius: 0.5rem;
+        background-color: transparent;
+        color: var(--risu-theme-textcolor);
+        transition:
+            background-color 150ms ease,
+            color 150ms ease;
+    }
+
+    .add-character-option:hover {
+        background-color: color-mix(in srgb, var(--risu-theme-selected) 30%, transparent);
+    }
+
+    .add-character-option:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--risu-theme-borderc) 65%, transparent);
+        outline-offset: 1px;
+    }
+
+    .add-character-option :global(svg) {
+        flex: none;
+        color: var(--risu-theme-textcolor2);
+        transition: color 150ms ease;
+    }
+
+    .add-character-option-featured {
+        min-height: 6.5rem;
+        padding: 1.25rem;
+        background-color: color-mix(in srgb, var(--risu-theme-selected) 18%, transparent);
     }
 
     .stack-trace-wrap {

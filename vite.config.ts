@@ -15,6 +15,7 @@ export default defineConfig(({command, mode}) => {
     },
     plugins: [
       svelte({
+        configFile: false,
         preprocess: vitePreprocess(),
         onwarn: (warning, handler) => {
           // disable a11y warnings

@@ -29,6 +29,9 @@ export const sideBarStore = writable(window.innerWidth > 1024)
 export const leftBarCollapsed = writable(false)
 export const selectedCharID = writable(-1)
 export const chatDeselected = writable(false)
+// Session-only DevTool state. Keeping this outside the component preserves the
+// autopilot draft while its sidebar tab is unmounted and mounted again.
+export const devToolAutopilotStore = writable<string[]>([])
 export const CurrentTriggerIdStore = writable<string | null>(null)
 export const CharEmotion = writable({} as {[key:string]: [string, string, number][]})
 export const ViewBoxsize = writable({ width: 12 * 16, height: 12 * 16 }); // Default width and height in pixels
@@ -64,14 +67,14 @@ export interface BootBackupPromptData {
     free: number | null
     total: number | null
     insufficient: boolean
-    resolve: (proceed: boolean) => void
+    resolve: (mode: 'skip' | 'snapshot' | 'full') => void
 }
 export const bootBackupPromptStore = writable<BootBackupPromptData | null>(null)
 
-// Sub-tab index inside the System settings page. Exposed as a store so
-// other pages can deep-link via openSettings(SettingsRoute.System,
-// SystemTab.X) — see src/ts/routing.
+// Independent sub-tab indices for settings pages.
+export const AddonSubmenuIndex = writable(0)
 export const SystemSubmenuIndex = writable(0)
+export const AdminStatsSubmenuIndex = writable(0)
 // Sub-tab index inside the Accessibility settings page. A store so the model-
 // mode gear button can deep-link to the Sidebar tab — see src/ts/routing
 // (AccessibilityTab) and Setting/Pages/AccessibilitySettings.svelte.
@@ -206,7 +209,8 @@ export const popUpEditorStore = $state({
     open: false,
     value: '',
     mode: 'default' as 'default',
-    language: 'markdown' as string
+    language: 'markdown' as string,
+    onSave: null as null | (() => boolean | Promise<boolean>)
 })
 
 //Set might be more ideal, however since Svelte doesn't support reactive Sets, using array for now
@@ -237,6 +241,9 @@ $effect.root(() => {
         }
         DBState?.db?.enabledModules
         DBState?.db?.enabledModules?.length
+        DBState?.db?.personaEnabledModules
+        DBState?.db?.selectedPersona
+        DBState?.db?.characters?.[selIdState.selId]?.chats?.[DBState?.db?.characters?.[selIdState.selId]?.chatPage]?.bindedPersona
         DBState?.db?.characters?.[selIdState.selId]?.chats?.[DBState?.db?.characters?.[selIdState.selId]?.chatPage]?.modules?.length
         DBState?.db?.characters?.[selIdState.selId]?.hideChatIcon
         DBState?.db?.characters?.[selIdState.selId]?.backgroundHTML

@@ -7,7 +7,7 @@ import { isNodeServer } from "src/ts/platform"
 import { getChatVar, setChatVar, getGlobalChatVar } from './chatVar.svelte';
 import { processScriptFull } from '../process/scripts';
 import { get } from 'svelte/store';
-import css, { type CssAtRuleAST } from '@adobe/css-tools'
+import css, { type CssAtRuleAST, type CssDeclarationAST } from '@adobe/css-tools'
 import { selectedCharID } from '../stores.svelte';
 import { calcString } from '../process/infunctions';
 import { findCharacterbyId, getPersonaPrompt, getUserIcon, getUserName, pickHashRand, replaceAsync} from '../util';
@@ -150,11 +150,82 @@ export function risuEscape(text:string){
     })
 }
 
+const quoteBlockEndingRegex = /[\p{P}\p{S}]$/u
+const quoteClosingCharsRegex = /[\uE9b1\uE9b3"'’”」』»》]+$/u
+const blockquoteBreakPlaceholder = '\uE9B4'
+const cornerBracketStyles = [
+    { regex: /「(.+?)」/gs, open: '「', close: '」', mark: 'blockquote2' },
+    { regex: /『(.+?)』/gs, open: '『', close: '』', mark: 'cornerbracket2' },
+    { regex: /«(.+?)»/gs, open: '«', close: '»', mark: 'cornerbracket2' },
+    { regex: /《(.+?)》/gs, open: '《', close: '》', mark: 'cornerbracket2' },
+] as const
+
+function shouldRenderAsBlockquote(content:string){
+    const trimmed = content
+        .replace(/(?:<[^>]+>\s*)+$/g, '')
+        .trim()
+        .replace(quoteClosingCharsRegex, '')
+        .trim()
+    return quoteBlockEndingRegex.test(trimmed)
+}
+
+function renderMarkedText(open:string, content:string, close:string, mark:string){
+    const trailingPlaceholder = mark.startsWith('blockquote') ? blockquoteBreakPlaceholder : ''
+    return `<mark risu-mark="${mark}">${open}${content}${close}</mark>${trailingPlaceholder}`
+}
+
+function removeBlockquoteBreakPlaceholders(text:string){
+    return text.replace(/\uE9B4(?:[ \t]*<br\s*\/?>\s*\n?)?/gu, '')
+}
+
+function applyCornerBracketStyling(text:string){
+    for(const style of cornerBracketStyles){
+        text = text.replace(style.regex, (_full, content) => {
+            return renderMarkedText(style.open, content, style.close, style.mark)
+        })
+    }
+    return text
+}
+
+const standaloneOrderedListMarker = /^([ \t]{0,3}\d{1,9})\.([ \t]*)$/
+const fencedCodeOpening = /^[ \t]{0,3}(`{3,}|~{3,})/
+
+function escapeStandaloneOrderedListMarkers(markdown:string){
+    let fenceCharacter = ''
+    let fenceLength = 0
+
+    return markdown.split('\n').map((line) => {
+        const carriageReturn = line.endsWith('\r') ? '\r' : ''
+        const content = carriageReturn ? line.slice(0, -1) : line
+
+        if(fenceCharacter){
+            const fencedCodeClosing = new RegExp(
+                `^[ \\t]{0,3}${fenceCharacter}{${fenceLength},}[ \\t]*$`,
+            )
+            if(fencedCodeClosing.test(content)){
+                fenceCharacter = ''
+                fenceLength = 0
+            }
+            return line
+        }
+
+        const opening = content.match(fencedCodeOpening)
+        if(opening){
+            fenceCharacter = opening[1][0]
+            fenceLength = opening[1].length
+            return line
+        }
+
+        return content.replace(standaloneOrderedListMarker, '$1\\.$2') + carriageReturn
+    }).join('\n')
+}
+
 function renderMarkdown(md:markdownit, data:string){
     let quotes = ['“', '”', '‘', '’']
     if(DBState.db?.customQuotes){
         quotes = DBState.db.customQuotesData ?? quotes
     }
+    data = escapeStandaloneOrderedListMarkers(data)
     data = data.replace(/\$\$(.*?)\$\$/gs, (
         match:string,
         content:string,
@@ -179,16 +250,22 @@ function renderMarkdown(md:markdownit, data:string){
     })
     let text = risuUnescape(md.render(data.replace(/“|”/g, '"').replace(/‘|’/g, "'")))
 
+    if(!DBState.db?.unformatQuotes && DBState.db?.cornerBracketStyling){
+        text = applyCornerBracketStyling(text)
+    }
+
     if(DBState.db?.unformatQuotes){
         text = text.replace(/\uE9b0/gu, quotes[0]).replace(/\uE9b1/gu, quotes[1])
         text = text.replace(/\uE9b2/gu, quotes[2]).replace(/\uE9b3/gu, quotes[3])
     }
     else if(DBState.db?.blockquoteStyling){
         text = text.replace(/\uE9b0(.+?)\uE9b1/gum, (full, content) => {
+            const markType = shouldRenderAsBlockquote(content) ? 'blockquote2' : 'quote2'
             content = content.replace(/\uE9b2/gu, '<mark risu-mark="quote1">' + quotes[2]).replace(/\uE9b3/gu, quotes[3] + '</mark>')
-            return `<br><br><mark risu-mark="blockquote2">${quotes[0]}${content}${quotes[1]}</mark><br><br>`
+            return renderMarkedText(quotes[0], content, quotes[1], markType)
         }).replace(/\uE9b2(.+?)\uE9b3/gum, (full, content) => {
-            return `<br><br><mark risu-mark="blockquote1">${quotes[2]}${content}${quotes[3]}</mark><br><br>`
+            const markType = shouldRenderAsBlockquote(content) ? 'blockquote1' : 'quote1'
+            return renderMarkedText(quotes[2], content, quotes[3], markType)
         })
 
         //clean up any unmatched quote marks
@@ -200,6 +277,8 @@ function renderMarkdown(md:markdownit, data:string){
         text = text.replace(/\uE9b0/gu, '<mark risu-mark="quote2">' + quotes[0]).replace(/\uE9b1/gu, quotes[1] + '</mark>')
         text = text.replace(/\uE9b2/gu, '<mark risu-mark="quote1">' + quotes[2]).replace(/\uE9b3/gu, quotes[3] + '</mark>')
     }
+
+    text = removeBlockquoteBreakPlaceholders(text)
 
     return text
 }
@@ -527,10 +606,6 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
         let match = assetPaths?.[name]
 
         if(!match){
-            if(DBState.db.legacyMediaFindings){
-                return ''
-            }
-
             if(assetPaths){
                 match = getClosestMatch(char, name, assetPaths)
             }
@@ -877,8 +952,10 @@ export interface simpleCharacterArgument{
     triggerscript?: triggerscript[]
 }
 
-function parseThoughtsAndTools(data:string){
+function parseThoughtsAndTools(data:string, inlineThoughts = false){
     let result = '', i = 0
+    const renderInlineThoughts = (thoughts:string) =>
+        `<div class="x-risu-streaming-thoughts"><div><strong>${language.cot}</strong></div>${thoughts}</div>`
     while (i < data.length) {
         if (data.slice(i, i + 10) === '<Thoughts>') {
             let j = i + 10, depth = 1
@@ -888,9 +965,16 @@ function parseThoughtsAndTools(data:string){
                 j++
             }
             if (depth === 0) {
-                result += `<details><summary>${language.cot}</summary>${data.substring(i + 10, j - 1)}</details>`
+                const thoughts = data.substring(i + 10, j - 1)
+                result += inlineThoughts
+                    ? renderInlineThoughts(thoughts)
+                    : `<details><summary>${language.cot}</summary>${thoughts}</details>`
                 i = j + 10
                 continue
+            }
+            if (inlineThoughts) {
+                result += renderInlineThoughts(data.substring(i + 10))
+                break
             }
         }
         result += data[i++]
@@ -905,7 +989,8 @@ export async function ParseMarkdown(
     charArg:(character|simpleCharacterArgument | string) = null,
     mode:'normal'|'back'|'pretranslate'|'notrim' = 'normal',
     chatID=-1,
-    cbsConditions:CbsConditions = {}
+    cbsConditions:CbsConditions = {},
+    options:{inlineThoughts?:boolean} = {},
 ) {
     let firstParsed = ''
     const additionalAssetMode = (mode === 'back') ? 'back' : 'normal'
@@ -930,7 +1015,7 @@ export async function ParseMarkdown(
 
     data = parseInlayAssets(data ?? '')
 
-    data = parseThoughtsAndTools(data)
+    data = parseThoughtsAndTools(data, options.inlineThoughts === true)
 
     data = encodeStyle(data)
     if(mode === 'normal' || mode === 'notrim'){
@@ -955,7 +1040,7 @@ export function trimMarkdown(data:string){
     if (cached !== undefined) return cached
     cached = decodeStyle(DOMPurify.sanitize(data, {
         ADD_TAGS: ["iframe", "style", "risu-style", "x-em", 'annotation', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt'],
-        ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "risu-ctrl" ,"risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-lang', 'x-hl-text', 'data-inlay-id', 'data-inlay-type'],
+        ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-ctrl" ,"risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-lang', 'x-hl-text', 'data-inlay-id', 'data-inlay-type'],
     }))
     if (trimCache.size >= TRIM_CACHE_MAX) {
         // evict oldest entry
@@ -1073,7 +1158,7 @@ function encodeStyle(txt:string){
 }
 const styleDecodeRegex = /\<risu-style\>(.+?)\<\/risu-style\>/gms
 
-function decodeStyleRule(rule:CssAtRuleAST){
+function decodeStyleRule<T extends CssAtRuleAST | CssDeclarationAST>(rule:T): T {
     if(rule.type === 'rule'){
         if(rule.selectors){
             for(let i=0;i<rule.selectors.length;i++){

@@ -1,9 +1,14 @@
 <script lang="ts">
-    import { DBState, settingsOpen, SettingsMenuIndex } from 'src/ts/stores.svelte';
+    import { DBState, modelProfileReplaceTarget, openModelProfileBrowser, settingsOpen, SettingsMenuIndex } from 'src/ts/stores.svelte';
     import { language } from "src/lang";
-    import { notifySuccess } from "src/ts/alert";
-    import { ArrowLeft, CheckIcon, PinIcon, PinOffIcon, Settings, TriangleAlert } from "@lucide/svelte";
+    import { alertConfirm, notifySuccess } from "src/ts/alert";
+    import { PinIcon, PinOffIcon, TriangleAlert } from "@lucide/svelte";
     import ShButton from "./GUI/ShButton.svelte";
+    import PresetHeader from "./GUI/PresetHeader.svelte";
+    import PresetPickerLayout from "./PresetPickerLayout.svelte";
+    import PresetPickerActions from "./PresetPickerActions.svelte";
+    import TextInput from "./GUI/TextInput.svelte";
+    import { v4 as uuidv4 } from "uuid";
 
     interface Props {
         value?: string;
@@ -12,6 +17,8 @@
         blankLabel?: string;
         warnIfEmpty?: boolean;     // main/sub slots: empty = block, show warning
         disabled?: boolean;
+        compact?: boolean;
+        showConfigure?: boolean;
     }
 
     let {
@@ -21,12 +28,19 @@
         blankLabel,
         warnIfEmpty = false,
         disabled = false,
+        compact = false,
+        showConfigure = false,
     }: Props = $props();
 
     let openOptions = $state(false);
+    let editMode = $state(false);
+    let selectedFolder = $state('all');
 
     let presets = $derived(DBState.db.modelPresets ?? []);
+    let folders = $derived(DBState.db.modelPresetFolders ?? []);
+    let visibleItemIndexes = $state<number[]>([]);
     let bound = $derived(value ? (presets.find(p => p.id === value) ?? null) : null);
+    let selectedItemIndex = $derived(value ? presets.findIndex(preset => preset.id === value) : -1);
     // value set but no matching preset → dangling (deleted). Treated as unset by
     // the resolver; surfaced here as a warning so the user can rebind.
     let dangling = $derived(!!value && !bound);
@@ -53,65 +67,131 @@
         settingsOpen.set(true);
         SettingsMenuIndex.set(16);
     }
+
+    function movePreset(sourceIndex: number, targetIndex: number) {
+        if (sourceIndex === targetIndex || sourceIndex < 0 || targetIndex < 0 || sourceIndex >= presets.length || targetIndex > presets.length) return;
+        const next = [...presets];
+        const [moved] = next.splice(sourceIndex, 1);
+        if (!moved) return;
+        const insertionIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
+        next.splice(insertionIndex, 0, moved);
+        DBState.db.modelPresets = next;
+    }
+
+    function assignPresetToFolder(index: number, folderId: string | undefined) {
+        if (!presets[index]) return;
+        presets[index].folderId = folderId;
+        DBState.db.modelPresets = [...presets];
+    }
+
+    function duplicatePreset(index: number) {
+        const source = presets[index];
+        if (!source) return;
+        const copy = structuredClone($state.snapshot(source));
+        copy.id = uuidv4();
+        copy.name = `${source.name} Copy`;
+        copy.createdAt = Date.now();
+        copy.updatedAt = Date.now();
+        DBState.db.modelPresets = [...presets, copy];
+        notifySuccess(language.presetDuplicated);
+    }
+
+    async function deletePreset(index: number) {
+        const preset = presets[index];
+        if (!preset || !(await alertConfirm(`${language.removeConfirm}${preset.name}`))) return;
+        DBState.db.modelPresets = presets.filter((_, presetIndex) => presetIndex !== index);
+        notifySuccess(language.presetDeleted);
+    }
+
+    function createPreset() {
+        openOptions = false;
+        modelProfileReplaceTarget.set(null);
+        openModelProfileBrowser.set(true);
+    }
 </script>
 
 {#if openOptions}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="fixed top-0 w-full h-full left-0 bg-black/50 z-50 flex justify-center items-center" role="button" tabindex="0" onclick={() => { openOptions = false }}>
-        <div class="w-96 max-w-full max-h-full overflow-x-hidden bg-bgcolor p-4 flex flex-col" role="button" tabindex="0" onclick={(e) => { e.stopPropagation() }}>
-            <div class="shrink-0 flex items-center gap-3 mb-3">
+    <PresetPickerLayout
+        title={language.modelPresets}
+        {folders}
+        itemFolderIds={presets.map(preset => preset.folderId)}
+        itemNames={presets.map(preset => preset.name)}
+        bind:visibleItemIndexes
+        bind:selectedFolder
+        itemDragDataKey="presetIndex"
+        close={() => { openOptions = false }}
+        configure={showConfigure ? goToPresetSettings : undefined}
+        configureLabel={language.modelPresetConfigure}
+        onFoldersChange={(next) => { DBState.db.modelPresetFolders = next }}
+        onAssignItem={assignPresetToFolder}
+        onDeleteFolder={(folderId) => {
+            DBState.db.modelPresets = presets.map(preset =>
+                preset.folderId === folderId ? { ...preset, folderId: undefined } : preset
+            )
+        }}
+        {selectedItemIndex}
+        itemEditMode={editMode}
+        onMoveItem={movePreset}
+        onSelectItem={(index) => pick(presets[index].id)}
+        onDuplicateItem={duplicatePreset}
+        onDeleteItem={deletePreset}
+    >
+        {#snippet itemContent(index)}
+            {#if editMode}
+                <div class="min-w-0 grow">
+                    <TextInput bind:value={DBState.db.modelPresets[index].name} placeholder="string" padding={false} fullwidth className="h-8 min-w-0 px-2" />
+                </div>
+            {:else}
+                <span class="truncate flex-1">{presets[index].name}</span>
+            {/if}
+        {/snippet}
+        {#snippet listFooter()}
+            {#if blankable}
                 <button
-                    class="flex items-center justify-center p-2 rounded-lg hover:bg-selected transition-colors shrink-0"
-                    onclick={() => { openOptions = false }}
-                    title="Back"
+                    class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-textcolor2 {!value ? '' : 'hover:bg-selected/30'}"
+                    class:bg-selected={!value}
+                    onclick={() => pick('')}
                 >
-                    <ArrowLeft size={20} />
+                    <span class="truncate">{blankLabel ?? language.useDefaultSubModel}</span>
                 </button>
-                <h1 class="font-bold text-xl flex-1">{language.modelPresetMenu}</h1>
-            </div>
-
-            <ShButton className="w-full mb-2" onclick={goToPresetSettings}>
-                <Settings size={16} class="shrink-0" />
-                <span class="truncate">{language.modelPresetConfigure}</span>
-            </ShButton>
-            <div class="shrink-0 border-t-1 border-y-selected mb-2"></div>
-
-            <div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col">
-                {#if presets.length === 0}
-                    <div class="px-3 py-4 text-sm text-textcolor2 text-center">{language.modelPresetEmpty}</div>
-                {:else}
-                    {#each presets as preset (preset.id)}
-                        <button class="shrink-0 w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm hover:bg-selected rounded" class:bg-selected={preset.id === value} onclick={() => pick(preset.id)}>
-                            <span class="truncate flex-1">{preset.name}</span>
-                            {#if preset.id === value}<CheckIcon size={14} class="shrink-0 text-primary" />{/if}
-                        </button>
-                    {/each}
-                {/if}
-
-                {#if blankable}
-                    <button class="shrink-0 w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm hover:bg-selected rounded text-textcolor2" onclick={() => pick('')}>
-                        <span class="truncate">{blankLabel ?? language.useDefaultSubModel}</span>
-                    </button>
-                {/if}
-            </div>
-        </div>
-    </div>
+            {/if}
+        {/snippet}
+        <PresetPickerActions
+            onCreate={createPreset}
+            onRename={() => { editMode = !editMode }}
+        />
+    </PresetPickerLayout>
 {/if}
 
-<ShButton
-    className={`w-full min-w-0 justify-start${disabled ? ' opacity-50 pointer-events-none' : ''} ${
-        bound ? 'border-selected text-textcolor'
-        : (dangling || (warnIfEmpty && !value)) ? 'border-amber-500 text-amber-500'
-        : 'text-textcolor2 opacity-75 hover:opacity-100'
-    }`}
-    onclick={() => { if (!disabled) { openOptions = true } }}
->
-    {#if bound}
-        <PinIcon size={16} class="shrink-0" />
-    {:else if dangling || (warnIfEmpty && !value)}
-        <TriangleAlert size={16} class="shrink-0" />
-    {:else}
-        <PinOffIcon size={16} class="shrink-0" />
-    {/if}
-    <span class="truncate">{label}</span>
-</ShButton>
+{#if compact}
+    <PresetHeader
+        compact
+        label={language.modelPresetMenu}
+        activeName={label}
+        onManage={() => { openOptions = true }}
+        {disabled}
+        className={bound ? 'border-selected text-textcolor'
+            : (dangling || (warnIfEmpty && !value)) ? 'border-amber-500 text-amber-500'
+            : 'text-textcolor2 opacity-75 hover:opacity-100'}
+    />
+{:else}
+    <ShButton
+        variant="default"
+        size="default"
+        className={`w-full min-w-0 justify-start${disabled ? ' opacity-50 pointer-events-none' : ''} ${
+            bound ? 'border-selected text-textcolor'
+            : (dangling || (warnIfEmpty && !value)) ? 'border-amber-500 text-amber-500'
+            : 'text-textcolor2 opacity-75 hover:opacity-100'
+        }`}
+        onclick={() => { if (!disabled) { openOptions = true } }}
+    >
+        {#if bound}
+            <PinIcon class="shrink-0" />
+        {:else if dangling || (warnIfEmpty && !value)}
+            <TriangleAlert size={16} class="shrink-0" />
+        {:else}
+            <PinOffIcon class="shrink-0" />
+        {/if}
+        <span class="truncate text-sm grow text-left">{label}</span>
+    </ShButton>
+{/if}

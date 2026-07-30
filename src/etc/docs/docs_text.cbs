@@ -33,7 +33,7 @@ Risuai has a few screens that are used to interact with the software.
 - Messages: A list of messages that you have sent and received. You can scroll up and down to see the list of messages.
     - Icon buttons: A icon buttons at the top right corner of each message. Some might appear depending on the message type or your settings.
         - Reroll button: If pressed, it will reroll the message. Only appears in most recent AI response.
-        - Unroll button: If pressed, it will unroll the message. Only appears in most recent AI response, and if swipe reroll config has been enabled.
+        - Unroll button: If pressed, it will unroll the message. Usually appears in most recent AI response, and if swipe reroll config has been enabled. It can also appear on older regenerated messages when the previous chat swipe buttons accessibility option is enabled.
         - Copy button: If pressed, it will copy the message to clipboard. Only appears if copy message config has been enabled.
         - Edit button: If pressed, it will open a edit window to edit the message.
         - Delete button: If pressed, it will delete the message. You can shift + click to remove without confirmation plus remove all messages after to the selected message.

@@ -37,11 +37,17 @@
     import Toaster from './lib/UI/GUI/Toaster.svelte';
     import RequestStatusToaster from './lib/UI/GUI/RequestStatusToaster.svelte';
     import sendSound from './etc/send.mp3'
+    import { PRODUCT_NAME } from './ts/branding'
 
     let gridOpen = $state(false)
     let aprilFools = $state(new Date().getMonth() === 3 && new Date().getDate() === 1)
     let aprilFoolsPage = $state(0)
     let keepingSessionAlive = $state(false)
+
+    function openCharacterGrid() {
+        gridOpen = true
+        sideBarStore.set(false)
+    }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -81,23 +87,14 @@
         return
     }
 
-    const aliveMode = DBState?.db?.keepSessionAlive
-    switch(aliveMode){
-        case 'pip':{
-
-            break
-        }
-        case 'sound':{
-            console.log("Starting silent audio to keep session alive")
-            const silentAudio = new Audio(sendSound);
-            silentAudio.loop = true;
-            silentAudio.volume = 0.000001;
-            silentAudio.play();
-            keepingSessionAlive = true;
-            break
-        }
+    if(DBState?.db?.keepSessionAlive){
+        console.log("Starting silent audio to keep session alive")
+        const silentAudio = new Audio(sendSound);
+        silentAudio.loop = true;
+        silentAudio.volume = 0.000001;
+        silentAudio.play();
+        keepingSessionAlive = true;
     }
-
 }}>
     {#if aprilFools}
 
@@ -159,7 +156,7 @@
                             aprilFoolsPage = 0
                             aprilFools = false
                         }}>
-                            PocketRisu  
+                            {PRODUCT_NAME}
                         </a>
                     </p>
 
@@ -183,26 +180,31 @@
     {:else if $settingsOpen}
         <Settings />
     {:else if $MobileGUI}
-        <div class="w-full h-full flex flex-col">
+        <div class="w-full h-full flex flex-col" style="touch-action: pan-y pinch-zoom;">
             <MobileHeader />
             <MobileBody />
             <MobileFooter />
         </div>
     {:else}
+        {#if (!$DynamicGUI)}
+            <Sidebar
+                openGrid={openCharacterGrid}
+                onNavigate={() => {gridOpen = false}}
+                hidden={!$sideBarStore}
+            />
+        {:else}
+            <div class="top-0 w-full h-full left-0 z-30 flex flex-row items-center" class:fixed={$sideBarStore} class:hidden={!$sideBarStore} >
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <Sidebar
+                    openGrid={openCharacterGrid}
+                    onNavigate={() => {gridOpen = false}}
+                    hidden={false}
+                />
+            </div>
+        {/if}
         {#if gridOpen}
             <GridChars endGrid={() => {gridOpen = false}} />
         {:else}
-            {#if (!$DynamicGUI)}
-                <Sidebar openGrid={() => {gridOpen = true}} hidden={!$sideBarStore} />
-            {:else}
-                <div class="top-0 w-full h-full left-0 z-30 flex flex-row items-center" class:fixed={$sideBarStore} class:hidden={!$sideBarStore} >
-                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                    <Sidebar openGrid={() => {gridOpen = true}}  hidden={false} />
-
-
-
-                </div>
-            {/if}
             <ChatScreen />
         {/if}
     {/if}

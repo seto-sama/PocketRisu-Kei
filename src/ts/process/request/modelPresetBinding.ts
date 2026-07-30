@@ -1,6 +1,11 @@
 import { getDatabase, type Chat, type Database } from 'src/ts/storage/database.svelte'
 import type { AdapterCredential } from 'src/ts/preset/adapter'
 import type { ModelPreset } from 'src/ts/preset/types'
+import {
+    getPresetMaxOutputTokens,
+    isOutputTokenField,
+    isPositiveNumber,
+} from 'src/ts/preset/runtime/effectiveConfig'
 import type { ModelModeExtended } from './shared'
 
 /**
@@ -122,51 +127,8 @@ export function resolveChatModelBinding(
  * Mirroring the full buildRequest merge was deliberately left out to keep this
  * off the request-builder path.
  */
-const OUTPUT_TOKEN_KEYS = ['max_tokens', 'maxOutputTokens', 'max_output_tokens', 'max_completion_tokens']
-
-export function resolvePresetMaxOutputTokens(preset: ModelPreset): number | undefined {
-    const schema = preset.profileSnapshot?.schema ?? []
-    const userValues = preset.userValues ?? {}
-
-    // Body paths that can carry the cap: the bare keys, plus any nested path a
-    // schema output field maps to (e.g. generationConfig.maxOutputTokens).
-    const outputPaths: string[] = [...OUTPUT_TOKEN_KEYS]
-
-    for (const field of schema) {
-        const path = field.mapsTo?.path
-        const isOutputField =
-            OUTPUT_TOKEN_KEYS.includes(field.key) ||
-            (typeof path === 'string' && OUTPUT_TOKEN_KEYS.some((k) => path === k || path.endsWith('.' + k)))
-        if (!isOutputField) continue
-        if (typeof path === 'string' && !outputPaths.includes(path)) outputPaths.push(path)
-        const raw = userValues[field.key] ?? field.default
-        if (isPositiveNumber(raw)) return raw
-    }
-
-    // Fall back to the provider body defaults (covers legacy snapshots whose
-    // schema has no output field but whose defaults — or adapter — set the cap).
-    const defaults = preset.profileSnapshot?.defaults
-    if (defaults && typeof defaults === 'object') {
-        for (const path of outputPaths) {
-            const raw = getNested(defaults as Record<string, unknown>, path)
-            if (isPositiveNumber(raw)) return raw
-        }
-    }
-    return undefined
-}
-
-function isPositiveNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
-}
-
-function getNested(obj: Record<string, unknown>, path: string): unknown {
-    if (!path.includes('.')) return obj[path]
-    let cur: unknown = obj
-    for (const part of path.split('.')) {
-        if (typeof cur !== 'object' || cur === null) return undefined
-        cur = (cur as Record<string, unknown>)[part]
-    }
-    return cur
+export function resolvePresetMaxOutputTokens(preset: ModelPreset, defaultValue?: number): number | undefined {
+    return getPresetMaxOutputTokens(preset, defaultValue)
 }
 
 /**
@@ -180,16 +142,20 @@ function getNested(obj: Record<string, unknown>, path: string): unknown {
  */
 export function resolveChatMaxResponseTokens(chat: Chat | null | undefined): number {
     const db = getDatabase()
+    if (db.modelPresetPromptPresetFirst) return db.maxResponse
+
     const binding = resolveChatModelBinding(chat, 'model')
     if (binding.kind === 'modelPreset') {
-        const presetOut = resolvePresetMaxOutputTokens(binding.preset)
+        const presetOut = resolvePresetMaxOutputTokens(binding.preset, db.modelPresetDefaultMaxResponse)
         if (presetOut !== undefined) return presetOut
+        if (isPositiveNumber(db.modelPresetDefaultMaxResponse)) return db.modelPresetDefaultMaxResponse
     }
     return db.maxResponse
 }
 
 /**
- * Per-chat prompt-preset parameter override (chat.usePromptPresetParams).
+ * Prompt-preset parameter override. Enabled globally by
+ * db.modelPresetPromptParamsFirst or per chat by chat.usePromptPresetParams.
  *
  * The classic path reads sampling parameters from the active prompt preset
  * (mirrored into db.temperature / db.top_p / ... by setPreset); the ModelPreset
@@ -240,15 +206,41 @@ export function applyPromptPresetParams(
     mode: ModelModeExtended,
 ): ModelPreset {
     if (mode !== 'model') return preset
-    if (!chat?.usePromptPresetParams) return preset
     const schema = preset.profileSnapshot?.schema
     if (!schema || schema.length === 0) return preset
 
     const db = getDatabase()
     const overrides: Record<string, unknown> = {}
     for (const field of schema) {
-        if (field.mapsTo?.target !== 'body') continue
-        const read = PROMPT_PARAM_READERS[field.key]
+        const legacyParameterTarget =
+            field.mapsTo?.target === 'body'
+            || field.mapsTo?.target === 'custom'
+        const outputField =
+            field.semantic === 'maxOutputTokens'
+            || (
+                field.semantic === undefined
+                && legacyParameterTarget
+                && isOutputTokenField(field)
+            )
+        if (outputField) {
+            if (db.modelPresetPromptPresetFirst && isPositiveNumber(db.maxResponse)) {
+                overrides[field.key] = db.maxResponse
+            }
+            else if (
+                !db.modelPresetPromptPresetFirst &&
+                !Object.prototype.hasOwnProperty.call(preset.userValues ?? {}, field.key) &&
+                isPositiveNumber(db.modelPresetDefaultMaxResponse)
+            ) {
+                overrides[field.key] = db.modelPresetDefaultMaxResponse
+            }
+            continue
+        }
+        if (!db.modelPresetPromptParamsFirst && !chat?.usePromptPresetParams) continue
+        const read = field.semantic === 'temperature'
+            ? PROMPT_PARAM_READERS.temperature
+            : field.semantic === undefined && legacyParameterTarget
+                ? PROMPT_PARAM_READERS[field.key]
+                : undefined
         if (!read) continue
         const value = read(db)
         if (value === undefined || value === null || Number.isNaN(value) || value === -1000) continue

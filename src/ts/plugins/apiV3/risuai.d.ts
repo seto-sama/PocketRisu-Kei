@@ -286,6 +286,8 @@ interface RisuModule {
     name: string;
     /** Module description */
     description: string;
+    /** Optional user-defined folder used by module pickers */
+    folderId?: string;
     /** Lorebook entries */
     lorebook?: any[];
     /** Regex scripts */
@@ -1156,6 +1158,32 @@ interface ProviderOptions {
     tokenizer?: string;
     /** Custom tokenizer function */
     tokenizerFunc?: (content: string) => number[] | Promise<number[]>;
+    /**
+     * Optional model metadata used by the legacy model picker and by
+     * Model Presets > Developer. Providers that omit it are still listed using
+     * the name passed to addProvider().
+     */
+    model?: {
+        name?: string;
+        shortName?: string;
+        fullName?: string;
+        internalID?: string;
+        flags?: number[];
+        parameters?: Array<
+            | 'temperature'
+            | 'top_k'
+            | 'repetition_penalty'
+            | 'min_p'
+            | 'top_a'
+            | 'top_p'
+            | 'frequency_penalty'
+            | 'presence_penalty'
+            | 'reasoning_effort'
+            | 'thinking_tokens'
+            | 'verbosity'
+        >;
+        tokenizer?: number;
+    };
 }
 
 // ============================================================================
@@ -1297,6 +1325,46 @@ interface RisuaiPluginAPI {
      * @returns Chat object or null if not found
      */
     getChatFromIndex(characterIndex: number, chatIndex: number): Promise<any|null>;
+
+    /**
+     * Parses Risu CBS macros using the currently selected character and active chat.
+     * Set processRegex to also run the editprocess script pipeline after CBS parsing.
+     * The editprocess pipeline can invoke plugin script handlers and action scripts,
+     * which may modify the active chat.
+     * @param text - Text containing CBS macros
+     * @param options - Parser context options
+     * @returns Parsed text
+     *
+     * @example
+     * ```typescript
+     * const text = await risuai.parseRisuChat('Hello, {{user}}', {
+     *   role: 'user',
+     *   processRegex: true,
+     * });
+     * ```
+     */
+    parseRisuChat(text: string, options?: {
+        /** Existing message index used by chat-aware CBS macros. Defaults to -1. */
+        messageIndex?: number;
+        /** Message role used by role-aware CBS macros. */
+        role?: string;
+        /**
+         * Run the editprocess script pipeline after CBS parsing.
+         * This can invoke plugin handlers and action scripts that modify the active chat.
+         */
+        processRegex?: boolean;
+        /** Enable chat variable writes from CBS macros. */
+        runVar?: boolean;
+        /** Remove unresolved variable macros. */
+        rmVar?: boolean;
+        /** Use tokenizer-accurate parsing behavior where supported. */
+        tokenizeAccurate?: boolean;
+        /** Additional CBS condition flags. */
+        cbsConditions?: {
+            firstmsg?: boolean;
+            chatRole?: string;
+        };
+    }): Promise<string>;
     
 
     /**

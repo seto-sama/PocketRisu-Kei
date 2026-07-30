@@ -6,18 +6,26 @@
     import { DBState, presetSelectCallback, settingsOpen } from 'src/ts/stores.svelte';
     import { get } from 'svelte/store';
     import { openSettings, SettingsRoute } from 'src/ts/routing';
-    import ShButton from '../UI/GUI/ShButton.svelte';
-    import { CopyIcon, Share2Icon, PencilIcon, HardDriveUploadIcon, PlusIcon, TrashIcon, XIcon, GitCompare } from "@lucide/svelte";
+    import { GitCompare } from "@lucide/svelte";
     import TextInput from "../UI/GUI/TextInput.svelte";
     import { prebuiltPresets } from "src/ts/process/templates/templates";
     import PromptDiffModal from "../Others/PromptDiffModal.svelte";
+    import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
+    import PresetPickerActions from "../UI/PresetPickerActions.svelte";
 
     let editMode = $state(false)
-    let isDragging = $state(false)
-    let dragOverIndex = $state(-1)
+    let selectedFolder = $state<string>('all')
+
+    const folders = $derived(DBState.db.promptPresetFolders ?? [])
+
+    function assignPresetToFolder(index: number, folder: string | undefined) {
+        DBState.db.botPresets[index].folderId =
+            folder === 'all' || folder === 'uncategorized' ? undefined : folder
+        DBState.db.botPresets = [...DBState.db.botPresets]
+    }
 
     interface Props {
-        close?: any;
+        close?: () => void;
     }
 
     let { close = () => {} }: Props = $props();
@@ -49,14 +57,51 @@
         });
     }
 
-    function handlePresetDrop(targetIndex: number, e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const data = e.dataTransfer?.getData('text');
-        if (data === 'preset') {
-            const sourceIndex = parseInt(e.dataTransfer?.getData('presetIndex') || '0');
-            movePreset(sourceIndex, targetIndex);
+    function selectPreset(index: number) {
+        const callback = get(presetSelectCallback)
+        if (callback) {
+            presetSelectCallback.set(null)
+            callback(index)
+        } else {
+            changeToPreset(index)
         }
+        close()
+    }
+
+    function duplicatePreset(index: number) {
+        const before = DBState.db.botPresets.length
+        copyPreset(index)
+        const after = DBState.db.botPresets.length
+        if (after > before) {
+            changeToPreset(after - 1)
+            notifySuccess(language.presetDuplicated)
+        }
+    }
+
+    function exportPreset(index: number) {
+        downloadPreset(index, 'risupreset')
+        notifySuccess(language.presetExported)
+    }
+
+    async function deletePreset(index: number) {
+        const preset = DBState.db.botPresets[index]
+        if (!preset) return
+        if (DBState.db.botPresets.length === 1) {
+            notifyError(language.errors.onlyOnePreset)
+            return
+        }
+        if (!await alertConfirm(`${language.removeConfirm}${preset.name}`)) return
+
+        // Flush in-flight top-level edits before mutating the preset array.
+        saveCurrentPreset()
+        const removingActive = index === DBState.db.botPresetsId
+        withStableActivePreset(() => {
+            const botPresets = DBState.db.botPresets
+            botPresets.splice(index, 1)
+            DBState.db.botPresets = botPresets
+        })
+        if (removingActive) changeToPreset(0, false)
+        notifySuccess(language.presetDeleted)
     }
 
 
@@ -90,241 +135,79 @@
 
 </script>
 
-<div class="absolute w-full h-full z-40 bg-black/50 flex justify-center items-center">
-    <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-124 max-h-full overflow-y-auto">
-        <div class="flex items-center text-textcolor mb-4">
-            <h2 class="mt-0 mb-0">{language.promptPresets}</h2>
-            <div class="grow flex justify-end">
-                <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer items-center" onclick={close}>
-                    <XIcon size={24}/>
-                </button>
-            </div>
-        </div>
-        {#if !$settingsOpen}
-            <ShButton variant="default" size="default" className="w-full mb-4" onclick={() => {
+<PresetPickerLayout
+        title={language.promptPresets}
+        {folders}
+        itemFolderIds={DBState.db.botPresets.map(preset => preset.folderId)}
+        itemNames={DBState.db.botPresets.map(preset => preset.name ?? '')}
+        bind:selectedFolder
+        itemDragDataKey="presetIndex"
+        {close}
+        configure={!$settingsOpen ? () => {
                 close()
                 openSettings(SettingsRoute.PromptPreset)
-            }}>
-                <PencilIcon size={16}/>
-                <span class="ml-1">{language.presetEdit}</span>
-            </ShButton>
-        {/if}
-        {#each DBState.db.botPresets as preset, i}
-            <div class="w-full transition-all duration-200"
-                class:h-0.5={!isDragging || dragOverIndex !== i}
-                class:h-1={isDragging && dragOverIndex === i}
-                class:bg-blue-500={isDragging && dragOverIndex === i}
-                class:shadow-lg={isDragging && dragOverIndex === i}
-                class:hover:bg-gray-600={!isDragging}
-                role="listitem"
-                ondragover={(e) => {
-                    e.preventDefault()
-                    dragOverIndex = i
-                }}
-                ondragleave={(e) => {
-                    dragOverIndex = -1
-                }}
-                ondrop={(e) => {
-                    handlePresetDrop(i, e)
-                    dragOverIndex = -1
-                }}>
-            </div>
-            
-            <button onclick={() => {
-                if(!editMode){
-                    const cb = get(presetSelectCallback)
-                    if (cb) {
-                        presetSelectCallback.set(null)
-                        cb(i)
-                    } else {
-                        changeToPreset(i)
-                    }
-                    close()
-                }
-            }}
-            class="flex items-center text-textcolor border-t-1 border-solid border-0 border-darkborderc p-2 cursor-pointer" 
-            class:bg-selected={i === DBState.db.botPresetsId}
-            class:draggable-preset={!editMode}
-            draggable={!editMode ? "true" : "false"}
-            ondragstart={(e) => {
-                if (editMode) {
-                    e.preventDefault()
-                    return
-                }
-                isDragging = true
-                e.dataTransfer?.setData('text', 'preset')
-                e.dataTransfer?.setData('presetIndex', i.toString())
-
-                const dragElement = document.createElement('div')
-                dragElement.textContent = preset?.name || 'Unnamed Preset'
-                dragElement.className = 'absolute -top-96 -left-96 px-4 py-2 bg-darkbg text-textcolor2 rounded-sm text-sm whitespace-nowrap shadow-lg pointer-events-none z-50'
-                document.body.appendChild(dragElement)
-                e.dataTransfer?.setDragImage(dragElement, 10, 10)
-
-                setTimeout(() => {
-                    document.body.removeChild(dragElement)
-                }, 0)
-            }}
-            ondragend={(e) => {
-                isDragging = false
-                dragOverIndex = -1
-            }}
-            ondragover={(e) => {
-                e.preventDefault()
-                const rect = e.currentTarget.getBoundingClientRect()
-                const mouseY = e.clientY
-                const elementCenter = rect.top + rect.height / 2
-
-                if (mouseY < elementCenter) {
-                    dragOverIndex = i
-                } else {
-                    dragOverIndex = i + 1
-                }
-            }}
-            ondrop={(e) => {
-                handlePresetDrop(dragOverIndex, e)
-                dragOverIndex = -1
-            }}>
-                {#if editMode}
-                    <TextInput bind:value={DBState.db.botPresets[i].name} placeholder="string" padding={false}/>
-                {:else}
-                    {#if preset.image}
-                        <img src={preset.image} alt="icon" class="mr-2 min-w-6 min-h-6 w-6 h-6 rounded-md" decoding="async"/>
-
-                    {/if}
-                    <span>{preset.name}</span>
-                {/if}
-                <div class="grow flex justify-end">
-                    {#if DBState.db.showPromptComparison}
-                        <div class="{selectedDiffPreset === i ? 'text-green-500' : 'text-textcolor2 hover:text-primary'} cursor-pointer mr-2" role="button" tabindex="0" onclick={(e) => {
-                            e.stopPropagation()
-                            handleDiffMode(i)
-                        }} onkeydown={(e) => {
-                            if(e.key === 'Enter' && e.currentTarget instanceof HTMLElement){
-                                e.currentTarget.click()
-                            }
-                        }}>
-                            <GitCompare size={18}/>
-                        </div>
-                    {/if}
-                    <div class="text-textcolor2 hover:text-primary cursor-pointer mr-2" role="button" tabindex="0" onclick={(e) => {
-                        e.stopPropagation()
-                        const before = DBState.db.botPresets.length
-                        copyPreset(i)
-                        const after = DBState.db.botPresets.length
-                        if (after > before) {
-                            changeToPreset(after - 1)
-                            notifySuccess(language.presetDuplicated)
-                        }
-                    }} onkeydown={(e) => {
-                        if(e.key === 'Enter' && e.currentTarget instanceof HTMLElement){
-                            e.currentTarget.click()
-                        }
-                    }}>
-                        <CopyIcon size={18}/>
-                    </div>
-                    <div class="text-textcolor2 hover:text-primary cursor-pointer mr-2" role="button" tabindex="0" onclick={(e) => {
-                        e.stopPropagation()
-                        downloadPreset(i, 'risupreset')
-                        notifySuccess(language.presetExported)
-                    }} onkeydown={(e) => {
-                        if(e.key === 'Enter' && e.currentTarget instanceof HTMLElement){
-                            e.currentTarget.click()
-                        }
-                    }}>
-
-                        <Share2Icon size={18} />
-                    </div>
-                    <div class="text-textcolor2 hover:text-red-400 cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
-                        e.stopPropagation()
-                        if(DBState.db.botPresets.length === 1){
-                            notifyError(language.errors.onlyOnePreset)
-                            return
-                        }
-                        const d = await alertConfirm(`${language.removeConfirm}${preset.name}`)
-                        if(d){
-                            // Flush in-flight top-level edits (db.mainPrompt etc.) into
-                            // the currently active preset BEFORE mutating the array —
-                            // otherwise editing-while-deleting another preset would lose
-                            // the active preset's pending changes (no auto-save calls
-                            // saveCurrentPreset; only copy/change/download do).
-                            saveCurrentPreset()
-                            const removingActive = i === DBState.db.botPresetsId
-                            withStableActivePreset(() => {
-                                const botPresets = DBState.db.botPresets
-                                botPresets.splice(i, 1)
-                                DBState.db.botPresets = botPresets
-                            })
-                            if (removingActive) {
-                                // Active preset was deleted — reset to slot 0 without
-                                // re-saving (save was just done; the active preset no
-                                // longer exists in the array).
-                                changeToPreset(0, false)
-                            }
-                            notifySuccess(language.presetDeleted)
-                        }
-                    }} onkeydown={(e) => {
-                        if(e.key === 'Enter' && e.currentTarget instanceof HTMLElement){
-                            e.currentTarget.click()
-                        }
-                    }}>
-                        <TrashIcon size={18}/>
-                    </div>
+            } : undefined}
+        configureLabel={language.presetEdit}
+        onFoldersChange={(next) => { DBState.db.promptPresetFolders = next }}
+        onAssignItem={assignPresetToFolder}
+        onDeleteFolder={(folderId) => {
+            DBState.db.botPresets = DBState.db.botPresets.map(preset =>
+                preset.folderId === folderId ? { ...preset, folderId: undefined } : preset
+            )
+        }}
+        selectedItemIndex={DBState.db.botPresetsId}
+        itemEditMode={editMode}
+        onMoveItem={movePreset}
+        onSelectItem={selectPreset}
+        onDuplicateItem={duplicatePreset}
+        onExportItem={exportPreset}
+        onDeleteItem={deletePreset}
+    >
+        {#snippet itemContent(index)}
+            {@const preset = DBState.db.botPresets[index]}
+            {#if editMode}
+                <div class="min-w-0 grow">
+                    <TextInput bind:value={DBState.db.botPresets[index].name} placeholder="string" padding={false} fullwidth className="h-8 min-w-0 px-2" />
                 </div>
-            </button>
-        {/each}
-
-        <div class="w-full transition-all duration-200"
-            class:h-0.5={!isDragging || dragOverIndex !== DBState.db.botPresets.length}
-            class:h-1={isDragging && dragOverIndex === DBState.db.botPresets.length}
-            class:bg-blue-500={isDragging && dragOverIndex === DBState.db.botPresets.length}
-            class:shadow-lg={isDragging && dragOverIndex === DBState.db.botPresets.length}
-            class:hover:bg-gray-600={!isDragging}
-            role="listitem"
-            ondragover={(e) => {
-                e.preventDefault()
-                dragOverIndex = DBState.db.botPresets.length
-            }}
-            ondragleave={(e) => {
-                dragOverIndex = -1
-            }}
-            ondrop={(e) => {
-                handlePresetDrop(DBState.db.botPresets.length, e)
-                dragOverIndex = -1
-            }}>
-        </div>
-        
-        <div class="flex mt-2 items-center">
-            <button class="text-textcolor2 hover:text-primary cursor-pointer mr-1" onclick={() => {
+            {:else}
+                {#if preset.image}
+                    <img src={preset.image} alt="icon" class="mr-2 min-w-6 min-h-6 w-6 h-6 rounded-md" decoding="async"/>
+                {/if}
+                <span class="min-w-0 grow truncate">{preset.name}</span>
+            {/if}
+            {#if DBState.db.showPromptComparison}
+                <button type="button" class="ml-3 shrink-0 {selectedDiffPreset === index ? 'text-green-500' : 'text-textcolor2 hover:text-primary'} cursor-pointer" onclick={(e) => {
+                    e.stopPropagation()
+                    handleDiffMode(index)
+                }}>
+                    <GitCompare size={18}/>
+                </button>
+            {/if}
+        {/snippet}
+        <PresetPickerActions
+            onCreate={() => {
                 let botPresets = DBState.db.botPresets
                 let newPreset = safeStructuredClone(prebuiltPresets.OAI2)
                 newPreset.id = uuidv4()
                 newPreset.name = `New Preset`
+                newPreset.folderId = selectedFolder !== 'all' && selectedFolder !== 'uncategorized' ? selectedFolder : undefined
                 botPresets.push(newPreset)
 
                 DBState.db.botPresets = botPresets
-            }}>
-                <PlusIcon/>
-            </button>
-            <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" onclick={async () => {
+            }}
+            onImport={async () => {
                 const before = DBState.db.botPresets.length
                 await importPreset()
                 const after = DBState.db.botPresets.length
                 if (after > before) {
+                    assignPresetToFolder(after - 1, selectedFolder)
                     changeToPreset(after - 1)
                     notifySuccess(language.presetImported)
                 }
-            }}>
-                <HardDriveUploadIcon size={18}/>
-            </button>
-            <button class="text-textcolor2 hover:text-primary cursor-pointer" onclick={() => {
-                editMode = !editMode
-            }}>
-                <PencilIcon size={18}/>
-            </button>
-        </div>
-    </div>
-</div>
+            }}
+            onRename={() => { editMode = !editMode }}
+        />
+</PresetPickerLayout>
 
 {#if showDiffModal && firstPresetId !== null && secondPresetId !== null}
   <PromptDiffModal
@@ -333,29 +216,3 @@
     onClose={closeDiff}
   />
 {/if}
-
-<style>
-    .break-any{
-        word-break: normal;
-        overflow-wrap: anywhere;
-    }
-
-    /* Drag and drop styles */
-    .draggable-preset:hover {
-        cursor: grab;
-    }
-
-    .draggable-preset:active {
-        cursor: grabbing;
-    }
-
-    .h-0\.5 {
-        min-height: 2px;
-        height: 2px;
-    }
-
-    .h-1 {
-        min-height: 4px;
-        height: 4px;
-    }
-</style>

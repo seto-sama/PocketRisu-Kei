@@ -27,18 +27,18 @@
             : 'none'
     );
 
-    function decide(proceed: boolean) {
+    function decide(mode: 'skip' | 'snapshot' | 'full') {
         const d = $bootBackupPromptStore;
         if (!d) return;
         bootBackupPromptStore.set(null);
-        d.resolve(proceed);
+        d.resolve(mode);
     }
 </script>
 
 {#if data}
     <ShDialog
         open={true}
-        onOpenChange={(v) => { if (!v) decide(false); }}
+        onOpenChange={(v) => { if (!v) decide('skip'); }}
         closeOnEscape={false}
         closeOnOutsideClick={false}
         tier="alert"
@@ -76,12 +76,15 @@
 {/if}
 
 {#snippet footerActions()}
-    <div class="flex justify-end gap-2">
-        <ShButton variant="outline" onclick={() => decide(false)}>
+    <div class="flex justify-end gap-2 flex-wrap">
+        <ShButton variant="outline" onclick={() => decide('skip')}>
             {language.backupBootPromptSkip}
         </ShButton>
-        <ShButton variant="primary" disabled={data?.insufficient} onclick={() => decide(true)}>
-            {language.backupBootPromptProceed}
+        <ShButton variant="outline" onclick={() => decide('snapshot')}>
+            {language.manualSnapshotCreate}
+        </ShButton>
+        <ShButton variant="primary" disabled={data?.insufficient} onclick={() => decide('full')}>
+            {language.backupServerCreate}
         </ShButton>
     </div>
 {/snippet}

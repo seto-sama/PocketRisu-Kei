@@ -1,5 +1,6 @@
 <script lang="ts">
   import { PlusIcon } from '@lucide/svelte'
+  import IconButton from 'src/lib/UI/GUI/IconButton.svelte'
   import Sortable from 'sortablejs'
   import type { triggerscript } from 'src/ts/storage/database.svelte'
   import { sleep, sortableOptions } from 'src/ts/util'
@@ -92,8 +93,8 @@
       />
     {/each}
   </div>
-  <button
-    class="font-medium cursor-pointer hover:text-textcolor mb-2 text-textcolor2"
+  <IconButton
+    className="my-2"
     onclick={() => {
       value.push({
         comment: '',
@@ -105,5 +106,5 @@
     }}
   >
     <PlusIcon />
-  </button>
+  </IconButton>
 {/key}

@@ -6,9 +6,7 @@ import { resolveWireModelId } from './wireInvariants'
 function makeSnapshot(overrides: Partial<ResolvedModelProfileSnapshot> = {}): ResolvedModelProfileSnapshot {
     return {
         profileId: 'demo:standard',
-        profileVersion: 1,
         providerBaseId: 'demo',
-        providerBaseVersion: 1,
         adapterKind: 'openai-compatible',
         auth: { kind: 'bearer', fields: ['apiKey'] },
         endpoint: { kind: 'static', url: 'https://demo.test/v1' },

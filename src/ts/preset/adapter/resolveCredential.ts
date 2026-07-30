@@ -7,6 +7,7 @@ import {
 } from './googleServiceAccount/cache'
 import { parseServiceAccountJson } from './googleServiceAccount/serviceAccount'
 import type { AdapterCredential, AdapterPreparedRequest, AdapterRequestContext } from './types'
+import { resolvePresetAuth } from './customPreset'
 
 export interface ResolveCredentialInput {
     preset: ModelPreset
@@ -26,7 +27,7 @@ export interface ResolveCredentialInput {
 export async function resolveAdapterCredential(
     input: ResolveCredentialInput,
 ): Promise<AdapterCredential | undefined> {
-    const authKind = input.preset.profileSnapshot.auth.kind
+    const authKind = resolvePresetAuth(input.preset).kind
     if (authKind !== 'google-service-account') {
         return input.credential
     }
@@ -82,7 +83,7 @@ export async function prepareAdapterRequest(
     // uses a pooled/inline key and leaves Project ID blank (the JSON is then
     // absent from userValues.serviceAccountJson). See vertexEndpoint.ts.
     const serviceAccountJson =
-        input.preset.profileSnapshot.auth.kind === 'google-service-account' &&
+        resolvePresetAuth(input.preset).kind === 'google-service-account' &&
         typeof input.credential?.apiKey === 'string'
             ? input.credential.apiKey
             : undefined

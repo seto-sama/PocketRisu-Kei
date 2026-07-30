@@ -45,10 +45,10 @@
 
     const variantClasses: Record<ShAlertVariant, string> = {
         default:     'bg-darkbg text-textcolor border-darkborderc',
-        destructive: 'bg-draculared/20 text-red-300 border-draculared/40 [&_[data-slot=alert-icon]_svg]:text-red-400',
-        warning:     'bg-yellow-900/30 text-yellow-300 border-yellow-700/40 [&_[data-slot=alert-icon]_svg]:text-yellow-400',
-        info:        'bg-blue-900/30 text-blue-300 border-blue-700/40 [&_[data-slot=alert-icon]_svg]:text-blue-400',
-        success:     'bg-success/15 text-success border-success/40 [&_[data-slot=alert-icon]_svg]:text-success',
+        destructive: 'risu-status-danger [&_[data-slot=alert-icon]_svg]:text-draculared',
+        warning:     'risu-status-warning [&_[data-slot=alert-icon]_svg]:text-warning',
+        info:        'risu-status-info [&_[data-slot=alert-icon]_svg]:text-accent',
+        success:     'risu-status-success [&_[data-slot=alert-icon]_svg]:text-success',
     };
 
     // action present → flex row (icon+text ←→ button); otherwise the vega grid.

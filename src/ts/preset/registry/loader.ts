@@ -1,49 +1,48 @@
 import type { BaseProviderDefinition, ModelProfile, RegistryCache } from '../types'
-
-const BUNDLED_REGISTRY_ID = 'bundled'
-
-const baseProviderModules = import.meta.glob<BaseProviderDefinition>('./bundled/base-providers/*.json', {
-    eager: true,
-    import: 'default',
-})
-
-const profileModules = import.meta.glob<ModelProfile>('./bundled/profiles/**/*.json', {
-    eager: true,
-    import: 'default',
-})
+import developerProvider from './bundled/base-providers/developer.json'
+import developerCustomProvider from './bundled/base-providers/developer-custom.json'
+import echoProfile from './bundled/profiles/developer/echo.json'
+import customProfile from './bundled/profiles/developer/custom.json'
+import { MODELS_DEV_REGISTRY_ID } from './modelsDev'
 
 let cachedRegistry: RegistryCache | undefined
 
-function buildBundledRegistry(): RegistryCache {
-    const baseProviders: Record<string, BaseProviderDefinition> = {}
-    for (const definition of Object.values(baseProviderModules)) {
-        baseProviders[definition.id] = definition
-    }
-
-    const profiles: Record<string, ModelProfile> = {}
-    for (const profile of Object.values(profileModules)) {
-        profiles[profile.id] = profile
-    }
+function buildSpecialRegistry(): RegistryCache {
+    const provider = developerProvider as BaseProviderDefinition
+    const customProvider = developerCustomProvider as BaseProviderDefinition
+    const echo = echoProfile as ModelProfile
+    const custom = customProfile as ModelProfile
 
     return {
         schemaVersion: 4,
         registries: {
-            [BUNDLED_REGISTRY_ID]: {
+            [MODELS_DEV_REGISTRY_ID]: {
                 fetchedAt: 0,
-                baseProviders,
-                profiles,
+                baseProviders: {
+                    [provider.id]: provider,
+                    [customProvider.id]: customProvider,
+                },
+                profiles: {
+                    [echo.id]: echo,
+                    [custom.id]: custom,
+                },
             },
         },
     }
 }
 
-export function loadBundledRegistry(): RegistryCache {
+/** The built-in Developer catalog entries. Everything else comes from models.dev. */
+export function loadSpecialRegistry(): RegistryCache {
     if (!cachedRegistry) {
-        cachedRegistry = buildBundledRegistry()
+        cachedRegistry = buildSpecialRegistry()
     }
     return cachedRegistry
 }
 
-export function getBundledRegistryId(): string {
-    return BUNDLED_REGISTRY_ID
+export function getOfficialRegistryId(): string {
+    return MODELS_DEV_REGISTRY_ID
 }
+
+// Compatibility aliases for extensions/tests that imported the old names.
+export const loadBundledRegistry = loadSpecialRegistry
+export const getBundledRegistryId = getOfficialRegistryId

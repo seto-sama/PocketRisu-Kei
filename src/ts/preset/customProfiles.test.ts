@@ -10,12 +10,11 @@ import {
     type ProfileFragment,
 } from './customProfiles'
 import type { BaseProviderDefinition, ModelProfile, RegistryCache } from './types'
-import { loadBundledRegistry } from './registry'
+import { loadSpecialRegistry } from './registry/loader'
 
 function makeBaseProvider(): BaseProviderDefinition {
     return {
         id: 'mybase',
-        version: 3,
         displayName: 'My Base',
         adapterKind: 'openai-compatible',
         authKinds: ['bearer'],
@@ -31,7 +30,6 @@ function makeBaseProvider(): BaseProviderDefinition {
 function makeProfile(): ModelProfile {
     return {
         id: 'myprofile',
-        version: 5,
         displayName: 'My Profile',
         providerBaseId: 'mybase',
         profileStatus: 'current',
@@ -45,13 +43,8 @@ function makeProfile(): ModelProfile {
     }
 }
 
-// A realistic fragment mirrors the exported form: version stripped.
 function makeFragment(): ProfileFragment {
-    const profile = makeProfile() as ModelProfile & { version?: number }
-    const baseProvider = makeBaseProvider() as BaseProviderDefinition & { version?: number }
-    delete profile.version
-    delete baseProvider.version
-    return { schemaVersion: 1, profile, baseProvider }
+    return { schemaVersion: 1, profile: makeProfile(), baseProvider: makeBaseProvider() }
 }
 
 function emptyCache(): RegistryCache {
@@ -59,11 +52,13 @@ function emptyCache(): RegistryCache {
 }
 
 describe('buildProfileFragment', () => {
-    it('strips version and stamps exportedAt', () => {
-        const f = buildProfileFragment(makeProfile(), makeBaseProvider(), 1000)
+    it('strips retired version fields and stamps exportedAt', () => {
+        const profile = Object.assign(makeProfile(), { version: 7 })
+        const baseProvider = Object.assign(makeBaseProvider(), { version: 3 })
+        const f = buildProfileFragment(profile, baseProvider, 1000)
         expect(f.exportedAt).toBe(1000)
-        expect((f.profile as { version?: number }).version).toBeUndefined()
-        expect((f.baseProvider as { version?: number }).version).toBeUndefined()
+        expect('version' in f.profile).toBe(false)
+        expect('version' in f.baseProvider).toBe(false)
         expect(f.profile.modelId).toBe('my-model')
     })
 })
@@ -114,9 +109,12 @@ describe('validateFragment', () => {
 })
 
 describe('importFragment', () => {
-    it('namespaces ids, matches providerBaseId, defaults version/updatedAt', () => {
+    it('namespaces ids, matches providerBaseId, and defaults updatedAt', () => {
         const cache = emptyCache()
-        const { profileId, overwritten } = importFragment(cache, makeFragment(), 2000)
+        const fragment = makeFragment()
+        Object.assign(fragment.profile, { version: 5 })
+        Object.assign(fragment.baseProvider, { version: 2 })
+        const { profileId, overwritten } = importFragment(cache, fragment, 2000)
 
         expect(profileId).toBe(`${CUSTOM_ID_PREFIX}myprofile`)
         expect(overwritten).toBe(false)
@@ -124,8 +122,9 @@ describe('importFragment', () => {
         const reg = cache.registries[CUSTOM_REGISTRY_ID]
         const stored = reg.profiles![profileId]
         expect(stored.providerBaseId).toBe(`${CUSTOM_ID_PREFIX}mybase`)
-        expect(stored.version).toBe(1) // default fill (not the source 5)
         expect(stored.updatedAt).toBe(2000)
+        expect('version' in stored).toBe(false)
+        expect('version' in reg.baseProviders![`${CUSTOM_ID_PREFIX}mybase`]).toBe(false)
         expect(reg.baseProviders![`${CUSTOM_ID_PREFIX}mybase`]).toBeDefined()
     })
 
@@ -154,9 +153,9 @@ describe('importFragment', () => {
     })
 })
 
-describe('bundled profiles round-trip (export → import validation)', () => {
-    it('every bundled profile exports to a fragment that re-imports cleanly', () => {
-        const reg = loadBundledRegistry()
+describe('special profiles round-trip (export → import validation)', () => {
+    it('every special profile exports to a fragment that re-imports cleanly', () => {
+        const reg = loadSpecialRegistry()
         const failures: string[] = []
         for (const r of Object.values(reg.registries)) {
             for (const profile of Object.values(r.profiles ?? {})) {

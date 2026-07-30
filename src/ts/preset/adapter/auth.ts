@@ -33,6 +33,12 @@ export function applyAuth(
             const token = requireApiKey(auth.kind, credential)
             return withHeader(prepared, 'Authorization', `Bearer ${token}`)
         }
+        case 'aws-bedrock':
+            // Bedrock API keys use bearer auth, while IAM access keys require
+            // an async SigV4 signature over the final serialized request body.
+            // Both are applied by the Bedrock adapter after its wire body is
+            // complete, so the shared builder intentionally leaves auth alone.
+            return prepared
         default: {
             const exhaustiveCheck: never = auth.kind
             throw new ModelPresetAdapterError(

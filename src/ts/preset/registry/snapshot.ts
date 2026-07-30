@@ -13,9 +13,8 @@ export class RegistryProfileNotFoundError extends Error {
     readonly profileId: string
 
     constructor(profileId: string) {
-        super(`Registry profile "${profileId}" not found in bundled registry. ` +
-            `Ensure the analyzer emits a profileId present in the registry, ` +
-            `or sync the registry bundle.`)
+        super(`Registry profile "${profileId}" was not found. ` +
+            `Refresh models.dev or import the custom profile again.`)
         this.name = 'RegistryProfileNotFoundError'
         this.profileId = profileId
     }
@@ -38,9 +37,7 @@ export function resolveSnapshot(registry: RegistryCache, profileId: string): Res
 
     return {
         profileId: profile.id,
-        profileVersion: profile.version,
         providerBaseId: profile.providerBaseId,
-        providerBaseVersion: baseProvider.version,
         adapterKind: baseProvider.adapterKind,
         auth: profile.auth,
         endpoint: profile.endpoint,

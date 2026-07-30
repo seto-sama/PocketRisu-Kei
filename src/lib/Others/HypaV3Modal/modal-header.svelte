@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { tick } from "svelte";
   import {
     SearchIcon,
     StarIcon,
@@ -8,6 +7,7 @@
     BarChartIcon,
     Trash2Icon,
     XIcon,
+    PencilIcon,
     SquarePenIcon,
     TagIcon,
   } from "@lucide/svelte";
@@ -16,63 +16,55 @@
     hypaV3ModalOpen,
   } from "src/ts/stores.svelte";
   import { openSettings, SettingsRoute } from "src/ts/routing";
-  import type { SearchState, BulkEditState, CategoryManagerState, FilterState, UIState } from "./types";
+  import type { SearchState } from "./types";
+  import IconButton from "src/lib/UI/GUI/IconButton.svelte";
+  import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+  import ShDropdownMenu from "src/lib/UI/GUI/ShDropdownMenu.svelte";
+  import ShDropdownMenuContent from "src/lib/UI/GUI/ShDropdownMenuContent.svelte";
+  import ShDropdownMenuItem from "src/lib/UI/GUI/ShDropdownMenuItem.svelte";
+  import ShDropdownMenuTrigger from "src/lib/UI/GUI/ShDropdownMenuTrigger.svelte";
 
   interface Props {
     searchState: SearchState;
-    filterImportant: boolean;
-    dropdownOpen: boolean;
+    showImportantOnly: boolean;
+    manualSummaryMode: boolean;
     filterSelected: boolean;
-    bulkEditState?: BulkEditState;
-    categoryManagerState?: CategoryManagerState;
-    filterState?: FilterState;
-    uiState?: UIState;
-    hypaV3Data: any;
-    onResetData?: () => Promise<void>;
-    onToggleBulkEditMode?: () => void;
-    onOpenCategoryManager?: () => void;
+    bulkEditEnabled: boolean;
+    onToggleImportant: () => void;
+    onToggleFilterSelected: () => void;
+    onResetData: () => Promise<void>;
+    onToggleManualSummaryMode: () => void;
+    onToggleBulkEditMode: () => void;
+    onOpenCategoryManager: () => void;
   }
 
   let {
     searchState = $bindable(),
-    filterImportant = $bindable(),
-    dropdownOpen = $bindable(),
-    filterSelected = $bindable(),
-    bulkEditState,
-    categoryManagerState,
-    filterState,
-    uiState,
-    hypaV3Data,
+    showImportantOnly,
+    manualSummaryMode,
+    filterSelected,
+    bulkEditEnabled,
+    onToggleImportant,
+    onToggleFilterSelected,
     onResetData,
+    onToggleManualSummaryMode,
     onToggleBulkEditMode,
     onOpenCategoryManager,
   }: Props = $props();
 
 
-  async function toggleSearch() {
+  function toggleSearch() {
     if (searchState === null) {
       searchState = {
-        ref: null,
         query: "",
         results: [],
         currentResultIndex: -1,
         requestedSearchFromIndex: -1,
         isNavigating: false,
       };
-
-      // Focus on search element after it's rendered
-      await tick();
-
-      if (searchState.ref) {
-        searchState.ref.focus();
-      }
     } else {
       searchState = null;
     }
-  }
-
-  function toggleFilterImportant() {
-    filterImportant = !filterImportant;
   }
 
   function openGlobalSettings() {
@@ -80,146 +72,160 @@
     openSettings(SettingsRoute.OtherBots);
   }
 
-  function openDropdown(e: MouseEvent) {
-    e.stopPropagation();
-    dropdownOpen = true;
-  }
-
-  function toggleFilterSelected() {
-    filterSelected = !filterSelected;
-  }
-
   async function resetData() {
-    if (onResetData) {
-      await onResetData();
-    }
+    await onResetData();
   }
 
   function closeModal() {
     $hypaV3ModalOpen = false;
   }
 
-  function toggleBulkEditMode() {
-    if (onToggleBulkEditMode) {
-      onToggleBulkEditMode();
-    }
-  }
-
-  function openCategoryManager() {
-    if (onOpenCategoryManager) {
-      onOpenCategoryManager();
-    }
-  }
 </script>
 
-<div class="flex items-center justify-between mb-2 sm:mb-4">
+<div class="flex min-w-0 items-center justify-between gap-1 mb-2 sm:mb-4">
   <!-- Modal Title -->
-  <h1 class="text-lg font-semibold sm:text-2xl text-zinc-300">
+  <h1 class="min-w-0 truncate text-lg font-semibold text-textcolor sm:text-2xl">
     {language.hypaV3Modal.titleLabel}
   </h1>
 
   <!-- Buttons Container -->
-  <div class="flex items-center gap-2">
+  <IconButtonGroup size="lg" className="shrink-0 gap-0 sm:gap-2">
     <!-- Open Search Button -->
-    <button
-      class="p-2 transition-colors text-zinc-400 hover:text-zinc-200"
-      tabindex="-1"
-      onclick={async () => await toggleSearch()}
+    <IconButton
+      tabindex={-1}
+      onclick={toggleSearch}
     >
-      <SearchIcon class="w-6 h-6" />
-    </button>
+      <SearchIcon />
+    </IconButton>
 
     <!-- Filter Important Summary Button -->
-    <button
-      class="p-2 transition-colors {filterState?.showImportantOnly
-        ? 'text-yellow-400 hover:text-yellow-300'
-        : 'text-zinc-400 hover:text-zinc-200'}"
-      tabindex="-1"
-      onclick={toggleFilterImportant}
+    <IconButton
+      active={showImportantOnly}
+      tabindex={-1}
+      onclick={onToggleImportant}
     >
-      <StarIcon class="w-6 h-6" />
-    </button>
+      <StarIcon />
+    </IconButton>
+
+    <!-- Manual Summarization Button -->
+    <IconButton
+      active={manualSummaryMode}
+      activeColor="primary"
+      tabindex={-1}
+      title={language.hypaV3Modal.manualSummarize}
+      onclick={onToggleManualSummaryMode}
+    >
+      <PencilIcon />
+    </IconButton>
 
     <!-- Bulk Edit Mode Button -->
-    {#if bulkEditState}
-      <button
-        class="p-2 transition-colors {bulkEditState.isEnabled
-          ? 'text-blue-400 hover:text-blue-300'
-          : 'text-zinc-400 hover:text-zinc-200'}"
-        tabindex="-1"
-        onclick={toggleBulkEditMode}
-      >
-        <SquarePenIcon class="w-6 h-6" />
-      </button>
-    {/if}
+    <IconButton
+      className="header-bulk-action"
+      active={bulkEditEnabled}
+      activeColor="primary"
+      tabindex={-1}
+      onclick={onToggleBulkEditMode}
+    >
+      <SquarePenIcon />
+    </IconButton>
 
     <!-- Category Manager Button -->
-    {#if categoryManagerState}
-      <button
-        class="p-2 text-zinc-400 hover:text-zinc-200 transition-colors"
-        tabindex="-1"
-        onclick={openCategoryManager}
-      >
-        <TagIcon class="w-6 h-6" />
-      </button>
-    {/if}
+    <IconButton
+      className="header-category-action"
+      tabindex={-1}
+      onclick={onOpenCategoryManager}
+    >
+      <TagIcon />
+    </IconButton>
 
     <!-- Open Global Settings Button -->
-    <button
-      class="p-2 transition-colors text-zinc-400 hover:text-zinc-200"
-      tabindex="-1"
+    <IconButton
+      className="header-settings-action"
+      tabindex={-1}
       onclick={openGlobalSettings}
     >
-      <SettingsIcon class="w-6 h-6" />
-    </button>
+      <SettingsIcon />
+    </IconButton>
 
     <!-- Open Dropdown Button -->
-    <div class="relative">
-      <button
-        class="p-2 transition-colors text-zinc-400 hover:text-zinc-200"
-        tabindex="-1"
-        onclick={openDropdown}
-      >
-        <MoreVerticalIcon class="w-6 h-6" />
-      </button>
-
-      {#if dropdownOpen}
-        <div
-          class="absolute right-0 z-10 p-2 mt-1 border rounded-md shadow-lg border-zinc-700 bg-zinc-800"
-        >
-          <!-- Buttons Container -->
-          <div class="flex items-center gap-2">
-            <!-- Filter Selected Summary Button -->
-            <button
-              class="p-2 transition-colors {filterSelected
-                ? 'text-blue-400 hover:text-blue-300'
-                : 'text-zinc-400 hover:text-zinc-200'}"
-              tabindex="-1"
-              onclick={toggleFilterSelected}
-            >
-              <BarChartIcon class="w-6 h-6" />
-            </button>
-
-            <!-- Reset Data Button -->
-            <button
-              class="p-2 transition-colors text-zinc-400 hover:text-rose-300"
-              tabindex="-1"
-              onclick={async () => await resetData()}
-            >
-              <Trash2Icon class="w-6 h-6" />
-            </button>
-          </div>
-        </div>
-      {/if}
+    <div class="flex h-[var(--icon-cell-size)] items-center leading-none">
+      <ShDropdownMenu>
+        <ShDropdownMenuTrigger>
+          {#snippet child({ props })}
+            <IconButton {...props} size="lg" tabindex={-1}>
+              <MoreVerticalIcon />
+            </IconButton>
+          {/snippet}
+        </ShDropdownMenuTrigger>
+        <ShDropdownMenuContent align="end" class="z-[45] min-w-44">
+        <ShDropdownMenuItem class="dropdown-bulk-action" onSelect={onToggleBulkEditMode}>
+          <SquarePenIcon />
+          {language.edit}
+        </ShDropdownMenuItem>
+        <ShDropdownMenuItem class="dropdown-category-action" onSelect={onOpenCategoryManager}>
+          <TagIcon />
+          {language.hypaV3Modal.categoryManager}
+        </ShDropdownMenuItem>
+        <ShDropdownMenuItem class="dropdown-settings-action" onSelect={openGlobalSettings}>
+          <SettingsIcon />
+          {language.settings}
+        </ShDropdownMenuItem>
+        <ShDropdownMenuItem onSelect={onToggleFilterSelected}>
+          <BarChartIcon class={filterSelected ? "text-primary" : ""} />
+          {language.hypaV3Modal.filterMetrics}
+        </ShDropdownMenuItem>
+        <ShDropdownMenuItem variant="destructive" onSelect={resetData}>
+          <Trash2Icon />
+          {language.reset}
+        </ShDropdownMenuItem>
+        </ShDropdownMenuContent>
+      </ShDropdownMenu>
     </div>
 
     <!-- Close Modal Button -->
-    <button
-      class="p-2 transition-colors text-zinc-400 hover:text-zinc-200"
-      tabindex="-1"
+    <IconButton
+      tabindex={-1}
       onclick={closeModal}
     >
-      <XIcon class="w-6 h-6" />
-    </button>
-  </div>
+      <XIcon />
+    </IconButton>
+  </IconButtonGroup>
 </div>
+
+<style>
+  :global(.header-bulk-action),
+  :global(.header-category-action),
+  :global(.header-settings-action) {
+    display: none;
+  }
+
+  @media (min-width: 440px) {
+    :global(.header-bulk-action) {
+      display: inline-flex;
+    }
+
+    :global(.dropdown-bulk-action) {
+      display: none;
+    }
+  }
+
+  @media (min-width: 520px) {
+    :global(.header-category-action) {
+      display: inline-flex;
+    }
+
+    :global(.dropdown-category-action) {
+      display: none;
+    }
+  }
+
+  @media (min-width: 640px) {
+    :global(.header-settings-action) {
+      display: inline-flex;
+    }
+
+    :global(.dropdown-settings-action) {
+      display: none;
+    }
+  }
+</style>

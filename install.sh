@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="PocketRisu/PocketRisu"
+REPO="seto-sama/PocketRisu-Kei"
 INSTALL_DIR="${RISU_INSTALL_DIR:-$HOME/pocketrisu}"
 PORT="${PORT:-6001}"
 

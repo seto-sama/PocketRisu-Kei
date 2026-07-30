@@ -16,7 +16,7 @@
             <h2 class="mt-0 mb-0 font-bold">{language.longTermMemory} {language.presets}</h2>
             <div class="grow flex justify-end">
                 <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer items-center" onclick={close}>
-                    <XIcon size={24}/>
+                    <XIcon size={20}/>
                 </button>
             </div>
         </div>

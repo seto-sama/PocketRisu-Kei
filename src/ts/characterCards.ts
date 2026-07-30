@@ -8,7 +8,7 @@ import { characterFormatUpdate } from "./characters"
 import { AppendableBuffer, BlankWriter, checkCharOrder, downloadFile, forageStorage, loadAsset, LocalWriter, readImage, saveAsset, VirtualWriter } from "./globalApi.svelte"
 import { compressImage, getImageType } from "./media"
 import { selectedCharID } from "./stores.svelte"
-import { openSettings, SettingsRoute } from "./routing"
+import { AddonSettingsTab, openAddonSettings, openSettings, SettingsRoute } from "./routing"
 import { hasher } from "./parser/parser.svelte"
 import { type CharacterCardV3, type LorebookEntry } from '@risuai/ccardlib'
 import { reencodeImage } from "./process/files/inlays"
@@ -423,7 +423,7 @@ export async function characterURLImport() {
         }
         db.modules.push(importData)
         notifySuccess(language.successImport)
-        openSettings(SettingsRoute.Module)
+        openAddonSettings(AddonSettingsTab.Module)
         return
     }
     if(hash.startsWith('#import_preset=')){
@@ -433,7 +433,7 @@ export async function characterURLImport() {
             name: 'imported.risupreset',
             data: importData
         })
-        openSettings(SettingsRoute.ChatBot)
+        openSettings(SettingsRoute.PromptPreset)
         return
     }
     if(hash.startsWith('#share_character')){
@@ -458,7 +458,7 @@ export async function characterURLImport() {
         const db = getDatabase()
         db.modules.push(md)
         notifySuccess(language.successImport)
-        openSettings(SettingsRoute.Module)
+        openAddonSettings(AddonSettingsTab.Module)
     }
     if(hash.startsWith('#share_preset')){
         const data = await fetch("/sw/share/preset")
@@ -470,7 +470,7 @@ export async function characterURLImport() {
             name: 'shared.risup',
             data: preset
         })
-        openSettings(SettingsRoute.ChatBot)
+        openSettings(SettingsRoute.PromptPreset)
     }
     if ("launchQueue" in window) {
         const handleFiles = async (files:FileSystemFileHandle[]) => {
@@ -502,7 +502,7 @@ export async function characterURLImport() {
                 name: name,
                 data: data
             })
-            openSettings(SettingsRoute.ChatBot)
+            openSettings(SettingsRoute.PromptPreset)
             notifySuccess(language.successImport)
             return
         }
@@ -512,7 +512,7 @@ export async function characterURLImport() {
             const db = getDatabase()
             db.modules.push(md)
             notifySuccess(language.successImport)
-            openSettings(SettingsRoute.Module)
+            openAddonSettings(AddonSettingsTab.Module)
             return
         }
     }
@@ -586,6 +586,9 @@ function convertOffSpecCards(charaData:OldTavernChar|CharacterCardV2Risu, imgp:s
         chaId: uuidv4(),
         sdData: defaultSdDataFunc(),
         utilityBot: false,
+        lowLevelAccess: false,
+        hideChatIcon: false,
+        escapeOutput: false,
         customscript: [],
         exampleMessage: data.mes_example,
         creatorNotes:'',
@@ -884,6 +887,8 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         chaId: uuidv4(),
         sdData: sdData,
         utilityBot: utilityBot,
+        hideChatIcon: data?.extensions?.risuai?.hideChatIcon ?? false,
+        escapeOutput: data?.extensions?.risuai?.escapeOutput ?? false,
         customscript: customScripts,
         exampleMessage: data.mes_example ?? '',
         creatorNotes:data.creator_notes ?? '',

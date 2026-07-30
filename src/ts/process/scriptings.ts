@@ -15,9 +15,27 @@ import { v4 } from "uuid";
 import { getModuleLorebooks, getModuleTriggers } from "./modules";
 import { Mutex } from "../mutex";
 import { tokenize } from "../tokenizer";
-import { fetchNative, readImage } from "../globalApi.svelte";
+import {
+    fetchNative,
+    readImage,
+} from "../globalApi.svelte";
+import {
+    consumeRecoverableAuxiliaryGeneration,
+    findRecoverableAuxiliaryGeneration,
+    listRecoverableAuxiliaryGenerations,
+    resolveRecoverableAuxiliaryGenerations,
+    updateRecoverableAuxiliaryGenerationResult,
+} from "./revenantGeneration/auxiliary";
+import type { RecoverableAuxiliaryJob } from "./revenantGeneration/types";
 import { loadLoreBookV3Prompt } from './lorebook.svelte';
 import { getPersonaPrompt, getUserName, getUserIcon } from '../util';
+import { saveChatToServer } from '../storage/chatStorage';
+import {
+    createRevenantOperation,
+    isRevenantJobActive,
+    isRevenantLuaLlmOperation,
+    type RevenantLuaLlmOperation,
+} from './revenantGeneration/types';
 let luaFactory:LuaFactory
 let ScriptingSafeIds = new Set<string>()
 let ScriptingEditDisplayIds = new Set<string>()
@@ -31,6 +49,7 @@ interface BasicScriptingEngineState {
     chat?: Chat;
     setVar?: (key:string, value:string) => void,
     getVar?: (key:string) => string,
+    revenantLuaExecution?: RevenantLuaExecutionContext,
 }
 
 interface LuaScriptingEngineState extends BasicScriptingEngineState {
@@ -49,6 +68,24 @@ let ScriptingEngines = new Map<string, ScriptingEngineState>()
 let luaFactoryPromise: Promise<void> | null = null;
 let pendingEngineCreations = new Map<string, Promise<ScriptingEngineState>>();
 
+type RevenantLuaExecutionContext = {
+    executionKey: string;
+    characterId: string;
+    roomId: string;
+    mode: string;
+    code: string;
+    lowLevelAccess: boolean;
+    anchorMessageId: string;
+    callIndex: number;
+    completedJobIds: Set<string>;
+}
+
+async function getLuaReplayJob(replayKey: string): Promise<RecoverableAuxiliaryJob | undefined> {
+    return await findRecoverableAuxiliaryGeneration(job =>
+        isRevenantLuaLlmOperation(job.operationContext)
+        && job.operationContext.replayKey === replayKey)
+}
+
 export async function runScripted(code:string, arg:{
     char?:character|simpleCharacterArgument,
     chat?:Chat
@@ -59,6 +96,7 @@ export async function runScripted(code:string, arg:{
     meta?: object,
     mode?: string,
     type?: 'lua'|'py'
+    revenantReplayJobIds?: string[]
 }){
     const type: 'lua'|'py' = arg.type ?? 'lua'
     const char = arg.char ?? getCurrentCharacter()
@@ -71,6 +109,32 @@ export async function runScripted(code:string, arg:{
     let chat = arg.chat ?? getCurrentChat()
     let stopSending = false
     let lowLevelAccess = arg.lowLevelAccess ?? false
+    let revenantLuaExecution: RevenantLuaExecutionContext | undefined
+    if (
+        type === 'lua'
+        && char.type === 'character'
+        && char.chaId
+        && chat?.id
+        && lowLevelAccess
+    ) {
+        const lastMessage = chat.message?.at(-1)
+        const anchorMessageId = lastMessage?.chatId
+            ?? await hasher(new TextEncoder().encode(
+                `${chat.message?.length ?? 0}:${lastMessage?.role ?? ''}:${lastMessage?.data ?? ''}`,
+            ))
+        const codeHash = await hasher(new TextEncoder().encode(code))
+        revenantLuaExecution = {
+            executionKey: `${char.chaId}:${chat.id}:${mode}:${anchorMessageId}:${codeHash}`,
+            characterId: char.chaId,
+            roomId: chat.id,
+            mode,
+            code,
+            lowLevelAccess,
+            anchorMessageId,
+            callIndex: 0,
+            completedJobIds: new Set(arg.revenantReplayJobIds ?? []),
+        }
+    }
 
     if(type === 'lua'){
         await ensureLuaFactory()
@@ -81,6 +145,7 @@ export async function runScripted(code:string, arg:{
         ScriptingEngineState.chat = chat
         ScriptingEngineState.setVar = setVar
         ScriptingEngineState.getVar = getVar
+        ScriptingEngineState.revenantLuaExecution = revenantLuaExecution
         if (code !== ScriptingEngineState.code) {
             let declareAPI:(name: string, func:Function) => void
 
@@ -469,6 +534,63 @@ export async function runScripted(code:string, arg:{
                 return text;
             };
 
+            const prepareRevenantLuaCall = async (
+                modelMode: 'model' | 'otherAx',
+                requestIdentity: string,
+            ): Promise<{
+                replay?: string;
+                operationContext?: RevenantLuaLlmOperation;
+            }> => {
+                const execution = ScriptingEngineState.revenantLuaExecution;
+                if (!execution) return {};
+                const callIndex = execution.callIndex++;
+                const requestHash = await hasher(new TextEncoder().encode(
+                    `${modelMode}\n${requestIdentity}`,
+                ));
+                const replayKey = `${execution.executionKey}:${callIndex}:${requestHash}`;
+                const existing = await getLuaReplayJob(replayKey);
+                if (existing?.status === 'generated' && existing.rawContent.length > 0) {
+                    execution.completedJobIds.add(existing.jobId);
+                    return { replay: existing.rawContent };
+                }
+                if (existing) {
+                    // Interrupted/failed work cannot provide a reliable return
+                    // value. Consume it before retrying the same deterministic
+                    // Lua call.
+                    await consumeRecoverableAuxiliaryGeneration(existing.jobId);
+                }
+                return {
+                    operationContext: createRevenantOperation({
+                        kind: 'lua-llm',
+                        executionKey: execution.executionKey,
+                        replayKey,
+                        characterId: execution.characterId,
+                        roomId: execution.roomId,
+                        mode: execution.mode,
+                        code: execution.code,
+                        lowLevelAccess: execution.lowLevelAccess,
+                        anchorMessageId: execution.anchorMessageId,
+                        callIndex,
+                    }),
+                };
+            };
+
+            const completeRevenantLuaCall = async (
+                operationContext: RevenantLuaLlmOperation | undefined,
+                result: string,
+            ): Promise<boolean> => {
+                if (!operationContext) return true;
+                const jobs = await listRecoverableAuxiliaryGenerations(true);
+                const job = jobs.find(candidate =>
+                    isRevenantLuaLlmOperation(candidate.operationContext)
+                    && candidate.operationContext.operationId === operationContext.operationId);
+                if (!job) return false;
+                if (isRevenantJobActive(job.status)) return false;
+                await updateRecoverableAuxiliaryGenerationResult(job.jobId, result);
+                ScriptingEngineState.revenantLuaExecution?.completedJobIds.add(job.jobId);
+                return true;
+            };
+
             declareAPI('LLMMain', async (id:string, promptStr:string, useMultimodal: boolean = false, optionsStr?: string) => {
                 let prompt:{
                     role: string,
@@ -537,16 +659,29 @@ export async function runScripted(code:string, arg:{
                     }
                 }
 
+                const revenantCall = await prepareRevenantLuaCall(
+                    'model',
+                    `${promptStr}\n${useMultimodal}\n${optionsStr ?? ''}`,
+                )
+                if (revenantCall.replay !== undefined) {
+                    return JSON.stringify({ success: true, result: revenantCall.replay })
+                }
                 const options = parseLuaOptions(optionsStr) as { streaming?: boolean }
                 const result = await requestChatData({
                     formated: promptbody,
                     bias: {},
+                    currentChar: char.type === 'character' ? char : undefined,
                     useStreaming: options.streaming === true,
                     forceStreaming: options.streaming === true,
                     noMultiGen: true,
+                    revenantOperationContext: revenantCall.operationContext,
                 }, 'model')
 
                 if(result.type === 'fail'){
+                    const completed = await completeRevenantLuaCall(revenantCall.operationContext, 'Error: ' + result.result)
+                    if (!completed && revenantCall.operationContext) {
+                        throw new Error('Revenant Lua generation detached; awaiting automatic recovery')
+                    }
                     return JSON.stringify({
                         success: false,
                         result: 'Error: ' + result.result
@@ -555,11 +690,14 @@ export async function runScripted(code:string, arg:{
 
                 if(result.type === 'streaming'){
                     try {
+                        const text = await collectLuaStreamText(result.result)
+                        await completeRevenantLuaCall(revenantCall.operationContext, text)
                         return JSON.stringify({
                             success: true,
-                            result: await collectLuaStreamText(result.result)
+                            result: text
                         })
                     } catch (error) {
+                        if (revenantCall.operationContext) throw error
                         return JSON.stringify({
                             success: false,
                             result: 'Error: ' + error
@@ -574,6 +712,7 @@ export async function runScripted(code:string, arg:{
                     })
                 }
 
+                await completeRevenantLuaCall(revenantCall.operationContext, result.result)
                 return JSON.stringify({
                     success: true,
                     result: result.result
@@ -584,17 +723,27 @@ export async function runScripted(code:string, arg:{
                 if(!ScriptingLowLevelIds.has(id)){
                     return
                 }
+                const revenantCall = await prepareRevenantLuaCall('model', prompt)
+                if (revenantCall.replay !== undefined) {
+                    return { success: true, result: revenantCall.replay }
+                }
                 const result = await requestChatData({
                     formated: [{
                         role: 'user',
                         content: prompt
                     }],
                     bias: {},
+                    currentChar: char.type === 'character' ? char : undefined,
                     useStreaming: false,
                     noMultiGen: true,
+                    revenantOperationContext: revenantCall.operationContext,
                 }, 'model')
 
                 if(result.type === 'fail'){
+                    const completed = await completeRevenantLuaCall(revenantCall.operationContext, 'Error: ' + result.result)
+                    if (!completed && revenantCall.operationContext) {
+                        throw new Error('Revenant Lua generation detached; awaiting automatic recovery')
+                    }
                     return {
                         success: false,
                         result: 'Error: ' + result.result
@@ -608,6 +757,7 @@ export async function runScripted(code:string, arg:{
                     }
                 }
 
+                await completeRevenantLuaCall(revenantCall.operationContext, result.result)
                 return {
                     success: true,
                     result: result.result
@@ -897,16 +1047,29 @@ export async function runScripted(code:string, arg:{
                     }
                 }
 
+                const revenantCall = await prepareRevenantLuaCall(
+                    'otherAx',
+                    `${promptStr}\n${useMultimodal}\n${optionsStr ?? ''}`,
+                )
+                if (revenantCall.replay !== undefined) {
+                    return JSON.stringify({ success: true, result: revenantCall.replay })
+                }
                 const options = parseLuaOptions(optionsStr) as { streaming?: boolean }
                 const result = await requestChatData({
                     formated: promptbody,
                     bias: {},
+                    currentChar: char.type === 'character' ? char : undefined,
                     useStreaming: options.streaming === true,
                     forceStreaming: options.streaming === true,
                     noMultiGen: true,
+                    revenantOperationContext: revenantCall.operationContext,
                 }, 'otherAx')
 
                 if(result.type === 'fail'){
+                    const completed = await completeRevenantLuaCall(revenantCall.operationContext, 'Error: ' + result.result)
+                    if (!completed && revenantCall.operationContext) {
+                        throw new Error('Revenant Lua generation detached; awaiting automatic recovery')
+                    }
                     return JSON.stringify({
                         success: false,
                         result: 'Error: ' + result.result
@@ -915,11 +1078,14 @@ export async function runScripted(code:string, arg:{
 
                 if(result.type === 'streaming'){
                     try {
+                        const text = await collectLuaStreamText(result.result)
+                        await completeRevenantLuaCall(revenantCall.operationContext, text)
                         return JSON.stringify({
                             success: true,
-                            result: await collectLuaStreamText(result.result)
+                            result: text
                         })
                     } catch (error) {
+                        if (revenantCall.operationContext) throw error
                         return JSON.stringify({
                             success: false,
                             result: 'Error: ' + error
@@ -934,6 +1100,7 @@ export async function runScripted(code:string, arg:{
                     })
                 }
 
+                await completeRevenantLuaCall(revenantCall.operationContext, result.result)
                 return JSON.stringify({
                     success: true,
                     result: result.result
@@ -1037,6 +1204,7 @@ export async function runScripted(code:string, arg:{
             }
         }
         let res:any
+        let scriptCompleted = false
         if(ScriptingEngineState.type === 'lua'){
             const luaEngine = ScriptingEngineState.engine
             try {
@@ -1091,6 +1259,7 @@ export async function runScripted(code:string, arg:{
                 if(res === false){
                     stopSending = true
                 }
+                scriptCompleted = true
             } catch (error) {
                 console.error(error)
             }
@@ -1131,10 +1300,98 @@ export async function runScripted(code:string, arg:{
         ScriptingLowLevelIds.delete(accessKey)
         chat = ScriptingEngineState.chat
 
+        const completedLuaJobIds = ScriptingEngineState.revenantLuaExecution?.completedJobIds
+        if (scriptCompleted && completedLuaJobIds && completedLuaJobIds.size > 0 && char.type === 'character' && chat?.id) {
+            const chatIndex = char.chats.findIndex(item => item?.id === chat.id)
+            if (chatIndex < 0) {
+                throw new Error(`Revenant Lua target chat not found: ${chat.id}`)
+            }
+            // Persist the Lua side effects before acknowledging the replayed
+            // provider results. A crash between these steps is safe: recovery
+            // reruns the script, which can observe its already-applied guard.
+            await saveChatToServer(char.chaId, chatIndex, chat.id, chat)
+            for (const jobId of completedLuaJobIds) {
+                await consumeRecoverableAuxiliaryGeneration(jobId)
+            }
+        }
+        ScriptingEngineState.revenantLuaExecution = undefined
+
         return {
             stopSending, chat, res
         }
     })
+}
+
+const recoveringRevenantLuaChats = new Map<string, Promise<number>>()
+let revenantLuaRecoveryCheckedAt = 0
+
+export async function recoverRevenantLuaJobsForChat(
+    char: character,
+    chat: Chat,
+): Promise<number> {
+    if (!char?.chaId || !chat?.id || chat._placeholder) return 0
+    const recoveryKey = `${char.chaId}/${chat.id}`
+    const existing = recoveringRevenantLuaChats.get(recoveryKey)
+    if (existing) return existing
+    if (Date.now() - revenantLuaRecoveryCheckedAt < 1000) return 0
+    revenantLuaRecoveryCheckedAt = Date.now()
+
+    const recovery = (async () => {
+        const jobs = await resolveRecoverableAuxiliaryGenerations({
+            jobType: 'otherAx',
+            isContext: isRevenantLuaLlmOperation,
+            matchesContext: context =>
+                context.characterId === char.chaId && context.roomId === chat.id,
+        })
+        const grouped = new Map<string, {
+            context: RevenantLuaLlmOperation
+            jobIds: string[]
+        }>()
+        for (const job of jobs) {
+            const context = job.operationContext
+            const group = grouped.get(context.executionKey) ?? { context, jobIds: [] }
+            group.jobIds.push(job.jobId)
+            grouped.set(context.executionKey, group)
+        }
+
+        let recovered = 0
+        const availableLuaCodes = new Set(
+            char.triggerscript
+                .concat(getModuleTriggers())
+                .flatMap(trigger => trigger.effect)
+                .flatMap(effect => effect.type === 'triggerlua' ? [effect.code] : []),
+        )
+        for (const { context, jobIds } of grouped.values()) {
+            if (!availableLuaCodes.has(context.code)) {
+                // Never execute code solely because it was persisted in a job;
+                // it must still be installed on the current character/module.
+                for (const jobId of jobIds) {
+                    await consumeRecoverableAuxiliaryGeneration(jobId)
+                }
+                continue
+            }
+            const anchorExists = chat.message.some(message =>
+                message?.chatId === context.anchorMessageId)
+            if (!anchorExists && chat.message.at(-1)?.chatId) {
+                // Do not apply an old script result to a chat whose triggering
+                // message has been removed or replaced.
+                continue
+            }
+            await runScripted(context.code, {
+                char,
+                chat,
+                lowLevelAccess: context.lowLevelAccess,
+                mode: context.mode,
+                revenantReplayJobIds: jobIds,
+            })
+            recovered += 1
+        }
+        return recovered
+    })().finally(() => {
+        recoveringRevenantLuaChats.delete(recoveryKey)
+    })
+    recoveringRevenantLuaChats.set(recoveryKey, recovery)
+    return recovery
 }
 
 async function makeLuaFactory(){

@@ -14,7 +14,6 @@ describe('resolveSnapshot null-element tolerance', () => {
                     p: {
                         id: 'p',
                         adapterKind: 'openaiCompatible',
-                        version: 1,
                         requestSchema: [null, { key: 'a', type: 'string' }],
                         uiSchema: { groups: [null], fields: [null, { key: 'a' }] },
                     },
@@ -23,7 +22,6 @@ describe('resolveSnapshot null-element tolerance', () => {
                     x: {
                         id: 'x',
                         providerBaseId: 'p',
-                        version: 1,
                         displayName: 'X',
                         schema: [null, { key: 'b', type: 'string' }],
                         uiSchema: { groups: [null], fields: [null, { key: 'b' }] },

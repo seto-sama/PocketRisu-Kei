@@ -1,7 +1,7 @@
 import { changeFullscreen, checkNullish } from "./util"
 import { v4 as uuidv4 } from 'uuid';
 import { get } from "svelte/store";
-import { setDatabase, defaultSdDataFunc, getDatabase, changeToThemePreset } from "./storage/database.svelte";
+import { setDatabase, defaultSdDataFunc, getDatabase, changeToThemePreset, type Database } from "./storage/database.svelte";
 import { chatDraftKey, sweepOrphanDrafts } from "./storage/chatDraft";
 import { checkRisuUpdate } from "./update";
 import { fetchPublicStats } from "./publicStats";
@@ -17,7 +17,8 @@ import { applyEarlyLanguage, changeLanguage, language } from "src/lang";
 import { startObserveDom } from "./observer.svelte";
 import { updateGuisize } from "./gui/guisize";
 import { updateLorebooks } from "./characters";
-import { initMobileGesture } from "./hotkey";
+import { initHotkey, initMobileGesture } from "./hotkey";
+import { syncMobileBackNavigationGuard } from "./mobileBackNavigation";
 import { moduleUpdate } from "./process/modules";
 import {
     forageStorage,
@@ -28,9 +29,10 @@ import {
     getBasename,
     checkCharOrder
 } from "./globalApi.svelte";
-import { registerModelDynamic } from "./model/modellist";
 import { convertStubsToPlaceholders } from "./storage/chatStorage";
 import { isChatStub, purgeUnsupportedGroupChats } from "./storage/database.svelte";
+import { startSyncReceiver } from "./syncReceiver.svelte";
+import { ConflictError } from "./storage/nodeStorage";
 
 /**
  * Loads the application data.
@@ -49,31 +51,34 @@ export async function loadData() {
                 LoadingStatusState.text = "Decoding Local Save File..."
                 if (checkNullish(gotStorage)) {
                     createdFreshDatabase = true
-                    gotStorage = encodeRisuSaveLegacy({})
-                    await forageStorage.setItem('database/database.bin', gotStorage)
-                }
-                try {
-                    const decoded = await decodeRisuSave(gotStorage)
-                    setPatchSyncBaseline(safeStructuredClone(decoded))
-                    console.log(decoded)
-                    setDatabase(decoded)
-                } catch (error) {
-                    console.error(error)
-                    const backups = await getDbBackups()
-                    let backupLoaded = false
-                    for (const backup of backups) {
-                        try {
-                            LoadingStatusState.text = `Reading Backup File ${backup}...`
-                            const backupData: Uint8Array = await forageStorage.getItem(`database/dbbackup-${backup}.bin`) as unknown as Uint8Array
-                            const backupDecoded = await decodeRisuSave(backupData)
-                            setPatchSyncBaseline(safeStructuredClone(backupDecoded))
-                            setDatabase(backupDecoded)
-                            backupLoaded = true
-                            break
-                        } catch (error) { }
-                    }
-                    if (!backupLoaded) {
-                        throw "Forage: Your save file is corrupted"
+                    // Build the complete default database in memory first. Persisting
+                    // `{}` here would leave the server and patcher baselines without
+                    // required roots such as characters, presets, and personas.
+                    setDatabase({} as Database)
+                } else {
+                    try {
+                        const decoded = await decodeRisuSave(gotStorage)
+                        setPatchSyncBaseline(safeStructuredClone(decoded))
+                        console.log(decoded)
+                        setDatabase(decoded)
+                    } catch (error) {
+                        console.error(error)
+                        const backups = await getDbBackups()
+                        let backupLoaded = false
+                        for (const backup of backups) {
+                            try {
+                                LoadingStatusState.text = `Reading Backup File ${backup}...`
+                                const backupData: Uint8Array = await forageStorage.getItem(`database/dbbackup-${backup}.bin`) as unknown as Uint8Array
+                                const backupDecoded = await decodeRisuSave(backupData)
+                                setPatchSyncBaseline(safeStructuredClone(backupDecoded))
+                                setDatabase(backupDecoded)
+                                backupLoaded = true
+                                break
+                            } catch (error) { }
+                        }
+                        if (!backupLoaded) {
+                            throw "Forage: Your save file is corrupted"
+                        }
                     }
                 }
 
@@ -107,6 +112,31 @@ export async function loadData() {
                     db.language = mappedLanguage
                     changeLanguage(mappedLanguage)
                 }
+
+                const initializedStorage = encodeRisuSaveLegacy(getDatabase())
+                const initialEtag = forageStorage.getDbEtag()
+                try {
+                    await forageStorage.setItem(
+                        'database/database.bin',
+                        initializedStorage,
+                        initialEtag ?? undefined,
+                    )
+                } catch (error) {
+                    // Another device may have initialized the same empty server
+                    // after our read. Keep its database instead of overwriting it.
+                    if (!(error instanceof ConflictError)) throw error
+                    createdFreshDatabase = false
+                }
+
+                // Read back the server-visible representation so the patcher hash
+                // and the live database start from exactly the persisted object.
+                const persistedStorage = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
+                if (checkNullish(persistedStorage)) {
+                    throw new Error('Initial database write did not persist database.bin')
+                }
+                const persistedDatabase = await decodeRisuSave(persistedStorage)
+                setPatchSyncBaseline(safeStructuredClone(persistedDatabase))
+                setDatabase(persistedDatabase)
             }
             LoadingStatusState.text = "Loading Plugins..."
             try {
@@ -142,6 +172,8 @@ export async function loadData() {
             updateHeightMode()
             updateErrorHandling()
             updateGuisize()
+            initHotkey()
+            syncMobileBackNavigationGuard(db.disableMobileBackNavigation)
             if (!db.didFirstSetup) {
                 // Node-only build skips the onboarding screen and lands on the main UI directly.
                 db.didFirstSetup = true
@@ -153,12 +185,24 @@ export async function loadData() {
                 initMobileGesture()
                 MobileGUI.set(true)
             }
+            // Boot-time automatic backup schedule. This is intentionally checked
+            // at startup instead of running a background timer while the app is
+            // open: if the latest backup is older than the configured N days,
+            // create the requested backup before showing the main UI.
+            let scheduledBackupRan = false
+            try {
+                scheduledBackupRan = await maybeRunScheduledBackups()
+            } catch (err) {
+                console.warn('[bootstrap] scheduled backup failed:', err)
+            }
             // Boot-time backup reminder. If the user has enabled it, we block
             // the load briefly to ask whether to back up now. Errors here are
             // non-fatal — boot must always proceed even if the reminder fetch
             // or backup itself fails.
             try {
-                await maybeRunBootBackupReminder()
+                if (!scheduledBackupRan) {
+                    await maybeRunBootBackupReminder()
+                }
             } catch (err) {
                 console.warn('[bootstrap] boot backup reminder failed:', err)
             }
@@ -166,8 +210,8 @@ export async function loadData() {
             selectedCharID.set(-1)
             startObserveDom()
             assignIds()
-            registerModelDynamic()
             saveDb()
+            startSyncReceiver()
             moduleUpdate()
             // cleanChunks는 화면 진입 후 유휴 시간에 실행 (부트 블로킹 제거)
             setTimeout(() => {
@@ -204,6 +248,78 @@ async function fetchWithTimeout(input: RequestInfo, init: RequestInit = {}, ms =
     } finally {
         clearTimeout(timer)
     }
+}
+
+interface BackupSchedule {
+    enabled: boolean
+    serverDays: number
+    snapshotDays: number
+}
+
+function isDue(latestTimestamp: number | null, days: number) {
+    if (!Number.isFinite(days) || days < 1) return false
+    if (latestTimestamp == null || latestTimestamp <= 0) return true
+    return Date.now() - latestTimestamp >= days * 24 * 60 * 60 * 1000
+}
+
+async function fetchLatestServerBackupTimestamp(auth: string): Promise<number | null> {
+    const res = await fetchWithTimeout('/api/backup/server/list', { headers: { 'risu-auth': auth } })
+    if (!res.ok) return null
+    const json = await res.json()
+    const backups = Array.isArray(json?.backups) ? json.backups : []
+    let latest: number | null = null
+    for (const backup of backups) {
+        if (typeof backup?.createdAt !== 'number') continue
+        if (latest == null || backup.createdAt > latest) latest = backup.createdAt
+    }
+    return latest
+}
+
+async function fetchLatestManualSnapshotTimestamp(auth: string): Promise<number | null> {
+    const res = await fetchWithTimeout('/api/db/manual-snapshots', { headers: { 'risu-auth': auth } })
+    if (!res.ok) return null
+    const json = await res.json()
+    const snapshots = Array.isArray(json?.snapshots) ? json.snapshots : []
+    let latest: number | null = null
+    for (const snapshot of snapshots) {
+        if (typeof snapshot?.timestamp !== 'number') continue
+        if (latest == null || snapshot.timestamp > latest) latest = snapshot.timestamp
+    }
+    return latest
+}
+
+async function maybeRunScheduledBackups(): Promise<boolean> {
+    const auth = await forageStorage.createAuth()
+    const res = await fetchWithTimeout('/api/backup/schedule', { headers: { 'risu-auth': auth } })
+    if (!res.ok) return false
+    const schedule = await res.json() as BackupSchedule
+    if (!schedule?.enabled) return false
+    const snapshotDays = Number(schedule?.snapshotDays)
+    const serverDays = Number(schedule?.serverDays)
+    const snapshotEnabled = Number.isFinite(snapshotDays) && snapshotDays > 0
+    const serverEnabled = Number.isFinite(serverDays) && serverDays > 0
+    if (!snapshotEnabled && !serverEnabled) return false
+
+    const { SaveManualSnapshot, SaveServerBackup } = await import('./drive/backuplocal')
+    let ran = false
+
+    if (snapshotEnabled) {
+        const latestSnapshot = await fetchLatestManualSnapshotTimestamp(auth)
+        if (isDue(latestSnapshot, snapshotDays)) {
+            const result = await SaveManualSnapshot()
+            ran = !!result || ran
+        }
+    }
+
+    if (serverEnabled) {
+        const latestBackup = await fetchLatestServerBackupTimestamp(auth)
+        if (isDue(latestBackup, serverDays)) {
+            const result = await SaveServerBackup()
+            ran = !!result || ran
+        }
+    }
+
+    return ran
 }
 
 /**
@@ -245,12 +361,16 @@ async function maybeRunBootBackupReminder() {
 
     const insufficient = (estimate != null && free != null && estimate > free)
 
-    const proceed = await new Promise<boolean>((resolve) => {
+    const mode = await new Promise<'skip' | 'snapshot' | 'full'>((resolve) => {
         bootBackupPromptStore.set({ estimate, free, total, insufficient, resolve })
     })
-    if (!proceed) return
-    const { SaveServerBackup } = await import('./drive/backuplocal')
-    await SaveServerBackup()
+    if (mode === 'skip') return
+    const { SaveManualSnapshot, SaveServerBackup } = await import('./drive/backuplocal')
+    if (mode === 'snapshot') {
+        await SaveManualSnapshot()
+    } else {
+        await SaveServerBackup()
+    }
 }
 
 /**

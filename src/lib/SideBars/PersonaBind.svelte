@@ -74,9 +74,9 @@
         onclick={handlePersonaBindClick}
     >
         {#if isPersonaBound}
-            <PinIcon size={16} class="shrink-0" />
+            <PinIcon class="shrink-0" />
         {:else}
-            <PinOffIcon size={16} class="shrink-0" />
+            <PinOffIcon class="shrink-0" />
         {/if}
         <span class="truncate">{displayPersona?.name ?? 'User'}</span>
         {#if displayPersona?.note}

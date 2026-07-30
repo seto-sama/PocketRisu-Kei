@@ -9,7 +9,9 @@ import { changeFullscreen } from '../util';
 import { updateAnimationSpeed } from '../gui/animation';
 import { updateGuisize } from '../gui/guisize';
 import { updateTextThemeAndCSS } from '../gui/colorscheme';
-export const displayThemeSettingsItems: SettingItem[] = [
+import { PRODUCT_BASE_NAME } from '../branding';
+
+export const displayThemeGeneralSettingsItems: SettingItem[] = [
     {
         id: 'display.theme',
         type: 'select',
@@ -19,7 +21,7 @@ export const displayThemeSettingsItems: SettingItem[] = [
         classes: 'mt-4',
         options: {
             selectOptions: [
-                { value: '', label: 'PocketRisu Standard' },
+                { value: '', label: `${PRODUCT_BASE_NAME} Standard` },
                 { value: 'standardRisu', label: 'Standard Risu' },
                 { value: 'waifu', label: 'Waifulike' },
                 { value: 'mobilechat', label: 'Mobile Chat' },
@@ -39,20 +41,11 @@ export const displayThemeSettingsItems: SettingItem[] = [
         keywords: ['custom', 'html', 'chat'],
     },
     {
-        id: 'display.guiHTML.warning',
-        type: 'custom',
-        componentId: 'CustomizationWarning',
-        componentProps: { messageKey: 'customHTMLWarning' },
-        condition: (ctx) => ctx.db.theme === 'customHTML',
-        keywords: ['custom', 'html', 'warning'],
-    },
-    {
         id: 'display.nodeOnlyStandardChatWidth',
         type: 'select',
         labelKey: 'nodeOnlyStandardChatWidth',
         helpKey: 'nodeOnlyStandardChatWidth',
         bindKey: 'nodeOnlyStandardChatWidth',
-        classes: 'mt-4',
         condition: (ctx) => ctx.db.theme === '',
         options: {
             selectOptions: [
@@ -69,16 +62,42 @@ export const displayThemeSettingsItems: SettingItem[] = [
         labelKey: 'customCSS',
         helpKey: 'customCSS',
         bindKey: 'customCSS',
-        classes: 'mt-4',
         onChange: () => updateTextThemeAndCSS(),
         keywords: ['custom', 'css'],
     },
     {
-        id: 'display.customCSS.warning',
-        type: 'custom',
-        componentId: 'CustomizationWarning',
-        componentProps: { messageKey: 'customCSSWarning' },
-        keywords: ['custom', 'css', 'warning'],
+        id: 'display.globalCustomCSS',
+        type: 'textarea',
+        labelKey: 'globalCustomCSS',
+        helpKey: 'globalCustomCSS',
+        bindKey: 'globalCustomCSS',
+        onChange: () => updateTextThemeAndCSS(),
+        keywords: ['global', 'custom', 'css'],
+    },
+    {
+        id: 'display.font',
+        type: 'select',
+        labelKey: 'font',
+        helpKey: 'font',
+        bindKey: 'font',
+        onChange: () => updateTextThemeAndCSS(),
+        options: {
+            selectOptions: [
+                { value: 'default', label: 'Default' },
+                { value: 'timesnewroman', label: 'Times New Roman' },
+                { value: 'custom', label: 'Custom' },
+            ],
+        },
+        keywords: ['font', 'typeface'],
+    },
+    {
+        id: 'display.customFont',
+        type: 'text',
+        fallbackLabel: '',
+        bindKey: 'customFont',
+        condition: (ctx) => ctx.db.font === 'custom',
+        onChange: () => updateTextThemeAndCSS(),
+        keywords: ['font', 'custom'],
     },
     {
         id: 'display.waifuWidth',
@@ -92,7 +111,6 @@ export const displayThemeSettingsItems: SettingItem[] = [
             max: 200,
             customText: (value) => `${value}%`,
         },
-        classes: 'mt-4',
         keywords: ['waifu', 'width'],
     },
     {
@@ -107,9 +125,11 @@ export const displayThemeSettingsItems: SettingItem[] = [
             max: 150,
             customText: (value) => `${value}%`,
         },
-        classes: 'mt-4',
         keywords: ['waifu', 'width'],
     },
+];
+
+export const displayThemePaletteSettingsItems: SettingItem[] = [
     {
         id: 'display.colorScheme',
         type: 'custom',
@@ -129,7 +149,6 @@ export const displayThemeSettingsItems: SettingItem[] = [
         labelKey: 'textColor',
         helpKey: 'textColor',
         bindKey: 'textTheme',
-        classes: 'mt-4',
         onChange: () => updateTextThemeAndCSS(),
         options: {
             selectOptions: [
@@ -146,33 +165,6 @@ export const displayThemeSettingsItems: SettingItem[] = [
         componentId: 'CustomTextThemeEditor',
         condition: (ctx) => ctx.db.textTheme === 'custom',
         keywords: ['custom', 'text', 'color', 'theme'],
-    },
-    {
-        id: 'display.font',
-        type: 'select',
-        labelKey: 'font',
-        helpKey: 'font',
-        bindKey: 'font',
-        classes: 'mt-4',
-        onChange: () => updateTextThemeAndCSS(),
-        options: {
-            selectOptions: [
-                { value: 'default', label: 'Default' },
-                { value: 'timesnewroman', label: 'Times New Roman' },
-                { value: 'custom', label: 'Custom' },
-            ],
-        },
-        keywords: ['font', 'typeface'],
-    },
-    {
-        id: 'display.customFont',
-        type: 'text',
-        fallbackLabel: '',
-        helpKey: 'customFont',
-        bindKey: 'customFont',
-        condition: (ctx) => ctx.db.font === 'custom',
-        onChange: () => updateTextThemeAndCSS(),
-        keywords: ['font', 'custom'],
     },
 ];
 
@@ -303,6 +295,7 @@ export const displaySizeSettingsItems: SettingItem[] = [
 
 export const displayOtherHomeItems: SettingItem[] = [
     { id: 'display.hideRealm', type: 'check', labelKey: 'hideRealm', helpKey: 'hideRealm', bindKey: 'hideRealm', keywords: ['realm', 'hide'] },
+    { id: 'display.realmDirectOpen', type: 'check', labelKey: 'realmDirectOpen', helpKey: 'realmDirectOpen', bindKey: 'realmDirectOpen', keywords: ['realm', 'preview', 'direct', 'open'] },
     { id: 'display.showFolderName', type: 'check', labelKey: 'showFolderNameInIcon', helpKey: 'showFolderNameInIcon', bindKey: 'showFolderName', keywords: ['folder', 'name', 'icon'] },
     { id: 'display.roundIcons', type: 'check', labelKey: 'roundIcons', helpKey: 'roundIcons', bindKey: 'roundIcons', keywords: ['round', 'icons'] },
     { id: 'display.hideMessagePageCount', type: 'check', labelKey: 'hideMessagePageCount', helpKey: 'hideMessagePageCountDesc', bindKey: 'hideMessagePageCount', keywords: ['message', 'page', 'count', 'hide'] },
@@ -312,6 +305,19 @@ export const displayOtherChatItems: SettingItem[] = [
     { id: 'display.showRequestStatus', type: 'check', labelKey: 'showRequestStatus', helpKey: 'showRequestStatus', bindKey: 'showRequestStatus', keywords: ['request', 'status', 'toast', 'token', 'thinking'] },
     { id: 'display.customBackground', type: 'custom', componentId: 'CustomBackgroundToggle', keywords: ['custom', 'background'] },
     { id: 'display.hideAllImages', type: 'check', labelKey: 'hideAllImages', helpKey: 'hideAllImagesDesc', bindKey: 'hideAllImages', keywords: ['images', 'hide'] },
+    {
+        id: 'display.assetMaxDifference',
+        type: 'slider',
+        labelKey: 'assetMaxDifference',
+        helpKey: 'assetMaxDifference',
+        getValue: (db) => db.assetMaxDifference <= 0 ? -1000 : Math.min(db.assetMaxDifference, 8),
+        setValue: (db, value: number) => {
+            db.assetMaxDifference = value === -1000 ? 0 : Math.min(Math.max(value, 1), 8);
+        },
+        options: { min: 1, max: 8, step: 1, disableable: true },
+        keywords: ['asset', 'difference', 'dynamic', 'matching'],
+    },
+    { id: 'display.dynamicAssets', type: 'check', labelKey: 'dynamicAssets', helpKey: 'dynamicAssets', bindKey: 'dynamicAssets', keywords: ['dynamic', 'assets', 'matching'] },
     { id: 'display.useAdditionalAssetsPreview', type: 'check', labelKey: 'useAdditionalAssetsPreview', helpKey: 'useAdditionalAssetsPreview', bindKey: 'useAdditionalAssetsPreview', keywords: ['additional', 'assets', 'preview'] },
     { id: 'display.showMemoryLimit', type: 'check', labelKey: 'showMemoryLimit', helpKey: 'showMemoryLimit', bindKey: 'showMemoryLimit', keywords: ['memory', 'limit'] },
     { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
@@ -349,6 +355,7 @@ export const displayOtherBubbleItems: SettingItem[] = [
 export const displayOtherQuoteItems: SettingItem[] = [
     { id: 'display.unformatQuotes', type: 'check', labelKey: 'unformatQuotes', helpKey: 'unformatQuotes', bindKey: 'unformatQuotes', keywords: ['quotes'] },
     { id: 'display.blockquoteStyling', type: 'check', labelKey: 'blockquoteStyling', helpKey: 'blockquoteStyling', bindKey: 'blockquoteStyling', keywords: ['blockquote', 'quote'] },
+    { id: 'display.cornerBracketStyling', type: 'check', labelKey: 'cornerBracketStyling', helpKey: 'cornerBracketStyling', bindKey: 'cornerBracketStyling', keywords: ['corner', 'bracket', 'quote'] },
     { id: 'display.customQuotes', type: 'check', labelKey: 'customQuotes', helpKey: 'customQuotes', bindKey: 'customQuotes', keywords: ['custom', 'quotes'] },
     {
         id: 'display.leadingDoubleQuote',
@@ -361,6 +368,7 @@ export const displayOtherQuoteItems: SettingItem[] = [
             db.customQuotesData ??= ['"', '"', "'", "'"];
             db.customQuotesData[0] = value;
         },
+        classes: 'mt-4',
         keywords: ['quote', 'double', 'leading'],
     },
     {
@@ -405,6 +413,24 @@ export const displayOtherQuoteItems: SettingItem[] = [
 ];
 
 export const displayOtherAdvancedItems: SettingItem[] = [
+    {
+        id: 'display.heightMode',
+        type: 'select',
+        labelKey: 'heightMode',
+        helpKey: 'heightMode',
+        bindKey: 'heightMode',
+        options: {
+            selectOptions: [
+                { value: 'normal', label: 'Normal' },
+                { value: 'percent', label: 'Percent' },
+                { value: 'vh', label: 'VH' },
+                { value: 'dvh', label: 'DVH' },
+                { value: 'svh', label: 'SVH' },
+                { value: 'lvh', label: 'LVH' },
+            ],
+        },
+        keywords: ['height', 'viewport', 'vh', 'dvh', 'svh', 'lvh'],
+    },
     { id: 'display.hideApiKey', type: 'check', labelKey: 'hideApiKeys', helpKey: 'hideApiKeys', bindKey: 'hideApiKey', keywords: ['api', 'key', 'hide'] },
     { id: 'display.showPromptComparison', type: 'check', labelKey: 'showPromptComparison', helpKey: 'showPromptComparison', bindKey: 'showPromptComparison', keywords: ['prompt', 'comparison'] },
     {
@@ -425,13 +451,13 @@ export const displayOtherAdvancedItems: SettingItem[] = [
         helpKey: 'unrecommendedChatSticker',
         helpUnrecommended: true,
         bindKey: 'useChatSticker',
-        condition: (ctx) => ctx.db.showUnrecommended,
         keywords: ['chat', 'sticker'],
     },
 ];
 
 export const displaySettingsItems: SettingItem[] = [
-    ...displayThemeSettingsItems,
+    ...displayThemeGeneralSettingsItems,
+    ...displayThemePaletteSettingsItems,
     ...displaySizeSettingsItems,
     ...displayOtherHomeItems,
     ...displayOtherChatItems,

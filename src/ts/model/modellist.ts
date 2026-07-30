@@ -12,10 +12,6 @@ import {
 import { OpenAIModels } from './providers/openai'
 import { AnthropicModels } from './providers/anthropic'
 import { GoogleModels } from './providers/google'
-import { fetchNative } from "../globalApi.svelte"
-import { DBState } from "../stores.svelte"
-import { customProviderStore, pluginV2 } from "../plugins/plugins.svelte"
-import { get } from "svelte/store"
 import { customV3ProviderMetaStore } from "../plugins/apiV3/v3.svelte"
 
 // Re-export types for backwards compatibility
@@ -575,104 +571,6 @@ for(let i=0; i<LLMModels.length; i++){
     }
 }
 
-export async function registerModelDynamic(){
-
-    if(!DBState.db.dynamicModelRegistry){
-        return
-    }
-    //google
-    try {
-        if(DBState.db.google.accessToken){
-            const res = await fetchNative(`https://generativelanguage.googleapis.com/v1beta/models?key=${DBState.db.google.accessToken}`, {
-                method: 'GET',
-            })
-            const json = await res.json()
-            console.log('Google models response', json)
-            const models = json?.models || []
-            for(let model of models){
-                if(
-                    !model.supportedGenerationMethods ||
-                    !model.supportedGenerationMethods.includes('generateContent')
-                ){
-                    continue
-                }
-
-                const id = model.name.startsWith('models/') ? model.name.replace('models/', '') : model.name
-                const exists = LLMModels.find(m => m.id === id || m.internalID === id)
-
-                if(!exists){
-                    LLMModels.push({
-                        id: 'dynamic_google_' + id,
-                        name: model.displayName || id,
-                        shortName: model.displayName || id,
-                        fullName: model.displayName || id,
-                        internalID: model.name,
-                        provider: LLMProvider.GoogleCloud,
-                        format: LLMFormat.GoogleCloud,
-                        flags: [LLMFlags.hasImageInput, LLMFlags.poolSupported, LLMFlags.hasAudioInput, LLMFlags.hasVideoInput, LLMFlags.hasStreaming, LLMFlags.requiresAlternateRole, LLMFlags.geminiThinking],
-                        parameters: ['thinking_tokens', 'temperature', 'top_k', 'top_p', 'presence_penalty', 'frequency_penalty'],
-                        tokenizer: LLMTokenizer.GoogleCloud
-                    })
-                }
-
-            }
-        }
-    } catch (error) {
-        console.error('Error fetching Google models', error)
-    }
-
-    //Anthropic
-    try {
-        if(DBState.db.claudeAPIKey){
-            const res = await fetchNative('https://api.anthropic.com/v1/models', {
-                method: 'GET',
-                headers: {
-                    'anthropic-version': '2023-06-01',
-                    "x-api-key": DBState.db.claudeAPIKey,
-                }
-            })
-
-            const json = await res.json()
-            console.log('Anthropic models response', json)
-            const models:{
-                id: string,
-                display_name: string,
-            }[] = json?.data || []
-
-            for(let model of models){
-                const exists = LLMModels.find(m => m.id === model.id || m.internalID === model.id)
-                if(!exists){
-                    LLMModels.push({
-                        name: model.display_name || model.id,
-                        id: `dynamic_anthropic_${model.id}`,
-                        shortName: model.display_name || model.id,
-                        fullName: model.display_name || model.id,
-                        internalID: model.id,
-                        provider: LLMProvider.Anthropic,
-                        format: LLMFormat.Anthropic,
-                        flags: [
-                            LLMFlags.hasImageInput,
-                            LLMFlags.hasFirstSystemPrompt,
-                            LLMFlags.hasStreaming,
-                            LLMFlags.claudeThinking,
-                            LLMFlags.claudeAdaptiveThinking
-                        ],
-                        parameters: [...ClaudeParameters, 'thinking_tokens'],
-                        tokenizer: LLMTokenizer.Claude,
-                        recommended: false
-                    })
-                }
-            }
-        }
-    } catch (error) {
-        console.error('Error fetching Anthropic models', error)
-    }
-
-}
-
-//testing purpose only, not used in production
-globalThis.registerModelDynamic = registerModelDynamic
-
 export function getModelInfo(id?: string | null): LLMModel{
 
     const db = getDatabase()
@@ -754,6 +652,22 @@ export function getModelInfo(id?: string | null): LLMModel{
         if(pluginModel){
             return pluginModel
         }
+        // Preserve a stable diagnostic shape when a previously selected API 3.0
+        // plugin is currently disabled. ModelPreset dispatch separately verifies
+        // live v3 registration before executing the provider.
+        const providerName = id.slice('pluginmodel:::'.length)
+        return {
+            id,
+            name: providerName,
+            shortName: providerName,
+            fullName: providerName,
+            internalID: id,
+            provider: LLMProvider.AsIs,
+            format: LLMFormat.Plugin,
+            flags: [LLMFlags.hasFullSystemPrompt],
+            parameters: ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p', 'top_a', 'top_k', 'thinking_tokens'],
+            tokenizer: LLMTokenizer.Unknown,
+        }
     }
 
     return {
@@ -768,6 +682,10 @@ export function getModelInfo(id?: string | null): LLMModel{
         parameters: OpenAIParameters,
         tokenizer: LLMTokenizer.Unknown
     }
+}
+
+export function isV3PluginModel(id: string | undefined | null): boolean {
+    return !!id && customV3ProviderMetaStore.some((model) => model.id === id)
 }
 
 interface GetModelListGroup {

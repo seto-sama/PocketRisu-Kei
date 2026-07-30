@@ -19,7 +19,7 @@
     } = $props()
 </script>
 
-<span class="text-textcolor">{language.temperature} <Help key="tempature"/></span>
+<span class="text-textcolor">{language.temperature}<Help key="tempature"/></span>
 <SliderInput className="mt-2" min={0} max={200} marginBottom bind:value={value.temperature} multiple={0.01} fixed={2} disableable/>
 <span class="text-textcolor">Top K</span>
 <SliderInput className="mt-2" min={0} max={100} marginBottom step={1} bind:value={value.top_k} disableable/>

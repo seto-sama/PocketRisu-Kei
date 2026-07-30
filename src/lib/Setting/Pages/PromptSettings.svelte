@@ -1,32 +1,50 @@
 <script lang="ts">
-    import { ArrowLeft, PlusIcon, TrashIcon } from "@lucide/svelte";
+    import { PlusIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     import PromptDataItem from "src/lib/UI/PromptDataItem.svelte";
     import { tokenizePreset, type PromptItem } from "src/ts/process/prompt";
     import { templateCheck } from "src/ts/process/templates/templateCheck";
     
     import { DBState } from 'src/ts/stores.svelte';
-    import Check from "src/lib/UI/GUI/CheckInput.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
-    import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
-    import Help from "src/lib/Others/Help.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import Accordion from "src/lib/UI/Accordion.svelte";
-    import ModelList from "src/lib/UI/ModelList.svelte";
+    import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
+    import type { SettingItem } from "src/ts/setting/types";
     import { onDestroy, onMount } from "svelte";
-    import {defaultAutoSuggestPrompt} from "../../../ts/storage/defaultPrompts";
+    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
 
-    let sorted = 0
     let warns: string[] = $state([])
     let tokens = $state(0)
     let extokens = $state(0)
-    let draggedIndex = $state(-1)
-    let dragOverIndex = $state(-1)
-    let openedItemIndices = $state(new Set<number>())
+    let openedItems = $state(new Set<PromptItem>())
+    const promptProcessingItems: SettingItem[] = [
+        { id: 'prompt.sendChatAsSystem', type: 'check', labelKey: 'presetSendPastChatsAsSystem', bindPath: 'promptSettings.sendChatAsSystem' },
+        { id: 'prompt.systemContentReplacement', type: 'text', labelKey: 'systemContentReplacement', helpKey: 'systemContentReplacement', bindKey: 'systemContentReplacement' },
+        {
+            id: 'prompt.systemRoleReplacement', type: 'select', labelKey: 'systemRoleReplacement', helpKey: 'systemRoleReplacement', bindKey: 'systemRoleReplacement',
+            options: { selectOptions: [{ value: 'user', label: 'User' }, { value: 'assistant', label: 'Assistant' }] },
+        },
+        { id: 'prompt.trimStartNewChat', type: 'check', labelKey: 'trimStartNewChat', bindPath: 'promptSettings.trimStartNewChat' },
+        {
+            id: 'prompt.searchTool', type: 'check', labelKey: 'search', helpKey: 'searchTool',
+            getValue: (db) => db.modelTools.includes('search'),
+            setValue: (db, value: boolean) => {
+                db.modelTools = value
+                    ? [...db.modelTools.filter((tool) => tool !== 'search'), 'search']
+                    : db.modelTools.filter((tool) => tool !== 'search')
+            },
+        },
+    ]
+    const promptCustomItems: SettingItem[] = [
+        { id: 'prompt.moduleIntegration', type: 'text', labelKey: 'moduleIntergration', helpKey: 'moduleIntergration', bindKey: 'moduleIntergration' },
+        { id: 'prompt.customToggle', type: 'textarea', labelKey: 'customPromptTemplateToggle', helpKey: 'customPromptTemplateToggle', bindKey: 'customPromptTemplateToggle' },
+        { id: 'prompt.defaultVariables', type: 'textarea', labelKey: 'defaultVariables', helpKey: 'defaultVariables', bindKey: 'templateDefaultVariables' },
+        { id: 'prompt.jsonEnabled', type: 'check', labelKey: 'presetEnableJsonSchema', bindKey: 'jsonSchemaEnabled' },
+        { id: 'prompt.jsonStrict', type: 'check', labelKey: 'strictJsonSchema', bindKey: 'strictJsonSchema', condition: (ctx) => ctx.db.jsonSchemaEnabled },
+        { id: 'prompt.jsonSchema', type: 'textarea', labelKey: 'jsonSchema', helpKey: 'jsonSchema', bindKey: 'jsonSchema', condition: (ctx) => ctx.db.jsonSchemaEnabled },
+        { id: 'prompt.extractJson', type: 'text', labelKey: 'extractJson', helpKey: 'extractJson', bindKey: 'extractJson', condition: (ctx) => ctx.db.jsonSchemaEnabled },
+    ]
     executeTokenize(DBState.db.promptTemplate)
+
   interface Props {
     onGoBack?: () => void;
     mode?: 'independent'|'inline';
@@ -47,73 +65,12 @@
     executeTokenize(DBState.db.promptTemplate)
   });
 
-  function getDisplayTemplate() {
-    return DBState.db.promptTemplate.map((item, i) => ({
-      item,
-      originalIndex: i,
-      displayIndex: i
-    }))
-  }
-
-  function getReorderedTemplate() {
-    if (draggedIndex === -1 || dragOverIndex === -1 || draggedIndex === dragOverIndex) {
-      return getDisplayTemplate()
-    }
-
-    const items = getDisplayTemplate()
-    const [movedItem] = items.splice(draggedIndex, 1)
-
-    const adjustedDropIndex = draggedIndex < dragOverIndex ? dragOverIndex - 1 : dragOverIndex
-    items.splice(adjustedDropIndex, 0, movedItem)
-
-    return items.map((item, displayIndex) => ({
-      ...item,
-      displayIndex
-    }))
-  }
-
-  function handlePromptDrop() {
-    if (draggedIndex === -1 || dragOverIndex === -1 || draggedIndex === dragOverIndex) {
-      return
-    }
-
-    const templates = [...DBState.db.promptTemplate]
-    const [movedItem] = templates.splice(draggedIndex, 1)
-
-    const adjustedDropIndex = draggedIndex < dragOverIndex ? dragOverIndex - 1 : dragOverIndex
-    templates.splice(adjustedDropIndex, 0, movedItem)
-
-    const newOpenedIndices = new Set<number>()
-    openedItemIndices.forEach((index) => {
-      if (index === draggedIndex) {
-        newOpenedIndices.add(adjustedDropIndex)
-      } else if (draggedIndex < adjustedDropIndex) {
-        if (index > draggedIndex && index <= adjustedDropIndex) {
-          newOpenedIndices.add(index - 1)
-        } else {
-          newOpenedIndices.add(index)
-        }
-      } else {
-        if (index >= adjustedDropIndex && index < draggedIndex) {
-          newOpenedIndices.add(index + 1)
-        } else {
-          newOpenedIndices.add(index)
-        }
-      }
-    })
-    openedItemIndices = newOpenedIndices
-
-    DBState.db.promptTemplate = templates
-    draggedIndex = -1
-    dragOverIndex = -1
-  }
-
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.ctrlKey && e.altKey && e.key === 'o') {
-      if (openedItemIndices.size === DBState.db.promptTemplate.length) {
-        openedItemIndices = new Set<number>()
+      if (openedItems.size === DBState.db.promptTemplate.length) {
+        openedItems = new Set<PromptItem>()
       } else {
-        openedItemIndices = new Set(DBState.db.promptTemplate.map((_, i) => i))
+        openedItems = new Set(DBState.db.promptTemplate)
       }
     }
   }
@@ -151,190 +108,68 @@
 {/if}
 
 {#if subMenu === 0}
-    <div class="contain w-full max-w-full mt-4 flex flex-col p-3 rounded-md">
+    <ShSortableList
+        className="contain w-full max-w-full mt-4 flex flex-col"
+        draggable="[data-risu-idx]"
+        dataAttribute="data-risu-idx"
+        handle="[data-disclosure-toggle]"
+        onReorder={(orderedKeys) => {
+            const templates = [...DBState.db.promptTemplate]
+            DBState.db.promptTemplate = orderedKeys
+                .map((key) => templates[Number.parseInt(key, 10)])
+                .filter((item): item is PromptItem => !!item)
+        }}
+    >
         {#if DBState.db.promptTemplate.length === 0}
                 <div class="text-textcolor2">No Format</div>
         {/if}
-        {#key sorted}
-            {#each getReorderedTemplate() as { item: prompt, originalIndex, displayIndex }}
+        {#each DBState.db.promptTemplate as prompt, originalIndex}
                 <PromptDataItem
                     bind:promptItem={DBState.db.promptTemplate[originalIndex]}
-                    isDragging={draggedIndex === originalIndex}
-                    isOpened={openedItemIndices.has(originalIndex)}
-                    bind:draggedIndex
-                    bind:dragOverIndex
-                    bind:openedItemIndices
+                    isOpened={openedItems.has(prompt)}
+                    onToggle={() => {
+                        const nextOpenedItems = new Set(openedItems)
+                        if (nextOpenedItems.has(prompt)) {
+                            nextOpenedItems.delete(prompt)
+                        } else {
+                            nextOpenedItems.add(prompt)
+                        }
+                        openedItems = nextOpenedItems
+                    }}
                     currentIndex={originalIndex}
-                    displayIndex={displayIndex}
-                    onDrop={handlePromptDrop}
                     onRemove={() => {
                         let templates = DBState.db.promptTemplate
                         templates.splice(originalIndex, 1)
                         DBState.db.promptTemplate = templates
-
-                        const newOpenedIndices = new Set<number>()
-                        openedItemIndices.forEach((index) => {
-                            if (index === originalIndex) {
-                                return
-                            } else if (index > originalIndex) {
-                                newOpenedIndices.add(index - 1)
-                            } else {
-                                newOpenedIndices.add(index)
-                            }
-                        })
-                        openedItemIndices = newOpenedIndices
-
-                        draggedIndex = -1
-                        dragOverIndex = -1
+                        openedItems.delete(prompt)
+                        openedItems = new Set(openedItems)
                     }}
-                    moveDown={() => {
-                        if(originalIndex === DBState.db.promptTemplate.length - 1){
-                            return
-                        }
-                        let templates = DBState.db.promptTemplate
-                        let temp = templates[originalIndex]
-                        templates[originalIndex] = templates[originalIndex + 1]
-                        templates[originalIndex + 1] = temp
-                        DBState.db.promptTemplate = templates
-
-                        const newOpenedIndices = new Set<number>()
-                        openedItemIndices.forEach((index) => {
-                            if (index === originalIndex) {
-                                newOpenedIndices.add(originalIndex + 1)
-                            } else if (index === originalIndex + 1) {
-                                newOpenedIndices.add(originalIndex)
-                            } else {
-                                newOpenedIndices.add(index)
-                            }
-                        })
-                        openedItemIndices = newOpenedIndices
-                    }}
-                    moveUp={() => {
-                        if(originalIndex === 0){
-                            return
-                        }
-                        let templates = DBState.db.promptTemplate
-                        let temp = templates[originalIndex]
-                        templates[originalIndex] = templates[originalIndex - 1]
-                        templates[originalIndex - 1] = temp
-                        DBState.db.promptTemplate = templates
-
-                        const newOpenedIndices = new Set<number>()
-                        openedItemIndices.forEach((index) => {
-                            if (index === originalIndex) {
-                                newOpenedIndices.add(originalIndex - 1)
-                            } else if (index === originalIndex - 1) {
-                                newOpenedIndices.add(originalIndex)
-                            } else {
-                                newOpenedIndices.add(index)
-                            }
-                        })
-                        openedItemIndices = newOpenedIndices
-                    }} />
-            {/each}
-        {/key}
-    </div>
-
-    <button class="font-medium cursor-pointer hover:text-primary" onclick={() => {
-        let value = DBState.db.promptTemplate ?? []
-        value.push({
-            type: "plain",
-            text: "",
-            role: "system",
-            type2: 'normal'
-        })
-        DBState.db.promptTemplate = value
-    }}><PlusIcon /></button>
-
-    <span class="text-textcolor2 text-sm mt-2">{tokens} {language.fixedTokens}</span>
-    <span class="text-textcolor2 mb-6 text-sm mt-2">{extokens} {language.exactTokens}</span>
-{:else}
-    <span class="text-textcolor mt-4">{language.postEndInnerFormat} <Help key="postEndInnerFormat"/></span>
-    <TextInput className="mt-2" bind:value={DBState.db.promptSettings.postEndInnerFormat}/>
-
-    <Check bind:check={DBState.db.promptSettings.sendChatAsSystem} name={language.sendChatAsSystem} className="mt-4"/>
-    <Check bind:check={DBState.db.promptSettings.sendName} name={language.formatGroupInSingle} className="mt-4"/>
-    <Check bind:check={DBState.db.promptSettings.trimStartNewChat} name={language.trimStartNewChat} className="mt-4"/>
-    <Check bind:check={DBState.db.promptSettings.utilOverride} name={language.utilOverride} className="mt-4"/>
-    <Check bind:check={DBState.db.jsonSchemaEnabled} name={language.enableJsonSchema} className="mt-4"/>
-    <Check bind:check={DBState.db.outputImageModal} name={language.outputImageModal} className="mt-4"/>
-
-    <Check bind:check={DBState.db.strictJsonSchema} name={language.strictJsonSchema} className="mt-4"/>
-
-    {#if DBState.db.showUnrecommended}
-        <Check bind:check={DBState.db.promptSettings.customChainOfThought} name={language.customChainOfThought} className="mt-4">
-            <Help unrecommended key='customChainOfThought' />
-        </Check>
-    {/if}
-    <div>
-        <span class="text-textcolor mt-4">{language.maxThoughtTagDepth} <Help key="maxThoughtTagDepth"/></span>
-        <NumberInput className="mt-2" bind:value={DBState.db.promptSettings.maxThoughtTagDepth}/>
-    </div>
-    <span class="text-textcolor mt-4">{language.customPromptTemplateToggle} <Help key='customPromptTemplateToggle' /></span>
-    <TextAreaInput className="mt-2 mb-4" bind:value={DBState.db.customPromptTemplateToggle}/>
-    <span class="text-textcolor mt-4">{language.defaultVariables} <Help key='defaultVariables' /></span>
-    <TextAreaInput className="mt-2 mb-4" bind:value={DBState.db.templateDefaultVariables}/>
-    <span class="text-textcolor mt-4">{language.predictedOutput} <Help key="predictedOutput"/></span>
-    <TextAreaInput className="mt-2 mb-4" bind:value={DBState.db.OAIPrediction}/>
-    <span class="text-textcolor mt-4">{language.autoSuggest} <Help key='autoSuggest' /></span>
-    <TextAreaInput className="mt-2 mb-4" bind:value={DBState.db.autoSuggestPrompt} placeholder={defaultAutoSuggestPrompt}/>
-    <span class="text-textcolor mt-4">{language.groupInnerFormat} <Help key='groupInnerFormat' /></span>
-    <TextAreaInput className="mt-2 mb-4" placeholder={`<{{char}}\'s Message>\n{{slot}}\n</{{char}}\'s Message>`} bind:value={DBState.db.groupTemplate}/>
-    <span class="text-textcolor mt-4">{language.systemContentReplacement} <Help key="systemContentReplacement"/></span>
-    <TextAreaInput className="mt-2 mb-4" bind:value={DBState.db.systemContentReplacement}/>
-    <span class="text-textcolor mt-4">{language.systemRoleReplacement} <Help key="systemRoleReplacement"/></span>
-    <SelectInput className="mt-2 mb-4" bind:value={DBState.db.systemRoleReplacement}>
-        <OptionInput value="user">User</OptionInput>
-        <OptionInput value="assistant">assistant</OptionInput>
-    </SelectInput>
-    {#if DBState.db.jsonSchemaEnabled}
-        <span class="text-textcolor mt-4">{language.jsonSchema} <Help key='jsonSchema' /></span>
-        <TextAreaInput className="mt-2 mb-4" bind:value={DBState.db.jsonSchema}/>
-        <span class="text-textcolor mt-4">{language.extractJson} <Help key='extractJson' /></span>
-        <TextInput className="mt-2" bind:value={DBState.db.extractJson}/>
-    {/if}
-
-
-    {#snippet fallbackModelList(arg:'model'|'memory'|'translate'|'emotion'|'otherAx')}
-        {#each DBState.db.fallbackModels[arg] as model, i}
-            <span class="text-textcolor mt-4">
-                {language.model} {i + 1}
-            </span>
-            <ModelList bind:value={DBState.db.fallbackModels[arg][i]} blankable />
+                />
         {/each}
-        <div class="flex gap-2">
-            <button class="bg-selected text-textcolor p-2 rounded-md" onclick={() => {
-                let value = DBState.db.fallbackModels[arg] ?? []
-                value.push('')
-                DBState.db.fallbackModels[arg] = value
-            }}><PlusIcon /></button>
-            <button class="bg-red-500 text-white p-2 rounded-md" onclick={() => {
-                let value = DBState.db.fallbackModels[arg] ?? []
-                value.pop()
-                DBState.db.fallbackModels[arg] = value
-            }}><TrashIcon /></button>
+    </ShSortableList>
+
+    <div class="flex items-center mb-6">
+        <IconButton size="lg" onclick={() => {
+            let value = DBState.db.promptTemplate ?? []
+            value.push({
+                type: "plain",
+                text: "",
+                role: "system",
+                type2: 'normal'
+            })
+            DBState.db.promptTemplate = value
+        }}><PlusIcon /></IconButton>
+
+        <div class="ml-auto flex items-center gap-2 text-textcolor2 text-sm">
+            <span>{tokens} {language.fixedTokens}</span>
+            <span aria-hidden="true">|</span>
+            <span>{extokens} {language.exactTokens}</span>
         </div>
-    {/snippet}
+    </div>
+{:else}
+    <SettingRenderer items={promptProcessingItems} layout="row" />
 
-    <Accordion name={language.fallbackModel} styled>
-        <Check bind:check={DBState.db.fallbackWhenBlankResponse} name={language.fallbackWhenBlankResponse} className="mt-4"/>
-        <Check bind:check={DBState.db.doNotChangeFallbackModels} name={language.doNotChangeFallbackModels} className="mt-4"/>
-
-        <Accordion name={language.model} styled>
-            {@render fallbackModelList('model')}
-        </Accordion>
-        <Accordion name={"Memory"} styled>
-            {@render fallbackModelList('memory')}
-        </Accordion>
-        <Accordion name={"Translations"} styled>
-            {@render fallbackModelList('translate')}
-        </Accordion>
-        <Accordion name={"Emotion"} styled>
-            {@render fallbackModelList('emotion')}
-        </Accordion>
-        <Accordion name={"OtherAx"} styled>
-            {@render fallbackModelList('otherAx')}
-        </Accordion>
-    </Accordion>
+    <h3 class="text-base font-bold mt-8 mb-1">{language.presetToggleAndCustom}</h3>
+    <SettingRenderer items={promptCustomItems} layout="row" />
 
 {/if}

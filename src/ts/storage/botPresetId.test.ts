@@ -39,13 +39,14 @@ const {
     getActiveBotPresetId,
     getBotPresetById,
     getBotPresetIndexById,
+    setDatabase,
     setActiveBotPresetById,
     withStableActivePreset,
 } = databaseModule
 const { DBState } = storesModule as any
 
 function makePreset(id: string, name: string) {
-    return { id, name, mainPrompt: '', jailbreak: '', globalNote: '', temperature: 0, maxContext: 0, maxResponse: 0, frequencyPenalty: 0, PresensePenalty: 0, formatingOrder: [], bias: [], promptPreprocess: false }
+    return { id, name, mainPrompt: '', jailbreak: '', globalNote: '', temperature: 0, maxContext: 0, maxResponse: 0, frequencyPenalty: 0, PresensePenalty: 0, formatingOrder: [], bias: [] }
 }
 
 beforeEach(() => {
@@ -57,6 +58,21 @@ beforeEach(() => {
         ],
         botPresetsId: 1,
     }
+})
+
+describe('empty database initialization', () => {
+    test('creates the root structures required by patch sync', () => {
+        const db: any = {}
+
+        setDatabase(db)
+
+        expect(db.characters).toEqual([])
+        expect(db.botPresets).toHaveLength(1)
+        expect(db.botPresets[0].id).toEqual(expect.any(String))
+        expect(db.modules).toEqual([])
+        expect(db.personas).toHaveLength(1)
+        expect(db.pluginCustomStorage).toEqual({})
+    })
 })
 
 describe('createBotPresetTemplate', () => {

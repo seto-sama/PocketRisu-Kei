@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "packages": {
+    "@ai-sdk/openai-compatible": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "path": "chat/completions"
+    },
+    "@openrouter/ai-sdk-provider": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "path": "chat/completions"
+    },
+    "@ai-sdk/openai": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "api": "https://api.openai.com/v1",
+      "path": "chat/completions"
+    },
+    "@ai-sdk/anthropic": {
+      "protocol": "anthropic",
+      "auth": "x-api-key",
+      "api": "https://api.anthropic.com/v1",
+      "path": "messages"
+    },
+    "@ai-sdk/google": {
+      "protocol": "gemini",
+      "auth": "x-goog-api-key",
+      "api": "https://generativelanguage.googleapis.com/v1beta",
+      "path": "models"
+    },
+    "@ai-sdk/amazon-bedrock/mantle": {
+      "protocol": "openai-responses",
+      "auth": "aws-bedrock",
+      "endpointKind": "amazon-bedrock-mantle",
+      "credentialKey": "bedrockCredential",
+      "credentialLabel": "Bedrock API Key or AWS Credentials JSON",
+      "path": "responses",
+      "lockProviderWire": false
+    }
+  },
+  "providers": {
+    "google": {
+      "displayName": "Google AI Studio"
+    },
+    "amazon-bedrock": {
+      "protocol": "bedrock",
+      "auth": "aws-bedrock",
+      "endpointKind": "amazon-bedrock",
+      "credentialKey": "bedrockCredential",
+      "credentialLabel": "Bedrock API Key or AWS Credentials JSON",
+      "lockProviderWire": true,
+      "modelProviderPackages": [
+        "@ai-sdk/amazon-bedrock/mantle"
+      ],
+      "sourceUrls": [
+        "https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html",
+        "https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html"
+      ]
+    },
+    "cloudflare-workers-ai": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "endpointKind": "cloudflare-ai",
+      "credentialKey": "cloudflareApiToken",
+      "credentialLabel": "Cloudflare API Token",
+      "lockProviderWire": true,
+      "sourceUrls": [
+        "https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/"
+      ]
+    },
+    "cloudflare-ai-gateway": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "endpointKind": "cloudflare-ai",
+      "credentialKey": "cloudflareApiToken",
+      "credentialLabel": "Cloudflare API Token",
+      "cloudflareGateway": true,
+      "lockProviderWire": true,
+      "sourceUrls": [
+        "https://developers.cloudflare.com/ai-gateway/usage/rest-api/"
+      ]
+    },
+    "google-vertex": {
+      "protocol": "vertex-gemini",
+      "auth": "google-service-account",
+      "baseProviderId": "google-vertex",
+      "displayName": "Google Vertex AI",
+      "sourceUrls": [
+        "https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference"
+      ]
+    },
+    "openrouter": {
+      "api": "https://openrouter.ai/api/v1"
+    },
+    "vercel": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "api": "https://ai-gateway.vercel.sh/v1",
+      "path": "chat/completions"
+    },
+    "cerebras": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "api": "https://api.cerebras.ai/v1",
+      "path": "chat/completions"
+    },
+    "deepinfra": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "api": "https://api.deepinfra.com/v1/openai",
+      "path": "chat/completions"
+    },
+    "deepseek": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "api": "https://api.deepseek.com",
+      "path": "chat/completions"
+    },
+    "xai": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "api": "https://api.x.ai/v1",
+      "path": "chat/completions"
+    },
+    "mistral": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "api": "https://api.mistral.ai/v1",
+      "path": "chat/completions"
+    },
+    "groq": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "api": "https://api.groq.com/openai/v1",
+      "path": "chat/completions"
+    },
+    "perplexity": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "api": "https://api.perplexity.ai",
+      "path": "chat/completions"
+    },
+    "togetherai": {
+      "protocol": "openai-chat",
+      "auth": "bearer",
+      "api": "https://api.together.xyz/v1",
+      "path": "chat/completions"
+    }
+  }
+}

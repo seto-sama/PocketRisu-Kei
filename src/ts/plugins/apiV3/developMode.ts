@@ -7,14 +7,14 @@ export async function hotReloadPluginFiles(){
     const observerSupported = !("FileSystemObserver" in window)
 
 
-    if(!('showOpenFilePicker' in window)){
+    if(!('showOpenFilePicker' in globalThis)){
         notifyError("Your browser does not support the File System Access API, which is required for hot-reloading plugin files.")
         return
     }
 
     let fileHandle: FileSystemFileHandle
     try {
-        [fileHandle] = await window.showOpenFilePicker({
+        [fileHandle] = await globalThis.showOpenFilePicker({
             types: [
                 {
                     description: "JavaScript or TypeScript Plugin File",

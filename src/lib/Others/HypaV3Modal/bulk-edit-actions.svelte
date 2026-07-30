@@ -1,16 +1,16 @@
 <script lang="ts">
   import { StarIcon } from "@lucide/svelte";
-  import { DBState, selectedCharID } from "src/ts/stores.svelte";
   import type { BulkEditState, Category } from "./types";
   import { language } from "src/lang";
   import ShSelect from "src/lib/UI/GUI/ShSelect.svelte";
   import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
+  import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+  import ShInput from "src/lib/UI/GUI/ShInput.svelte";
+  import IconButton from "src/lib/UI/GUI/IconButton.svelte";
 
   interface Props {
     bulkEditState: BulkEditState;
     categories: Category[];
-    showImportantOnly: boolean;
-    selectedCategoryFilter: string;
     onResummarize: () => void;
     onClearSelection: () => void;
     onUpdateSelectedCategory: (categoryId: string) => void;
@@ -23,8 +23,6 @@
   let {
     bulkEditState,
     categories,
-    showImportantOnly,
-    selectedCategoryFilter,
     onResummarize,
     onClearSelection,
     onUpdateSelectedCategory,
@@ -33,12 +31,6 @@
     onToggleImportant,
     onParseAndSelectSummaries,
   }: Props = $props();
-
-  const hypaV3Data = $derived(
-    DBState.db.characters[$selectedCharID].chats[
-      DBState.db.characters[$selectedCharID].chatPage
-    ].hypaV3Data
-  );
 
   function applyCategoryToSelected() {
     onApplyCategory();
@@ -75,26 +67,26 @@
 
 <!-- Bulk Edit Action Bar -->
 {#if bulkEditState.isEnabled}
-  <div class="sticky bottom-0 p-3 bg-zinc-800 border-t border-zinc-700 rounded-b-lg">
-    <div class="flex items-center justify-between">
+  <div class="shrink-0 border-t border-darkborderc pt-3">
+    <div class="flex flex-wrap items-center justify-between gap-2">
       <!-- Left Side: Resummarize Button -->
       <div class="flex items-center gap-2">
         <!-- Resummarize Button -->
-        <button
-          class="px-4 py-2 rounded text-sm font-medium transition-colors {bulkEditState.selectedSummaries.size > 1
-            ? 'bg-primary hover:bg-primary/90 text-white'
-            : 'bg-zinc-600 text-zinc-400 cursor-not-allowed'}"
+        <ShButton
+          size="sm"
+          variant="primary"
           onclick={onResummarize}
           disabled={bulkEditState.selectedSummaries.size < 2}
         >
           {language.hypaV3Modal.reSummarize}
-        </button>
+        </ShButton>
       </div>
       
       <!-- Right Side: Category, Important, Bulk Select, Clear -->
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <!-- Category Selection -->
         <ShSelect
+          size="sm"
           value={bulkEditState.selectedCategory}
           onchange={handleCategoryChange}
         >
@@ -104,50 +96,52 @@
         </ShSelect>
 
         <!-- Apply Category Button -->
-        <button
-          class="px-4 py-2 rounded text-sm font-medium transition-colors {bulkEditState.selectedSummaries.size > 0
-            ? 'bg-primary hover:bg-primary/90 text-white'
-            : 'bg-zinc-600 text-zinc-400 cursor-not-allowed'}"
+        <ShButton
+          size="sm"
+          variant="primary"
           onclick={applyCategoryToSelected}
           disabled={bulkEditState.selectedSummaries.size === 0}
         >
           {language.apply}
-        </button>
+        </ShButton>
 
         <!-- Bulk Toggle Important Button -->
-        <button
-          class="px-3 py-2 rounded-sm border border-yellow-600 hover:bg-yellow-700 text-yellow-300 text-sm transition-colors flex items-center gap-2 {bulkEditState.selectedSummaries.size === 0 ? 'opacity-50 cursor-not-allowed' : ''}"
+        <IconButton
+          size="xl"
+          style="--icon-size:16px"
+          active
           onclick={bulkToggleImportant}
           disabled={bulkEditState.selectedSummaries.size === 0}
         >
-          <StarIcon class="w-4 h-4" />
-        </button>
+          <StarIcon />
+        </IconButton>
 
         <!-- Bulk Select by Numbers -->
         <div class="flex gap-2">
-          <input
-            type="text"
+          <ShInput
             value={bulkEditState.bulkSelectInput}
             oninput={handleBulkSelectInputChange}
             placeholder="1,3,5-8"
-            class="w-32 px-3 py-2 text-sm bg-zinc-800 border border-zinc-600 rounded-sm text-zinc-300 placeholder-zinc-500 focus:border-borderc outline-hidden"
+            className="h-8 min-h-8 w-32 text-sm"
             onkeydown={handleBulkSelectKeydown}
           />
-          <button
-            class="px-3 py-2 rounded-sm border border-blue-600 hover:bg-blue-700 text-blue-300 text-sm transition-colors"
+          <ShButton
+            size="sm"
+            variant="outline"
             onclick={parseAndSelectSummaries}
           >
             {language.select}
-          </button>
+          </ShButton>
         </div>
 
         <!-- Clear Selection Button -->
-        <button
-          class="px-3 py-2 rounded-sm border border-red-600 hover:bg-red-700 text-red-300 text-sm transition-colors"
+        <ShButton
+          size="sm"
+          variant="destructive"
           onclick={clearSelection}
         >
           {language.cancel}
-        </button>
+        </ShButton>
       </div>
     </div>
   </div>

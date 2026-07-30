@@ -12,8 +12,9 @@
     import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
     import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
     import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
-    import ShBadge from 'src/lib/UI/GUI/ShBadge.svelte'
-    import ShToggle from 'src/lib/UI/GUI/ShToggle.svelte'
+    import ShSelect from 'src/lib/UI/GUI/ShSelect.svelte'
+    import OptionInput from 'src/lib/UI/GUI/OptionInput.svelte'
+    import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import {
         RefreshCwIcon,
         Trash2Icon,
@@ -31,6 +32,8 @@
 
     // Sentinel filter value for entries with no recorded origin plugin.
     const UNKNOWN = '__risu_unknown__'
+    const LIST_LIMIT = 100
+    const DELETE_PREVIEW_LIMIT = 160
 
     interface Entry {
         key: string
@@ -60,9 +63,9 @@
     // Monotonic token: a newer load() invalidates any in-flight older one
     // (e.g. when the user switches backend tabs mid-load).
     let loadToken = 0
-    let searchKey = $state('')
-    let searchVal = $state('')
+    let searchQuery = $state('')
     let ownerFilter = $state('')   // '' = all; UNKNOWN = no recorded origin; else plugin name
+    let filtersOpen = $state(false)
 
     let detailOpen = $state(false)
     let selected = $state<Entry | null>(null)
@@ -71,22 +74,24 @@
     let saving = $state(false)
 
     const filtered = $derived.by(() => {
-        const k = searchKey.trim().toLowerCase()
-        const v = searchVal.trim().toLowerCase()
+        const query = searchQuery.trim().toLowerCase()
         const f = ownerFilter
         return entries.filter((e) => {
-            const keyMatch = !k || e.key.toLowerCase().includes(k)
-            const valMatch = !v || e.str.toLowerCase().includes(v)
+            const searchMatch = !query || e.key.toLowerCase().includes(query) || e.str.toLowerCase().includes(query)
             const ownerMatch =
                 !f || (f === UNKNOWN ? !e.owner : e.owner === f)
-            return keyMatch && valMatch && ownerMatch
+            return searchMatch && ownerMatch
         })
     })
+    const displayed = $derived(filtered.slice(0, LIST_LIMIT))
 
     // True when any search/owner filter narrows the list — drives the bulk
     // button label (delete-shown vs clear-all).
     const isFiltered = $derived(
-        searchKey.trim() !== '' || searchVal.trim() !== '' || ownerFilter !== '',
+        searchQuery.trim() !== '' || ownerFilter !== '',
+    )
+    const activeFilterCount = $derived(
+        Number(ownerFilter !== ''),
     )
 
     // Distinct origin plugins present in the current backend, for the filter.
@@ -132,6 +137,17 @@
         if (bytes < 1024) return bytes + ' B'
         if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+    }
+
+    function deletePreview(value: string): string {
+        const singleLine = value
+            .replaceAll('\r', '\\r')
+            .replaceAll('\n', '\\n')
+            .replaceAll('\t', '\\t')
+        if (singleLine.length === 0) return language.pluginStorageEmptyValue
+        const characters = Array.from(singleLine)
+        if (characters.length <= DELETE_PREVIEW_LIMIT) return singleLine
+        return characters.slice(0, DELETE_PREVIEW_LIMIT).join('') + '…'
     }
 
     // ── backend access ───────────────────────────────────────────────────────
@@ -282,7 +298,10 @@
     }
 
     async function removeEntry(entry: Entry) {
-        const ok = await alertConfirm(language.pluginStorageDeleteConfirm(entry.key))
+        const ok = await alertConfirm(
+            language.pluginStorageDeleteConfirm(entry.key),
+            language.pluginStorageValuePreview(deletePreview(entry.str)),
+        )
         if (!ok) return
         try {
             await backendRemove(entry.key)
@@ -294,12 +313,11 @@
         }
     }
 
-    // Bulk-delete every entry currently shown (i.e. matching the active search /
-    // owner filter). With no filter this is the whole backend, so one button
-    // serves both partial and full clears. The label reflects which it is.
+    // With filters active, bulk-delete only the capped entries actually shown.
+    // With no filter this remains an explicit full-backend clear.
     async function removeFiltered() {
-        // Snapshot before load() swaps `entries` out from under `filtered`.
-        const targets = filtered.slice()
+        // Snapshot before load() swaps the reactive arrays out from under us.
+        const targets = isFiltered ? displayed.slice() : entries.slice()
         if (targets.length === 0) return
 
         const isAll = targets.length === entries.length
@@ -337,8 +355,7 @@
         const idx = backendIndex
         if (idx === loadedIndex) return
         loadedIndex = idx
-        searchKey = ''
-        searchVal = ''
+        searchQuery = ''
         ownerFilter = ''
         load()
     })
@@ -346,77 +363,49 @@
 
 <p class="text-textcolor2 text-sm mb-4">{language.pluginStorageDesc}</p>
 
-<!-- Backend selector (single-select ShToggle group). The active toggle is
-     disabled so it can't be toggled off; opacity is restored so it still
-     reads as the selected one. -->
-<div class="flex flex-wrap gap-1 mb-2">
-    {#each BACKENDS as b, i (b.id)}
-        <ShToggle
-            size="sm"
-            pressed={backendIndex === i}
-            disabled={backendIndex === i}
-            onPressedChange={() => (backendIndex = i)}
-            className="disabled:opacity-100"
-        >
-            {b.label()}
-        </ShToggle>
-    {/each}
-</div>
-<p class="text-textcolor2 text-xs mb-4 opacity-70">{BACKENDS[backendIndex].desc()}</p>
-
-<!-- Search -->
-<div class="flex flex-col sm:flex-row gap-2 mb-3">
-    <ShInput bind:value={searchKey} placeholder={language.pluginStorageSearchKey} />
-    <ShInput bind:value={searchVal} placeholder={language.pluginStorageSearchValue} />
-</div>
-
-<!-- Origin filter: System-Logs-style toggle chips. No chip selected = all.
-     Clicking the active chip clears back to all (keeps pressed in sync with
-     ownerFilter, so no toggle desync). -->
-{#if ownerOptions.length > 0 || hasUnknown}
-    <div class="flex items-start gap-2 mb-3">
-        <span class="text-textcolor2 text-xs shrink-0 pt-1.5">{language.pluginStorageOwner}</span>
-        <div class="flex flex-wrap gap-1">
-            {#each ownerOptions as p (p)}
-                <ShToggle size="xs" pressed={ownerFilter === p} onPressedChange={(on) => (ownerFilter = on ? p : '')}>
-                    {p}
-                </ShToggle>
-            {/each}
-            {#if hasUnknown}
-                <ShToggle size="xs" pressed={ownerFilter === UNKNOWN} onPressedChange={(on) => (ownerFilter = on ? UNKNOWN : '')}>
-                    {language.pluginStorageOwnerUnknown}
-                </ShToggle>
-            {/if}
+<div class="flex flex-col gap-3 mb-4">
+    <SettingLayout variant="filter" title={language.systemLogsFilters} bind:open={filtersOpen} activeCount={activeFilterCount}>
+        <div class="flex flex-nowrap items-start gap-2 overflow-x-auto pb-1">
+            <div class="flex flex-col gap-1 text-xs text-textcolor2 min-w-32 flex-1">
+                <span>{language.pluginStorageLocation}</span>
+                <ShSelect value={backendIndex} size="sm" onchange={(e) => backendIndex = Number(e.currentTarget.value)}>
+                    {#each BACKENDS as b, i (b.id)}<OptionInput value={i}>{b.label()}</OptionInput>{/each}
+                </ShSelect>
+                <span class="leading-relaxed opacity-70">{BACKENDS[backendIndex].desc()}</span>
+            </div>
+            <div class="flex flex-col gap-1 text-xs text-textcolor2 min-w-32 flex-1">
+                <span>{language.pluginStorageOwner}</span>
+                <ShSelect bind:value={ownerFilter} size="sm">
+                    <OptionInput value="">{language.playground.inlayFilterAll}</OptionInput>
+                    {#each ownerOptions as p (p)}<OptionInput value={p}>{p}</OptionInput>{/each}
+                    {#if hasUnknown}<OptionInput value={UNKNOWN}>{language.pluginStorageOwnerUnknown}</OptionInput>{/if}
+                </ShSelect>
+            </div>
         </div>
-    </div>
-{/if}
+    </SettingLayout>
 
-<!-- Count + bulk delete + refresh -->
-<div class="flex items-center justify-between mb-2">
-    <span class="text-textcolor2 text-xs">
-        <ShBadge variant="secondary">{filtered.length}</ShBadge> / {entries.length} keys
-    </span>
-    <div class="flex items-center gap-1">
+    <SettingLayout variant="search">
+        <ShInput bind:value={searchQuery} placeholder={language.pluginStorageSearch} />
+        {#snippet control()}
         <ShButton
             variant="destructive"
-            size="sm"
+            size="default"
             onclick={removeFiltered}
             disabled={loading || filtered.length === 0}
         >
-            <Trash2Icon size={14} />
+            <Trash2Icon />
             {isFiltered
-                ? language.pluginStorageBulkDeleteShown(filtered.length)
-                : language.pluginStorageBulkDeleteAll(filtered.length)}
+                ? language.pluginStorageBulkDeleteShown
+                : language.pluginStorageBulkDeleteAll}
         </ShButton>
-        <ShButton variant="ghost" size="sm" onclick={load} disabled={loading}>
-            <RefreshCwIcon size={14} class={loading ? 'animate-spin' : ''} />
-            {language.pluginStorageRefresh}
-        </ShButton>
-    </div>
+        {/snippet}
+    </SettingLayout>
 </div>
 
+<SettingLayout variant="status" shownCount={displayed.length} totalCount={filtered.length} />
+
 <!-- List -->
-<div class="flex flex-col gap-1 max-h-[60vh] overflow-y-auto rounded-md border border-darkborderc/50 p-1">
+<SettingLayout variant="list" scrollable>
     {#if loading}
         <div class="flex flex-col items-center gap-3 text-textcolor2 text-sm py-12">
             <RefreshCwIcon size={20} class="animate-spin" />
@@ -432,37 +421,37 @@
             {language.pluginStorageLoadError}<br />
             <span class="text-xs opacity-60">{loadError}</span>
         </div>
-    {:else if filtered.length === 0}
+    {:else if displayed.length === 0}
         <div class="text-textcolor2 text-sm text-center py-12">{language.pluginStorageEmpty}</div>
     {:else}
-        {#each filtered as entry (entry.key)}
-            <div
-                class="group flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-selected cursor-pointer"
-                role="button"
-                tabindex="0"
+        {#each displayed as entry (entry.key)}
+            <SettingLayout variant="item" interactive
                 onclick={() => openDetail(entry)}
                 onkeydown={(e) => { if (e.key === 'Enter') openDetail(entry) }}
             >
-                <span class="font-mono text-sm text-textcolor truncate flex-1 min-w-0" title={entry.key}>{entry.key}</span>
-                {#if entry.owner}
-                    <ShBadge variant="secondary" className="max-w-[35%] overflow-hidden">{entry.owner}</ShBadge>
-                {/if}
-                <span class="text-textcolor2 text-[10px] uppercase tracking-wide shrink-0 opacity-70">{entry.type}</span>
-                <span class="text-textcolor2 text-xs shrink-0 tabular-nums">{formatSize(entry.size)}</span>
-                <button
-                    class="shrink-0 text-textcolor2 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer p-1"
+                <div class="flex flex-1 min-w-0 flex-col gap-1">
+                    <span class="font-mono text-sm text-textcolor truncate" title={entry.key}>{entry.key}</span>
+                    <div class="flex items-center gap-2 min-w-0 text-xs text-textcolor2">
+                        <span class="truncate">{entry.owner ?? language.pluginStorageOwnerUnknown}</span>
+                        <span aria-hidden="true">·</span>
+                        <span class="uppercase tracking-wide shrink-0">{entry.type}</span>
+                        <span aria-hidden="true">·</span>
+                        <span class="shrink-0 tabular-nums">{formatSize(entry.size)}</span>
+                    </div>
+                </div>
+                {#snippet control()}<button
+                    class="shrink-0 p-1 text-textcolor2 hover:text-red-400 transition-colors cursor-pointer"
                     aria-label={language.remove}
                     onclick={(e) => { e.stopPropagation(); removeEntry(entry) }}
                 >
-                    <Trash2Icon size={15} />
-                </button>
-            </div>
+                    <Trash2Icon size={18} />
+                </button>{/snippet}
+            </SettingLayout>
         {/each}
     {/if}
-</div>
+</SettingLayout>
 
-<!-- Detail / edit dialog. tier="base" (z-40) so the delete confirm popup
-     (alert tier, z-50) renders above this management dialog. -->
+<!-- Detail / edit dialog -->
 <ShDialog bind:open={detailOpen} size="xl" tier="base">
     {#snippet title()}
         <span class="font-mono break-all">{selected?.key ?? ''}</span>
@@ -486,31 +475,29 @@
         {/if}
     {/if}
     {#snippet footer()}
-        <div class="flex justify-end gap-2">
+        <div class="flex w-full justify-end gap-2">
             {#if editing}
                 <ShButton variant="outline" onclick={formatJson} disabled={saving}>
-                    <AlignLeftIcon size={14} />
+                    <AlignLeftIcon />
                     {language.pluginStorageFormatJson}
                 </ShButton>
                 <ShButton variant="outline" onclick={() => (editing = false)} disabled={saving}>
                     {language.cancel}
                 </ShButton>
                 <ShButton variant="primary" onclick={saveEdit} disabled={saving}>
-                    <SaveIcon size={14} />
+                    <SaveIcon />
                     {language.pluginStorageSave}
                 </ShButton>
             {:else}
-                <ShButton variant="destructive" onclick={() => selected && removeEntry(selected)}>
-                    <Trash2Icon size={14} />
-                    {language.remove}
-                </ShButton>
-                <ShButton variant="outline" onclick={() => (detailOpen = false)}>
-                    {language.close}
-                </ShButton>
-                <ShButton variant="primary" onclick={startEdit}>
-                    <PencilIcon size={14} />
-                    {language.edit}
-                </ShButton>
+                <div class="flex w-full items-center justify-end gap-2">
+                    <ShButton variant="outline" onclick={() => (detailOpen = false)}>
+                        {language.cancel}
+                    </ShButton>
+                    <ShButton variant="primary" onclick={startEdit}>
+                        <PencilIcon />
+                        {language.edit}
+                    </ShButton>
+                </div>
             {/if}
         </div>
     {/snippet}

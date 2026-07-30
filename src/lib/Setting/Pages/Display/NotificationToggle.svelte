@@ -26,6 +26,6 @@
     }
 </script>
 
-<SoundRow label={language.notificationEnable} description={language.descBrowserNotification}>
+<SoundRow label={language.notificationEnable} description={language.help.descBrowserNotification}>
     <ShSwitch checked={DBState.db.notification} onCheckedChange={onToggle} />
 </SoundRow>

@@ -1,53 +1,179 @@
 <script lang="ts">
-    import { XIcon } from "@lucide/svelte";
     import { language } from "../../lang";
-    
-    import { DBState } from 'src/ts/stores.svelte';
-    import { changeUserPersona } from "src/ts/persona";
-
+    import { alertConfirm } from "src/ts/alert";
+    import { getCharImage } from "src/ts/characters";
+    import { requestImmediateSave } from "src/ts/globalApi.svelte";
+    import { changeUserPersona, exportUserPersona, importUserPersona, saveUserPersona } from "src/ts/persona";
+    import { DBState } from "src/ts/stores.svelte";
+    import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
+    import PresetPickerActions from "../UI/PresetPickerActions.svelte";
+    import TextInput from "../UI/GUI/TextInput.svelte";
+    import { v4 as uuidv4 } from "uuid";
 
     interface Props {
-        close?: any;
+        close?: () => void;
         onSelect?: ((index: number) => void) | null;
     }
 
     let { close = () => {}, onSelect = null }: Props = $props();
+    let selectedFolder = $state('all');
+    let searchQuery = $state('');
+    let visibleItemIndexes = $state<number[]>([]);
+    let emptyMessage = $state('');
+    let editMode = $state(false);
+    const folders = $derived(DBState.db.personaFolders ?? []);
 
+    function selectPersona(index: number) {
+        if (onSelect) onSelect(index);
+        else changeUserPersona(index);
+        close();
+    }
+
+    function movePersona(fromIndex: number, toIndex: number) {
+        const personas = DBState.db.personas;
+        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= personas.length || toIndex > personas.length) return;
+
+        saveUserPersona();
+        const selected = personas[DBState.db.selectedPersona];
+        selected.id ??= uuidv4();
+        const selectedId = selected.id;
+        const next = [...personas];
+        const [moved] = next.splice(fromIndex, 1);
+        if (!moved) return;
+        const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
+        next.splice(adjustedToIndex, 0, moved);
+        DBState.db.personas = next;
+        changeUserPersona(Math.max(0, next.findIndex(persona => persona.id === selectedId)), 'noSave');
+        void requestImmediateSave();
+    }
+
+    function assignPersonaToFolder(index: number, folderId: string | undefined) {
+        const persona = DBState.db.personas[index];
+        if (!persona) return;
+        persona.folderId = folderId === 'all' || folderId === 'uncategorized' ? undefined : folderId;
+        DBState.db.personas = [...DBState.db.personas];
+        void requestImmediateSave();
+    }
+
+    function createPersona() {
+        const folderId = selectedFolder !== 'all' && selectedFolder !== 'uncategorized' ? selectedFolder : undefined;
+        DBState.db.personas = [...DBState.db.personas, {
+            id: uuidv4(),
+            name: 'New Persona',
+            icon: '',
+            personaPrompt: '',
+            note: '',
+            folderId,
+        }];
+        changeUserPersona(DBState.db.personas.length - 1);
+        void requestImmediateSave();
+    }
+
+    function duplicatePersona(index: number) {
+        if (index === DBState.db.selectedPersona) saveUserPersona();
+        const source = DBState.db.personas[index];
+        if (!source) return;
+        const copy = safeStructuredClone(source);
+        copy.id = uuidv4();
+        copy.name = `${source.name} Copy`;
+        DBState.db.personas = [...DBState.db.personas, copy];
+        void requestImmediateSave();
+    }
+
+    async function exportPersona(index: number) {
+        if (index === DBState.db.selectedPersona) saveUserPersona();
+        await exportUserPersona(index);
+    }
+
+    async function deletePersona(index: number) {
+        const persona = DBState.db.personas[index];
+        if (!persona || DBState.db.personas.length === 1) return;
+        if (!await alertConfirm(`${language.removeConfirm}${persona.name}`)) return;
+
+        saveUserPersona();
+        const selected = DBState.db.personas[DBState.db.selectedPersona];
+        const next = DBState.db.personas.filter((_, personaIndex) => personaIndex !== index);
+        DBState.db.personas = next;
+        const selectedIndex = next.indexOf(selected);
+        changeUserPersona(selectedIndex >= 0 ? selectedIndex : 0, 'noSave');
+        void requestImmediateSave();
+    }
+
+    async function importPersona() {
+        const previousLength = DBState.db.personas.length;
+        await importUserPersona();
+        if (DBState.db.personas.length <= previousLength) return;
+        const importedIndex = DBState.db.personas.length - 1;
+        assignPersonaToFolder(importedIndex, selectedFolder);
+        changeUserPersona(importedIndex);
+        void requestImmediateSave();
+    }
 </script>
 
-<div class="absolute w-full h-full z-40 bg-black/50 flex justify-center items-center">
-    <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-96 max-h-full overflow-y-auto">
-        <div class="flex items-center text-textcolor mb-4">
-            <h2 class="mt-0 mb-0 font-bold">{language.persona}</h2>
-            <div class="grow flex justify-end">
-                <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer items-center" onclick={close}>
-                    <XIcon size={24}/>
-                </button>
-            </div>
+<PresetPickerLayout
+    title={language.persona}
+    {folders}
+    itemFolderIds={DBState.db.personas.map(persona => persona.folderId)}
+    itemNames={DBState.db.personas.map(persona => persona.name ?? '')}
+    itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
+    searchPlaceholder={language.personaSearch}
+    itemDragDataKey="personaIndex"
+    bind:selectedFolder
+    bind:searchQuery
+    bind:visibleItemIndexes
+    bind:emptyMessage
+    selectedItemIndex={DBState.db.selectedPersona}
+    itemEditMode={editMode}
+    onMoveItem={movePersona}
+    onSelectItem={selectPersona}
+    onDuplicateItem={duplicatePersona}
+    onExportItem={exportPersona}
+    onDeleteItem={deletePersona}
+    {close}
+    onFoldersChange={(next) => {
+        DBState.db.personaFolders = next;
+        void requestImmediateSave();
+    }}
+    onAssignItem={assignPersonaToFolder}
+    onDeleteFolder={(folderId) => {
+        DBState.db.personas = DBState.db.personas.map(persona =>
+            persona.folderId === folderId ? { ...persona, folderId: undefined } : persona
+        );
+        void requestImmediateSave();
+    }}
+>
+    {#snippet itemContent(index)}
+        {@const persona = DBState.db.personas[index]}
+        <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md bg-textcolor2">
+            {#if persona.icon}
+                {#await getCharImage(persona.icon, 'css') then imageStyle}
+                    <div class="h-full w-full bg-cover bg-center" style={imageStyle}></div>
+                {/await}
+            {/if}
         </div>
-        {#each DBState.db.personas as persona, i}
-            <button onclick={() => {
-                if (onSelect) {
-                    onSelect(i)
-                } else {
-                    changeUserPersona(i)
-                }
-                close()
-            }} class="flex items-center text-textcolor border-t-1 border-solid border-0 border-darkborderc p-2 cursor-pointer" class:bg-selected={i === DBState.db.selectedPersona}>
-                <span class="overflow-x-auto whitespace-nowrap w-full text-left">
-                    <span class="font-medium">{persona.name}</span>
-                    {#if persona.note}
-                        <span class="opacity-75"> / {persona.note}</span>
-                    {/if}
-                </span>
-            </button>
-        {/each}
-    </div>
-</div>
+        {#if editMode}
+            <div class="min-w-0 grow">
+                <TextInput
+                    bind:value={DBState.db.personas[index].name}
+                    padding={false}
+                    fullwidth
+                    className="h-8 min-w-0 px-2"
+                    oninput={(event) => {
+                        if (index === DBState.db.selectedPersona) DBState.db.username = event.currentTarget.value;
+                    }}
+                />
+            </div>
+        {:else}
+            <div class="min-w-0 grow truncate">
+                <span>{persona.name}</span>
+                {#if persona.note}<span class="text-textcolor2"> / {persona.note}</span>{/if}
+            </div>
+        {/if}
+    {/snippet}
 
-<style>
-    .break-any{
-        word-break: normal;
-        overflow-wrap: anywhere;
-    }
-</style>
+    <PresetPickerActions
+        onCreate={createPersona}
+        onImport={importPersona}
+        onRename={() => { editMode = !editMode; }}
+    />
+</PresetPickerLayout>

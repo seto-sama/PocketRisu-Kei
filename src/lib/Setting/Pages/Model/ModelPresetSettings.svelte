@@ -1,28 +1,40 @@
 <script lang="ts">
-    import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, BellIcon, CopyIcon, PlusIcon, TrashIcon, TriangleAlertIcon } from "@lucide/svelte";
+    import { ArrowLeftIcon, CopyIcon, PlusIcon, RefreshCwIcon, TrashIcon, TriangleAlertIcon } from "@lucide/svelte";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     import ShAccordion from "src/lib/UI/GUI/ShAccordion.svelte";
     import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
     import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
     import SchemaFormRenderer from "src/lib/UI/GUI/SchemaFormRenderer.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
+    import SettingRenderer from "../../SettingRenderer.svelte";
+    import type { SettingItem } from "src/ts/setting/types";
+    import type { RegistryFieldSchema, RegistryUiField, RegistryUiGroup } from "src/ts/preset/types";
     import { tokenizerList } from "src/ts/tokenizer";
     import ModelPresetBasicInfo from "./ModelPresetBasicInfo.svelte";
     import ApiKeyPoolManager from "./ApiKeyPoolManager.svelte";
     import ModelPresetOptions from "./ModelPresetOptions.svelte";
-    import RegistryNoticeModal from "./RegistryNoticeModal.svelte";
     import { language } from "src/lang";
     import { DBState, openModelProfileBrowser, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
-    import { alertConfirm, notifySuccess } from "src/ts/alert";
+    import { alertConfirm, notifySuccess, notifyWarning } from "src/ts/alert";
     import { testModelPreset, type ModelPresetTestResult } from "src/ts/process/request/request";
-    import { getOfficialRegistry, getPresetUpdateStatus, syncRemoteRegistry } from "src/ts/preset/registry";
-    import { buildSeenMap, computeRegistryNotice, noticeCount } from "src/ts/preset/registry/notice";
-    import { TOOL_CAPABLE_ADAPTER_KINDS, VISION_CAPABLE_ADAPTER_KINDS } from "src/ts/preset/types";
+    import {
+        getOfficialRegistry,
+        getOfficialRegistryId,
+        getPresetUpdateStatus,
+        isOfficialRegistryId,
+        syncRemoteRegistry,
+    } from "src/ts/preset/registry";
+    import { refreshModelPresetProfile, type ModelPresetProfileRefreshTarget } from "src/ts/preset/profileUpdate";
+    import {
+        buildPluginRegistry,
+        listPluginModels,
+        PLUGIN_REGISTRY_ID,
+        pluginPresetAbilityDefaults,
+    } from "src/ts/preset/pluginModels";
+    import { customV3ProviderMetaStore } from "src/ts/plugins/apiV3/v3.svelte";
+    import { compileModelPreset } from "src/ts/preset/runtime/compilePreset";
     import { onMount } from "svelte";
     import { v4 as uuidv4 } from "uuid";
 
@@ -36,32 +48,27 @@
     let testResult = $state<ModelPresetTestResult | null>(null);
     // Top-level page tabs (hidden while editing a preset): 0=presets, 1=keys, 2=settings.
     let page = $state(0);
+    let suppressPresetClick = $state(false);
+    let refreshingAllPresets = $state(false);
 
-    // Catalog "new/updated models" notice. Fetch the remote registry on menu
-    // entry (debounced), then diff the official registry against the seen-map.
-    // First successful sync seeds the baseline silently (no banner).
-    let noticeOpen = $state(false);
-    const notice = $derived(computeRegistryNotice(getOfficialRegistry(), DBState.db.modelRegistrySeen, DBState.db.modelProfileVisibilityLevel));
-    const noticeN = $derived(noticeCount(notice));
-
-    onMount(async () => {
-        const res = await syncRemoteRegistry();
-        if (res.ok && !DBState.db.modelRegistrySeen) {
-            DBState.db.modelRegistrySeen = buildSeenMap(getOfficialRegistry());
-        }
+    onMount(() => {
+        void syncRemoteRegistry();
     });
-
-    // Acknowledge only when the user ticks "don't show again": overwrite the
-    // seen-map so the banner clears. Closing without the tick leaves it.
-    function acknowledgeNotice(dismiss: boolean) {
-        if (dismiss) DBState.db.modelRegistrySeen = buildSeenMap(getOfficialRegistry());
-    }
 
     const editingPreset = $derived(
         editingId
             ? DBState.db.modelPresets.find(p => p.id === editingId) ?? null
             : null
     );
+    const editingCompiled = $derived.by(() => {
+        if (!editingPreset) return undefined;
+        try {
+            return compileModelPreset(editingPreset);
+        } catch {
+            return undefined;
+        }
+    });
+    const editingAdapterKind = $derived(editingCompiled?.adapterKind);
 
     // If the preset being edited disappears (deleted elsewhere), fall back to list.
     $effect(() => {
@@ -80,28 +87,220 @@
     // the basic-settings tab).
     const showImageInputToggle = $derived(
         !!editingPreset
-        && VISION_CAPABLE_ADAPTER_KINDS.includes(editingPreset.profileSnapshot.adapterKind)
+        && editingCompiled?.availability.vision === true
         && !(editingPreset.profileSnapshot.capabilities ?? []).includes('vision')
     );
+    const showVisionQuality = $derived(
+        !!editingPreset
+        && (
+            (editingPreset.profileSnapshot.capabilities ?? []).includes('vision')
+            || editingPreset.imageInput === true
+        )
+        && editingCompiled?.features.vision === true
+    );
     const showFoldToggles = $derived(
-        !!editingPreset && editingPreset.profileSnapshot.adapterKind === 'openai-compatible'
+        !!editingPreset && editingCompiled?.behavior.canFoldSystemPrompt === true
     );
     const showSequenceToggles = $derived(!!editingPreset);
     const showToolUseToggle = $derived(
         !!editingPreset
-        && (editingPreset.profileSnapshot.capabilities ?? []).includes('tools')
-        && TOOL_CAPABLE_ADAPTER_KINDS.includes(editingPreset.profileSnapshot.adapterKind)
+        && editingCompiled?.availability.tools === true
     );
-    const showAbilities = $derived(showImageInputToggle || showFoldToggles || showSequenceToggles || showToolUseToggle);
     // Gemini context caching section. Gated like the tool-use toggle: the profile
     // must declare the 'cache' capability AND the adapter must be the one that
     // implements the cache wire (google-gemini). v1 main-chat scope; see
     // gemini-cache-keeper-internalization.md §4-3.
     const showCacheSection = $derived(
         !!editingPreset
-        && (editingPreset.profileSnapshot.capabilities ?? []).includes('cache')
-        && editingPreset.profileSnapshot.adapterKind === 'google-gemini'
+        && editingCompiled?.availability.cache === true
     );
+    const showAnthropicRequestControls = $derived(
+        !!editingPreset
+        && editingAdapterKind === 'anthropic-messages'
+        && editingPreset.profileSnapshot.providerBaseId === 'anthropic'
+    );
+
+    const anthropicRequestSchema = $derived.by((): RegistryFieldSchema[] =>
+        showAnthropicRequestControls ? [
+            {
+                key: 'claude1HourCaching',
+                type: 'boolean',
+                label: language.claude1HourCaching,
+                description: language.help.claude1HourCaching,
+                default: false,
+            },
+            {
+                key: 'claudeBatching',
+                type: 'boolean',
+                label: language.claudeBatching,
+                description: language.help.claudeBatching,
+                default: false,
+            },
+        ] : []
+    );
+    const anthropicRequestUiFields = $derived.by((): RegistryUiField[] =>
+        showAnthropicRequestControls ? [
+            { key: 'claude1HourCaching', widget: 'toggle', visibility: 'advanced', group: 'control', order: 1.1 },
+            { key: 'claudeBatching', widget: 'toggle', visibility: 'advanced', group: 'control', order: 1.2 },
+        ] : []
+    );
+
+    const parameterMaxContext = $derived.by(() => {
+        const catalogLimit = editingPreset?.profileSnapshot.limits?.contextWindowTokens;
+        return catalogLimit && catalogLimit > 0 ? catalogLimit : 256000;
+    });
+    const parameterDefaultMaxContext = $derived(
+        Math.min(DBState.db.modelPresetDefaultMaxContext ?? 65000, parameterMaxContext)
+    );
+    const parameterPresetSchema = $derived.by((): RegistryFieldSchema[] =>
+        editingPreset ? [
+            {
+                key: 'maxContext',
+                type: 'integer',
+                label: 'Max Context Size',
+                labelKey: 'maxContextSize',
+                helpKey: 'maxContextSize',
+                min: 1,
+                max: parameterMaxContext,
+                step: 1,
+            },
+        ] : []
+    );
+    const parameterPresetUiFields = $derived.by((): RegistryUiField[] =>
+        parameterPresetSchema.length > 0 ? [
+            {
+                key: 'maxContext',
+                widget: 'slider',
+                visibility: 'basic',
+                layout: 'row',
+                disableable: true,
+                group: 'generation',
+                order: 0,
+                placeholder: String(parameterDefaultMaxContext),
+            },
+        ] : []
+    );
+
+    // Editor-owned model controls join the registry's "capabilities" group so
+    // the former "Model abilities" section and provider-declared features are
+    // rendered as one ordered feature section. Values still bind to the preset
+    // object, not userValues, preserving the existing persisted shape.
+    const abilityControls = $derived.by((): {
+        schema: RegistryFieldSchema[];
+        uiFields: RegistryUiField[];
+        groups: RegistryUiGroup[];
+    } => {
+        if (!editingPreset) return { schema: [], uiFields: [], groups: [] };
+
+        const schema: RegistryFieldSchema[] = [];
+        const uiFields: RegistryUiField[] = [];
+        const addToggle = (
+            key: string,
+            label: string,
+            labelKey: string,
+            helpKey: string,
+            order: number,
+        ) => {
+            schema.push({ key, type: 'boolean', label, labelKey, helpKey, default: false });
+            uiFields.push({
+                key,
+                widget: 'toggle',
+                visibility: 'advanced',
+                group: 'capabilities',
+                order,
+            });
+        };
+
+        if (showFoldToggles) {
+            addToggle('foldSystemPrompt', 'System Role Replacement', 'systemRoleReplacement', 'modelPresetFoldSystemHelp', 1);
+        }
+        if (showSequenceToggles) {
+            addToggle('alternateRole', 'Force Alternating Roles', 'modelPresetAlternateRole', 'modelPresetAlternateRoleHelp', 2);
+            addToggle('startWithUserInput', 'Start With User Input', 'modelPresetStartWithUser', 'modelPresetStartWithUserHelp', 3);
+        }
+        if (showFoldToggles) {
+            if (editingPreset.foldSystemPrompt) {
+                addToggle('keepFirstSystemPrompt', 'Keep First System Prompt', 'modelPresetKeepFirstSystem', 'modelPresetKeepFirstSystemHelp', 4);
+            }
+        }
+        if (showImageInputToggle) {
+            addToggle('imageInput', 'Image Input', 'modelPresetImageInput', 'modelPresetImageInputHelp', 5);
+        }
+        if (showVisionQuality) {
+            schema.push({
+                key: 'gptVisionQuality',
+                type: 'string',
+                label: 'Vision Quality',
+                labelKey: 'gptVisionQuality',
+                helpKey: 'gptVisionQuality',
+                default: 'auto',
+                required: true,
+                enum: [
+                    { value: 'auto', label: 'Auto' },
+                    { value: 'low', label: 'Low' },
+                    ...(editingAdapterKind === 'google-gemini'
+                        ? [{ value: 'medium', label: 'Medium' }]
+                        : []),
+                    { value: 'high', label: 'High' },
+                ],
+            });
+            uiFields.push({
+                key: 'gptVisionQuality',
+                widget: 'select',
+                visibility: 'advanced',
+                layout: 'row',
+                group: 'capabilities',
+                order: 5.1,
+            });
+        }
+        if (showToolUseToggle) {
+            addToggle('toolUse', 'Tool Use', 'modelPresetToolUse', 'modelPresetToolUseHelp', 14.1);
+        }
+
+        return {
+            schema,
+            uiFields,
+            groups: schema.length > 0 ? [{
+                id: 'capabilities',
+                label: 'Features',
+                labelKey: 'modelPresetFeaturesGroup',
+                order: 3,
+            }] : [],
+        };
+    });
+
+    const advancedExtraGroups = $derived.by((): RegistryUiGroup[] => [
+        ...abilityControls.groups,
+        {
+            id: 'flags',
+            label: 'Custom Flags',
+            labelKey: 'modelPresetCustomFlagsGroup',
+            order: 4,
+        },
+        ...(showAnthropicRequestControls ? [{
+            id: 'control',
+            label: 'Controls',
+            labelKey: 'modelPresetControlsGroup',
+            order: 2.5,
+        }] : []),
+    ]);
+
+    const cacheItems = $derived.by((): SettingItem[] => editingPreset ? [
+        { id: 'modelPreset.cache.enabled', type: 'check', labelKey: 'modelPresetCacheEnable', helpKey: 'modelPresetCacheEnableHelp', bindPath: 'promptCaching.enabled', options: { defaultValue: false } },
+        { id: 'modelPreset.cache.ttl', type: 'number', labelKey: 'modelPresetCacheTtl', helpKey: 'modelPresetCacheTtlHelp', condition: () => !!editingPreset.promptCaching?.enabled, bindPath: 'promptCaching.ttlSec', options: { min: 1, placeholder: '600', defaultValue: 600 } },
+        { id: 'modelPreset.cache.extend', type: 'check', labelKey: 'modelPresetCacheExtend', helpKey: 'modelPresetCacheExtendHelp', condition: () => !!editingPreset.promptCaching?.enabled, bindPath: 'promptCaching.extendTtlOnHit', options: { defaultValue: true } },
+        { id: 'modelPreset.cache.minTokens', type: 'number', labelKey: 'modelPresetCacheMinTokens', helpKey: 'modelPresetCacheMinTokensHelp', condition: () => !!editingPreset.promptCaching?.enabled, bindPath: 'promptCaching.minPromptTokens', options: { min: 1, placeholder: '4096', defaultValue: 4096 } },
+        { id: 'modelPreset.cache.growthTokens', type: 'number', labelKey: 'modelPresetCacheGrowth', helpKey: 'modelPresetCacheGrowthHelp', condition: () => !!editingPreset.promptCaching?.enabled, bindPath: 'promptCaching.growthTokens', options: { min: 1, placeholder: '4096', defaultValue: 4096 } },
+    ] : []);
+
+    const advancedPresetItems = $derived.by((): SettingItem[] => editingPreset ? [
+        {
+            id: 'modelPreset.tokenizer', type: 'select', labelKey: 'tokenizerOverride', helpKey: 'tokenizerOverrideHelp',
+            bindPath: 'tokenizerOverride',
+            options: { defaultValue: '', selectOptions: [{ value: '', label: `${language.tokenizerAuto}${editingPreset.profileSnapshot.recommendedTokenizer ? ` (${editingPreset.profileSnapshot.recommendedTokenizer})` : ''}` }, ...tokenizerList.map(([value, label]) => ({ value, label }))] },
+        },
+        { id: 'modelPreset.additionalParams', type: 'textarea', labelKey: 'additionalParams', helpKey: 'additionalParamsHelp', bindPath: 'additionalParamsText', options: { defaultValue: '', placeholder: 'reasoning=json::{"effort":"max"}\nheader::X-Trace-Id=abc' } },
+    ] : []);
 
     // Open a freshly-created preset directly in its editor.
     $effect(() => {
@@ -135,18 +334,133 @@
         notifySuccess(language.presetDeleted);
     }
 
-    function move(index: number, dir: -1 | 1) {
-        const target = index + dir;
-        const presets = DBState.db.modelPresets;
-        if (target < 0 || target >= presets.length) return;
-        const next = [...presets];
-        [next[index], next[target]] = [next[target], next[index]];
-        DBState.db.modelPresets = next;
+    function endPresetDrag() {
+        setTimeout(() => {
+            suppressPresetClick = false;
+        }, 0);
     }
 
     function createNew() {
         modelProfileReplaceTarget.set(null);
         openModelProfileBrowser.set(true);
+    }
+
+    async function refreshAllPresetProfiles() {
+        if (refreshingAllPresets) return;
+        if (!(await alertConfirm(language.modelPresetRefreshAllConfirm))) return;
+
+        refreshingAllPresets = true;
+        try {
+            // Force a download even when the catalog content/version markers
+            // appear current. UI-only profile revisions may keep those markers.
+            const syncResult = await syncRemoteRegistry(true);
+            const officialRegistry = getOfficialRegistry();
+            const officialRegistryId = getOfficialRegistryId();
+            const pluginRegistry = buildPluginRegistry(
+                listPluginModels(customV3ProviderMetaStore),
+                language.pluginModelProfileDescription,
+            );
+            const now = Date.now();
+            let updatedCount = 0;
+            let skippedCount = 0;
+
+            DBState.db.modelPresets = DBState.db.modelPresets.map((preset) => {
+                let target: ModelPresetProfileRefreshTarget | undefined;
+                const source = preset.sourceProfile;
+
+                if (source?.registryId) {
+                    const official = isOfficialRegistryId(source.registryId);
+                    const registry = official
+                        ? officialRegistry
+                        : DBState.db.modelProfileRegistryCache;
+                    if (registry) {
+                        target = {
+                            registry,
+                            registryId: official ? officialRegistryId : source.registryId,
+                            profileId: source.profileId,
+                        };
+                    }
+                } else if (preset.profileSnapshot.adapterKind === 'plugin') {
+                    target = {
+                        registry: pluginRegistry,
+                        registryId: PLUGIN_REGISTRY_ID,
+                        profileId: preset.profileSnapshot.profileId,
+                        transient: true,
+                    };
+                } else {
+                    // Backfill old self-contained presets that predate
+                    // sourceProfile by their stable snapshot profile id.
+                    const profileId = preset.profileSnapshot.profileId;
+                    if (officialRegistry.registries[officialRegistryId]?.profiles?.[profileId]) {
+                        target = {
+                            registry: officialRegistry,
+                            registryId: officialRegistryId,
+                            profileId,
+                        };
+                    } else {
+                        const customRegistry = DBState.db.modelProfileRegistryCache;
+                        const customRegistryId = customRegistry
+                            ? Object.keys(customRegistry.registries).find((registryId) =>
+                                !!customRegistry.registries[registryId]?.profiles?.[profileId]
+                            )
+                            : undefined;
+                        if (customRegistry && customRegistryId) {
+                            target = {
+                                registry: customRegistry,
+                                registryId: customRegistryId,
+                                profileId,
+                            };
+                        }
+                    }
+                }
+
+                if (!target) {
+                    skippedCount += 1;
+                    return preset;
+                }
+
+                try {
+                    const refreshed = refreshModelPresetProfile(preset, target, { now: () => now });
+                    if (!refreshed) {
+                        skippedCount += 1;
+                        return preset;
+                    }
+                    updatedCount += 1;
+                    return target.transient
+                        ? {
+                            ...refreshed.preset,
+                            ...pluginPresetAbilityDefaults(
+                                refreshed.preset.profileSnapshot.modelId,
+                                customV3ProviderMetaStore,
+                            ),
+                        }
+                        : refreshed.preset;
+                } catch {
+                    skippedCount += 1;
+                    return preset;
+                }
+            });
+
+            const descriptions = [
+                skippedCount > 0
+                    ? language.modelPresetRefreshAllSkipped.replace('{count}', String(skippedCount))
+                    : '',
+                !syncResult.ok ? language.modelPresetRefreshAllSyncFailed : '',
+            ].filter(Boolean);
+
+            if (updatedCount > 0) {
+                notifySuccess(
+                    language.modelPresetRefreshAllSuccess.replace('{count}', String(updatedCount)),
+                    descriptions.length > 0 ? { description: descriptions.join(' ') } : undefined,
+                );
+            } else {
+                notifyWarning(language.modelPresetRefreshAllNone, {
+                    description: descriptions.join(' ') || undefined,
+                });
+            }
+        } finally {
+            refreshingAllPresets = false;
+        }
     }
 
     // Clear any prior test result when the edited preset changes.
@@ -172,7 +486,7 @@
 <SettingPage title={language.modelPresetMenu}>
     {#if editingId}
         <ShButton variant="ghost" size="sm" className="mb-4 self-start" onclick={() => { editingId = null }}>
-            <ArrowLeftIcon size={16}/>
+            <ArrowLeftIcon/>
             <span class="ml-1">{language.backToList}</span>
         </ShButton>
 
@@ -190,162 +504,28 @@
             {#if submenu === 0}
                 <ModelPresetBasicInfo preset={editingPreset} onAfterDelete={() => { editingId = null }} />
             {:else if submenu === 1}
-                <div class="flex flex-col gap-4 mb-6">
-                    <div class="flex items-center justify-between gap-3">
-                        <div class="flex flex-col gap-0.5 min-w-0">
-                            <span class="text-sm text-textcolor">{language.maxContextSize}</span>
-                            <span class="text-xs text-textcolor2">{language.maxContextHelp}</span>
-                        </div>
-                        <NumberInput bind:value={editingPreset.maxContext as number} placeholder="65000" className="w-32 shrink-0" />
-                    </div>
-                    <div class="flex items-center justify-between gap-3">
-                        <div class="flex flex-col gap-0.5 min-w-0">
-                            <span class="text-sm text-textcolor">{language.streamingOverride}</span>
-                            <span class="text-xs text-textcolor2">{language.streamingOverrideHelp}</span>
-                        </div>
-                        <div class="shrink-0">
-                            <ShSwitch checked={!!editingPreset.useStreaming} onCheckedChange={(v) => { editingPreset.useStreaming = v }} />
-                        </div>
-                    </div>
-                    {#if editingPreset.useStreaming}
-                        <div class="flex items-center justify-between gap-3 pl-4">
-                            <div class="flex flex-col gap-0.5 min-w-0">
-                                <span class="text-sm text-textcolor">{language.decoupledStreaming}</span>
-                                <span class="text-xs text-textcolor2">{language.decoupledStreamingHelp}</span>
-                            </div>
-                            <div class="shrink-0">
-                                <ShSwitch checked={!!editingPreset.decoupledStreaming} onCheckedChange={(v) => { editingPreset.decoupledStreaming = v }} />
-                            </div>
-                        </div>
-                    {/if}
-                </div>
                 <SchemaFormRenderer
                     schema={editingPreset.profileSnapshot.schema}
                     uiSchema={editingPreset.profileSnapshot.uiSchema}
                     userValues={editingPreset.userValues}
                     visibility="basic"
                     preset={editingPreset}
+                    extraSchema={parameterPresetSchema}
+                    extraUiFields={parameterPresetUiFields}
+                    extraValues={editingPreset}
                 />
             {:else if submenu === 2}
-                {#if showAbilities}
-                    <div class="flex flex-col gap-4 mb-6">
-                        <h3 class="text-sm font-semibold text-textcolor2 uppercase tracking-wide">{language.modelPresetAbilities}</h3>
-                        {#if showImageInputToggle}
-                            <div class="flex items-center justify-between gap-3">
-                                <div class="flex flex-col gap-0.5 min-w-0">
-                                    <span class="text-sm text-textcolor">{language.modelPresetImageInput}</span>
-                                    <span class="text-xs text-textcolor2">{language.modelPresetImageInputHelp}</span>
-                                </div>
-                                <div class="shrink-0">
-                                    <ShSwitch checked={!!editingPreset.imageInput} onCheckedChange={(v) => { editingPreset.imageInput = v }} />
-                                </div>
-                            </div>
-                        {/if}
-                        {#if showFoldToggles}
-                            <div class="flex items-center justify-between gap-3">
-                                <div class="flex flex-col gap-0.5 min-w-0">
-                                    <span class="text-sm text-textcolor">{language.modelPresetFoldSystem}</span>
-                                    <span class="text-xs text-textcolor2">{language.modelPresetFoldSystemHelp}</span>
-                                </div>
-                                <div class="shrink-0">
-                                    <ShSwitch checked={!!editingPreset.foldSystemPrompt} onCheckedChange={(v) => { editingPreset.foldSystemPrompt = v }} />
-                                </div>
-                            </div>
-                            {#if editingPreset.foldSystemPrompt}
-                                <div class="flex items-center justify-between gap-3 pl-4">
-                                    <div class="flex flex-col gap-0.5 min-w-0">
-                                        <span class="text-sm text-textcolor">{language.modelPresetKeepFirstSystem}</span>
-                                        <span class="text-xs text-textcolor2">{language.modelPresetKeepFirstSystemHelp}</span>
-                                    </div>
-                                    <div class="shrink-0">
-                                        <ShSwitch checked={!!editingPreset.keepFirstSystemPrompt} onCheckedChange={(v) => { editingPreset.keepFirstSystemPrompt = v }} />
-                                    </div>
-                                </div>
-                            {/if}
-                        {/if}
-                        {#if showSequenceToggles}
-                            <div class="flex items-center justify-between gap-3">
-                                <div class="flex flex-col gap-0.5 min-w-0">
-                                    <span class="text-sm text-textcolor">{language.modelPresetAlternateRole}</span>
-                                    <span class="text-xs text-textcolor2">{language.modelPresetAlternateRoleHelp}</span>
-                                </div>
-                                <div class="shrink-0">
-                                    <ShSwitch checked={!!editingPreset.alternateRole} onCheckedChange={(v) => { editingPreset.alternateRole = v }} />
-                                </div>
-                            </div>
-                            <div class="flex items-center justify-between gap-3">
-                                <div class="flex flex-col gap-0.5 min-w-0">
-                                    <span class="text-sm text-textcolor">{language.modelPresetStartWithUser}</span>
-                                    <span class="text-xs text-textcolor2">{language.modelPresetStartWithUserHelp}</span>
-                                </div>
-                                <div class="shrink-0">
-                                    <ShSwitch checked={!!editingPreset.startWithUserInput} onCheckedChange={(v) => { editingPreset.startWithUserInput = v }} />
-                                </div>
-                            </div>
-                        {/if}
-                        {#if showToolUseToggle}
-                            <div class="flex items-center justify-between gap-3">
-                                <div class="flex flex-col gap-0.5 min-w-0">
-                                    <span class="text-sm text-textcolor">{language.modelPresetToolUse}</span>
-                                    <span class="text-xs text-textcolor2">{language.modelPresetToolUseHelp}</span>
-                                </div>
-                                <div class="shrink-0">
-                                    <ShSwitch checked={!!editingPreset.toolUse} onCheckedChange={(v) => { editingPreset.toolUse = v }} />
-                                </div>
-                            </div>
-                        {/if}
-                    </div>
-                {/if}
                 {#if showCacheSection}
-                    <div class="flex flex-col gap-4 mb-6">
+                    <div class="mb-6">
                         <h3 class="text-sm font-semibold text-textcolor2 uppercase tracking-wide">{language.modelPresetCacheSection}</h3>
-                        <div class="flex items-center justify-between gap-3">
-                            <div class="flex flex-col gap-0.5 min-w-0">
-                                <span class="text-sm text-textcolor">{language.modelPresetCacheEnable}</span>
-                                <span class="text-xs text-textcolor2">{language.modelPresetCacheEnableHelp}</span>
-                            </div>
-                            <div class="shrink-0">
-                                <ShSwitch checked={!!editingPreset.promptCaching?.enabled} onCheckedChange={(v) => { editingPreset.promptCaching = { ...(editingPreset.promptCaching ?? {}), enabled: v } }} />
-                            </div>
-                        </div>
+                        <SettingRenderer items={cacheItems.slice(0, 3)} target={editingPreset} layout="row" />
                         <ShAlert variant="warning">
                             {#snippet icon()}<TriangleAlertIcon />{/snippet}
                             {language.modelPresetCachePluginWarning}
                         </ShAlert>
                         {#if editingPreset.promptCaching?.enabled}
-                            <div class="flex items-center justify-between gap-3 pl-4">
-                                <div class="flex flex-col gap-0.5 min-w-0">
-                                    <span class="text-sm text-textcolor">{language.modelPresetCacheTtl}</span>
-                                    <span class="text-xs text-textcolor2">{language.modelPresetCacheTtlHelp}</span>
-                                </div>
-                                <NumberInput bind:value={editingPreset.promptCaching.ttlSec as number} placeholder="600" min={1} className="w-32 shrink-0" />
-                            </div>
-                            <div class="flex items-center justify-between gap-3 pl-4">
-                                <div class="flex flex-col gap-0.5 min-w-0">
-                                    <span class="text-sm text-textcolor">{language.modelPresetCacheExtend}</span>
-                                    <span class="text-xs text-textcolor2">{language.modelPresetCacheExtendHelp}</span>
-                                </div>
-                                <div class="shrink-0">
-                                    <ShSwitch checked={editingPreset.promptCaching.extendTtlOnHit ?? true} onCheckedChange={(v) => { editingPreset.promptCaching = { ...editingPreset.promptCaching, enabled: true, extendTtlOnHit: v } }} />
-                                </div>
-                            </div>
                             <ShAccordion name={language.modelPresetCacheAdvanced} variant="card" class="ml-4">
-                                <div class="flex flex-col gap-4 p-2">
-                                    <div class="flex items-center justify-between gap-3">
-                                        <div class="flex flex-col gap-0.5 min-w-0">
-                                            <span class="text-sm text-textcolor">{language.modelPresetCacheMinTokens}</span>
-                                            <span class="text-xs text-textcolor2">{language.modelPresetCacheMinTokensHelp}</span>
-                                        </div>
-                                        <NumberInput bind:value={editingPreset.promptCaching.minPromptTokens as number} placeholder="4096" min={1} className="w-32 shrink-0" />
-                                    </div>
-                                    <div class="flex items-center justify-between gap-3">
-                                        <div class="flex flex-col gap-0.5 min-w-0">
-                                            <span class="text-sm text-textcolor">{language.modelPresetCacheGrowth}</span>
-                                            <span class="text-xs text-textcolor2">{language.modelPresetCacheGrowthHelp}</span>
-                                        </div>
-                                        <NumberInput bind:value={editingPreset.promptCaching.growthTokens as number} placeholder="4096" min={1} className="w-32 shrink-0" />
-                                    </div>
-                                </div>
+                                <div class="p-2"><SettingRenderer items={cacheItems.slice(3)} target={editingPreset} layout="row" /></div>
                             </ShAccordion>
                         {/if}
                     </div>
@@ -356,36 +536,20 @@
                     userValues={editingPreset.userValues}
                     visibility="advanced"
                     preset={editingPreset}
+                    extraSchema={[...abilityControls.schema, ...anthropicRequestSchema]}
+                    extraUiGroups={advancedExtraGroups}
+                    extraUiFields={[...abilityControls.uiFields, ...anthropicRequestUiFields]}
+                    extraValues={editingPreset}
                 />
-                <div class="flex flex-col gap-1 mt-6">
-                    <span class="text-sm text-textcolor">{language.tokenizerOverride}</span>
-                    <span class="text-xs text-textcolor2">{language.tokenizerOverrideHelp}</span>
-                    <SelectInput
-                        className="mt-2"
-                        bind:value={editingPreset.tokenizerOverride as string}
-                    >
-                        <OptionInput value="">{language.tokenizerAuto}{editingPreset.profileSnapshot.recommendedTokenizer ? ` (${editingPreset.profileSnapshot.recommendedTokenizer})` : ''}</OptionInput>
-                        {#each tokenizerList as [value, label]}
-                            <OptionInput {value}>{label}</OptionInput>
-                        {/each}
-                    </SelectInput>
-                </div>
-                <div class="flex flex-col gap-1 mt-6">
-                    <span class="text-sm text-textcolor">{language.additionalParams}</span>
-                    <span class="text-xs text-textcolor2">{language.additionalParamsHelp}</span>
-                    <TextAreaInput
-                        bind:value={editingPreset.additionalParamsText}
-                        placeholder={'reasoning=json::{"effort":"max"}\nheader::X-Trace-Id=abc'}
-                        fullwidth
-                        autocomplete="off"
-                        height="32"
-                    />
+                <div class="mt-6">
+                    <h3 class="text-base font-bold mb-1 text-textcolor">{language.modelPresetOtherGroup}</h3>
+                    <SettingRenderer items={advancedPresetItems} target={editingPreset} layout="row" />
                 </div>
             {:else if submenu === 3}
                 <div class="flex flex-col gap-4 mb-6">
                     <div class="flex flex-col gap-0.5">
                         <span class="text-sm text-textcolor">{language.modelPresetTestTitle}</span>
-                        <span class="text-xs text-textcolor2">{language.modelPresetTestHelp}</span>
+                        <span class="text-xs text-textcolor2">{language.help.modelPresetTestHelp}</span>
                     </div>
                     <TextAreaInput
                         bind:value={testMessage}
@@ -406,11 +570,11 @@
 
                     {#if testResult}
                         <div class="flex flex-col gap-1 rounded-md border p-3 text-sm {testResult.ok ? 'bg-success/20 border-success/40' : 'bg-draculared/20 border-draculared/40'}">
-                            <span class="font-medium {testResult.ok ? 'text-success' : 'text-red-400'}">
+                            <span class="font-medium {testResult.ok ? 'text-success' : 'text-draculared'}">
                                 {testResult.ok ? language.modelPresetTestSuccess : language.modelPresetTestFail}
                                 <span class="text-textcolor2 font-normal ml-1">({testResult.latencyMs}ms)</span>
                             </span>
-                            <span class="text-textcolor whitespace-pre-wrap break-words">{testResult.message}</span>
+                            <span class="text-textcolor whitespace-pre-wrap warp-break-words">{testResult.message}</span>
                         </div>
                     {/if}
                 </div>
@@ -431,33 +595,49 @@
         {:else if page === 2}
             <ModelPresetOptions />
         {:else}
-            {#if noticeN > 0}
-                <ShAlert variant="info" className="mb-4">
-                    {#snippet icon()}<BellIcon />{/snippet}
-                    {#snippet title()}{language.registryNoticeBanner.replace('{n}', String(noticeN))}{/snippet}
-                    {#snippet action()}
-                        <ShButton variant="outline" size="sm" onclick={() => { noticeOpen = true }}>
-                            {language.registryNoticeMore}
-                        </ShButton>
-                    {/snippet}
-                </ShAlert>
-            {/if}
-
-            <ShButton variant="default" size="default" className="w-full mb-4" onclick={createNew}>
-                <PlusIcon size={16}/>
-                <span class="ml-1">{language.modelPresetCreate}</span>
-            </ShButton>
+            <div class="flex gap-2 mb-4">
+                <ShButton variant="default" size="default" className="flex-1" onclick={createNew}>
+                    <PlusIcon/>
+                    <span class="ml-1">{language.modelPresetCreate}</span>
+                </ShButton>
+                <ShButton
+                    variant="outline"
+                    size="icon"
+                    onclick={refreshAllPresetProfiles}
+                    disabled={refreshingAllPresets}
+                    aria-label={language.modelPresetRefreshAll}
+                    title={language.modelPresetRefreshAll}
+                >
+                    <RefreshCwIcon class={refreshingAllPresets ? "animate-spin" : ""} />
+                </ShButton>
+            </div>
 
             {#if DBState.db.modelPresets.length === 0}
                 <div class="text-textcolor2 text-sm text-center py-8">
                     {language.modelPresetEmpty}
                 </div>
             {:else}
-                <div class="flex flex-col gap-1">
+                <ShSortableList
+                    className="flex flex-col gap-3"
+                    dragPreviewText={(id) => DBState.db.modelPresets.find(preset => preset.id === id)?.name}
+                    onReorder={(orderedIds) => {
+                        const byId = new Map(DBState.db.modelPresets.map(preset => [preset.id, preset]));
+                        DBState.db.modelPresets = orderedIds
+                            .map(id => byId.get(id))
+                            .filter((preset) => preset !== undefined);
+                    }}
+                    onDragStart={() => { suppressPresetClick = true }}
+                    onDragEnd={endPresetDrag}
+                >
                     {#each DBState.db.modelPresets as preset, i (preset.id)}
                         <button
-                            class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 cursor-pointer hover:bg-selected/30 transition-colors text-left"
-                            onclick={() => { editingId = preset.id; submenu = 0; }}
+                            data-sortable-key={preset.id}
+                            class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors text-left"
+                            onclick={() => {
+                                if (suppressPresetClick) return;
+                                editingId = preset.id;
+                                submenu = 0;
+                            }}
                         >
                             <div class="flex flex-col min-w-0 grow">
                                 <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
@@ -470,27 +650,7 @@
                                     <span class="text-xs text-textcolor2 truncate">{preset.profileSnapshot.profileId}</span>
                                 {/if}
                             </div>
-                            <div class="flex gap-2 shrink-0 ml-2">
-                                <div class="text-textcolor2 hover:text-primary cursor-pointer aria-disabled:opacity-30 aria-disabled:pointer-events-none" role="button" tabindex="0" aria-disabled={i === 0} onclick={(e) => {
-                                    e.stopPropagation()
-                                    move(i, -1)
-                                }} onkeydown={(e) => {
-                                    if (e.key === 'Enter' && e.currentTarget instanceof HTMLElement) {
-                                        e.currentTarget.click()
-                                    }
-                                }} aria-label="move up">
-                                    <ArrowUpIcon size={18}/>
-                                </div>
-                                <div class="text-textcolor2 hover:text-primary cursor-pointer aria-disabled:opacity-30 aria-disabled:pointer-events-none" role="button" tabindex="0" aria-disabled={i === DBState.db.modelPresets.length - 1} onclick={(e) => {
-                                    e.stopPropagation()
-                                    move(i, 1)
-                                }} onkeydown={(e) => {
-                                    if (e.key === 'Enter' && e.currentTarget instanceof HTMLElement) {
-                                        e.currentTarget.click()
-                                    }
-                                }} aria-label="move down">
-                                    <ArrowDownIcon size={18}/>
-                                </div>
+                            <div class="no-sort flex gap-2 shrink-0 ml-2">
                                 <div class="text-textcolor2 hover:text-primary cursor-pointer" role="button" tabindex="0" onclick={(e) => {
                                     e.stopPropagation()
                                     duplicate(i)
@@ -501,7 +661,7 @@
                                 }} aria-label="duplicate">
                                     <CopyIcon size={18}/>
                                 </div>
-                                <div class="text-textcolor2 hover:text-red-400 cursor-pointer" role="button" tabindex="0" onclick={(e) => {
+                                <div class="text-textcolor2 hover:text-draculared cursor-pointer" role="button" tabindex="0" onclick={(e) => {
                                     e.stopPropagation()
                                     remove(i)
                                 }} onkeydown={(e) => {
@@ -514,10 +674,8 @@
                             </div>
                         </button>
                     {/each}
-                </div>
+                </ShSortableList>
             {/if}
         {/if}
     {/if}
-
-    <RegistryNoticeModal bind:open={noticeOpen} {notice} onConfirm={acknowledgeNotice} />
 </SettingPage>

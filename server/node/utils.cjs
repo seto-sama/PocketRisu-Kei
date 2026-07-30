@@ -1,7 +1,7 @@
 const { Packr, Unpackr, decode } = require('msgpackr');
 const fflate = require('fflate');
 const { randomUUID } = require('crypto');
-const { logger } = require('./logs.cjs');
+const { logger } = require('./logs/logs.cjs');
 
 // Magic headers for different save formats
 const magicHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 7]);

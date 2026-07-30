@@ -1,20 +1,20 @@
 import { changeFullscreen, checkNullish, sleep } from "./util"
-import { v4 as uuidv4, v4 } from 'uuid';
+import { v4 as uuidv4 } from 'uuid';
 import { tick } from "svelte";
 import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
-import { setDatabase, type Database, defaultSdDataFunc, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat } from "./storage/database.svelte";
+import { setDatabase, type Chat, type Database, type Message, defaultSdDataFunc, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
-import { alertConfirm, alertError, alertMd, alertNormalWait, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError } from "./alert";
+import { alertConfirm, alertError, alertMd, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError } from "./alert";
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
-import { isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat } from "./storage/chatStorage";
+import { isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders } from "./storage/chatStorage";
 import { AutoStorage } from "./storage/autoStorage";
-import { ConflictError, type PersistWarning } from "./storage/nodeStorage";
+import { ConflictError, getSyncClientId, type PersistWarning } from "./storage/nodeStorage";
 import { supportsPatchSync } from "./platform";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
@@ -26,23 +26,37 @@ import { updateLorebooks } from "./characters";
 import { initMobileGesture } from "./hotkey";
 import { moduleUpdate } from "./process/modules";
 import { isLocalNetworkUrl } from "./network/localNetwork";
-import { decodeProxyJobWsChunk, formatProxyStreamErrorMessage, parseProxyJobWsEvent } from "./network/proxyJobWs";
+import { formatResponseBody } from "./requestLogFormat";
+import {
+    createFetchLogEntry,
+    clearServerFetchLogs as clearServerFetchLogsRequest,
+    deleteServerFetchLog as deleteServerFetchLogRequest,
+    formatFetchLogValue,
+    getServerFetchLogByChatId as getServerFetchLogByChatIdRequest,
+    getServerFetchLogs as getServerFetchLogsRequest,
+    type FetchLog,
+} from "./requestLogStore";
+import {
+    type RevenantGenerationContext,
+} from "./process/revenantGeneration/types";
+import { configureRevenantGenerationClient } from "./process/revenantGeneration/client";
+import { fetchViaProxyJobWs } from "./process/revenantGeneration/stream";
 
 export const forageStorage = new AutoStorage()
+configureRevenantGenerationClient({
+    createAuth: () => forageStorage.createAuth(),
+    getSyncClientId,
+})
 
-interface fetchLog {
-    body: string
-    header: string
-    response: string
-    success: boolean,
-    date: string
-    url: string
-    responseType?: string
-    chatId?: string
-    status?: number
+export type { FetchLog } from "./requestLogStore";
+
+let fetchLog: FetchLog[] = $state([])
+
+function pushFetchLog(log: Omit<FetchLog, 'id' | 'timestamp' | 'clientId' | 'platform'> & { id?: string, timestamp?: number, clientId?: string, platform?: string }) {
+    const entry = createFetchLogEntry(log)
+    fetchLog.unshift(entry)
+    return entry
 }
-
-let fetchLog: fetchLog[] = []
 
 export async function downloadFile(name: string, dat: Uint8Array | ArrayBuffer | string) {
     if (typeof (dat) === 'string') {
@@ -248,9 +262,12 @@ export let requiresFullEncoderReload = $state({
     state: false
 })
 
-let requestImmediateSaveImpl: ((options?: {
+interface ImmediateSaveOptions {
     forceFullWrite?: boolean
-}) => Promise<void> | void) = () => {}
+    characterIds?: string[]
+}
+
+let requestImmediateSaveImpl: ((options?: ImmediateSaveOptions) => Promise<void> | void) = () => {}
 let patchSyncBaseline: Database | null = null
 
 // Surfaces server-side persist failures (Stage 1 visibility — see issues.md).
@@ -354,9 +371,7 @@ export function previewPersistFailureToast() {
     })
 }
 
-export function requestImmediateSave(options?: {
-    forceFullWrite?: boolean
-}) {
+export function requestImmediateSave(options?: ImmediateSaveOptions) {
     return requestImmediateSaveImpl(options)
 }
 
@@ -364,11 +379,20 @@ export function setPatchSyncBaseline(data: Database | null) {
     patchSyncBaseline = data ? safeStructuredClone(data) as Database : null
 }
 
+let syncedDatabaseHandler: ((data: Database, etag: string | null) => Promise<void>) | null = null
+
+export async function applySyncedDatabase(data: Database, etag: string | null) {
+    while (!syncedDatabaseHandler) {
+        await sleep(20)
+    }
+    await syncedDatabaseHandler(data, etag)
+}
+
 export async function saveDb() {
     let changed = false
-    let gotChannel = false
-    const sessionID = v4()
+    let syncApplying = false
     let saveInFlight: Promise<void> | null = null
+    let cancelPendingSave = () => {}
     const knownChatIdsByCharacter = new Map<string, Set<string>>(
         (getDatabase()?.characters ?? [])
             .filter(character => character?.chaId)
@@ -377,34 +401,6 @@ export async function saveDb() {
                 new Set((character.chats ?? []).map(chat => chat?.id).filter(Boolean)),
             ])
     )
-    let channel: BroadcastChannel
-    if (window.BroadcastChannel) {
-        channel = new BroadcastChannel('risu-db')
-    }
-    if (channel) {
-        channel.onmessage = (ev) => {
-            if (ev.data === sessionID) {
-                return
-            }
-            if (!gotChannel) {
-                gotChannel = true
-                alertNormalWait(language.activeTabChange).then(() => {
-                    location.reload()
-                })
-            }
-        }
-    }
-    // Cross-device single-writer lock: mirrors BroadcastChannel behavior
-    // across devices via server-side session check (423 → deactivate)
-    window.addEventListener('risu-session-deactivated', () => {
-        if (!gotChannel) {
-            gotChannel = true
-            alertNormalWait(language.activeTabChange).then(() => {
-                location.reload()
-            })
-        }
-    })
-
     const changeTracker: toSaveType = {
         character: [],
         chat: [],
@@ -450,12 +446,25 @@ export async function saveDb() {
         return toSave
     }
 
+    function clearTrackedChanges() {
+        changeTracker.character = []
+        changeTracker.chat = []
+        changeTracker.root = false
+        changeTracker.botPreset = false
+        changeTracker.modules = false
+        changeTracker.plugins = false
+        changeTracker.pluginCustomStorage = false
+    }
+
     async function flushServerDbKeepalive() {
         try {
             fetch('/api/db/flush', {
                 method: 'POST',
                 keepalive: true,
-                credentials: 'same-origin'
+                credentials: 'same-origin',
+                headers: {
+                    'x-sync-client-id': getSyncClientId(),
+                },
             }).catch(() => {})
         } catch {
             // ignore best-effort flush failures
@@ -482,6 +491,7 @@ export async function saveDb() {
         })
 
         function saveTimeoutExecute() {
+            if (syncApplying) return
             if (saveTimeout) {
                 clearTimeout(saveTimeout);
             }
@@ -489,9 +499,16 @@ export async function saveDb() {
                 changed = true;
             }, debounceTime);
         }
+        cancelPendingSave = () => {
+            if (saveTimeout) {
+                clearTimeout(saveTimeout)
+                saveTimeout = null
+            }
+        }
 
         // Start a best-effort save immediately when the page is hidden/unloaded.
         function flushImmediate() {
+            if (syncApplying) return
             if (saveTimeout) {
                 clearTimeout(saveTimeout);
                 saveTimeout = null;
@@ -640,6 +657,49 @@ export async function saveDb() {
         })
     })
 
+    syncedDatabaseHandler = async (data, etag) => {
+        syncApplying = true
+        changed = false
+        cancelPendingSave()
+        clearTrackedChanges()
+        try {
+            const previousIndex = get(selectedCharID)
+            const previousCharacterId = getDatabase()?.characters?.[previousIndex]?.chaId
+            setDatabase(data)
+            if (previousCharacterId) {
+                const nextIndex = data.characters.findIndex(character => character?.chaId === previousCharacterId)
+                selectedCharID.set(nextIndex)
+            }
+            updateColorScheme()
+            updateTextThemeAndCSS()
+            updateAnimationSpeed()
+            updateGuisize()
+            await tick()
+            // Effects observe the replacement asynchronously. Clear anything
+            // they tracked and install the received server state as baseline.
+            clearTrackedChanges()
+            cancelPendingSave()
+            encoder = new RisuSaveEncoder()
+            await encoder.init(data, { compression: false })
+            if (supportsPatchSync) {
+                patcher = new RisuSavePatcher()
+                await patcher.init(data)
+            }
+            forageStorage.setDbEtag(etag)
+            knownChatIdsByCharacter.clear()
+            for (const character of data.characters ?? []) {
+                if (!character?.chaId) continue
+                knownChatIdsByCharacter.set(
+                    character.chaId,
+                    new Set((character.chats ?? []).map(chat => chat?.id).filter(Boolean)),
+                )
+            }
+            changed = false
+        } finally {
+            syncApplying = false
+        }
+    }
+
     function requeueTrackedChanges(toSave: toSaveType) {
         changeTracker.character = [...new Set([...toSave.character, ...changeTracker.character])]
         const chatSeen = new Set<string>()
@@ -709,7 +769,12 @@ export async function saveDb() {
         }
     }
 
-    async function rebaseTrackedLocalChangesOnLatestServerDb(conflictEtag: string | null, db: Database, toSave: toSaveType) {
+    async function rebaseTrackedLocalChangesOnLatestServerDb(
+        conflictEtag: string | null,
+        db: Database,
+        toSave: toSaveType,
+        exactPatch?: any[],
+    ) {
         forageStorage.setDbEtag(conflictEtag ?? null)
         const latestData = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
         if (latestData && latestData.length > 0) {
@@ -717,50 +782,73 @@ export async function saveDb() {
             const mergedDb = safeStructuredClone(latestDb) as Database
             const localDb = safeStructuredClone(db) as Database
 
-            for (const key in localDb) {
-                if (
-                    key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
-                    key !== 'plugins' && key !== 'pluginCustomStorage'
-                ) {
-                    mergedDb[key] = safeStructuredClone(localDb[key])
-                }
+            if (exactPatch) {
+                // Replay the precise mutation calculated from this client's
+                // previous baseline. Unrelated fields changed by another
+                // device remain exactly as they are in the latest server DB.
+                const { applyPatch } = await import('fast-json-patch')
+                applyPatch(mergedDb, safeStructuredClone(exactPatch), true)
             }
-
-            if (toSave.botPreset) {
-                mergedDb.botPresets = safeStructuredClone(localDb.botPresets)
-                mergedDb.botPresetsId = localDb.botPresetsId
-            }
-            if (toSave.modules) {
-                mergedDb.modules = safeStructuredClone(localDb.modules)
-            }
-
-            const trackedCharIds = new Set<string>(toSave.character.filter(Boolean))
-            for (const trackedChat of toSave.chat) {
-                if (trackedChat?.[0]) {
-                    trackedCharIds.add(trackedChat[0])
-                }
-            }
-            const mergedCharacters = Array.isArray(mergedDb.characters) ? mergedDb.characters : []
-            const localCharacters = Array.isArray(localDb.characters) ? localDb.characters : []
-
-            for (const charId of trackedCharIds) {
-                const localChar = localCharacters.find((char) => char?.chaId === charId)
-                const mergedIndex = mergedCharacters.findIndex((char) => char?.chaId === charId)
-                if (localChar) {
-                    const clonedLocalChar = safeStructuredClone(localChar)
-                    if (mergedIndex >= 0) {
-                        mergedCharacters[mergedIndex] = clonedLocalChar
-                    }
-                    else {
-                        mergedCharacters.push(clonedLocalChar)
+            else {
+                // Full-write conflicts do not have a JSON Patch to replay.
+                // Keep this fallback scoped to the blocks the save tracker
+                // observed instead of copying every stale root block.
+                if (toSave.root) {
+                    for (const key in localDb) {
+                        if (
+                            key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
+                            key !== 'plugins' && key !== 'pluginCustomStorage'
+                        ) {
+                            mergedDb[key] = safeStructuredClone(localDb[key])
+                        }
                     }
                 }
-                else if (mergedIndex >= 0) {
-                    mergedCharacters.splice(mergedIndex, 1)
+
+                if (toSave.botPreset) {
+                    mergedDb.botPresets = safeStructuredClone(localDb.botPresets)
+                    mergedDb.botPresetsId = localDb.botPresetsId
                 }
+                if (toSave.modules) mergedDb.modules = safeStructuredClone(localDb.modules)
+                if (toSave.plugins) mergedDb.plugins = safeStructuredClone(localDb.plugins)
+                if (toSave.pluginCustomStorage) {
+                    mergedDb.pluginCustomStorage = safeStructuredClone(localDb.pluginCustomStorage)
+                }
+
+                const trackedCharIds = new Set<string>(toSave.character.filter(Boolean))
+                for (const trackedChat of toSave.chat) {
+                    if (trackedChat?.[0]) trackedCharIds.add(trackedChat[0])
+                }
+                const mergedCharacters = Array.isArray(mergedDb.characters) ? mergedDb.characters : []
+                const localCharacters = Array.isArray(localDb.characters) ? localDb.characters : []
+
+                for (const charId of trackedCharIds) {
+                    const localChar = localCharacters.find((char) => char?.chaId === charId)
+                    const mergedIndex = mergedCharacters.findIndex((char) => char?.chaId === charId)
+                    if (localChar) {
+                        const clonedLocalChar = safeStructuredClone(localChar)
+                        if (mergedIndex >= 0) mergedCharacters[mergedIndex] = clonedLocalChar
+                        else mergedCharacters.push(clonedLocalChar)
+                    }
+                    else if (mergedIndex >= 0) mergedCharacters.splice(mergedIndex, 1)
+                }
+                mergedDb.characters = mergedCharacters
             }
-            mergedDb.characters = mergedCharacters
+
+            // Keep a stub-only baseline for the patch protocol, but preserve
+            // already hydrated local chat bodies in the live runtime DB.
             const mergedBaseline = safeStructuredClone(mergedDb) as Database
+            const localCharacters = new Map(
+                (localDb.characters ?? []).map(character => [character.chaId, character] as const),
+            )
+            for (const character of mergedDb.characters ?? []) {
+                const localCharacter = localCharacters.get(character.chaId)
+                character.chats = convertStubsToPlaceholders(character.chats ?? []).map(remoteChat => {
+                    const localChat = localCharacter?.chats?.find(chat => chat?.id === remoteChat?.id)
+                    return localChat && !localChat._placeholder
+                        ? safeStructuredClone(localChat)
+                        : remoteChat
+                })
+            }
             setDatabase(mergedDb)
 
             encoder = new RisuSaveEncoder()
@@ -782,16 +870,7 @@ export async function saveDb() {
             forceFullWrite?: boolean
             skipBroadcast?: boolean
         }
-    ): Promise<'saved' | 'retry' | 'noop'> {
-        if (gotChannel) {
-            // Data is saved in another tab.
-            await sleep(1000)
-            return 'noop'
-        }
-        if (channel && !options?.skipBroadcast) {
-            channel.postMessage(sessionID)
-        }
-
+    ): Promise<'saved' | 'retry' | 'noop' | 'discarded'> {
         const db = getDatabase()
         if (!db.characters) {
             await sleep(1000)
@@ -808,6 +887,10 @@ export async function saveDb() {
             const chat = char.chats[chatIndex]
             // Skip placeholders — they have no real data to save
             if (!chat || chat._placeholder) continue
+            // Streaming chat state may be structurally transient (notably
+            // reroll temporarily removes the original swipe message). The
+            // revenant generation job owns partial-response persistence.
+            if (chat.isStreaming) continue
             try {
                 await saveChatToServer(chaId, chatIndex, chatId, chat)
             } catch (e) {
@@ -1009,6 +1092,17 @@ export async function saveDb() {
                     console.error('[Save] Server rejected patch — chat-internal field ops detected server-side')
                     showChatGuardToastThrottled('server')
                 }
+                if (patchResult.conflict) {
+                    console.warn('[Save] Patch conflict detected, rebasing tracked local changes on latest server DB...')
+                    await rebaseTrackedLocalChangesOnLatestServerDb(
+                        patchResult.etag ?? null,
+                        db,
+                        toSave,
+                        patchData.patch,
+                    )
+                    await sleep(Math.min(500 * (savetrys + 1), 3000))
+                    return 'retry'
+                }
             }
         }
         if (!saved) {
@@ -1042,7 +1136,6 @@ export async function saveDb() {
             forageStorage.setDbEtag(newEtag)
         }
 
-
         return 'saved'
     }
 
@@ -1050,6 +1143,7 @@ export async function saveDb() {
         forceFullWrite?: boolean
         skipBroadcast?: boolean
     }) {
+        if (syncApplying) return
         if (saveInFlight) {
             return saveInFlight
         }
@@ -1091,6 +1185,14 @@ export async function saveDb() {
     }
 
     requestImmediateSaveImpl = async (options) => {
+        for (const characterId of options?.characterIds ?? []) {
+            if (characterId) {
+                changeTracker.character = [
+                    characterId,
+                    ...changeTracker.character.filter((trackedId) => trackedId !== characterId),
+                ]
+            }
+        }
         changed = true
         await tick()
         await triggerSave({
@@ -1155,13 +1257,21 @@ export function setUsingSw(value: boolean) {
  * @param {string} id - The chat ID to search for in the fetch log.
  * @returns {fetchLog | null} - The fetch log entry if found, otherwise null.
  */
-export function getFetchData(id: string) {
+export async function getFetchData(id: string): Promise<FetchLog | null> {
     for (const log of fetchLog) {
         if (log.chatId === id) {
             return log;
         }
     }
-    return null;
+    try {
+        return await getServerFetchLogByChatIdRequest(
+            id,
+            () => forageStorage.createAuth(),
+        );
+    } catch {
+        // Non-Node/browser-only environments have no persistent request-log API.
+        return null;
+    }
 }
 
 const knownHostes = ["localhost", "127.0.0.1", "0.0.0.0"];
@@ -1189,6 +1299,7 @@ interface GlobalFetchArgs {
     abortSignal?: AbortSignal;
     useRisuToken?: boolean;
     chatId?: string;
+    generationContext?: RevenantGenerationContext;
     interceptor?: string;
     requestTimeoutMs?: number;
     networkRoute?: 'auto' | 'local_network';
@@ -1210,43 +1321,6 @@ interface GlobalFetchResult {
 }
 
 /**
- * Adds a fetch log entry.
- * 
- * @param {Object} arg - The arguments for the fetch log entry.
- * @param {any} arg.body - The body of the request.
- * @param {{ [key: string]: string }} [arg.headers] - The headers of the request.
- * @param {any} arg.response - The response from the request.
- * @param {boolean} arg.success - Whether the request was successful.
- * @param {string} arg.url - The URL of the request.
- * @param {string} [arg.resType] - The response type.
- * @param {string} [arg.chatId] - The chat ID associated with the request.
- * @returns {number} - The index of the added fetch log entry.
- */
-export function addFetchLog(arg: {
-    body: any,
-    headers?: { [key: string]: string },
-    response: any,
-    success: boolean,
-    url: string,
-    resType?: string,
-    chatId?: string,
-    status?: number
-}): number {
-    fetchLog.unshift({
-        body: typeof (arg.body) === 'string' ? arg.body : JSON.stringify(arg.body, null, 2),
-        header: JSON.stringify(arg.headers ?? {}, null, 2),
-        response: typeof (arg.response) === 'string' ? arg.response : JSON.stringify(arg.response, null, 2),
-        responseType: arg.resType ?? 'json',
-        success: arg.success,
-        date: (new Date()).toLocaleTimeString(),
-        url: arg.url,
-        chatId: arg.chatId,
-        status: arg.status
-    });
-    return 0;
-}
-
-/**
  * Performs a global fetch request.
  * 
  * @param {string} url - The URL to fetch.
@@ -1255,13 +1329,40 @@ export function addFetchLog(arg: {
  */
 export async function globalFetch(url: string, arg: GlobalFetchArgs = {}): Promise<GlobalFetchResult> {
     try {
-        const db = getDatabase();
-
         if (arg.abortSignal?.aborted) { return { ok: false, data: 'aborted', headers: {}, status: 400 }; }
 
         const urlHost = new URL(url).hostname
         const useLocalNetworkRoute = arg.networkRoute === 'local_network' && isLocalNetworkUrl(url)
-        const forcePlainFetch = ((knownHostes.includes(urlHost)) || db.usePlainFetch || arg.plainFetchForce) && !arg.plainFetchDeforce && !useLocalNetworkRoute
+        const forcePlainFetch = (knownHostes.includes(urlHost) || arg.plainFetchForce) && !arg.plainFetchDeforce && !useLocalNetworkRoute
+
+        if (arg.generationContext && arg.interceptor) {
+            const response = await fetchNative(url, {
+                body: typeof arg.body === 'string' ? arg.body : JSON.stringify(arg.body),
+                headers: arg.headers,
+                method: arg.method,
+                signal: arg.abortSignal,
+                chatId: arg.chatId,
+                generationContext: arg.generationContext,
+                interceptor: arg.interceptor,
+                requestTimeoutMs: arg.requestTimeoutMs,
+                networkRoute: arg.networkRoute,
+            })
+            const text = await response.text()
+            let data: any = text
+            try {
+                data = JSON.parse(text)
+            } catch {}
+            const responseHeaders: Record<string, string> = {}
+            response.headers.forEach((value, key) => {
+                responseHeaders[key] = value
+            })
+            return {
+                ok: response.ok,
+                data,
+                headers: responseHeaders,
+                status: response.status,
+            }
+        }
 
         if(arg.interceptor){
             for (const interceptor of bodyIntercepterStore) {
@@ -1287,10 +1388,6 @@ export async function globalFetch(url: string, arg: GlobalFetchArgs = {}): Promi
             if (forcePlainFetch) {
                 return await fetchWithPlainFetch(url, requestArg);
             }
-            //userScriptFetch is provided by userscript
-            if (window.userScriptFetch && !arg.plainFetchDeforce) {
-                return await fetchWithUSFetch(url, requestArg);
-            }
             return await fetchWithProxy(url, requestArg);
         } finally {
             timeoutSignal.cleanup()
@@ -1299,45 +1396,6 @@ export async function globalFetch(url: string, arg: GlobalFetchArgs = {}): Promi
     } catch (error) {
         console.error(error);
         return { ok: false, data: `${error}`, headers: {}, status: 400 };
-    }
-}
-
-/**
- * Adds a fetch log entry in the global fetch log.
- * 
- * @param {any} response - The response data.
- * @param {boolean} success - Indicates if the fetch was successful.
- * @param {string} url - The URL of the fetch request.
- * @param {GlobalFetchArgs} arg - The arguments for the fetch request.
- */
-function addFetchLogInGlobalFetch(response: any, success: boolean, url: string, arg: GlobalFetchArgs, status?: number) {
-    try {
-        fetchLog.unshift({
-            body: JSON.stringify(arg.body, null, 2),
-            header: JSON.stringify(arg.headers ?? {}, null, 2),
-            response: JSON.stringify(response, null, 2),
-            success: success,
-            date: (new Date()).toLocaleTimeString(),
-            url: url,
-            chatId: arg.chatId,
-            status: status
-        })
-    }
-    catch {
-        fetchLog.unshift({
-            body: JSON.stringify(arg.body, null, 2),
-            header: JSON.stringify(arg.headers ?? {}, null, 2),
-            response: `${response}`,
-            success: success,
-            date: (new Date()).toLocaleTimeString(),
-            url: url,
-            chatId: arg.chatId,
-            status: status
-        })
-    }
-
-    if (fetchLog.length > 20) {
-        fetchLog.pop()
     }
 }
 
@@ -1354,27 +1412,6 @@ async function fetchWithPlainFetch(url: string, arg: GlobalFetchArgs): Promise<G
         const response = await fetch(new URL(url), { body: JSON.stringify(arg.body), headers, method: arg.method ?? "POST", signal: arg.abortSignal });
         const data = arg.rawResponse ? new Uint8Array(await response.arrayBuffer()) : await response.json();
         const ok = response.ok && response.status >= 200 && response.status < 300;
-        addFetchLogInGlobalFetch(data, ok, url, arg, response.status);
-        return { ok, data, headers: Object.fromEntries(response.headers), status: response.status };
-    } catch (error) {
-        return { ok: false, data: `${error}`, headers: {}, status: 400 };
-    }
-}
-
-/**
- * Performs a fetch request using userscript provided fetch.
- * 
- * @param {string} url - The URL to fetch.
- * @param {GlobalFetchArgs} arg - The arguments for the fetch request.
- * @returns {Promise<GlobalFetchResult>} - The result of the fetch request.
- */
-async function fetchWithUSFetch(url: string, arg: GlobalFetchArgs): Promise<GlobalFetchResult> {
-    try {
-        const headers = { 'Content-Type': 'application/json', ...arg.headers };
-        const response = await userScriptFetch(url, { body: JSON.stringify(arg.body), headers, method: arg.method ?? "POST", signal: arg.abortSignal });
-        const data = arg.rawResponse ? new Uint8Array(await response.arrayBuffer()) : await response.json();
-        const ok = response.ok && response.status >= 200 && response.status < 300;
-        addFetchLogInGlobalFetch(data, ok, url, arg, response.status);
         return { ok, data, headers: Object.fromEntries(response.headers), status: response.status };
     } catch (error) {
         return { ok: false, data: `${error}`, headers: {}, status: 400 };
@@ -1401,7 +1438,7 @@ async function fetchWithProxy(url: string, arg: GlobalFetchArgs): Promise<Global
         };
 
         // Add risu-auth header for Node.js server
-        headers["risu-auth"] = await forageStorage.createAuth();
+        headers["risu-auth"] = await createRequiredNodeAuth();
 
         const body = arg.body instanceof URLSearchParams ? arg.body.toString() : JSON.stringify(arg.body);
 
@@ -1410,23 +1447,28 @@ async function fetchWithProxy(url: string, arg: GlobalFetchArgs): Promise<Global
 
         if (arg.rawResponse) {
             const data = new Uint8Array(await response.arrayBuffer());
-            addFetchLogInGlobalFetch("Uint8Array Response", isSuccess, url, arg, response.status);
             return { ok: isSuccess, data, headers: Object.fromEntries(response.headers), status: response.status };
         }
 
         const text = await response.text();
         try {
             const data = JSON.parse(text);
-            addFetchLogInGlobalFetch(data, isSuccess, url, arg, response.status);
             return { ok: isSuccess, data, headers: Object.fromEntries(response.headers), status: response.status };
         } catch (error) {
             const errorMsg = text.startsWith('<!DOCTYPE') ? "Responded HTML. Is your URL, API key, and password correct?" : text;
-            addFetchLogInGlobalFetch(text, false, url, arg, response.status);
             return { ok: false, data: errorMsg, headers: Object.fromEntries(response.headers), status: response.status };
         }
     } catch (error) {
         return { ok: false, data: `${error}`, headers: {}, status: 400 };
     }
+}
+
+async function createRequiredNodeAuth() {
+    const auth = await forageStorage.createAuth()
+    if (!auth) {
+        throw new Error('Node auth unavailable')
+    }
+    return auth
 }
 
 /**
@@ -1548,10 +1590,16 @@ export function getUncleanables(db: Database, uptype: 'basename' | 'pure' = 'bas
 
     if (db.characterOrder) {
         db.characterOrder.forEach((item) => {
-            if (typeof item === 'object' && 'imgFile' in item) {
+            if (typeof item === 'object') {
+                addUncleanable(item.img);
                 addUncleanable(item.imgFile);
             }
         })
+    }
+    if (db.botPresets) {
+        for (const preset of db.botPresets) {
+            addUncleanable(preset.image)
+        }
     }
     return Array.from(uncleanable);
 }
@@ -1687,7 +1735,7 @@ export function getRequestLog() {
 
     for (const log of fetchLog) {
         logString += `## ${log.date}\n\n* Request URL\n\n${b}${log.url}${bend}\n\n* Request Body\n\n${b}${log.body}${bend}\n\n* Request Header\n\n${b}${log.header}${bend}\n\n`
-            + `* Response Body\n\n${b}${log.response}${bend}\n\n* Response Success\n\n${b}${log.success}${bend}\n\n`
+            + `* Response Body\n\n${b}${formatResponseBody(log)}${bend}\n\n* Response Success\n\n${b}${log.success}${bend}\n\n`
     }
     return logString
 }
@@ -1695,10 +1743,30 @@ export function getRequestLog() {
 /**
  * Retrieves the fetch logs array.
  *
- * @returns {fetchLog[]} The fetch logs array.
+ * @returns {FetchLog[]} The fetch logs array.
  */
 export function getFetchLogs() {
     return fetchLog
+}
+
+export function clearFetchLogs() {
+    fetchLog = []
+}
+
+export function deleteFetchLog(id: string) {
+    fetchLog = fetchLog.filter(log => log.id !== id)
+}
+
+export async function getServerFetchLogs(): Promise<FetchLog[]> {
+    return getServerFetchLogsRequest(() => forageStorage.createAuth())
+}
+
+export async function clearServerFetchLogs() {
+    return clearServerFetchLogsRequest(() => forageStorage.createAuth())
+}
+
+export async function deleteServerFetchLog(id: string) {
+    return deleteServerFetchLogRequest(id, () => forageStorage.createAuth())
 }
 
 /**
@@ -1964,21 +2032,59 @@ export class AppendableBuffer {
 }
 
 /**
- * Pipes the fetch log to a readable stream.
- * @param {number} fetchLogIndex - The index of the fetch log.
- * @param {ReadableStream<Uint8Array>} readableStream - The readable stream to pipe.
- * @returns {ReadableStream<Uint8Array>} - The new readable stream.
+ * Mirrors a streamed response into the matching request log while forwarding
+ * the original bytes to the caller.
  */
-const pipeFetchLog = (fetchLogIndex: number, readableStream: ReadableStream<Uint8Array>) => {
-    
-    const splited = readableStream.tee();
-    
-    (async () => {
-        const text = await (new Response(splited[0])).text()
-        fetchLog[fetchLogIndex].response = text
+const updateFetchLogResponse = (fetchLogId: string, response: any, status?: number, success?: boolean) => {
+    const entry = fetchLog.find(log => log.id === fetchLogId)
+    if (!entry) return
+    entry.response = formatFetchLogValue(response)
+    entry.responseType = 'stream'
+    if (status !== undefined) entry.status = status
+    if (success !== undefined) entry.success = success
+}
+
+const pipeFetchLog = (
+    fetchLogId: string,
+    readableStream: ReadableStream<Uint8Array> | null,
+    status?: number,
+    suppressAbortError = false,
+) => {
+    if (!readableStream) return readableStream
+
+    const splited = readableStream.tee()
+
+    ;(async () => {
+        try {
+            const text = await (new Response(splited[0])).text()
+            updateFetchLogResponse(fetchLogId, text, status)
+        } catch (err) {
+            if (suppressAbortError && (
+                (err instanceof DOMException && err.name === 'AbortError')
+                || String(err).includes('AbortError')
+                || String(err).includes('Generation stream detached')
+            )) {
+                return
+            }
+            updateFetchLogResponse(fetchLogId, `${err}`, status, false)
+        }
     })()
-    
+
     return splited[1]
+}
+
+const pipeFetchLogResponse = (fetchLogId: string, response: Response) => {
+    if (!response.body) return response
+    return new Response(pipeFetchLog(
+        fetchLogId,
+        response.body,
+        response.status,
+        response.headers.get('x-risu-revenant-generation') === '1',
+    ), {
+        headers: response.headers,
+        status: response.status,
+        statusText: response.statusText,
+    })
 }
 
 /**
@@ -2004,6 +2110,7 @@ export async function fetchNative(url: string, arg: {
     signal?: AbortSignal,
     useRisuTk?: boolean,
     chatId?: string
+    generationContext?: RevenantGenerationContext
     interceptor?: string
     requestTimeoutMs?: number
     networkRoute?: 'auto' | 'local_network'
@@ -2045,47 +2152,76 @@ export async function fetchNative(url: string, arg: {
         throw new Error('Invalid body type')
     }
 
-    addFetchLog({
-        body: realBody ? new TextDecoder().decode(realBody) : '',
-        headers: arg.headers,
-        response: 'Streamed Fetch',
-        success: true,
-        url: url,
-        resType: 'stream',
-        chatId: arg.chatId,
-    })
+    let fetchLogId: string | null = null
+    const fetchLogBody = realBody ? new TextDecoder().decode(realBody) : ''
+    const withFetchLog = (response: Response) => fetchLogId ? pipeFetchLogResponse(fetchLogId, response) : response
     const useLocalNetworkRoute = arg.networkRoute === 'local_network' && isLocalNetworkUrl(url)
     const timeoutSignal = buildTimeoutSignal(arg.signal, arg.requestTimeoutMs)
     const requestSignal = timeoutSignal.signal
-    const db = getDatabase()
-    let throughProxy = !db.usePlainFetch
-    if (useLocalNetworkRoute) {
-        throughProxy = true
-    }
-
     try {
-        if (window.userScriptFetch && !throughProxy) {
-            return await window.userScriptFetch(url, {
-                body: realBody as any,
-                headers: headers,
-                method: arg.method,
-                signal: requestSignal
-            })
-        }
-
-        // Local network streaming: try WebSocket proxy job, fallback to /proxy2
-        const useProxyJobWs = useLocalNetworkRoute
-            && arg.interceptor === 'openai_streaming'
+        // Provider LLM requests are owned by the Node server. The raw
+        // response stream is persistently checkpointed in revenant-generation.db and replayed
+        // through the same Response interface. Main requests remain recoverable
+        // into chat; auxiliary requests are retained only as completed jobs.
+        const revenantGenerationContext = arg.generationContext
+            ?? (arg.chatId ? {
+                chatId: arg.chatId,
+                jobType: 'model' as const,
+                isContinuation: false,
+            } : undefined)
+        const useRevenantGenerationJob = !!revenantGenerationContext
+            && !!arg.interceptor
             && arg.method === 'POST'
-        if (useProxyJobWs) {
+        if (useRevenantGenerationJob) {
             try {
-                return await fetchViaProxyJobWs(url, {
+                return withFetchLog(await fetchViaProxyJobWs(url, {
                     method: arg.method,
                     headers,
                     body: realBody,
                     signal: requestSignal,
                     requestTimeoutMs: arg.requestTimeoutMs,
-                })
+                    generationContext: revenantGenerationContext,
+                    revenant: true,
+                    onJobCreated: (jobId) => {
+                        revenantGenerationContext.onJobCreated?.(jobId)
+                        fetchLogId = pushFetchLog({
+                            id: jobId,
+                            body: fetchLogBody,
+                            header: JSON.stringify(arg.headers ?? {}, null, 2),
+                            response: 'Streamed Fetch',
+                            responseType: 'stream',
+                            success: true,
+                            date: (new Date()).toLocaleTimeString(),
+                            url,
+                            chatId: revenantGenerationContext.chatId,
+                        }).id
+                    },
+                }))
+            } catch (wsErr) {
+                if (requestSignal?.aborted) throw wsErr
+                const message = wsErr instanceof Error ? wsErr.message : String(wsErr)
+                if (!message.startsWith('Failed to create proxy stream job')) {
+                    // The server may already own a live job. Starting a second
+                    // direct request would duplicate the model response.
+                    throw wsErr
+                }
+                console.warn('[GenerationJobWS] fallback to regular request due to setup error:', wsErr)
+            }
+        }
+
+        // Local network auxiliary streaming: keep the legacy in-memory job path.
+        const useProxyJobWs = useLocalNetworkRoute
+            && arg.interceptor === 'openai_streaming'
+            && arg.method === 'POST'
+        if (useProxyJobWs) {
+            try {
+                return withFetchLog(await fetchViaProxyJobWs(url, {
+                    method: arg.method,
+                    headers,
+                    body: realBody,
+                    signal: requestSignal,
+                    requestTimeoutMs: arg.requestTimeoutMs,
+                }))
             } catch (wsErr) {
                 console.warn('[ProxyJobWS] fallback to /proxy2 due to error:', wsErr)
             }
@@ -2093,33 +2229,31 @@ export async function fetchNative(url: string, arg: {
 
         // Local network non-streaming or WS fallback: go through /proxy2 directly
         if (useLocalNetworkRoute) {
-            return await fetchViaProxy2(url, headers, realBody, {
+            return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
                 ...arg,
                 signal: requestSignal
-            })
+            }))
         }
 
         // Try direct fetch first (upstream behavior), fall back to proxy on CORS/network error
         try {
-            return await fetch(url, {
+            return withFetchLog(await fetch(url, {
                 body: realBody as any,
                 headers: headers,
                 method: arg.method,
                 signal: requestSignal,
-            })
+            }))
         } catch (e) {
             if (requestSignal?.aborted) throw e
-            return await fetchViaProxy2(url, headers, realBody, {
+            return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
                 ...arg,
                 signal: requestSignal
-            })
+            }))
         }
     } finally {
         timeoutSignal.cleanup()
     }
 }
-
-const defaultProxyJobHeartbeatSec = 15
 
 async function fetchViaProxy2(
     url: string,
@@ -2130,7 +2264,7 @@ async function fetchViaProxy2(
     const proxyHeaders: Record<string, string> = {
         "risu-header": encodeURIComponent(JSON.stringify(headers)),
         "risu-url": encodeURIComponent(url),
-        "risu-auth": await forageStorage.createAuth(),
+        "risu-auth": await createRequiredNodeAuth(),
         ...(arg.useRisuTk ? { "x-risu-tk": "use" } : {}),
         ...(arg.requestTimeoutMs && { "risu-timeout-ms": Math.max(1, Math.floor(arg.requestTimeoutMs)).toString() }),
         ...(DBState?.db?.requestLocation ? { "risu-location": DBState.db.requestLocation } : {}),
@@ -2153,140 +2287,6 @@ async function fetchViaProxy2(
     })
 }
 
-async function fetchViaProxyJobWs(url: string, arg: {
-    method: string,
-    headers: Record<string, string>,
-    body?: Uint8Array,
-    signal?: AbortSignal,
-    requestTimeoutMs?: number,
-}): Promise<Response> {
-    const auth = await forageStorage.createAuth()
-    const bodyBase64 = arg.body ? Buffer.from(arg.body).toString('base64') : ''
-
-    const jobRes = await fetch('/proxy-stream-jobs', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'risu-auth': auth,
-        },
-        body: JSON.stringify({
-            url,
-            method: arg.method,
-            headers: arg.headers,
-            bodyBase64,
-            timeoutMs: arg.requestTimeoutMs,
-            heartbeatSec: defaultProxyJobHeartbeatSec,
-        }),
-        signal: arg.signal,
-    })
-
-    if (!jobRes.ok) {
-        throw new Error(`Failed to create proxy stream job: ${jobRes.status} ${await jobRes.text()}`)
-    }
-
-    const { jobId } = await jobRes.json() as { jobId: string }
-    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${wsProtocol}//${location.host}/proxy-stream-jobs/${encodeURIComponent(jobId)}/ws?risu-auth=${encodeURIComponent(auth)}`
-
-    return new Promise<Response>((resolve, reject) => {
-        const ws = new WebSocket(wsUrl)
-        let resolved = false
-        let responseStatus = 200
-        let responseHeaders: Record<string, string> = {}
-        let streamController: ReadableStreamDefaultController<Uint8Array> | null = null
-
-        const stream = new ReadableStream<Uint8Array>({
-            start(controller) {
-                streamController = controller
-            },
-            cancel() {
-                ws.close()
-                fetch(`/proxy-stream-jobs/${encodeURIComponent(jobId)}`, {
-                    method: 'DELETE',
-                    headers: { 'risu-auth': auth },
-                }).catch(() => {})
-            }
-        })
-
-        const abortHandler = () => {
-            ws.close()
-            fetch(`/proxy-stream-jobs/${encodeURIComponent(jobId)}`, {
-                method: 'DELETE',
-                headers: { 'risu-auth': auth },
-            }).catch(() => {})
-            if (!resolved) {
-                resolved = true
-                reject(new DOMException('Aborted', 'AbortError'))
-            }
-        }
-
-        if (arg.signal) {
-            if (arg.signal.aborted) {
-                abortHandler()
-                return
-            }
-            arg.signal.addEventListener('abort', abortHandler, { once: true })
-        }
-
-        ws.onmessage = (ev) => {
-            const event = parseProxyJobWsEvent(typeof ev.data === 'string' ? ev.data : '')
-            if (!event) return
-
-            switch (event.type) {
-                case 'job_accepted':
-                case 'ping':
-                    break
-                case 'upstream_headers':
-                    responseStatus = event.status
-                    responseHeaders = event.headers
-                    if (!resolved) {
-                        resolved = true
-                        resolve(new Response(stream, {
-                            status: responseStatus,
-                            headers: responseHeaders,
-                        }))
-                    }
-                    break
-                case 'chunk': {
-                    const bytes = decodeProxyJobWsChunk(event.dataBase64)
-                    streamController?.enqueue(bytes)
-                    break
-                }
-                case 'error': {
-                    const msg = formatProxyStreamErrorMessage(event.status, event.message)
-                    if (!resolved) {
-                        resolved = true
-                        resolve(new Response(msg, {
-                            status: event.status ?? 502,
-                            headers: { 'content-type': 'text/plain' },
-                        }))
-                    }
-                    streamController?.close()
-                    break
-                }
-                case 'done':
-                    streamController?.close()
-                    break
-            }
-        }
-
-        ws.onerror = () => {
-            if (!resolved) {
-                resolved = true
-                reject(new Error('WebSocket connection failed'))
-            }
-        }
-
-        ws.onclose = () => {
-            arg.signal?.removeEventListener('abort', abortHandler)
-            try { streamController?.close() } catch { /* already closed */ }
-            if (!resolved) {
-                resolved = true
-                reject(new Error('WebSocket closed before response'))
-            }
-        }
-    })
-}
 
 /**
  * Converts a ReadableStream of Uint8Array to a text string.

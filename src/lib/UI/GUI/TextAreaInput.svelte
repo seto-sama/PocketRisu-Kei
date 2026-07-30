@@ -1,5 +1,5 @@
 <div
-    class={"border border-darkborderc relative flex flex-col n-scroll focus-within:border-borderc rounded-md shadow-xs text-textcolor bg-transparent focus-within:ring-borderc focus-within:ring-2 focus-within:outline-hidden transition-colors duration-200 z-20 focus-within:z-40"
+    class={"border border-darkborderc relative flex flex-col n-scroll focus-within:border-borderc rounded-md shadow-xs text-textcolor focus-within:ring-borderc focus-within:ring-2 focus-within:outline-hidden transition-colors duration-200 z-20 focus-within:z-40"
         + (margin === 'top' ? ' mt-4' : margin === 'bottom' ? ' mb-4' : margin === 'both' ? ' mt-2 mb-2' : '')
         + ((className) ? (' ' + className) : '')}
     class:text-sm={size === 'sm' || (size === 'default' && $textAreaTextSize === 1)}
@@ -45,7 +45,11 @@
             {autocomplete}
             {placeholder}
             id={id}
+            {readonly}
+            {tabindex}
+            bind:this={textareaRef}
             bind:value={value}
+            {onfocus}
             oninput={(e) => {
                 if(optimaizedInput){
                     if(inpa++ > 10){
@@ -66,29 +70,11 @@
                 }
                 onchange()
             }}
-            onkeydown={async (e) => {
-                if(
-                    (e.ctrlKey || e.shiftKey || e.altKey)
-                    && hotkeyMatches(DBState.db.hotkeys.find(hk => hk.action === 'popupEditor'), e)
-                ){
-                    e.preventDefault()
-                    popUpEditorStore.value = value
-                    popUpEditorStore.mode = 'default'
-                    popUpEditorStore.language = popupLanguage
-                    popUpEditorStore.open = true
-
-                    //lazy wait
-                    while(popUpEditorStore.open){
-                        await sleep(100)
-                    }
-
-                    value = popUpEditorStore.value
-                    onInput()
-                }
+            onkeydown={(e) => {
+                handlePopupEditorHotkey(e)
             }}
-
             oncontextmenu={(e) => {
-                if(DBState.db.longPressToPopupEditor){
+                if(!readonly && DBState.db.longPressToPopupEditor){
                     e.preventDefault()
                     popUpEditorStore.value = value
                     popUpEditorStore.mode = 'default'
@@ -111,30 +97,11 @@
         class="w-full h-full bg-transparent focus-within:outline-hidden resize-none absolute top-0 left-0 z-50 overflow-y-auto px-4 py-2 wrap-break-word whitespace-pre-wrap"
         contenteditable="true"
         bind:textContent={value}
-        onkeydown={async (e) => {
-            if(
-                (e.ctrlKey || e.shiftKey || e.altKey)
-                && hotkeyMatches(DBState.db.hotkeys.find(hk => hk.action === 'popupEditor'), e)
-            ){
-                e.preventDefault()
-                popUpEditorStore.value = value
-                popUpEditorStore.mode = 'default'
-                popUpEditorStore.language = popupLanguage
-                popUpEditorStore.open = true
-
-                while(popUpEditorStore.open){
-                    await sleep(100)
-                }
-
-                value = popUpEditorStore.value
-                onInput()
-                return
-            }
-            handleKeyDown(e)
-            onInput()
+        onkeydown={(e) => {
+            if (!handlePopupEditorHotkey(e)) handleKeyDown(e)
         }}
         oncontextmenu={(e) => {
-            if(DBState.db.longPressToPopupEditor){
+            if(!readonly && DBState.db.longPressToPopupEditor){
                 e.preventDefault()
                 popUpEditorStore.value = value
                 popUpEditorStore.mode = 'default'
@@ -153,6 +120,8 @@
         role="textbox"
         tabindex="0"
         oninput={(e) => {
+            value = e.currentTarget.textContent ?? ''
+            onInput()
             autoComplete()
         }}
         onchange={(e) => {
@@ -164,21 +133,25 @@
 {/if}
     </div>
     {#if showActionBar}
-        <div class="shrink-0 flex items-center justify-end gap-0.5 px-1.5 py-1 border-t border-darkborderc text-textcolor2">
-            <button type="button" class="p-1 rounded hover:text-textcolor transition-colors" title={language.copy} aria-label={language.copy} onclick={copyValue}>
+        <IconButtonGroup size="sm" className="absolute bottom-0 right-0 z-60 px-1.5 py-1">
+            <IconButton title={language.copy} aria-label={language.copy} onclick={copyValue}>
                 {#if copied}
-                    <CheckIcon size={16} class="text-green-500" />
+                    <CheckIcon class="text-success" />
                 {:else}
-                    <CopyIcon size={16} />
+                    <CopyIcon />
                 {/if}
-            </button>
-            <button type="button" class="p-1 rounded hover:text-red-500 transition-colors" title={language.reset} aria-label={language.reset} onclick={resetValue}>
-                <RefreshCwIcon size={16} />
-            </button>
-            <button type="button" class="p-1 rounded hover:text-textcolor transition-colors" title={language.hotkeyDesc.popupEditor} aria-label={language.hotkeyDesc.popupEditor} onclick={openPopupEditor}>
-                <Maximize2 size={16} />
-            </button>
-        </div>
+            </IconButton>
+            {#if !readonly}
+                <IconButton tone="destructive" title={language.reset} aria-label={language.reset} onclick={resetValue}>
+                    <RefreshCwIcon />
+                </IconButton>
+            {/if}
+            {#if !readonly}
+                <IconButton title="Popup Editor" aria-label="Popup Editor" onclick={openPopupEditor}>
+                    <Maximize2 />
+                </IconButton>
+            {/if}
+        </IconButtonGroup>
     {/if}
     <div class="hidden absolute z-100 bg-bgcolor border border-darkborderc p-2 flex-col" bind:this={autoCompleteDom}>
         {#each autocompleteContents as content, i}
@@ -191,15 +164,16 @@
 <script lang="ts">
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
     import { highlighter, getNewHighlightId, removeHighlight, AllCBS } from 'src/ts/gui/highlight'
-    import { sleep } from 'src/ts/util';
     import { onDestroy, onMount } from 'svelte';
   import { DBState, disableHighlight, popUpEditorStore } from 'src/ts/stores.svelte';
   import { isMobile } from 'src/ts/platform'
-    import { hotkeyMatches } from 'src/ts/hotkey';
     import { Maximize2, CopyIcon, CheckIcon, RefreshCwIcon } from '@lucide/svelte'
     import { alertConfirm } from 'src/ts/alert'
     import { isSecureContext } from 'src/ts/secureContext'
     import { language } from 'src/lang'
+    import IconButton from './IconButton.svelte'
+    import IconButtonGroup from './IconButtonGroup.svelte'
+    import { hotkeyMatches } from 'src/ts/defaulthotkeys'
     interface Props {
         size?: 'xs'|'sm'|'md'|'lg'|'xl'|'default';
         autocomplete?: 'on'|'off';
@@ -217,6 +191,10 @@
         onchange?: () => void;
         popupLanguage?: string;
         actionBar?: boolean;
+        readonly?: boolean;
+        tabindex?: number;
+        textareaRef?: HTMLTextAreaElement;
+        onfocus?: (event: FocusEvent & { currentTarget: HTMLTextAreaElement }) => void;
     }
 
     let {
@@ -235,7 +213,11 @@
         highlight = false,
         onchange = () => {},
         popupLanguage = 'markdown',
-        actionBar = undefined
+        actionBar = undefined,
+        readonly = false,
+        tabindex = undefined,
+        textareaRef = $bindable(),
+        onfocus = undefined,
     }: Props = $props();
     // `actionBar` prop overrides per-field; otherwise follow the accessibility toggle.
     const showActionBar = $derived(actionBar ?? DBState.db.showInputActionBar ?? true)
@@ -339,7 +321,7 @@
         autocompleteContents = []
     }
 
-    // Open the Monaco popup editor for this field, mirroring the contextmenu/hotkey path.
+    // Open the Monaco popup editor for this field, mirroring the contextmenu path.
     const openPopupEditor = () => {
         popUpEditorStore.value = value
         popUpEditorStore.mode = 'default'
@@ -353,6 +335,16 @@
                 clearInterval(checkInterval)
             }
         }, 100)
+    }
+
+    const handlePopupEditorHotkey = (event: KeyboardEvent) => {
+        if (readonly || DBState.db.enableHotkeys === false) return false
+        const hotkey = DBState.db.hotkeys?.find((entry) => entry.action === 'popupEditor')
+        if (!hotkeyMatches(hotkey, event)) return false
+        event.preventDefault()
+        event.stopPropagation()
+        openPopupEditor()
+        return true
     }
 
     const copyValue = async () => {

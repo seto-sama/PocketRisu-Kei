@@ -1,32 +1,18 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
-    import * as monaco from 'monaco-editor';
-    import jsonWorkerUrl from 'monaco-editor/esm/vs/language/json/json.worker?url';
-    import cssWorkerUrl from 'monaco-editor/esm/vs/language/css/css.worker?url';
-    import htmlWorkerUrl from 'monaco-editor/esm/vs/language/html/html.worker?url';
-    import tsWorkerUrl from 'monaco-editor/esm/vs/language/typescript/ts.worker?url';
-    import editorWorkerUrl from 'monaco-editor/esm/vs/editor/editor.worker?url';
-    // Set up workers once globally
+    import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js';
+    import 'monaco-editor/esm/vs/basic-languages/css/css.contribution.js';
+    import 'monaco-editor/esm/vs/basic-languages/html/html.contribution.js';
+    import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution.js';
+    import 'monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js';
+    import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+    // Syntax highlighting runs on the main thread. A single base worker is
+    // enough because this editor does not need language-service features such
+    // as validation, IntelliSense, or type analysis.
     if (!('MonacoEnvironment' in self)) {
         (self as any).MonacoEnvironment = {
-            getWorker(_: string, label: string) {
-                switch (label) {
-                    case 'json':
-                        return new Worker(jsonWorkerUrl, { type: 'module' });
-                    case 'css':
-                    case 'scss':
-                    case 'less':
-                        return new Worker(cssWorkerUrl, { type: 'module' });
-                    case 'html':
-                    case 'handlebars':
-                    case 'razor':
-                        return new Worker(htmlWorkerUrl, { type: 'module' });
-                    case 'typescript':
-                    case 'javascript':
-                        return new Worker(tsWorkerUrl, { type: 'module' });
-                    default:
-                        return new Worker(editorWorkerUrl, { type: 'module' });
-                }
+            getWorker() {
+                return new EditorWorker();
             }
         };
     }

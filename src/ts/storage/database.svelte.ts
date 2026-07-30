@@ -19,6 +19,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { applyModelPresetDefaults } from '../preset/dbDefaults';
 import type { ApiKeyPoolEntry, ModelBindingFields, ModelBindingSet, ModelPreset, ModelPresetMigrationSummary, RegistryCache } from '../preset/types';
 import { emptyModelBinding } from '../preset/types';
+import { defaultHotkeys, type Hotkey } from '../defaulthotkeys';
+import { normalizeTextTheme } from '../gui/textTheme';
 
 //APP_VERSION_POINT is to locate the app version in the database file for version bumping
 export let appVer = "2026.2.291" //<APP_VERSION_POINT>
@@ -34,7 +36,84 @@ export function normalizeTheme(theme: string | undefined | null): string {
     return theme
 }
 
+function normalizePromptRole(role: unknown): 'user'|'bot'|'system'|null {
+    if(role === 'user' || role === 'bot' || role === 'system'){
+        return role
+    }
+    if(role === 'assistant' || role === 'char'){
+        return 'bot'
+    }
+    return null
+}
+
+function normalizeCacheRole(role: unknown): 'user'|'assistant'|'system'|'all' {
+    if(role === 'user' || role === 'assistant' || role === 'system' || role === 'all'){
+        return role
+    }
+    if(role === 'bot' || role === 'char'){
+        return 'assistant'
+    }
+    return 'all'
+}
+
+function normalizePromptTemplate(template: PromptItem[]|null|undefined): PromptItem[]|null {
+    if(!Array.isArray(template)){
+        return null
+    }
+    const normalized = safeStructuredClone(template) as any[]
+    for(const item of normalized){
+        if(!item || typeof item !== 'object'){
+            continue
+        }
+        switch(item.type){
+            case 'plain':
+            case 'jailbreak':
+            case 'cot':{
+                item.role = normalizePromptRole(item.role) ?? 'system'
+                break
+            }
+            case 'persona':
+            case 'description':
+            case 'authornote':
+            case 'memory':
+            case 'lorebook':{
+                if(item.role !== undefined && item.role !== null){
+                    item.role = normalizePromptRole(item.role) ?? 'system'
+                }
+                break
+            }
+            case 'cache':{
+                item.role = normalizeCacheRole(item.role)
+                break
+            }
+        }
+    }
+    return normalized as PromptItem[]
+}
+
 export function setDatabase(data:Database){
+    // Remove retired prompt preprocessing and preset-chain settings from
+    // databases created by older versions. They are intentionally not migrated:
+    // the prompt pipeline no longer reads or applies these values.
+    const legacyPromptData = data as Database & {
+        additionalPrompt?: unknown
+        descriptionPrefix?: unknown
+        presetChain?: unknown
+        promptPreprocess?: unknown
+    }
+    delete legacyPromptData.additionalPrompt
+    delete legacyPromptData.descriptionPrefix
+    delete legacyPromptData.presetChain
+    delete legacyPromptData.promptPreprocess
+    if(Array.isArray(data.botPresets)){
+        for(const preset of data.botPresets){
+            delete (preset as botPreset & { promptPreprocess?: unknown }).promptPreprocess
+        }
+    }
+
+    if(Array.isArray(data.promptTemplate)){
+        data.promptTemplate = normalizePromptTemplate(data.promptTemplate)
+    }
     if(checkNullish(data.characters)){
         data.characters = []
     }
@@ -83,6 +162,7 @@ export function setDatabase(data:Database){
     if(checkNullish(data.loreBookToken)){
         data.loreBookToken = 800
     }
+    data.disableGlobalLorebookRecursiveScanning ??= false
     if(checkNullish(data.username)){
         data.username = 'User'
     }
@@ -91,12 +171,6 @@ export function setDatabase(data:Database){
     }
     if (checkNullish(data.userNote)){
         data.userNote = ''
-    }
-    if(checkNullish(data.additionalPrompt)){
-        data.additionalPrompt = 'The assistant must act as {{char}}. user is {{user}}.'
-    }
-    if(checkNullish(data.descriptionPrefix)){
-        data.descriptionPrefix = 'description of {{char}}: '
     }
     if(checkNullish(data.forceReplaceUrl)){
         data.forceReplaceUrl = ''
@@ -125,6 +199,7 @@ export function setDatabase(data:Database){
     if(checkNullish(data.customBackground)){
         data.customBackground = ''
     }
+    data.globalCustomCSS ??= ''
     if(checkNullish(data.textgenWebUIStreamURL)){
         data.textgenWebUIStreamURL = 'wss://localhost/api/'
     }
@@ -190,6 +265,9 @@ export function setDatabase(data:Database){
     // (db.botPresetsId index) remains the source of truth for active preset.
     if (Array.isArray(data.botPresets)) {
         for (const preset of data.botPresets) {
+            if(Array.isArray(preset.promptTemplate)){
+                preset.promptTemplate = normalizePromptTemplate(preset.promptTemplate)
+            }
             if (preset && !preset.id) {
                 preset.id = uuidv4()
             }
@@ -233,9 +311,7 @@ export function setDatabase(data:Database){
     if(checkNullish(data.NAIREF)){
         data.NAIREF = false
     }
-    if(checkNullish(data.textTheme)){
-        data.textTheme = "standard"
-    }
+    data.textTheme = normalizeTextTheme(data.textTheme)
     if(checkNullish(data.emotionPrompt2)){
         data.emotionPrompt2 = ""
     }
@@ -247,9 +323,6 @@ export function setDatabase(data:Database){
     }
     if(checkNullish(data.bias)){
         data.bias = []
-    }
-    if(checkNullish(data.showUnrecommended)){
-        data.showUnrecommended = false
     }
     if(checkNullish(data.allowV2Plugin)){
         data.allowV2Plugin = false
@@ -274,6 +347,12 @@ export function setDatabase(data:Database){
     }
     if(checkNullish(data.confirmReroll)){
         data.confirmReroll = true
+    }
+    if(checkNullish(data.confirmMessageDelete)){
+        data.confirmMessageDelete = true
+    }
+    if(checkNullish(data.showPreviousChatSwipeButtons)){
+        data.showPreviousChatSwipeButtons = false
     }
     if(checkNullish(data.sdConfig)){
         data.sdConfig = {
@@ -328,6 +407,9 @@ export function setDatabase(data:Database){
             character_image: '',
             character_base64image: '',
             style_aware: false,
+            reference_type: 'character',
+            reference_strength: 1,
+            reference_fidelity: 1,
         }
     }
     //add NAI v4 (사용중인 사람용 추가 DB Init)
@@ -350,6 +432,23 @@ export function setDatabase(data:Database){
             },
             legacy_uc:false,
         };
+    }
+    // NovelAI renamed Character Reference to Precise Reference and split it
+    // into character/style modes. Fill values individually for older saves so
+    // bound UI controls never receive undefined.
+    data.NAIImgConfig.reference_mode ??= '';
+    if (data.NAIImgConfig.reference_mode === 'character') {
+        data.NAIImgConfig.reference_mode = 'reference';
+    }
+    data.NAIImgConfig.character_image ??= '';
+    data.NAIImgConfig.character_base64image ??= '';
+    data.NAIImgConfig.style_aware ??= false;
+    data.NAIImgConfig.reference_type ??= data.NAIImgConfig.style_aware ? 'character&style' : 'character';
+    data.NAIImgConfig.reference_strength ??= 1;
+    data.NAIImgConfig.reference_fidelity ??= 1;
+    data.NAIImgConfig.InfoExtracted ??= 1;
+    if (!Array.isArray(data.NAIImgConfig.reference_strength_multiple) || data.NAIImgConfig.reference_strength_multiple.length === 0) {
+        data.NAIImgConfig.reference_strength_multiple = [0.7];
     }
     if(checkNullish(data.customTextTheme)){
         data.customTextTheme = {
@@ -374,17 +473,6 @@ export function setDatabase(data:Database){
             model: "clio-v1",
         }
     }
-    if(checkNullish(data.loreBook)){
-        data.loreBookPage = 0
-        data.loreBook = [{
-            name: "My First LoreBook",
-            data: []
-        }]
-    }
-    if(checkNullish(data.loreBookPage) || data.loreBook.length < data.loreBookPage){
-        data.loreBookPage = 0
-    }
-    data.globalscript ??= []
     data.sendWithEnter ??= true
     data.sendKeyPC ??= 'enter'
     data.sendKeyMobile ??= 'ctrl-enter'
@@ -412,6 +500,7 @@ export function setDatabase(data:Database){
         note: data.userNote,
         largePortrait: false
     }]
+    data.personaFolders ??= []
     data.classicMaxWidth ??= false
     data.ooba ??= safeStructuredClone(defaultOoba)
     data.ainconfig ??= safeStructuredClone(defaultAIN)
@@ -451,10 +540,8 @@ export function setDatabase(data:Database){
     data.NAIsettings.cfg_scale ??= 1
     data.NAIsettings.mirostat_tau ??= 0
     data.NAIsettings.mirostat_lr ??= 1
-    data.autofillRequestUrl ??= true
     data.customProxyRequestModel ??= ''
     data.generationSeed ??= -1
-    data.newOAIHandle ??= true
     data.gptVisionQuality ??= 'low'
     data.huggingfaceKey ??= ''
     data.fishSpeechKey ??= ''
@@ -488,14 +575,14 @@ export function setDatabase(data:Database){
     data.openrouterMiddleOut ??= false
     data.memoryLimitThickness ??= 1
     data.modules ??= []
+    data.moduleFolders ??= []
     data.enabledModules ??= []
+    data.personaEnabledModules ??= {}
     data.additionalParams ??= []
     data.heightMode ??= 'normal'
     data.antiClaudeOverload ??= false
     data.ollamaURL ??= ''
     data.ollamaModel ??= ''
-    data.autoContinueChat ??= false
-    data.autoContinueMinTokens ??= 0
     data.repetition_penalty ??= 1
     data.min_p ??= 0
     data.top_a ??= 0
@@ -555,7 +642,10 @@ export function setDatabase(data:Database){
     }
     data.hideApiKey ??= true
     data.unformatQuotes ??= false
+    data.ttsEnabled ??= false
     data.ttsAutoSpeech ??= false
+    data.ttsApiKeyRefs ??= {}
+    data.imageApiKeyRefs ??= {}
     data.translatorInputLanguage ??= 'auto'
     data.falModel ??= 'fal-ai/flux/dev'
     data.falLoraScale ??= 1
@@ -600,23 +690,17 @@ export function setDatabase(data:Database){
         })
     ]
     if (data.hypaV3Presets.length > 0) {
-        data.hypaV3Presets = data.hypaV3Presets.map((preset, i) =>
-            createHypaV3Preset(
+        data.hypaV3Presets = data.hypaV3Presets.map((preset, i) => ({
+            ...createHypaV3Preset(
                 preset.name || `Preset ${i + 1}`,
                 preset.settings || {}
-            )
-        )
+            ),
+            folderId: preset.folderId,
+        }))
     }
+    data.hypaV3PresetFolders ??= []
     if (data.botPresets) {
         for (const preset of data.botPresets) {
-            preset.localNetworkMode ??= false
-            preset.localNetworkTimeoutSec ??= 600
-            if (typeof preset.localNetworkMode !== 'boolean') {
-                preset.localNetworkMode = false
-            }
-            if (typeof preset.localNetworkTimeoutSec !== 'number' || Number.isNaN(preset.localNetworkTimeoutSec)) {
-                preset.localNetworkTimeoutSec = 600
-            }
         }
     }
     data.hypaV3PresetId ??= 0
@@ -642,22 +726,17 @@ export function setDatabase(data:Database){
     data.seperateModelsForAxModels ??= false
     data.seperateModels ??= { memory: '', emotion: '', translate: '', otherAx: '' }
     data.modelTools ??= []
+    data.enableHotkeys ??= true
     data.enableScrollToActiveChar ??= true
-    
-    // Merge existing hotkeys with new default hotkeys
-    if (!data.hotkeys) {
+    if (!Array.isArray(data.hotkeys)) {
         data.hotkeys = safeStructuredClone(defaultHotkeys)
-    } else {
-        const existingActions = new Set(data.hotkeys.map(h => h.action))
-        const newHotkeys = defaultHotkeys.filter(h => !existingActions.has(h.action))
-        if (newHotkeys.length > 0) {
-            data.hotkeys.push(...safeStructuredClone(newHotkeys))
-        }
     }
-    
-    // Remove scrollToActiveChar hotkey if feature is disabled
-    if (data.enableScrollToActiveChar === false) {
-        data.hotkeys = data.hotkeys.filter(h => h.action !== 'scrollToActiveChar')
+    else {
+        const existingActions = new Set(data.hotkeys.map((hotkey) => hotkey.action))
+        const missingHotkeys = defaultHotkeys.filter((hotkey) => !existingActions.has(hotkey.action))
+        if (missingHotkeys.length > 0) {
+            data.hotkeys.push(...safeStructuredClone(missingHotkeys))
+        }
     }
     
     data.fallbackModels ??= {
@@ -683,8 +762,10 @@ export function setDatabase(data:Database){
     data.showModelInSidebar ??= true
     data.showPresetInSidebar ??= true
     data.showPersonaInSidebar ??= true
+    data.showModuleSidebar ??= true
     data.nodeOnlyModelModeLock ??= 'none'
     data.disableMobileDragDrop ??= false
+    data.disableMobileBackNavigation ??= false
     data.disableToggleBinding ??= false
     data.hideAllImages ??= false
     data.hideMessagePageCount ??= false
@@ -715,15 +796,13 @@ export function setDatabase(data:Database){
     data.createFolderOnBranch ??= true
     data.hamburgerButtonBottom ??= false
     data.hideLeftBarCollapseButton ??= false
-    data.dynamicModelRegistry ??= true
     data.saveSignatures ??= false
     data.nodeOnlyScrollButtonType ??= 'four'
     data.nodeOnlyHideRecentChats ??= false
-    data.keepSessionAlive ??= 'off'
-    data.localNetworkMode ??= false
-    if (typeof data.localNetworkMode !== 'boolean') data.localNetworkMode = false
-    data.localNetworkTimeoutSec ??= 600
-    if (typeof data.localNetworkTimeoutSec !== 'number' || Number.isNaN(data.localNetworkTimeoutSec)) data.localNetworkTimeoutSec = 600
+    const legacyKeepSessionAlive = data.keepSessionAlive as unknown
+    data.keepSessionAlive = legacyKeepSessionAlive === true
+        || legacyKeepSessionAlive === 'sound'
+        || legacyKeepSessionAlive === 'pip'
     data.pluginCustomStorage ??= {}
     data.longPressToPopupEditor ??= false
     data.showInputActionBar ??= true
@@ -836,8 +915,12 @@ function parseToggleKeysFromTemplate(template:string){
 }
 
 function getEnabledModuleDefinitions(db:Database, char:character, chat:Chat){
+    const persona = chat?.bindedPersona
+        ? db.personas?.find((v) => v.id === chat.bindedPersona)
+        : db.personas?.[db.selectedPersona]
     const ids = [
         ...(db.enabledModules ?? []),
+        ...((persona?.id && db.personaEnabledModules?.[persona.id]) ? db.personaEnabledModules[persona.id] : []),
         ...(char.modules ?? []),
         ...(chat.modules ?? []),
         ...(db.moduleIntergration ? db.moduleIntergration.split(',').map((value) => value.trim()).filter(Boolean) : [])
@@ -953,8 +1036,12 @@ export interface RisuPersona {
     largePortrait?:boolean
     id?:string
     note?:string
+    /** Optional folder membership. Missing means uncategorized. */
+    folderId?:string
     embeddedModule?:RisuModule
 }
+
+export type TTSApiKeyProvider = 'openai' | 'novelai' | 'elevenlabs' | 'huggingface' | 'fishspeech'
 
 export interface Database{
     characters: character[],
@@ -974,17 +1061,11 @@ export interface Database{
     jailbreakToggle:boolean
     loreBookDepth: number
     loreBookToken: number,
+    disableGlobalLorebookRecursiveScanning: boolean
     cipherChat: boolean,
-    loreBook: {
-        name:string
-        data:loreBook[]
-    }[]
-    loreBookPage: number
     username: string
     userIcon: string
     userNote: string
-    additionalPrompt: string
-    descriptionPrefix: string
     forceReplaceUrl: string
     language: string
     translator: string
@@ -992,6 +1073,8 @@ export interface Database{
     currentPluginProvider: string
     zoomsize:number
     customBackground:string
+    /** Custom CSS that is applied independently of the selected theme preset. */
+    globalCustomCSS:string
     textgenWebUIStreamURL:string
     textgenWebUIBlockingURL:string
     autoTranslate: boolean
@@ -1022,6 +1105,8 @@ export interface Database{
     waifuWidth:number
     waifuWidth2:number
     botPresets:botPreset[]
+    /** User-defined groups for organizing prompt presets. */
+    promptPresetFolders?:PromptPresetFolder[]
     /**
      * @deprecated New code: use getActiveBotPreset() / setActiveBotPresetById() helpers.
      * Kept as the physical store for upstream RisuAI .bin backup compatibility.
@@ -1029,6 +1114,8 @@ export interface Database{
      */
     botPresetsId:number
     themePresets:themePreset[]
+    /** User-defined groups for organizing theme presets. */
+    themePresetFolders?:PromptPresetFolder[]
     themePresetsId:number
     togglePresets?:TogglePreset[]
     sdProvider: string
@@ -1042,11 +1129,14 @@ export interface Database{
     NAII2I:boolean
     NAIREF:boolean
     NAIImgConfig:NAIImgConfig
+    ttsEnabled?:boolean
     ttsAutoSpeech?:boolean
-    promptPreprocess:boolean
+    ttsApiKeyRefs?:Partial<Record<TTSApiKeyProvider, string>>
+    imageApiKeyRefs?:Partial<Record<'openai'|'novelai'|'openai-compatible'|'google', string>>
     bias: [string, number][]
     swipe:boolean
     confirmReroll:boolean
+    confirmMessageDelete:boolean
     textTheme: string
     customTextTheme: {
         FontColorStandard: string,
@@ -1060,11 +1150,9 @@ export interface Database{
     emotionPrompt2:string
     useSayNothing:boolean
     didFirstSetup: boolean
-    showUnrecommended:boolean
     allowV2Plugin:boolean
     elevenLabKey:string
     voicevoxUrl:string
-    useExperimental:boolean
     showMemoryLimit:boolean
     roundIcons:boolean
     useStreaming:boolean
@@ -1080,7 +1168,6 @@ export interface Database{
         token:string,
         model:string
     }
-    globalscript: customscript[],
     sendWithEnter:boolean
     /** Desktop send-key mode. 'enter': Enter sends (Shift+Enter newline);
      * 'ctrl-enter'/'shift-enter': that combo sends (Enter newline);
@@ -1120,9 +1207,6 @@ export interface Database{
     classicMaxWidth: boolean,
     useChatSticker:boolean,
     useAdditionalAssetsPreview:boolean,
-    usePlainFetch:boolean
-    localNetworkMode:boolean
-    localNetworkTimeoutSec:number
     memoryAlgorithmType:string // To enable new memory module/algorithms
     proxyRequestModel:string
     ooba:OobaSettings
@@ -1140,7 +1224,8 @@ export interface Database{
     openrouterFallback:boolean
     selectedPersona:number
     personas:RisuPersona[]
-    personaNote:boolean
+    /** User-defined groups for organizing personas. */
+    personaFolders?:PromptPresetFolder[]
     assetWidth:number
     animationSpeed:number
     botSettingAtStart:false
@@ -1149,7 +1234,6 @@ export interface Database{
     colorScheme:ColorScheme
     colorSchemeName:string
     promptTemplate?:PromptItem[]
-    forceProxyAsOpenAI?:boolean
     hypaModel:HypaModel
     saveTime?:number
     mancerHeader:string
@@ -1169,10 +1253,8 @@ export interface Database{
         token:string    
     }
     localStopStrings?:string[]
-    autofillRequestUrl:boolean
     customProxyRequestModel:string
     generationSeed:number
-    newOAIHandle:boolean
     gptVisionQuality:string
     reverseProxyOobaMode:boolean
     reverseProxyOobaArgs: OobaChatCompletionRequestParams
@@ -1182,6 +1264,8 @@ export interface Database{
     translatorPrompt:string
     translatorMaxResponse:number
     translatorPresets: TranslatorPreset[]
+    /** User-defined groups for organizing translator presets. */
+    translatorPresetFolders?: PromptPresetFolder[]
     translatorPresetId: number
     top_p: number,
     google: {
@@ -1200,18 +1284,17 @@ export interface Database{
     lastPatchNoteCheckVersion?:string,
     memoryLimitThickness?:number
     modules: RisuModule[]
+    /** User-defined groups for organizing modules. */
+    moduleFolders?: PromptPresetFolder[]
     enabledModules: string[]
+    personaEnabledModules: Record<string, string[]>
     sideMenuRerollButton?:boolean
     requestInfoInsideChat?:boolean
     additionalParams:[string, string][]
     heightMode:string
-    noWaitForTranslate:boolean
     antiClaudeOverload:boolean
     ollamaURL:string
     ollamaModel:string
-    autoContinueChat:boolean
-    autoContinueMinTokens:number
-    removeIncompleteResponse:boolean
     customTokenizer:string
     instructChatTemplate:string
     JinjaTemplate:string
@@ -1246,7 +1329,6 @@ export interface Database{
     claudeCachingExperimental: boolean
     hideApiKey: boolean
     unformatQuotes: boolean
-    enableDevTools: boolean
     falToken: string
     falModel: string
     falLora: string
@@ -1291,16 +1373,14 @@ export interface Database{
     notification: boolean
     customFlags: LLMFlags[]
     enableCustomFlags: boolean
-    googleClaudeTokenizing: boolean
-    presetChain: string
-    legacyMediaFindings?:boolean
     geminiStream?:boolean
     assetMaxDifference:number
-    auxModelUnderModelSettings:boolean
     showModelInSidebar:boolean
     showPresetInSidebar:boolean
     showPersonaInSidebar:boolean
+    showModuleSidebar:boolean
     disableMobileDragDrop:boolean
+    disableMobileBackNavigation:boolean
     disableToggleBinding:boolean
     menuSideBar:boolean
     pluginV2: RisuPlugin[]
@@ -1312,12 +1392,14 @@ export interface Database{
     hypaV3Settings: HypaV3Settings // legacy
     hypaV3Presets: HypaV3Preset[]
     hypaV3PresetId: number
+    hypaV3PresetFolders?: PromptPresetFolder[]
     realmDirectOpen:boolean
     OaiCompAPIKeys: {[key:string]:string}
     inlayErrorResponse:boolean
     reasoningEffort:number
     bulkEnabling:boolean
     showTranslationLoading: boolean
+    showPreviousChatSwipeButtons: boolean
     showDeprecatedTriggerV1:boolean
     showDeprecatedTriggerV2:boolean
     returnCSSError:boolean
@@ -1340,7 +1422,6 @@ export interface Database{
     // tok/s / stall) for model-preset requests. Memory-only UI feature; default on.
     showRequestStatus: boolean
     chatCompression: boolean
-    claudeRetrivalCaching: boolean
     outputImageModal: boolean
     playMessageOnTranslateEnd:boolean
     seperateModelsForAxModels:boolean
@@ -1352,7 +1433,8 @@ export interface Database{
     }
     doNotChangeSeperateModels:boolean
     modelTools: string[]
-    hotkeys:Hotkey[]
+    enableHotkeys:boolean
+    hotkeys: Hotkey[]
     fallbackModels: {
         memory: string[],
         emotion: string[],
@@ -1374,6 +1456,8 @@ export interface Database{
         flags: LLMFlags[]
     }[]
     modelPresets: ModelPreset[]
+    /** User-defined groups for organizing model presets. */
+    modelPresetFolders?: PromptPresetFolder[]
     // P4 dual-regime global default binding (plan v6 §7). Copied into new chats
     // (seeding); useModelPresetByDefault seeds the new-chat regime toggle.
     useModelPresetByDefault?: boolean
@@ -1388,21 +1472,31 @@ export interface Database{
     modelPresetMigrationReport?: ModelPresetMigrationSummary
     apiKeyPool?: Record<string, ApiKeyPoolEntry>
     modelProfileRegistryCache?: RegistryCache
+    // Small reactivity/revalidation timestamp only. The models.dev catalog is
+    // stored separately in persistent KV and never embedded in this DB.
     modelProfileRegistryLastFetched?: number
-    // Per-profile id -> last acknowledged `updatedAt`. Drives the catalog
-    // "new/updated models" notice; the user acknowledges by overwriting it
-    // with the current map. See src/ts/preset/registry/notice.ts.
+    /** @deprecated Removed with the models.dev runtime catalog migration. */
     modelRegistrySeen?: Record<string, number>
-    // Catalog display level: hide outdated/deprecated profiles from the browser
-    // and the update notice. Display-only — profiles are still downloaded.
-    modelProfileVisibilityLevel?: 'all' | 'hideDeprecated' | 'currentOnly'
-    // Opt-in custom registry source (dev branch / fork). Off ⇒ official URL.
-    // Must be https; a non-https value is rejected at sync time.
+    // Catalog display level: retired profiles can be hidden from the browser.
+    // Display-only — profiles are still downloaded.
+    modelProfileVisibilityLevel?: 'all' | 'hideDeprecated'
+    // models.dev provider-group IDs hidden from the official profile browser.
+    // Echo and transient Plugin profiles intentionally ignore this filter.
+    modelProfileHiddenProviderIds?: string[]
+    // Distinguishes the curated first-run allowlist from an intentional
+    // user-selected empty hidden list ("show all").
+    modelProfileProviderFilterInitialized?: boolean
+    /** @deprecated The only built-in model is Echo; models come from models.dev. */
+    modelPresetLocalRegistryOnly?: boolean
+    modelPresetDefaultMaxContext?: number
+    modelPresetDefaultMaxResponse?: number
+    modelPresetPromptPresetFirst?: boolean
+    modelPresetPromptParamsFirst?: boolean
+    /** @deprecated Official model discovery now always uses models.dev. */
     useCustomModelRegistry?: boolean
+    /** @deprecated Official model discovery now always uses models.dev. */
     modelProfileRegistryBaseUrl?: string
     igpPrompt:string
-    useTokenizerCaching:boolean
-    showMenuHypaMemoryModal:boolean
     authRefreshes:{
         url:string
         tokenUrl:string
@@ -1456,13 +1550,11 @@ export interface Database{
     }
     settingsCloseButtonSize:number
     promptDiffPrefs:PromptDiffPrefs
-    enableBookmark?: boolean
     hideAllImages?: boolean
     hideMessagePageCount?: boolean
     autoScrollToNewMessage?: boolean
     alwaysScrollToNewMessage?: boolean
     newMessageButtonStyle?: string
-    pluginDevelopMode?: boolean
     echoMessage?:string
     echoDelay?:number
     createFolderOnBranch?:boolean
@@ -1470,13 +1562,12 @@ export interface Database{
     hideLeftBarCollapseButton?:boolean
     enableRemoteSaving?:boolean
     blockquoteStyling?:boolean
-    dynamicModelRegistry?:boolean
+    cornerBracketStyling?:boolean
     nodeOnlyScrollButtonType?:'four'|'two'|'off'
     nodeOnlyHideRecentChats?:boolean
     seperateParametersByModel?:boolean
-    disableSeperateParameterChangeOnPresetChange?:boolean
     saveSignatures?:boolean
-    keepSessionAlive: 'off' | 'pip' | 'sound'
+    keepSessionAlive: boolean
 }
 
 export interface SeparateParameters{
@@ -1519,6 +1610,7 @@ export interface loreBook{
     mode: 'multiple'|'constant'|'normal'|'child'|'folder',
     alwaysActive: boolean
     selective:boolean
+    role?: 'system'|'user'|'assistant'
     extentions?:{
         risu_case_sensitive:boolean
     }
@@ -1723,10 +1815,10 @@ export function purgeUnsupportedGroupChats(db: Database): number {
 export interface botPreset{
     id?: string
     name?:string
+    /** Optional folder membership. Missing means uncategorized. */
+    folderId?: string
     apiType?: string
     openAIKey?: string
-    localNetworkMode?: boolean
-    localNetworkTimeoutSec?: number
     mainPrompt: string
     jailbreak: string
     globalNote:string
@@ -1743,7 +1835,6 @@ export interface botPreset{
     textgenWebUIBlockingURL?:string
     forceReplaceUrl?:string
     forceReplaceUrl2?:string
-    promptPreprocess: boolean,
     bias: [string, number][]
     proxyRequestModel?:string
     openrouterRequestModel?:string
@@ -1827,9 +1918,16 @@ export interface botPreset{
     taskModelBindings?: ModelBindingFields['taskModelBindings']
 }
 
+export interface PromptPresetFolder {
+    id: string
+    name: string
+}
+
 
 export interface themePreset{
     name: string
+    /** Optional folder membership. Missing means uncategorized. */
+    folderId?: string
     // Theme tab (submenu 0)
     theme: string
     nodeOnlyStandardChatWidth?: 'standard' | 'wide' | 'full'
@@ -1882,6 +1980,7 @@ export interface themePreset{
     hideApiKey: boolean
     unformatQuotes: boolean
     blockquoteStyling?: boolean
+    cornerBracketStyling?: boolean
     customQuotes: boolean
     customQuotesData?: [string, string, string, string]
     betaMobileGUI: boolean
@@ -1900,6 +1999,7 @@ export interface folder{
     data:string[]
     color:string
     id:string
+    localOnly?:boolean
     imgFile?:string
     img?:string
 }
@@ -1950,6 +2050,9 @@ export interface NAIImgConfig{
     character_image:string,
     character_base64image:string,
     style_aware:boolean,
+    reference_type:'character' | 'style' | 'character&style',
+    reference_strength:number,
+    reference_fidelity:number,
 }
 
 //add 4
@@ -2084,6 +2187,7 @@ export interface ChatFolder{
     name?:string
     color?:string
     folded:boolean
+    localOnly?:boolean
 }
 
 export interface Message{
@@ -2098,6 +2202,8 @@ export interface Message{
     otherUser?:boolean
     disabled?:false|true|'allBefore'
     isComment?:boolean
+    isRecovering?:boolean
+    recoveryDisplayData?:string
     swipes?: string[]
     swipeId?: number
 }
@@ -2232,8 +2338,6 @@ export const presetTemplate:botPreset = {
     name: "New Preset",
     apiType: "gemini-3-flash-preview",
     openAIKey: "",
-    localNetworkMode: false,
-    localNetworkTimeoutSec: 600,
     mainPrompt: defaultMainPrompt,
     jailbreak: defaultJailbreak,
     globalNote: "",
@@ -2250,7 +2354,6 @@ export const presetTemplate:botPreset = {
     textgenWebUIBlockingURL: '',
     forceReplaceUrl: '',
     forceReplaceUrl2: '',
-    promptPreprocess: false,
     proxyKey: '',
     bias: [],
     ooba: safeStructuredClone(defaultOoba),
@@ -2314,6 +2417,7 @@ export const themePresetTemplate: themePreset = {
     hideApiKey: true,
     unformatQuotes: false,
     blockquoteStyling: false,
+    cornerBracketStyling: false,
     customQuotes: false,
     customQuotesData: ['"', '"', '\u2018', '\u2019'],
     betaMobileGUI: false,
@@ -2413,10 +2517,9 @@ export function saveCurrentPreset(){
     const savedPreset:botPreset =  {
         id: pres[db.botPresetsId]?.id || uuidv4(),
         name: pres[db.botPresetsId].name,
+        folderId: pres[db.botPresetsId]?.folderId,
         apiType: db.apiType,
         openAIKey: db.openAIKey,
-        localNetworkMode: db.localNetworkMode,
-        localNetworkTimeoutSec: db.localNetworkTimeoutSec,
         mainPrompt:db.mainPrompt,
         jailbreak: db.jailbreak,
         globalNote: db.globalNote,
@@ -2432,7 +2535,6 @@ export function saveCurrentPreset(){
         textgenWebUIStreamURL: db.textgenWebUIStreamURL,
         textgenWebUIBlockingURL: db.textgenWebUIBlockingURL,
         forceReplaceUrl: db.forceReplaceUrl,
-        promptPreprocess: db.promptPreprocess,
         bias: db.bias,
         koboldURL: db.koboldURL,
         proxyKey: db.proxyKey,
@@ -2441,7 +2543,7 @@ export function saveCurrentPreset(){
         proxyRequestModel: db.proxyRequestModel,
         openrouterRequestModel: db.openrouterRequestModel,
         NAISettings: safeStructuredClone(db.NAIsettings),
-        promptTemplate: db.promptTemplate ?? null,
+        promptTemplate: normalizePromptTemplate(db.promptTemplate) ?? null,
         NAIadventure: db.NAIadventure ?? false,
         NAIappendName: db.NAIappendName ?? false,
         localStopStrings: db.localStopStrings,
@@ -2467,6 +2569,8 @@ export function saveCurrentPreset(){
         extractJson:db.extractJson ?? '',
         groupOtherBotRole: db.groupOtherBotRole ?? 'user',
         groupTemplate: db.groupTemplate ?? '',
+        // Kept in serialized prompt presets for backward compatibility only.
+        // setPreset intentionally does not restore these auxiliary parameters.
         seperateParametersEnabled: db.seperateParametersEnabled ?? false,
         seperateParameters: safeStructuredClone(db.seperateParameters),
         customAPIFormat: safeStructuredClone(db.customAPIFormat),
@@ -2530,8 +2634,6 @@ export function changeToPreset(id =0, savecurrent = true){
 
 export function setPreset(db:Database, newPres: botPreset){
     db.apiType = newPres.apiType ?? db.apiType
-    db.localNetworkMode = newPres.localNetworkMode ?? db.localNetworkMode
-    db.localNetworkTimeoutSec = newPres.localNetworkTimeoutSec ?? db.localNetworkTimeoutSec
     db.mainPrompt = newPres.mainPrompt ?? db.mainPrompt
     db.jailbreak = newPres.jailbreak ?? db.jailbreak
     db.globalNote = newPres.globalNote ?? db.globalNote
@@ -2547,7 +2649,6 @@ export function setPreset(db:Database, newPres: botPreset){
     db.textgenWebUIStreamURL = newPres.textgenWebUIStreamURL ?? db.textgenWebUIStreamURL
     db.textgenWebUIBlockingURL = newPres.textgenWebUIBlockingURL ?? db.textgenWebUIBlockingURL
     db.forceReplaceUrl = newPres.forceReplaceUrl ?? db.forceReplaceUrl
-    db.promptPreprocess = newPres.promptPreprocess ?? db.promptPreprocess
     db.bias = newPres.bias ?? db.bias
     db.koboldURL = newPres.koboldURL ?? db.koboldURL
     db.proxyKey = newPres.proxyKey ?? db.proxyKey
@@ -2559,7 +2660,7 @@ export function setPreset(db:Database, newPres: botPreset){
     db.autoSuggestPrompt = newPres.autoSuggestPrompt ?? db.autoSuggestPrompt
     db.autoSuggestPrefix = newPres.autoSuggestPrefix ?? db.autoSuggestPrefix
     db.autoSuggestClean = newPres.autoSuggestClean ?? db.autoSuggestClean
-    db.promptTemplate = newPres.promptTemplate
+    db.promptTemplate = normalizePromptTemplate(newPres.promptTemplate)
     db.NAIadventure = newPres.NAIadventure
     db.NAIappendName = newPres.NAIappendName
     db.NAIsettings.cfg_scale ??= 1
@@ -2596,7 +2697,6 @@ export function setPreset(db:Database, newPres: botPreset){
     db.extractJson = newPres.extractJson ?? ''
     db.groupOtherBotRole = newPres.groupOtherBotRole ?? 'user'
     db.groupTemplate = newPres.groupTemplate ?? ''
-    db.seperateParametersEnabled = newPres.seperateParametersEnabled ?? false
     db.customAPIFormat = safeStructuredClone(newPres.customAPIFormat) ?? LLMFormat.OpenAICompatible
     db.systemContentReplacement = newPres.systemContentReplacement ?? ''
     db.systemRoleReplacement = newPres.systemRoleReplacement ?? 'user'
@@ -2608,9 +2708,11 @@ export function setPreset(db:Database, newPres: botPreset){
     db.thinkingType = newPres.thinkingType ?? 'budget'
     db.adaptiveThinkingEffort = newPres.adaptiveThinkingEffort ?? 'high'
     db.outputImageModal = newPres.outputImageModal ?? false
-    // Model config (separated aux models) is decoupled from prompt presets in v6:
-    // switching a prompt preset no longer overwrites db.seperateModels. The global
-    // db.seperateModels is the single source of truth (preset copies are inert).
+    // Auxiliary model selection and parameters are decoupled from prompt presets:
+    // switching a prompt preset does not restore newPres.seperateModels,
+    // newPres.seperateParametersEnabled, or newPres.seperateParameters. The global
+    // database values remain the single source of truth; preset copies are retained
+    // only so older exports and clients can still round-trip them.
     if(!db.doNotChangeFallbackModels){
         db.fallbackModels = safeStructuredClone(newPres.fallbackModels) ?? {
             memory: [],
@@ -2620,18 +2722,6 @@ export function setPreset(db:Database, newPres: botPreset){
             model: []
         }
         db.fallbackWhenBlankResponse = newPres.fallbackWhenBlankResponse ?? false
-    }
-    if(db.disableSeperateParameterChangeOnPresetChange){
-        db.seperateParameters = safeStructuredClone(db.seperateParameters)
-    }
-    else{
-         db.seperateParameters = newPres.seperateParameters ? safeStructuredClone(newPres.seperateParameters) : {
-            memory: {},
-            emotion: {},
-            translate: {},
-            otherAx: {},
-            overrides: {}
-        }   
     }
     db.modelTools = safeStructuredClone(newPres.modelTools ?? [])
     db.verbosity = newPres.verbosity ?? 1
@@ -2647,6 +2737,7 @@ export function saveCurrentThemePreset(){
     let pres = db.themePresets
     const saved: themePreset = {
         name: pres[db.themePresetsId]?.name ?? "Default",
+        folderId: pres[db.themePresetsId]?.folderId,
         theme: normalizeTheme(db.theme),
         nodeOnlyStandardChatWidth: db.nodeOnlyStandardChatWidth,
         guiHTML: db.guiHTML,
@@ -2655,7 +2746,7 @@ export function saveCurrentThemePreset(){
         waifuWidth2: db.waifuWidth2,
         colorSchemeName: db.colorSchemeName,
         colorScheme: safeStructuredClone(db.colorScheme),
-        textTheme: db.textTheme,
+        textTheme: normalizeTextTheme(db.textTheme),
         customTextTheme: safeStructuredClone(db.customTextTheme),
         font: db.font,
         customFont: db.customFont,
@@ -2689,6 +2780,7 @@ export function saveCurrentThemePreset(){
         hideApiKey: db.hideApiKey,
         unformatQuotes: db.unformatQuotes,
         blockquoteStyling: db.blockquoteStyling,
+        cornerBracketStyling: db.cornerBracketStyling,
         customQuotes: db.customQuotes,
         customQuotesData: db.customQuotesData ? [...db.customQuotesData] as [string,string,string,string] : ['"','"','\u2018','\u2019'],
         betaMobileGUI: db.betaMobileGUI,
@@ -2723,7 +2815,7 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.waifuWidth2 = p.waifuWidth2 ?? db.waifuWidth2
     db.colorSchemeName = p.colorSchemeName ?? db.colorSchemeName
     db.colorScheme = safeStructuredClone(p.colorScheme ?? db.colorScheme)
-    db.textTheme = p.textTheme ?? db.textTheme
+    db.textTheme = normalizeTextTheme(p.textTheme ?? db.textTheme)
     db.customTextTheme = safeStructuredClone(p.customTextTheme ?? db.customTextTheme)
     db.font = p.font ?? db.font
     db.customFont = p.customFont ?? db.customFont
@@ -2757,6 +2849,7 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.hideApiKey = p.hideApiKey ?? db.hideApiKey
     db.unformatQuotes = p.unformatQuotes ?? db.unformatQuotes
     db.blockquoteStyling = p.blockquoteStyling ?? db.blockquoteStyling
+    db.cornerBracketStyling = p.cornerBracketStyling ?? db.cornerBracketStyling
     db.customQuotes = p.customQuotes ?? db.customQuotes
     db.customQuotesData = p.customQuotesData ? [...p.customQuotesData] as [string,string,string,string] : db.customQuotesData
     db.betaMobileGUI = p.betaMobileGUI ?? db.betaMobileGUI
@@ -2827,6 +2920,7 @@ export async function importThemePreset(f: {
     let db = getDatabase()
     pre.name = pre.name ?? "Imported Theme"
     pre.theme = normalizeTheme(pre.theme)
+    pre.textTheme = normalizeTextTheme(pre.textTheme)
     db.themePresets.push(pre)
     notifySuccess(language.successImport)
 }
@@ -2840,7 +2934,6 @@ import { DBState, selectedCharID } from '../stores.svelte';
 import { LLMFlags, LLMFormat, LLMTokenizer } from '../model/modellist';
 import type { HypaModel } from '../process/memory/hypamemory';
 import type { SerializableHypaV3Data } from '../process/memory/hypav3';
-import { defaultHotkeys, type Hotkey } from '../defaulthotkeys';
 import type { OpenAIChat } from '../process/index.svelte';
 
 export async function downloadPreset(id:number, type:'json'|'risupreset'|'return' = 'json'){
@@ -2917,6 +3010,9 @@ export async function importPreset(f:{
     else{
         pre = {...presetTemplate,...(JSON.parse(Buffer.from(f.data).toString('utf-8')))}
         console.log(pre)
+    }
+    if(pre?.promptTemplate !== undefined){
+        pre.promptTemplate = normalizePromptTemplate(pre.promptTemplate)
     }
     let db = getDatabase()
     if(pre.presetVersion && pre.presetVersion >= 3){
@@ -3044,6 +3140,7 @@ export async function importPreset(f:{
                 role: 'bot'
             })
         }
+        pr.promptTemplate = normalizePromptTemplate(pr.promptTemplate)
         pr.name = "Imported ST Preset"
         pr.id = uuidv4()
         db.botPresets.push(pr)

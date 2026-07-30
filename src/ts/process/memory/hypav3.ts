@@ -11,19 +11,30 @@ import { parseChatML } from "src/ts/parser/chatML";
 import {
     type Chat,
     type character,
+    getCurrentCharacter,
     getDatabase,
 } from "src/ts/storage/database.svelte";
 import { type OpenAIChat } from "../index.svelte";
 import { requestChatData } from "../request/request";
 import { resolveChatMaxResponseTokens } from "../request/modelPresetBinding";
-import { isLocalNetworkUrl } from "src/ts/network/localNetwork";
 import { chatCompletion, unloadEngine } from "../webllm";
 import { hypaV3ProgressStore } from "src/ts/stores.svelte";
 import { type ChatTokenizer } from "src/ts/tokenizer";
 import { inlayTokenRegex } from "src/ts/util/inlayTokens";
+import {
+    consumeRecoverableAuxiliaryGeneration,
+    resolveRecoverableAuxiliaryGenerations,
+} from "../revenantGeneration/auxiliary";
+import { saveChatToServer } from "src/ts/storage/chatStorage";
+import {
+    createRevenantOperation,
+    isRevenantHypaV3SummaryOperation,
+} from "../revenantGeneration/types";
 
 export interface HypaV3Preset {
     name: string;
+    /** Optional preset-picker folder membership. */
+    folderId?: string;
     settings: HypaV3Settings;
 }
 
@@ -103,6 +114,77 @@ const logPrefix = "[HypaV3]";
 const memoryPromptTag = "Past Events Summary";
 const summarySeparator = "\n\n";
 
+function sameMemoSet(left: string[], right: string[]): boolean {
+    if (left.length !== right.length) return false;
+    const rightSet = new Set(right);
+    return left.every(memo => rightSet.has(memo));
+}
+
+const hypaRecoveryCheckedAt = new Map<string, number>();
+const hypaRecoveryInFlight = new Map<string, Promise<number>>();
+
+export async function recoverHypaV3SummaryJobs(char: character, room: Chat): Promise<number> {
+    if (!char?.chaId || !room?.id) return 0;
+    const recoveryKey = `${char.chaId}/${room.id}`;
+    const existing = hypaRecoveryInFlight.get(recoveryKey);
+    if (existing) return existing;
+    if (Date.now() - (hypaRecoveryCheckedAt.get(recoveryKey) ?? 0) < 2000) return 0;
+    hypaRecoveryCheckedAt.set(recoveryKey, Date.now());
+
+    const recovery = (async () => {
+        const jobs = await resolveRecoverableAuxiliaryGenerations({
+            jobType: 'memory',
+            isContext: isRevenantHypaV3SummaryOperation,
+            matchesContext: context =>
+                context.characterId === char.chaId && context.roomId === room.id,
+        });
+        const consumedJobIds: string[] = [];
+        let shouldPersist = false;
+        let recovered = 0;
+        for (const job of jobs) {
+            const context = job.operationContext;
+
+            if (job.status === 'generated' && job.rawContent.trim()) {
+                const serialData: SerializableHypaV3Data = room.hypaV3Data ?? { summaries: [] };
+                const alreadyApplied = serialData.summaries.some(summary =>
+                    sameMemoSet(summary.chatMemos, context.chatMemos));
+                if (!alreadyApplied) {
+                    const text = job.rawContent
+                        .replace(/<Thoughts>[\s\S]*?<\/Thoughts>/g, '')
+                        .trim();
+                    if (text) {
+                        serialData.summaries.push({
+                            text,
+                            chatMemos: [...context.chatMemos],
+                            isImportant: false,
+                            categoryId: undefined,
+                        });
+                        room.hypaV3Data = serialData;
+                        recovered += 1;
+                    }
+                }
+                // Persist even when already applied: a previous attempt may
+                // have saved the chat but crashed before consuming the job.
+                shouldPersist = true;
+            }
+            consumedJobIds.push(job.jobId);
+        }
+        if (shouldPersist) {
+            const chatIndex = char.chats.findIndex(chat => chat?.id === room.id);
+            if (chatIndex < 0) throw new Error(`HypaV3 recovery target chat not found: ${room.id}`);
+            await saveChatToServer(char.chaId, chatIndex, room.id, room);
+        }
+        for (const jobId of consumedJobIds) {
+            await consumeRecoverableAuxiliaryGeneration(jobId);
+        }
+        return recovered;
+    })().finally(() => {
+        hypaRecoveryInFlight.delete(recoveryKey);
+    });
+    hypaRecoveryInFlight.set(recoveryKey, recovery);
+    return recovery;
+}
+
 function splitBySeparator(text: string, separator: string): string[] {
     try {
         const regexMatch = separator.match(/^\/(.+)\/([gimuy]*)$/);
@@ -124,6 +206,7 @@ export async function hypaMemoryV3(
     char: character,
     tokenizer: ChatTokenizer
 ): Promise<HypaV3Result> {
+    await recoverHypaV3SummaryJobs(char, room);
     const settings = getCurrentHypaV3Preset().settings;
 
     try {
@@ -404,7 +487,11 @@ async function hypaMemoryV3MainExp(
         };
 
         const summarizationTasks = toSummarizeArray.map(
-            (item) => () => summarize(item)
+            (item) => () => summarize(item, false, {
+                characterId: char.chaId,
+                roomId: room.id,
+                chatMemos: item.map(chat => chat.memo).filter((memo): memo is string => !!memo),
+            })
         );
 
         // Start of performance measurement: summarize
@@ -462,9 +549,10 @@ async function hypaMemoryV3MainExp(
                 chatMemos: new Set(toSummarizeArray[i].map((chat) => chat.memo)),
                 isImportant: false,
                 categoryId: undefined,
-                tags: [],
             });
         }
+        room.hypaV3Data = toSerializableHypaV3Data(data);
+        await recoverHypaV3SummaryJobs(char, room);
     }
 
     console.log(
@@ -1151,15 +1239,20 @@ async function hypaMemoryV3Main(
             );
 
             try {
-                const summarizeResult = await summarize(toSummarize);
+                const summarizeResult = await summarize(toSummarize, false, {
+                    characterId: char.chaId,
+                    roomId: room.id,
+                    chatMemos: toSummarize.map(chat => chat.memo).filter((memo): memo is string => !!memo),
+                });
 
                 data.summaries.push({
                     text: summarizeResult,
                     chatMemos: new Set(toSummarize.map((chat) => chat.memo)),
                     isImportant: false,
                     categoryId: undefined,
-                    tags: [],
                 });
+                room.hypaV3Data = toSerializableHypaV3Data(data);
+                await recoverHypaV3SummaryJobs(char, room);
             } catch (error) {
                 console.log(logPrefix, "Summarization failed:", `\n${error}`);
 
@@ -1681,7 +1774,11 @@ function sanitizeSummaryContent(content: string): string {
     return content.replace(inlayTokenRegex, "[Image]");
 }
 
-export async function summarize(oaiMessages: OpenAIChat[], isResummarize: boolean = false): Promise<string> {
+export async function summarize(
+    oaiMessages: OpenAIChat[],
+    isResummarize: boolean = false,
+    revenantTarget?: { characterId: string; roomId: string; chatMemos: string[] },
+): Promise<string> {
     const db = getDatabase();
     const settings = getCurrentHypaV3Preset().settings;
 
@@ -1728,9 +1825,13 @@ export async function summarize(oaiMessages: OpenAIChat[], isResummarize: boolea
             {
                 formated,
                 bias: {},
+                currentChar: getCurrentCharacter(),
                 useStreaming: false,
                 noMultiGen: true,
-                forceLocalNetwork: isLocalNetworkUrl(subModelUrl),
+                revenantOperationContext: revenantTarget ? createRevenantOperation({
+                    kind: 'hypav3-summary',
+                    ...revenantTarget,
+                }) : undefined,
             },
             "memory"
         );
@@ -1838,6 +1939,9 @@ export function createHypaV3Preset(
             }
         }
     }
+
+    // HypaMemory V3 summaries always use the configured auxiliary model.
+    settings.summarizationModel = "subModel";
 
     return {
         name,

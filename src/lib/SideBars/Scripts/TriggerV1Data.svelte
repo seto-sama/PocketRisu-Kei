@@ -383,7 +383,7 @@
                         <TextAreaInput highlight bind:value={effect.value} />
                     {/if}
                     {#if effect.type === 'runLLM'}
-                        <span class="text-textcolor2 text-sm">{language.prompt} <Help key="triggerLLMPrompt" /></span>
+                        <span class="text-textcolor2 text-sm">{language.prompt}<Help key="triggerLLMPrompt" /></span>
                         <TextAreaInput highlight bind:value={effect.value} />
 
                         <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
@@ -470,7 +470,7 @@
                     {/if}
 
                     {#if effect.type === 'runAxLLM'}
-                    <span class="text-textcolor2 text-sm">{language.prompt} <Help key="triggerLLMPrompt" /></span>
+                    <span class="text-textcolor2 text-sm">{language.prompt}<Help key="triggerLLMPrompt" /></span>
                     <TextAreaInput highlight bind:value={effect.value} />
 
                     <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>

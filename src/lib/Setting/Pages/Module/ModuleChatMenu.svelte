@@ -1,136 +1,189 @@
 <script lang="ts">
-    import { CircleCheckIcon, Waypoints, XIcon } from "@lucide/svelte";
+    import { Waypoints } from "@lucide/svelte";
     import { language } from "src/lang";
-    import Button from "src/lib/UI/GUI/Button.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
-    import type { RisuModule } from "src/ts/process/modules";
-    
-    import { DBState, ReloadGUIPointer } from 'src/ts/stores.svelte';
-    import { selectedCharID } from "src/ts/stores.svelte";
-    import { openSettings, SettingsRoute } from "src/ts/routing";
+    import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
+    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import { requestImmediateSave } from "src/ts/globalApi.svelte";
+    import { AddonSettingsTab, openAddonSettings } from "src/ts/routing";
+    import { DBState, ReloadGUIPointer, selectedCharID } from "src/ts/stores.svelte";
+
     interface Props {
-        close?: any;
+        close?: (id: string) => void;
         alertMode?: boolean;
     }
 
-    let { close = (i:string) => {}, alertMode = false }: Props = $props();
-    let moduleSearch = $state('')
+    let { close = () => {}, alertMode = false }: Props = $props();
+    let moduleSearch = $state('');
+    let selectedFolder = $state('all');
+    let visibleModuleIndexes = $state<number[]>([]);
+    let emptyModuleMessage = $state('');
+    const moduleFolders = $derived(DBState.db.moduleFolders ?? []);
 
-    function sortModules(modules:RisuModule[], search:string){
-        const db = DBState.db
-        return modules.filter((v) => {
-            if(search === '') return true
-            return v.name.toLowerCase().includes(search.toLowerCase())
-        
-        }).sort((a, b) => {
-            let score = a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-            return score
-        })
+    function currentCharacter() {
+        return DBState.db.characters[$selectedCharID];
     }
 
+    function currentChat() {
+        const character = currentCharacter();
+        return character?.chats?.[character.chatPage];
+    }
+
+    function isGlobal(moduleId: string) {
+        return DBState.db.enabledModules.includes(moduleId);
+    }
+
+    function isPrimary(moduleId: string) {
+        return currentChat()?.modules?.includes(moduleId) ?? false;
+    }
+
+    function isScoped(moduleId: string) {
+        return currentCharacter()?.modules?.includes(moduleId) ?? false;
+    }
+
+    function setPrimary(moduleId: string, checked: boolean) {
+        if (isGlobal(moduleId)) return;
+        const chat = currentChat();
+        const character = currentCharacter();
+        if (!chat || !character) return;
+        chat.modules ??= [];
+        character.modules ??= [];
+
+        if (checked) {
+            if (!chat.modules.includes(moduleId)) chat.modules = [...chat.modules, moduleId];
+            character.modules = character.modules.filter((id) => id !== moduleId);
+        } else {
+            // The switch represents both scopes, so turning it off must clear
+            // a previously selected character-scoped value as well.
+            chat.modules = chat.modules.filter((id) => id !== moduleId);
+            character.modules = character.modules.filter((id) => id !== moduleId);
+        }
+        $ReloadGUIPointer += 1;
+    }
+
+    function toggleScoped(moduleId: string, event: MouseEvent) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (isGlobal(moduleId)) return;
+        const character = currentCharacter();
+        const chat = currentChat();
+        if (!character || !chat) return;
+        character.modules ??= [];
+        chat.modules ??= [];
+        if (character.modules.includes(moduleId) || chat.modules.includes(moduleId)) {
+            // Match lorebook's three-state behavior: changing scope always
+            // passes through neutral instead of replacing the active scope.
+            character.modules = character.modules.filter((id) => id !== moduleId);
+            chat.modules = chat.modules.filter((id) => id !== moduleId);
+        } else {
+            character.modules = [...character.modules, moduleId];
+        }
+        $ReloadGUIPointer += 1;
+    }
+
+    function moveModule(fromIndex: number, toIndex: number) {
+        const modules = [...DBState.db.modules];
+        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= modules.length || toIndex > modules.length) return;
+        const [moved] = modules.splice(fromIndex, 1);
+        if (!moved) return;
+        modules.splice(fromIndex < toIndex ? toIndex - 1 : toIndex, 0, moved);
+        DBState.db.modules = modules;
+        void requestImmediateSave();
+    }
+
+    function assignModuleToFolder(index: number, folderId: string | undefined) {
+        const rmodule = DBState.db.modules[index];
+        if (!rmodule) return;
+        rmodule.folderId = folderId;
+        DBState.db.modules = [...DBState.db.modules];
+        void requestImmediateSave();
+    }
+
+    function selectModule(index: number) {
+        const rmodule = DBState.db.modules[index];
+        if (!rmodule) return;
+        if (alertMode) close(rmodule.id);
+    }
+
+    function openModuleSettings() {
+        openAddonSettings(AddonSettingsTab.Module);
+        close('');
+    }
+
+    function closePicker() {
+        close('');
+    }
 </script>
 
-
-<div class="absolute w-full h-full z-40 bg-black/50 flex justify-center items-center">
-    <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-full max-h-full overflow-y-auto">
-        <div class="flex items-center text-textcolor">
-            <h2 class="mt-0 mb-0 text-lg">{language.modules}</h2>
-            <div class="grow flex justify-end">
-                <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer items-center" onclick={() => {
-                    close('')
-                }}>
-                    <XIcon size={24}/>
-                </button>
+<PresetPickerLayout
+    title={language.modules}
+    titleHelp={language.chatModulesInfo}
+    folders={moduleFolders}
+    itemFolderIds={DBState.db.modules.map((rmodule) => rmodule.folderId)}
+    itemNames={DBState.db.modules.map((rmodule) => rmodule.name)}
+    itemSearchTexts={DBState.db.modules.map((rmodule) => `${rmodule.name}\n${rmodule.description ?? ''}`)}
+    searchPlaceholder={language.search}
+    itemDragDataKey="moduleIndex"
+    bind:selectedFolder
+    bind:searchQuery={moduleSearch}
+    bind:visibleItemIndexes={visibleModuleIndexes}
+    bind:emptyMessage={emptyModuleMessage}
+    onMoveItem={moveModule}
+    onSelectItem={selectModule}
+    close={closePicker}
+    onFoldersChange={(next) => {
+        DBState.db.moduleFolders = next;
+        void requestImmediateSave();
+    }}
+    onAssignItem={assignModuleToFolder}
+    onDeleteFolder={(folderId) => {
+        DBState.db.modules = DBState.db.modules.map((rmodule) =>
+            rmodule.folderId === folderId ? { ...rmodule, folderId: undefined } : rmodule
+        );
+        void requestImmediateSave();
+    }}
+>
+    {#snippet itemContent(index)}
+        {@const rmodule = DBState.db.modules[index]}
+        <div class="min-w-0 grow flex items-center gap-2">
+            {#if rmodule.mcp}
+                <Waypoints size={18} class="shrink-0 text-textcolor2" />
+            {/if}
+            <div class="min-w-0 grow truncate">
+                <span class:isModuleGlobal={isGlobal(rmodule.id)}>{rmodule.name}</span>
+                {#if rmodule.description}
+                    <span class="text-textcolor2"> / {rmodule.description}</span>
+                {/if}
             </div>
         </div>
 
-        <span class="text-sm text-textcolor2">{language.chatModulesInfo}</span>
+        {#if !alertMode}
+            <!-- The switch is chat-scoped on left click and character-scoped on right click/long press. -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <div
+                class="mr-1 shrink-0"
+                role="presentation"
+                onclick={(event) => event.stopPropagation()}
+                oncontextmenu={(event) => toggleScoped(rmodule.id, event)}
+                title={language.chatModulesInfo}
+            >
+                <ShSwitch
+                    checked={isPrimary(rmodule.id) || isScoped(rmodule.id)}
+                    disabled={isGlobal(rmodule.id)}
+                    className={isScoped(rmodule.id) && !isPrimary(rmodule.id) ? 'data-[state=checked]:bg-scoped' : ''}
+                    onCheckedChange={(checked) => setPrimary(rmodule.id, checked)}
+                />
+            </div>
+        {/if}
+    {/snippet}
 
-        <TextInput className="mt-4" placeholder={language.search} bind:value={moduleSearch} />
-
-        <div class="contain w-full max-w-full mt-4 flex flex-col border-selected border-1 rounded-md">
-            {#if DBState.db.modules.length === 0}
-                <div class="text-textcolor2 p-3">{language.noModules}</div>
-            {:else}
-                {#each sortModules(DBState.db.modules, moduleSearch) as rmodule, i}
-                    {#if i !== 0}
-                        <div class="border-t-1 border-selected"></div>
-                    {/if}
-                    <div class="pl-3 py-3 text-left flex items-center">
-                        {#if rmodule.mcp}
-                            <Waypoints size={18} class="mr-2" />
-                        {/if}
-                        {#if !alertMode && DBState.db.enabledModules.includes(rmodule.id)}
-                            <span class="text-textcolor2">{rmodule.name}</span>
-                        {:else}
-                            <span class="">{rmodule.name}</span>
-                        {/if}
-                        <div class="grow flex justify-end">
-
-                            {#if alertMode}
-                                <button class={"text-textcolor2 mr-2 cursor-pointer hover:text-success transition-colors"} onclick={async (e) => {
-                                    e.stopPropagation()
-
-                                    close(rmodule.id)
-                                }}>
-                                    <CircleCheckIcon size={18}/>
-                                </button>
-                            {:else if DBState.db.enabledModules.includes(rmodule.id)}
-                                <button class="mr-2 text-textcolor2 cursor-not-allowed"aria-labelledby="disabled">
-                                </button>
-                            {:else}
-                                <button class={(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules.includes(rmodule.id)) ?
-                                        "mr-2 cursor-pointer text-blue-500" :
-                                        (DBState.db.characters[$selectedCharID]?.modules?.includes(rmodule.id)) ?
-                                        "mr-2 cursor-pointer text-violet-500" :
-                                        "text-textcolor2 hover:text-blue-400 mr-2 cursor-pointer"
-                                } onclick={async (e) => {
-                                    e.stopPropagation()
-                                    if(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules.includes(rmodule.id)){
-                                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules.splice(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules.indexOf(rmodule.id), 1)
-
-                                    }
-                                    else{
-                                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules.push(rmodule.id)
-                                    }
-                                    DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules
-                                    $ReloadGUIPointer += 1
-                                }}
-                                oncontextmenu={(e) => {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    if(!DBState.db.characters[$selectedCharID].modules){
-                                        DBState.db.characters[$selectedCharID].modules = []
-                                    }
-                                    if(DBState.db.characters[$selectedCharID].modules.includes(rmodule.id)){
-                                        DBState.db.characters[$selectedCharID].modules.splice(DBState.db.characters[$selectedCharID].modules.indexOf(rmodule.id), 1)
-                                    }
-                                    else{
-                                        DBState.db.characters[$selectedCharID].modules.push(rmodule.id)
-                                    }
-                                    $ReloadGUIPointer += 1
-                                }}>
-
-                                    <CircleCheckIcon size={18}/>
-                                </button>
-                            {/if}
-                        </div>
-                    </div>
-                {/each}
-            {/if}
-        </div>
-        <div>
-            <Button className="mt-4 grow-0" size="sm" onclick={() => {
-                openSettings(SettingsRoute.Module)
-                close('')
-            }}>{language.edit}</Button>
-        </div>
+    <div class="shrink-0 flex justify-start pt-2">
+        <ShButton variant="primary" size="sm" onclick={openModuleSettings}>{language.edit}</ShButton>
     </div>
-</div>
+</PresetPickerLayout>
 
 <style>
-    .break-any{
-        word-break: normal;
-        overflow-wrap: anywhere;
+    .isModuleGlobal {
+        color: var(--risu-theme-textcolor2);
     }
 </style>

@@ -1,4 +1,4 @@
-import { ReadableStream, WritableStream, TransformStream } from "web-streams-polyfill/ponyfill/es2018";
+import { ReadableStream, WritableStream, TransformStream } from "web-streams-polyfill";
 import { Buffer as BufferPolyfill } from 'buffer'
 import { polyfill as dragPolyfill} from "mobile-drag-drop"
 import {scrollBehaviourDragImageTranslateOverride} from 'mobile-drag-drop/scroll-behaviour'
@@ -41,7 +41,6 @@ try {
 globalThis.safeStructuredClone = safeStructuredClone
 
 globalThis.Buffer = BufferPolyfill
-//@ts-expect-error ponyfill WritableStream type is incompatible with globalThis.WritableStream
 globalThis.WritableStream = globalThis.WritableStream ?? WritableStream
 //@ts-expect-error ponyfill ReadableStream type is incompatible with globalThis.ReadableStream
 globalThis.ReadableStream = globalThis.ReadableStream ?? ReadableStream

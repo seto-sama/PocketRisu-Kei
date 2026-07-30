@@ -12,6 +12,8 @@
     import { type triggerEffectV2, type triggerEffect, type triggerscript, displayAllowList, requestAllowList, type triggerV2IfAdvanced } from "src/ts/process/triggers";
     import { onDestroy, onMount } from "svelte";
     import { DBState } from "src/ts/stores.svelte";
+    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
+    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
 
     interface Props {
         value?: triggerscript[];
@@ -2539,8 +2541,8 @@
                             }}>
                         </div>
                     </div>
-                    <div class="flex gap-2">
-                        <button class="p-2 border-t-darkborderc text-start text-textcolor2 hover:text-textcolor focus:bg-bgcolor" onclick={() => {
+                    <IconButtonGroup className="my-2">
+                        <IconButton onclick={() => {
                             value.push({
                                 comment: "",
                                 type: "manual",
@@ -2550,8 +2552,8 @@
                             selectedIndex = value.length - 1
                         }}>
                             <PlusIcon />
-                        </button>
-                        <button class="p-2 border-t-darkborderc text-start text-textcolor2 hover:text-textcolor focus:bg-bgcolor" onclick={() => {
+                        </IconButton>
+                        <IconButton onclick={() => {
                             const triggersToExport = value.slice(1);
                             const jsonData = JSON.stringify(triggersToExport, null, 2);
                             
@@ -2568,13 +2570,13 @@
                             URL.revokeObjectURL(url);
                         }}>
                             <DownloadIcon />
-                        </button>
-                        <button class="p-2 border-t-darkborderc text-start text-textcolor2 hover:text-textcolor focus:bg-bgcolor" onclick={() => {
+                        </IconButton>
+                        <IconButton onclick={() => {
                             importTriggers()
                         }}>
                             <UploadIcon />
-                        </button>
-                    </div>
+                        </IconButton>
+                    </IconButtonGroup>
                     <Button className="mt-2" onclick={(e) => {
                         e?.stopPropagation();
                         close();
@@ -2582,14 +2584,14 @@
                 </div>
 
                 <div class="md:flex-1 bg-darkbg flex-col flex h-svh min-h-svh md:h-auto md:min-h-0">
-                    <div class="mb-0 grid grid-cols-2 items-stretch" onclick={() => {
+                    <div class="mb-0 grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] items-stretch" onclick={() => {
                         selectMode = 1
                         selectedEffectIndex = -1
                     }}>
-                        <div class="p-2 flex flex-col h-full min-h-18">
+                        <div class="p-2 flex min-w-0 flex-col h-full min-h-18">
                             <span class="block text-textcolor2">{language.name}</span>
-                            <div class="flex-1 min-h-10 flex">
-                                <TextInput className="flex-1" value={value && value[selectedIndex] ? (value[selectedIndex].comment || '') : ''} onchange={(e) => {
+                            <div class="flex-1 min-w-0 min-h-10 flex">
+                                <TextInput className="flex-1 min-w-0 w-full" value={value && value[selectedIndex] ? (value[selectedIndex].comment || '') : ''} onchange={(e) => {
                                 if (!value || !value[selectedIndex] || selectedIndex < 0 || selectedIndex >= value.length) return;
                                 const comment = e.currentTarget.value
                                 const prev = value[selectedIndex].comment
@@ -2606,11 +2608,11 @@
                             }} />
                             </div>
                         </div>
-                        <div class="p-2 flex flex-col h-full min-h-18">
+                        <div class="p-2 flex min-w-0 flex-col h-full min-h-18">
                             <span class="block text-textcolor2">{language.triggerOn}</span>
                             {#if value && value[selectedIndex] && selectedIndex >= 0 && selectedIndex < value.length}
-                                <div class="flex-1 min-h-10 flex">
-                                    <SelectInput className="flex-1" bind:value={value[selectedIndex].type}>
+                                <div class="flex-1 min-w-0 min-h-10 flex">
+                                    <SelectInput className="flex-1 min-w-0 w-full" bind:value={value[selectedIndex].type}>
                                     <OptionInput value="start">{language.triggerStart}</OptionInput>
                                     <OptionInput value="output">{language.triggerOutput}</OptionInput>
                                     <OptionInput value="input">{language.triggerInput}</OptionInput>
@@ -3578,7 +3580,7 @@
                         </SelectInput>
                         <TextInput bind:value={editTrigger.display} />
 
-                        <span class="block text-textcolor">{language.triggerInputLabels.options} <Help key="v2GetAlertSelect" /></span>
+                        <span class="block text-textcolor">{language.triggerInputLabels.options}<Help key="v2GetAlertSelect" /></span>
                         <SelectInput bind:value={editTrigger.valueType}>
                             <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
                             <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
@@ -3805,7 +3807,7 @@
                         </SelectInput>
                         <TextInput bind:value={editTrigger.flags} />
 
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar} <Help key="v2RegexTest" /></span>
+                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}<Help key="v2RegexTest" /></span>
                         <TextInput bind:value={editTrigger.outputVar} />
                     {:else if editTrigger.type === 'v2GetReplaceGlobalNote'}
                         <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
@@ -3923,7 +3925,7 @@
                         <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
                         <TextInput bind:value={editTrigger.outputVar} />
                     {:else if editTrigger.type === 'v2Calculate'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.expression} <Help key="v2Calculate" /></span>
+                        <span class="block text-textcolor">{language.triggerInputLabels.expression}<Help key="v2Calculate" /></span>
                         <SelectInput bind:value={editTrigger.expressionType}>
                             <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
                             <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>

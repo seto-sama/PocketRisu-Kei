@@ -19,14 +19,23 @@ import type {
  *
  * id policy: custom profile / baseProvider ids are namespaced with `custom::`
  * so they never collide with official ids. Identity is (registryId, id); the
- * prefix is the collision guard. version is not used for update detection
- * (updatedAt is) — a default is filled on import only to satisfy the type.
+ * prefix is the collision guard. `updatedAt` is the revision marker used for
+ * update detection.
  */
 export const CUSTOM_REGISTRY_ID = 'custom'
 export const CUSTOM_ID_PREFIX = 'custom::'
 export const FRAGMENT_SCHEMA_VERSION = 1
 
-const ADAPTER_KINDS: AdapterKind[] = ['openai-compatible', 'anthropic-messages', 'google-gemini']
+const ADAPTER_KINDS: AdapterKind[] = [
+    'openai-compatible',
+    'openai-responses',
+    'anthropic-messages',
+    'google-gemini',
+    'amazon-bedrock',
+    'custom',
+    'plugin',
+    'echo',
+]
 
 /** Self-contained import/export unit: one profile plus its base provider. */
 export interface ProfileFragment {
@@ -45,17 +54,17 @@ function ensureCustomId(id: string): string {
 }
 
 /**
- * Build a shareable fragment from a resolved profile + base provider. `version`
- * is stripped (unused; updatedAt is the basis); the caller stamps a fresh
- * `updatedAt` on the profile when exporting an edited copy.
+ * Build a shareable fragment from a resolved profile + base provider. The
+ * caller stamps a fresh `updatedAt` on the profile when exporting an edited
+ * copy.
  */
 export function buildProfileFragment(
     profile: ModelProfile,
     baseProvider: BaseProviderDefinition,
     now: number,
 ): ProfileFragment {
-    const profileCopy = structuredClone(profile) as ModelProfile & { version?: number }
-    const baseCopy = structuredClone(baseProvider) as BaseProviderDefinition & { version?: number }
+    const profileCopy = structuredClone(profile) as ModelProfile & { version?: unknown }
+    const baseCopy = structuredClone(baseProvider) as BaseProviderDefinition & { version?: unknown }
     delete profileCopy.version
     delete baseCopy.version
     return {
@@ -125,7 +134,6 @@ export function validateFragment(raw: unknown): FragmentValidation {
  *    importing an edited copy of an official profile lands as a *new custom*
  *    profile rather than clobbering the official one.
  *  - profileUpdatedAt source (`updatedAt`) defaults to `now` when absent.
- *  - `version` defaults to 1 (type-only; unused for update detection).
  */
 export function importFragment(
     cache: RegistryCache,
@@ -138,16 +146,17 @@ export function importFragment(
     const baseProvider: BaseProviderDefinition = {
         ...fragment.baseProvider,
         id: baseId,
-        version: fragment.baseProvider.version ?? 1,
     }
     const profile: ModelProfile = {
         ...fragment.profile,
         id: profileId,
         providerBaseId: baseId,
-        version: fragment.profile.version ?? 1,
         updatedAt: fragment.profile.updatedAt ?? now,
         profileStatus: fragment.profile.profileStatus ?? 'current',
     }
+    // Imported legacy fragments may still contain the retired revision fields.
+    delete (baseProvider as BaseProviderDefinition & { version?: unknown }).version
+    delete (profile as ModelProfile & { version?: unknown }).version
 
     const registry = (cache.registries[CUSTOM_REGISTRY_ID] ??= {
         fetchedAt: now,
@@ -191,25 +200,40 @@ export function getProfileUpdateStatus(
     return 'none'
 }
 
+export interface MigrateUserValuesOptions {
+    /** When supplied, values whose field type changed are dropped as incompatible. */
+    currentSchema?: RegistryFieldSchema[]
+    /** Profile replacement seeds defaults; snapshot repair/update leaves them implicit. */
+    seedDefaults?: boolean
+}
+
 /**
- * Migrate userValues when a preset's profile is replaced (custom-profiles §3):
- * keep values whose key still exists in the new schema, DROP the rest (orphans),
- * and seed defaults for new fields. Orphan loss is surfaced to the user via a
- * confirm before this runs.
+ * Migrate userValues when a preset's profile schema changes:
+ * keep compatible values whose key still exists, report the rest, and optionally
+ * seed defaults for new fields.
  */
 export function migrateUserValues(
     oldValues: Record<string, unknown> | undefined,
     newSchema: RegistryFieldSchema[],
+    options: MigrateUserValuesOptions = {},
 ): { values: Record<string, unknown>; droppedKeys: string[] } {
-    const newKeys = new Set(newSchema.map((f) => f.key))
+    const newByKey = new Map(newSchema.map((f) => [f.key, f]))
+    const currentByKey = new Map((options.currentSchema ?? []).map((f) => [f.key, f]))
     const values: Record<string, unknown> = {}
     const droppedKeys: string[] = []
     for (const [k, v] of Object.entries(oldValues ?? {})) {
-        if (newKeys.has(k)) values[k] = v
-        else droppedKeys.push(k)
+        const nextField = newByKey.get(k)
+        const currentField = currentByKey.get(k)
+        if (!nextField || (currentField && currentField.type !== nextField.type)) {
+            droppedKeys.push(k)
+            continue
+        }
+        values[k] = v
     }
-    for (const f of newSchema) {
-        if (f.default !== undefined && !(f.key in values)) values[f.key] = f.default
+    if (options.seedDefaults !== false) {
+        for (const f of newSchema) {
+            if (f.default !== undefined && !(f.key in values)) values[f.key] = f.default
+        }
     }
     return { values, droppedKeys }
 }
@@ -227,7 +251,6 @@ export function buildFragmentFromSnapshot(
 ): ProfileFragment {
     const baseProvider: BaseProviderDefinition = {
         id: snapshot.providerBaseId,
-        version: 1,
         displayName: snapshot.providerBaseId,
         adapterKind: snapshot.adapterKind,
         // Tolerate an incomplete snapshot (auth/endpoint may be null on a
@@ -240,7 +263,6 @@ export function buildFragmentFromSnapshot(
     }
     const profile: ModelProfile = {
         id: snapshot.profileId,
-        version: 1,
         updatedAt: now,
         displayName,
         providerBaseId: snapshot.providerBaseId,

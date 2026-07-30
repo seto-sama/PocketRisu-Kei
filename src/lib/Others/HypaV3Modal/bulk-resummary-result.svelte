@@ -8,9 +8,15 @@
   import { language } from "src/lang";
   import type { BulkResummaryState } from "./types";
   import { handleDualAction } from "./utils";
+  import IconButton from "src/lib/UI/GUI/IconButton.svelte";
+  import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+  import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
 
   interface Props {
-    bulkResummaryState: BulkResummaryState;
+    bulkResummaryState: BulkResummaryState | null;
+    title?: string;
+    processingTitle?: string;
+    fillHeight?: boolean;
     onToggleTranslation: (regenerate: boolean) => void;
     onReroll: () => void;
     onApply: () => void;
@@ -19,94 +25,100 @@
 
   let {
     bulkResummaryState,
+    title = language.hypaV3Modal.reSummarizeResult,
+    processingTitle = language.hypaV3Modal.reSummarizing,
+    fillHeight = false,
     onToggleTranslation,
     onReroll,
     onApply,
     onCancel,
   }: Props = $props();
+
 </script>
 
 <!-- Bulk Resummarize Result Section -->
 {#if bulkResummaryState}
-  <div class="sticky bottom-0 p-4 bg-zinc-900 border-t border-zinc-700 rounded-b-lg">
-    <div class="flex flex-col gap-3">
+  <div class="{fillHeight ? 'flex-1 min-h-0' : 'shrink-0'} border-t border-darkborderc pt-4">
+    <div class="flex flex-col gap-3 {fillHeight ? 'h-full min-h-0' : ''}">
       <div class="flex justify-between items-center">
-        <h3 class="text-sm font-medium text-zinc-300">{language.hypaV3Modal.reSummarizeResult}</h3>
-        <div class="flex items-center gap-2">
+        <h3 class="text-sm font-medium text-textcolor">{title}</h3>
+        <IconButtonGroup size="xl" style="--icon-size:16px">
           <!-- Translate Button -->
-          <button
-            class="p-2 text-zinc-400 hover:text-zinc-200 transition-colors {bulkResummaryState.isProcessing || !bulkResummaryState.result 
-              ? 'opacity-50 cursor-not-allowed' 
-              : ''}"
-            disabled={bulkResummaryState.isProcessing || !bulkResummaryState.result}
-            title={language.hypaV3Modal.translate}
+          <span
+            class="inline-flex"
             use:handleDualAction={{
               onMainAction: () => onToggleTranslation(false),
               onAlternativeAction: () => onToggleTranslation(true),
             }}
           >
-            <LanguagesIcon class="w-4 h-4" />
-          </button>
+            <IconButton
+              disabled={bulkResummaryState.isProcessing || !bulkResummaryState.result}
+              title={language.hypaV3Modal.translate}
+            >
+              <LanguagesIcon />
+            </IconButton>
+          </span>
           
           <!-- Reroll Button -->
-          <button
-            class="p-2 rounded transition-colors {bulkResummaryState.isProcessing 
-              ? 'text-zinc-600 cursor-not-allowed' 
-              : 'text-orange-400 hover:text-orange-300'}"
+          <IconButton
             onclick={onReroll}
             disabled={bulkResummaryState.isProcessing}
             title={language.hypaV3Modal.retry}
           >
-            <RefreshCw class="w-4 h-4" />
-          </button>
+            <RefreshCw />
+          </IconButton>
           
           <!-- Apply Button -->
-          <button
-            class="p-2 rounded transition-colors {bulkResummaryState.isProcessing || !bulkResummaryState.result 
-              ? 'text-zinc-600 cursor-not-allowed' 
-              : 'text-green-400 hover:text-green-300'}"
+          <IconButton
+            active
+            activeColor="primary"
             onclick={onApply}
             disabled={bulkResummaryState.isProcessing || !bulkResummaryState.result}
             title={language.apply}
           >
-            <CheckIcon class="w-4 h-4" />
-          </button>
+            <CheckIcon />
+          </IconButton>
           
           <!-- Cancel Button -->
-          <button
-            class="p-2 rounded-sm transition-colors text-zinc-400 hover:text-zinc-200"
+          <IconButton
             onclick={onCancel}
             title={language.cancel}
           >
-            <XIcon class="w-4 h-4" />
-          </button>
-        </div>
+            <XIcon />
+          </IconButton>
+        </IconButtonGroup>
       </div>
       
       <!-- Result Content -->
       {#if bulkResummaryState.isProcessing}
-        <div class="text-center py-4 text-zinc-400">
-          <RefreshCw class="w-6 h-6 animate-spin inline mr-2" />
-          {language.hypaV3Modal.reSummarizing}
+        <div class="py-4 text-center text-textcolor2">
+          <RefreshCw class="mr-2 inline animate-spin" />
+          {processingTitle}
         </div>
       {:else if bulkResummaryState.result}
-        <textarea
-          class="p-3 w-full min-h-32 resize-vertical rounded-sm border border-zinc-700 focus:outline-hidden focus:ring-2 focus:ring-zinc-500 transition-colors text-zinc-200 bg-zinc-800"
+        <TextAreaInput
+          fullwidth
+          actionBar
+          className="bg-darkbg"
+          height={fillHeight ? "full" : "32"}
           readonly
-          value={bulkResummaryState.result}
-        ></textarea>
+          bind:value={bulkResummaryState.result}
+        />
         
         <!-- Translation Result -->
         {#if bulkResummaryState.translation}
-          <div class="mt-3">
-            <div class="mb-2 text-sm text-zinc-400">
+          <div class="{fillHeight ? 'flex flex-col min-h-0 flex-1' : 'mt-3'}">
+            <div class="mb-2 text-sm text-textcolor2">
               {language.hypaV3Modal.translationLabel}
             </div>
-            <textarea
-              class="p-3 w-full min-h-32 resize-vertical rounded-sm border border-zinc-700 focus:outline-hidden transition-colors text-zinc-200 bg-zinc-800"
+            <TextAreaInput
+              fullwidth
+              actionBar
+              className="bg-darkbg"
+              height={fillHeight ? "full" : "32"}
               readonly
-              value={bulkResummaryState.translation}
-            ></textarea>
+              bind:value={bulkResummaryState.translation}
+            />
           </div>
         {/if}
       {/if}

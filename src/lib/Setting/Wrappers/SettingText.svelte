@@ -36,7 +36,8 @@
     <SettingRowLayout {item}>
         {#snippet control()}
             <TextInput
-                className="w-48 text-sm"
+                className="h-8 w-48 text-sm"
+                size="sm"
                 bind:value={localValue}
                 placeholder={item.options?.placeholder}
                 hideText={item.options?.hideText}

@@ -29,6 +29,7 @@ export async function convertPdfToImages(pdfBuffer: ArrayBuffer, options?: {
         canvas.width = viewport.width
         
         const renderContext = {
+            canvas,
             canvasContext: context,
             viewport: viewport
         }

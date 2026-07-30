@@ -94,8 +94,8 @@
     </div>
 
     {#snippet footer()}
-        <ShButton variant="default" size="sm" onclick={uploadSound}>
-            <UploadIcon size={16} />
+        <ShButton variant="outline" size="sm" onclick={uploadSound}>
+            <UploadIcon />
             {language.uploadSound}
         </ShButton>
     {/snippet}

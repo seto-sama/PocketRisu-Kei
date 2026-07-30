@@ -1,6 +1,8 @@
 <script lang="ts">
     
 import { DBState } from 'src/ts/stores.svelte';
+import { PRODUCT_BASE_NAME, PRODUCT_NAME } from 'src/ts/branding';
+import KeiSticker from './KeiSticker.svelte';
 
 let specialDay = $state('')
     const today = new Date()
@@ -64,11 +66,18 @@ let specialDay = $state('')
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<h2 class="text-4xl text-textcolor mb-0 mt-6 font-black relative" class:text-bordered={specialDay === 'newYear'} onclick={onClick}>
+<h2
+    class="text-4xl text-textcolor mb-0 mt-6 font-black relative"
+    class:text-bordered={specialDay === 'newYear'}
+    aria-label={PRODUCT_NAME}
+    onclick={onClick}
+>
     {#if specialDay === 'midAutumn'}
-        <span class="text-amber-400">🐉PocketRisu🐉</span>
+        <span class="inline-flex items-center whitespace-nowrap text-amber-400">
+            🐉{PRODUCT_BASE_NAME}<KeiSticker />🐉
+        </span>
     {:else if specialDay === 'chuseok'}
-        <div class="flex">
+        <div class="flex items-center whitespace-nowrap">
             <span class="text-blue-500">P</span>
             <span class="text-red-500">o</span>
             <span class="text-yellow-500">c</span>
@@ -79,9 +88,12 @@ let specialDay = $state('')
             <span class="text-yellow-500">i</span>
             <span class="text-white">s</span>
             <span class="text-black">u</span>
+            <KeiSticker />
         </div>
     {:else}
-        PocketRisu
+        <span class="inline-flex items-center whitespace-nowrap">
+            {PRODUCT_BASE_NAME}<KeiSticker />
+        </span>
     {/if}
     {#if specialDay === 'christmas'}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -111,7 +123,7 @@ let specialDay = $state('')
 
 {#if specialDay === 'nodeonlyAnniversary'}
     <h1>
-        <span class="text-2xl font-extralight italic text-amber-400 hover:text-amber-600 transition">PocketRisu {
+        <span class="text-2xl font-extralight italic text-amber-400 hover:text-amber-600 transition">{PRODUCT_NAME} {
             new Date().getFullYear() - 2026
         }{getNumberPostfix(new Date().getFullYear() - 2026)} Anniversary!</span>
     </h1>

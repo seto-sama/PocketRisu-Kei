@@ -12,15 +12,15 @@
         busy = true;
         status = "";
         try {
-            // force=true bypasses the debounce + gate skip, re-downloading from
-            // the current registry source (default or custom).
+            // force=true bypasses the cache interval and downloads models.dev
+            // again. Echo and Plugin do not depend on this request.
             const res = await syncRemoteRegistry(true);
             if (!res.ok) {
                 status = res.error ? `${language.registrySyncFailed}: ${res.error}` : language.registrySyncFailed;
             } else if (res.changed) {
                 status = language.registrySyncUpdated;
             } else if (res.downloaded) {
-                // Re-downloaded but the catalog gate didn't move (e.g. a heal).
+                // Re-downloaded but the catalog content did not change.
                 status = language.registryRefreshed;
             } else {
                 status = language.registrySyncUpToDate;
@@ -40,7 +40,7 @@
         <p class="text-xs text-textcolor2 mt-0.5">{status || language.registryRefreshHelp}</p>
     </div>
     <ShButton variant="outline" size="sm" onclick={refresh} disabled={busy} className="shrink-0">
-        <RefreshCwIcon size={14} class={busy ? "animate-spin" : ""} />
+        <RefreshCwIcon class={busy ? "animate-spin" : ""} />
         <span class="ml-1">{busy ? language.registrySyncing : language.registryRefreshNow}</span>
     </ShButton>
 </div>

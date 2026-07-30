@@ -1,41 +1,12 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import Button from "src/lib/UI/GUI/Button.svelte";
-    import { DBState } from 'src/ts/stores.svelte';
-    import { alertMd, notifySuccess } from "src/ts/alert";
-    import { downloadFile, getRequestLog } from "src/ts/globalApi.svelte";
+    import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
+    import { notifySuccess } from "src/ts/alert";
+    import { downloadFile } from "src/ts/globalApi.svelte";
     import { getDatabase } from "src/ts/storage/database.svelte";
     import { isNodeServer } from "src/ts/platform";
 
-</script>
-
-<Button
-    className="mt-4"
-    onclick={async () => {
-        alertMd(getRequestLog())
-    }}
->
-    {language.ShowLog}
-</Button>
-
-<Button
-    className="mt-4"
-    onclick={async () => {
-        let mdTable = "| Type | Value |\n| --- | --- |\n"
-        const s = DBState.db.statics
-        for (const key in s) {
-            mdTable += `| ${key} | ${s[key]} |\n`
-        }
-        mdTable += `\n\n<small>${language.staticsDisclaimer}</small>`
-        alertMd(mdTable)
-    }}
->
-Show Statistics
-</Button>
-
-<Button
-    className="mt-4"
-    onclick={async () => {
+    async function exportCurrentSettings() {
         const db = safeStructuredClone(getDatabase({
             snapshot: true
         }))
@@ -67,9 +38,13 @@ Show Statistics
         await downloadFile('risuai-settings-report.json', new TextEncoder().encode(json))
         await navigator.clipboard.writeText(json)
         notifySuccess(language.settingsExported)
-        
+    }
+</script>
 
-    }}
->
-Export Settings for Bug Report
-</Button>
+<SettingLayout
+    variant="row"
+    title={language.exportCurrentSettings}
+    description={language.help.exportCurrentSettings}
+    actionLabel={language.export}
+    onAction={exportCurrentSettings}
+/>

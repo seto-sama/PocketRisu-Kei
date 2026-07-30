@@ -53,15 +53,23 @@ interface PersonaCard {
     note?: string
 }
 
-export async function exportUserPersona() {
+export async function exportUserPersona(personaIndex?: number) {
     let db = getDatabase({ snapshot: true })
-    if ((!db.username) || (!db.personaPrompt)) {
+    const persona = personaIndex === undefined
+        ? {
+            name: db.username,
+            personaPrompt: db.personaPrompt,
+            note: db.userNote,
+            icon: db.userIcon,
+        }
+        : db.personas[personaIndex]
+    if (!persona || !persona.name || !persona.personaPrompt) {
         notifyError("username or persona prompt is empty")
         return
     }
 
     let img: Uint8Array
-    if (!db.userIcon) {
+    if (!persona.icon) {
         const canvas = document.createElement('canvas')
         canvas.width = 256
         canvas.height = 256
@@ -72,13 +80,13 @@ export async function exportUserPersona() {
         const base64 = dataUrl.split(',')[1]
         img = new Uint8Array(Buffer.from(base64, 'base64'))
     } else {
-        img = await readImage(db.userIcon)
+        img = await readImage(persona.icon)
     }
 
     let card: PersonaCard = safeStructuredClone({
-        name: db.username,
-        personaPrompt: db.personaPrompt,
-        note: db.userNote,
+        name: persona.name,
+        personaPrompt: persona.personaPrompt,
+        note: persona.note,
     })
 
     alertStore.set({
@@ -98,7 +106,7 @@ export async function exportUserPersona() {
     })
 
     await sleep(10)
-    await downloadFile(`${db.username.replace(/[<>:"/\\|?*\.\,]/g, "")}_export.png`, img)
+    await downloadFile(`${persona.name.replace(/[<>:"/\\|?*\.\,]/g, "")}_export.png`, img)
 
     notifySuccess(language.successExport)
 }

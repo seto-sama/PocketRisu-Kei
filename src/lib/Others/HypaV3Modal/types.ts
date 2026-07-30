@@ -1,26 +1,29 @@
 export interface SummaryItemState {
-  originalRef: HTMLTextAreaElement;
-  translationRef: HTMLTextAreaElement;
-  rerolledTranslationRef: HTMLTextAreaElement;
-  chatMemoRefs: HTMLButtonElement[];
+  originalRef: HTMLTextAreaElement | null;
+  translationRef: HTMLTextAreaElement | null;
+  rerolledTranslationRef: HTMLTextAreaElement | null;
+  chatMemoRefs: Array<HTMLButtonElement | null>;
 }
 
-export interface ExpandedMessageState {
+export interface ExpandedMessage {
   summaryIndex: number;
-  selectedChatMemo: string;
+  selectedChatMemo: string | null;
   isTranslating: boolean;
   translation: string | null;
-  translationRef: HTMLTextAreaElement;
+  translationRef: HTMLTextAreaElement | null;
 }
 
-export interface SearchState {
-  ref: HTMLInputElement;
+export type ExpandedMessageState = ExpandedMessage | null;
+
+export interface SearchSession {
   query: string;
   results: SearchResult[];
   currentResultIndex: number;
   requestedSearchFromIndex: number;
   isNavigating: boolean;
 }
+
+export type SearchState = SearchSession | null;
 
 export type SearchResult = SummarySearchResult | ChatMemoSearchResult;
 
@@ -55,15 +58,6 @@ export interface Category {
 export interface CategoryManagerState {
     isOpen: boolean;
     editingCategory: Category | null;
-    selectedCategoryFilter: string;
-}
-
-// Tag Management Types
-export interface TagManagerState {
-    isOpen: boolean;
-    currentSummaryIndex: number;
-    editingTag: string;
-    editingTagIndex: number;
 }
 
 // Bulk Edit Types
@@ -78,13 +72,6 @@ export interface BulkEditState {
 export interface FilterState {
     showImportantOnly: boolean;
     selectedCategoryFilter: string;
-    isManualImportantToggle: boolean;
-}
-
-// UI States
-export interface UIState {
-    collapsedSummaries: Set<number>;
-    dropdownOpen: boolean;
 }
 
 export const DISPLAY_MODE = {

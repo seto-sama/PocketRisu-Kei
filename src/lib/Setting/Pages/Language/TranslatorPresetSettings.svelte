@@ -1,186 +1,185 @@
 <script lang="ts">
-    import { DownloadIcon, HardDriveUploadIcon, PencilIcon, PlusIcon, TrashIcon } from "@lucide/svelte";
-    import Help from "src/lib/Others/Help.svelte";
-    import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import ShSelect from "src/lib/UI/GUI/ShSelect.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import { alertConfirm, alertError, alertInput, notifySuccess, notifyError } from "src/ts/alert";
+    import { language } from "src/lang";
+    import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
+    import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
+    import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
+    import SettingRenderer from "../../SettingRenderer.svelte";
+    import type { SettingItem } from "src/ts/setting/types";
+    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import {
-        createTranslatorPreset,
-        decodeTranslatorPresetFile,
-        defaultTranslatorPrompt,
-        encodeTranslatorPresetFile,
-        getTranslatorPresetDownloadName,
-        normalizeTranslatorPresetState,
-        syncCurrentTranslatorPresetToLegacyFields,
+        createTranslatorPreset, decodeTranslatorPresetFile, defaultTranslatorPrompt,
+        encodeTranslatorPresetFile, getTranslatorPresetDownloadName,
+        normalizeTranslatorPresetState, syncCurrentTranslatorPresetToLegacyFields,
         translatorPresetImportExtensions,
     } from "src/ts/translator/presets";
     import { selectSingleFile } from "src/ts/util";
-    import { language } from "src/lang";
 
-    function normalizeTranslatorPresets() {
+    let pickerOpen = $state(false);
+    let editMode = $state(false);
+    let selectedFolder = $state("all");
+    let searchQuery = $state("");
+    let visibleItemIndexes = $state<number[]>([]);
+    let emptyMessage = $state("");
+
+    const folders = $derived(DBState.db.translatorPresetFolders ?? []);
+    const activePreset = $derived(DBState.db.translatorPresets?.[DBState.db.translatorPresetId]);
+    const activePresetItems = $derived.by((): SettingItem[] => activePreset ? [
+        {
+            id: 'translatorPreset.maxResponse', type: 'slider', labelKey: 'translationResponseSize', helpKey: 'translationResponseSize',
+            bindPath: 'maxResponse',
+            onChange: sync,
+            options: { min: 1, max: 64000, step: 1 },
+        },
+        {
+            id: 'translatorPreset.prompt', type: 'textarea', labelKey: 'translatorPrompt', helpKey: 'translatorPrompt',
+            bindPath: 'prompt',
+            onChange: sync,
+            options: { placeholder: defaultTranslatorPrompt },
+        },
+    ] : []);
+
+    function sync() {
+        syncCurrentTranslatorPresetToLegacyFields(DBState.db);
+    }
+
+    function selectPreset(index: number) {
+        DBState.db.translatorPresetId = index;
+        sync();
+        pickerOpen = false;
+    }
+
+    function movePreset(fromIndex: number, toIndex: number) {
+        const presets = DBState.db.translatorPresets;
+        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= presets.length || toIndex > presets.length) return;
+        const next = [...presets];
+        const [moved] = next.splice(fromIndex, 1);
+        if (!moved) return;
+        const target = fromIndex < toIndex ? toIndex - 1 : toIndex;
+        next.splice(target, 0, moved);
+        const current = DBState.db.translatorPresetId;
+        if (current === fromIndex) DBState.db.translatorPresetId = target;
+        else if (fromIndex < current && target >= current) DBState.db.translatorPresetId = current - 1;
+        else if (fromIndex > current && target <= current) DBState.db.translatorPresetId = current + 1;
+        DBState.db.translatorPresets = next;
+        sync();
+    }
+
+    function addPreset() {
+        const preset = createTranslatorPreset();
+        preset.folderId = selectedFolder !== "all" && selectedFolder !== "uncategorized"
+            ? selectedFolder : undefined;
+        DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
+        DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
         normalizeTranslatorPresetState(DBState.db);
     }
 
-    function syncCurrentTranslatorPreset() {
-        syncCurrentTranslatorPresetToLegacyFields(DBState.db);
+    function duplicatePreset(index: number) {
+        const preset = safeStructuredClone(DBState.db.translatorPresets[index]);
+        preset.name = `${preset.name} Copy`;
+        DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
+        DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
+        normalizeTranslatorPresetState(DBState.db);
+        notifySuccess(language.presetDuplicated);
+    }
+
+    async function removePreset(index: number) {
+        if (DBState.db.translatorPresets.length <= 1) {
+            notifyError("There must be at least one preset.");
+            return;
+        }
+        const preset = DBState.db.translatorPresets[index];
+        if (!await alertConfirm(`${language.removeConfirm}${preset.name}`)) return;
+        DBState.db.translatorPresets = DBState.db.translatorPresets.filter((_, i) => i !== index);
+        DBState.db.translatorPresetId = Math.min(DBState.db.translatorPresetId, DBState.db.translatorPresets.length - 1);
+        normalizeTranslatorPresetState(DBState.db);
+    }
+
+    async function exportPreset(index: number) {
+        try {
+            const preset = DBState.db.translatorPresets[index];
+            await downloadFile(getTranslatorPresetDownloadName(preset.name), await encodeTranslatorPresetFile(preset));
+            notifySuccess(language.successExport);
+        } catch (error) {
+            alertError(`${error}`);
+        }
+    }
+
+    async function importPreset() {
+        try {
+            const file = await selectSingleFile(translatorPresetImportExtensions);
+            if (!file) return;
+            const preset = await decodeTranslatorPresetFile(file.data);
+            preset.folderId = selectedFolder !== "all" && selectedFolder !== "uncategorized"
+                ? selectedFolder : undefined;
+            DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
+            DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
+            normalizeTranslatorPresetState(DBState.db);
+            notifySuccess(language.successImport);
+        } catch (error) {
+            alertError(`${error}`);
+        }
     }
 </script>
 
-<span class="text-textcolor mt-4">{language.presets} <Help key="translatorPreset" /></span>
-<ShSelect
-    className="mt-2 mb-1"
-    value={DBState.db.translatorPresetId}
-    onchange={(e) => {
-        DBState.db.translatorPresetId = Number((e.target as HTMLSelectElement).value);
-        syncCurrentTranslatorPreset();
-    }}
->
-    {#each DBState.db.translatorPresets as preset, i}
-        <OptionInput value={i}>{preset.name}</OptionInput>
-    {/each}
-</ShSelect>
-
-<div class="flex items-center mb-4">
-    <button
-        class="mr-2 text-textcolor2 hover:text-primary cursor-pointer"
-        onclick={() => {
-            const newPreset = createTranslatorPreset();
-            const presets = DBState.db.translatorPresets;
-            presets.push(newPreset);
-            DBState.db.translatorPresets = presets;
-            DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
-            normalizeTranslatorPresets();
-        }}
-    >
-        <PlusIcon size={24} />
-    </button>
-
-    <button
-        class="mr-2 text-textcolor2 hover:text-primary cursor-pointer"
-        onclick={async () => {
-            const presets = DBState.db.translatorPresets;
-
-            if (presets.length === 0) {
-                notifyError("There must be at least one preset.");
-                return;
-            }
-
-            const id = DBState.db.translatorPresetId;
-            const preset = presets[id];
-            const newName = await alertInput(`Enter new name for ${preset.name}`, [], preset.name);
-
-            if (!newName || newName.trim().length === 0) return;
-
-            preset.name = newName;
-            DBState.db.translatorPresets = presets;
-            syncCurrentTranslatorPreset();
-        }}
-    >
-        <PencilIcon size={24} />
-    </button>
-
-    <button
-        class="mr-2 text-textcolor2 hover:text-red-400 cursor-pointer"
-        onclick={async () => {
-            const presets = DBState.db.translatorPresets;
-
-            if (presets.length <= 1) {
-                notifyError("There must be at least one preset.");
-                return;
-            }
-
-            const id = DBState.db.translatorPresetId;
-            const preset = presets[id];
-            const confirmed = await alertConfirm(`${language.removeConfirm}${preset.name}`);
-
-            if (!confirmed) return;
-
-            DBState.db.translatorPresetId = 0;
-            presets.splice(id, 1);
-            DBState.db.translatorPresets = presets;
-            normalizeTranslatorPresets();
-        }}
-    >
-        <TrashIcon size={24} />
-    </button>
-
-    <div class="ml-2 mr-4 w-px h-full bg-darkborderc"></div>
-
-    <button
-        class="mr-2 text-textcolor2 hover:text-primary cursor-pointer"
-        onclick={async () => {
-            try {
-                const presets = DBState.db.translatorPresets;
-
-                if (presets.length === 0) {
-                    notifyError("There must be at least one preset.");
-                    return;
-                }
-
-                const preset = presets[DBState.db.translatorPresetId];
-                await downloadFile(
-                    getTranslatorPresetDownloadName(preset.name),
-                    await encodeTranslatorPresetFile(preset)
-                );
-                notifySuccess(language.successExport);
-            } catch (error) {
-                alertError(`${error}`);
-            }
-        }}
-    >
-        <DownloadIcon size={24} />
-    </button>
-
-    <button
-        class="mr-2 text-textcolor2 hover:text-primary cursor-pointer"
-        onclick={async () => {
-            try {
-                const selectedFile = await selectSingleFile(translatorPresetImportExtensions);
-
-                if (!selectedFile) return;
-
-                const newPreset = await decodeTranslatorPresetFile(selectedFile.data);
-                const presets = DBState.db.translatorPresets;
-
-                presets.push(newPreset);
-                DBState.db.translatorPresets = presets;
-                DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
-                normalizeTranslatorPresets();
-
-                notifySuccess(language.successImport);
-            } catch (error) {
-                alertError(`${error}`);
-            }
-        }}
-    >
-        <HardDriveUploadIcon size={24} />
-    </button>
+<div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
+    <div class="flex flex-col gap-0.5 min-w-0">
+        <span class="text-sm text-textcolor">{language.presets}</span>
+        <span class="text-xs text-textcolor2">{language.help.translatorPreset}</span>
+    </div>
+    <PresetHeader
+        compact
+        label={language.presets}
+        activeName={activePreset?.name ?? "Default"}
+        onManage={() => pickerOpen = true}
+    />
 </div>
 
-{#if DBState.db.translatorPresets?.[DBState.db.translatorPresetId]}
-    {@const preset = DBState.db.translatorPresets[DBState.db.translatorPresetId]}
-    <span class="text-textcolor mt-4">{language.translationResponseSize} <Help key="translationResponseSize" /></span>
-    <NumberInput
-        className="mt-2"
-        min={0}
-        max={2048}
-        marginBottom={true}
-        bind:value={() => preset.maxResponse, (value) => {
-            preset.maxResponse = value;
-            syncCurrentTranslatorPreset();
+{#if activePreset}
+    <SettingRenderer items={activePresetItems} target={activePreset} layout="row" />
+{/if}
+
+{#if pickerOpen}
+    <PresetPickerLayout
+        title={`${language.translate} ${language.presets}`}
+        {folders}
+        itemFolderIds={DBState.db.translatorPresets.map(preset => preset.folderId)}
+        itemNames={DBState.db.translatorPresets.map(preset => preset.name)}
+        itemDragDataKey="translatorPresetIndex"
+        bind:selectedFolder bind:searchQuery bind:visibleItemIndexes bind:emptyMessage
+        close={() => pickerOpen = false}
+        onFoldersChange={(next) => DBState.db.translatorPresetFolders = next}
+        onAssignItem={(index, folderId) => {
+            const preset = DBState.db.translatorPresets[index];
+            preset.folderId = folderId;
+            DBState.db.translatorPresets = [...DBState.db.translatorPresets];
         }}
-    />
-    <span class="text-textcolor mt-4">{language.translatorPrompt} <Help key="translatorPrompt" /></span>
-    <TextAreaInput
-        className="mt-2"
-        bind:value={() => preset.prompt, (value) => {
-            preset.prompt = value;
-            syncCurrentTranslatorPreset();
+        onDeleteFolder={(folderId) => {
+            DBState.db.translatorPresets = DBState.db.translatorPresets.map(preset =>
+                preset.folderId === folderId ? { ...preset, folderId: undefined } : preset);
         }}
-        placeholder={defaultTranslatorPrompt}
-    />
+        selectedItemIndex={DBState.db.translatorPresetId}
+        itemEditMode={editMode}
+        onMoveItem={movePreset}
+        onSelectItem={selectPreset}
+        onDuplicateItem={duplicatePreset}
+        onExportItem={exportPreset}
+        onDeleteItem={removePreset}
+    >
+        {#snippet itemContent(index)}
+                {@const preset = DBState.db.translatorPresets[index]}
+                {#if editMode}
+                    <div class="min-w-0 grow"><TextInput bind:value={DBState.db.translatorPresets[index].name} placeholder="string" padding={false} fullwidth className="h-8 min-w-0 px-2" /></div>
+                {:else}
+                    <span class="grow min-w-0 truncate">{preset.name}</span>
+                {/if}
+        {/snippet}
+        <PresetPickerActions
+            onCreate={addPreset}
+            onImport={importPreset}
+            onRename={() => { editMode = !editMode }}
+        />
+    </PresetPickerLayout>
 {/if}

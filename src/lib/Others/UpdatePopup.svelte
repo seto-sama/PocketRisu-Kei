@@ -146,7 +146,7 @@
             {language.updatePopupLater}
         </ShButton>
         <ShButton variant="outline" onclick={() => SaveServerBackup()}>
-            <SaveIcon size={14} />
+            <SaveIcon />
             {language.updatePopupBackup}
         </ShButton>
         {#if info.canSelfUpdate}
@@ -154,7 +154,7 @@
                 variant={info.severity === 'optional' ? 'success' : 'destructive'}
                 onclick={handleSelfUpdate}
             >
-                <Download size={14} />
+                <Download size={12} />
                 {language.selfUpdateNow}
             </ShButton>
         {:else}

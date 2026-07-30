@@ -1,16 +1,12 @@
 <script lang="ts">
     import type { ModelPreset, RegistryFieldSchema, RegistryUiField } from "src/ts/preset/types";
     import { language } from "src/lang";
-    import { localizeDescription } from "src/ts/preset/registry/i18n";
-    import { addApiKey, getApiKey, listApiKeys } from "src/ts/preset/apiKeyPool";
+    import { localizeDescription, localizeFieldLabel } from "src/ts/preset/registry/i18n";
+    import { addApiKey, listApiKeys } from "src/ts/preset/apiKeyPool";
     import { untrack } from "svelte";
-    import SecretInput from "src/lib/UI/GUI/SecretInput.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
+    import ApiKeyModeControl, { getInitialApiKeyInputMode, type ApiKeyInputMode } from "src/lib/Setting/ApiKeyModeControl.svelte";
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
-    import SegmentedControl from "src/lib/UI/GUI/SegmentedControl.svelte";
 
     interface Props {
         preset: ModelPreset;
@@ -24,20 +20,20 @@
     const fieldKey = $derived(schemaField.key);
     const providerBaseId = $derived(preset.profileSnapshot?.providerBaseId);
     const localizedDescription = $derived(localizeDescription(schemaField));
+    const localizedLabel = $derived(localizeFieldLabel(schemaField));
 
     // pool = use a saved key (preset.apiKeyRef); direct = type into userValues.
-    // Seed from whether the preset already references a pooled key.
-    let mode = $state<'pool' | 'direct'>(untrack(() => preset.apiKeyRef) ? 'pool' : 'direct');
-    let showAll = $state(false);
+    // An entirely empty credential starts in pool mode as "none"; only an
+    // existing inline value starts in direct mode.
+    let mode = $state<ApiKeyInputMode>(untrack(() =>
+        getInitialApiKeyInputMode(preset.apiKeyRef, userValues[schemaField.key])
+    ));
 
     const directKey = $derived(userValues[fieldKey]);
     const hasDirectKey = $derived(typeof directKey === 'string' && directKey.length > 0);
+    const canShowAllKeys = $derived(preset.profileSnapshot.adapterKind === 'custom');
 
-    const poolEntries = $derived(listApiKeys(showAll ? undefined : providerBaseId));
-
-    // apiKeyRef points at a pooled key that no longer exists (deleted). Show a
-    // "deleted key" fallback option instead of a blank select.
-    const danglingRef = $derived(!!preset.apiKeyRef && !getApiKey(preset.apiKeyRef));
+    const poolEntries = $derived(listApiKeys(canShowAllKeys ? undefined : providerBaseId));
 
     // Invariant: direct mode never leaves a pool reference behind, or requests
     // would still resolve the pooled key (apiKeyRef wins in buildModelPresetCredential).
@@ -65,6 +61,10 @@
         showSaveDialog = true;
     }
 
+    function selectPoolKey(id: string) {
+        preset.apiKeyRef = id || undefined;
+    }
+
     function confirmSave() {
         const key = userValues[fieldKey];
         const name = pendingName.trim();
@@ -77,55 +77,29 @@
     }
 </script>
 
-<div class="flex flex-col gap-1">
-    <div class="flex items-center justify-between gap-2">
+<div class="flex items-start justify-between gap-3 py-3 border-t border-darkborderc max-sm:flex-col">
+    <div class="flex flex-col min-w-0">
         <span class="text-sm text-textcolor flex items-center gap-1">
-            {schemaField.label}
-            {#if schemaField.required}<span class="text-red-400">*</span>{/if}
+            {localizedLabel}
+            {#if schemaField.required}<span class="text-draculared">*</span>{/if}
         </span>
-        <SegmentedControl
-            bind:value={mode}
-            size="sm"
-            className="shrink-0 mb-0!"
-            options={[
-                { value: 'pool', label: language.apiKeyModePool },
-                { value: 'direct', label: language.apiKeyModeDirect },
-            ]}
-        />
+        <span class="text-xs text-textcolor2 mt-0.5">{language.modelPresetCredentialHelp}</span>
+        {#if localizedDescription}
+            <span class="text-xs text-textcolor2 mt-0.5">{localizedDescription}</span>
+        {/if}
     </div>
-    {#if localizedDescription}
-        <span class="text-xs text-textcolor2">{localizedDescription}</span>
-    {/if}
 
-    {#if mode === 'pool'}
-        {#if poolEntries.length === 0 && !danglingRef}
-            <span class="text-xs text-textcolor2 py-1">{language.apiKeyPoolEmpty}</span>
-        {:else}
-            <SelectInput bind:value={preset.apiKeyRef as string}>
-                <OptionInput value="">{language.apiKeySelectNone}</OptionInput>
-                {#if danglingRef}
-                    <OptionInput value={preset.apiKeyRef as string}>{language.apiKeyDeletedOption}</OptionInput>
-                {/if}
-                {#each poolEntries as entry (entry.id)}
-                    <OptionInput value={entry.id}>{entry.name}{showAll && entry.provider ? ` (${entry.provider})` : ''}</OptionInput>
-                {/each}
-            </SelectInput>
-        {/if}
-        <CheckInput bind:check={showAll} name={language.apiKeyShowAll} className="text-xs mt-1" />
-    {:else}
-        <SecretInput
-            bind:value={userValues[fieldKey] as string}
-            placeholder={uiField.placeholder ?? ''}
-            fullwidth
-        />
-        {#if hasDirectKey}
-            <div class="flex justify-end mt-1">
-                <ShButton variant="ghost" size="sm" onclick={openSaveDialog}>
-                    {language.apiKeySave}
-                </ShButton>
-            </div>
-        {/if}
-    {/if}
+    <ApiKeyModeControl
+        bind:mode
+        entries={poolEntries}
+        selectedId={preset.apiKeyRef ?? ''}
+        bind:directValue={userValues[fieldKey] as string}
+        onSelect={selectPoolKey}
+        placeholder={uiField.placeholder ?? ''}
+        showProvider={canShowAllKeys}
+        showSaveDirect={hasDirectKey}
+        onSaveDirect={openSaveDialog}
+    />
 </div>
 
 <ShDialog bind:open={showSaveDialog} size="sm">

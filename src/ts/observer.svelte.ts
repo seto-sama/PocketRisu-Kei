@@ -1,5 +1,3 @@
-import { globalFetch } from "./globalApi.svelte";
-
 let bgmElement:HTMLAudioElement|null = null;
 let domObserver: MutationObserver | null = null;
 
@@ -127,76 +125,4 @@ export async function startObserveDom(){
         attributes: true,
         attributeFilter: ['x-hl-lang', 'risu-ctrl'],
     })
-}
-
-
-let claudeObserverRunning = false;
-let claudeObserverTimer: ReturnType<typeof setInterval> | null = null;
-let lastClaudeObserverLoad = 0;
-let lastClaudeRequestTimes = 0;
-let lastClaudeObserverPayload:any = null;
-let lastClaudeObserverHeaders:any = null;
-let lastClaudeObserverURL:any = null;
-
-function stopClaudeObserver(){
-    if(claudeObserverTimer){
-        clearInterval(claudeObserverTimer)
-        claudeObserverTimer = null
-    }
-    claudeObserverRunning = false
-}
-
-export function registerClaudeObserver(arg:{
-    url:string,
-    body:any,
-    headers:any,
-}) {
-    lastClaudeRequestTimes = 0;
-    lastClaudeObserverLoad = Date.now();
-    lastClaudeObserverPayload = safeStructuredClone(arg.body)
-    lastClaudeObserverHeaders = arg.headers;
-    lastClaudeObserverURL = arg.url;
-    lastClaudeObserverPayload.max_tokens = 10;
-    claudeObserver()
-}
-
-function claudeObserver(){
-    if(claudeObserverRunning){
-        return
-    }
-    claudeObserverRunning = true;
-
-    const fetchIt = async (tries = 0)=>{
-        const res = await globalFetch(lastClaudeObserverURL, {
-            body: lastClaudeObserverPayload,
-            headers: lastClaudeObserverHeaders,
-            method: "POST"
-        })
-        if(res.status >= 400){
-            if(tries < 3){
-                return fetchIt(tries + 1)
-            }
-        }
-    }
-
-    const func = ()=>{
-        //request every 4 minutes and 30 seconds
-        if(lastClaudeObserverLoad > Date.now() - 1000 * 60 * 4.5){
-            return
-        }
-
-        if(lastClaudeRequestTimes > 4){
-            stopClaudeObserver()
-            return
-        }
-        void fetchIt()
-        lastClaudeObserverLoad = Date.now();
-        lastClaudeRequestTimes += 1;
-
-        if(lastClaudeRequestTimes > 4){
-            stopClaudeObserver()
-        }
-    }
-
-    claudeObserverTimer = setInterval(func, 20000)
 }

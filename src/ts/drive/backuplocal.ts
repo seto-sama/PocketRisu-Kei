@@ -3,6 +3,7 @@ import { downloadFile, LocalWriter, forageStorage } from "../globalApi.svelte";
 import { encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, type Chat } from "../storage/database.svelte";
 import { fetchChatFromServer } from "../storage/chatStorage";
+import { getSyncClientId } from "../storage/nodeStorage";
 import { language } from "src/lang";
 
 function formatBytes(bytes: number): string {
@@ -340,8 +341,32 @@ export async function SaveServerBackup() {
             alertWait(`${language.serverBackupSaving} (${pct}% - ${bytesStr})`)
         })
         notifySuccess(language.serverBackupSaveSuccess(result.filename, formatBytes(result.size)))
+        return result
     } catch (error) {
         console.error(error)
         alertError(error instanceof Error ? error.message : 'Server backup failed')
+        return null
+    }
+}
+
+export async function SaveManualSnapshot() {
+    try {
+        alertWait(language.manualSnapshotSaving)
+        const auth = await forageStorage.createAuth()
+        const res = await fetch('/api/db/manual-snapshots', {
+            method: 'POST',
+            headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId(), 'content-type': 'application/json' },
+            body: JSON.stringify({}),
+        })
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) {
+            throw new Error(json?.error || `manual snapshot save error: ${res.status}`)
+        }
+        notifySuccess(language.manualSnapshotSaveSuccess(json?.snapshot?.filename ?? 'snapshot'))
+        return json
+    } catch (error) {
+        console.error(error)
+        alertError(error instanceof Error ? error.message : 'Manual snapshot failed')
+        return null
     }
 }

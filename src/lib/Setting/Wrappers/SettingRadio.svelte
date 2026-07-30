@@ -48,8 +48,10 @@
 {#if ctx.layout === 'row'}
     <!-- Radio groups are vertical, so they stay stacked even in row mode. -->
     <div class="py-3 border-t border-darkborderc">
-        <span class="text-sm text-textcolor">{getLabel(item)}</span>
-        {#if helpText}<p class="text-xs text-textcolor2 mt-0.5">{helpText}</p>{/if}
+        <div class="flex flex-col min-w-0">
+            <span class="text-sm text-textcolor">{getLabel(item)}</span>
+            {#if helpText}<p class="text-xs text-textcolor2 mt-0.5">{helpText}</p>{/if}
+        </div>
         <ShRadio className="mt-2" bind:value={localValue} options={processedOptions} />
     </div>
 {:else}

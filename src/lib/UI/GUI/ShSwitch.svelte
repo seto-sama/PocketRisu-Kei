@@ -29,18 +29,20 @@
         name?: string;
         value?: string;
         required?: boolean;
+        ariaLabel?: string;
         className?: string;
         onCheckedChange?: (checked: boolean) => void;
     }
 
     let {
         ref = $bindable(null),
-        checked = $bindable(false),
+        checked = $bindable(),
         size = 'default',
         disabled = false,
         name,
         value,
         required,
+        ariaLabel,
         className = '',
         onCheckedChange,
     }: Props = $props();
@@ -48,12 +50,16 @@
 
 <SwitchPrimitive.Root
     bind:ref
-    bind:checked
+    checked={checked ?? false}
     {disabled}
     {name}
     {value}
     {required}
-    {onCheckedChange}
+    aria-label={ariaLabel}
+    onCheckedChange={(value) => {
+        checked = value;
+        onCheckedChange?.(value);
+    }}
     data-slot="switch"
     data-size={size}
     class={cn(

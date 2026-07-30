@@ -25,6 +25,7 @@
         closeOnOutsideClick?: boolean;
         contentClass?: string;
         overlayClass?: string;
+        onCloseAutoFocus?: (event: Event) => void;
         title?: Snippet;
         description?: Snippet;
         footer?: Snippet;
@@ -47,6 +48,7 @@
         closeOnOutsideClick = true,
         contentClass = '',
         overlayClass = '',
+        onCloseAutoFocus,
         title,
         description,
         footer,
@@ -87,6 +89,7 @@
             class={cn(contentBase, tierClasses[tier], sizeClasses[size], contentClass)}
             escapeKeydownBehavior={closeOnEscape ? 'close' : 'ignore'}
             interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
+            {onCloseAutoFocus}
         >
             {#if title || description || closable}
                 <div class="flex flex-col gap-1 pr-8 relative">

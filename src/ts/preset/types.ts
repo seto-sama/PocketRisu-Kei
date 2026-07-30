@@ -2,29 +2,13 @@ import type { GeminiPromptCachingConfig } from './cache/geminiContextCache'
 
 export type AdapterKind =
     | 'openai-compatible'
+    | 'openai-responses'
     | 'anthropic-messages'
     | 'google-gemini'
-
-// Adapter kinds whose tool (function-calling) wire is actually implemented.
-// Both the runtime gate (requestModelPreset) and the editor toggle UI check
-// membership so a preset can never enable tools on an adapter that would reject
-// tool-role messages. Grows as each adapter's tool wire lands.
-export const TOOL_CAPABLE_ADAPTER_KINDS: readonly AdapterKind[] = [
-    'openai-compatible',
-    'anthropic-messages',
-    'google-gemini',
-]
-
-// Adapter kinds whose image-input (vision) wire is implemented. Vision is not
-// behind a per-preset toggle (unlike tools): it is purely additive — the preset
-// path currently drops attached images, so sending them when the profile
-// declares the 'vision' capability matches the classic path's always-send
-// behavior. The capability gate keeps images off models that would reject them.
-export const VISION_CAPABLE_ADAPTER_KINDS: readonly AdapterKind[] = [
-    'openai-compatible',
-    'anthropic-messages',
-    'google-gemini',
-]
+    | 'amazon-bedrock'
+    | 'custom'
+    | 'plugin'
+    | 'echo'
 
 export type AuthKind =
     | 'none'
@@ -33,9 +17,13 @@ export type AuthKind =
     | 'x-goog-api-key'
     | 'query'
     | 'google-service-account'
+    | 'aws-bedrock'
 
 export type EndpointKind =
     | 'static'
+    | 'cloudflare-ai'
+    | 'amazon-bedrock'
+    | 'amazon-bedrock-mantle'
     | 'vertex-openai'
     | 'vertex-gemini'
 
@@ -62,7 +50,7 @@ export type RegistryWidget =
     | 'json'
     | 'key-value'
 
-export type UiVisibility = 'basic' | 'advanced' | 'hidden'
+export type UiVisibility = 'info' | 'basic' | 'advanced' | 'hidden'
 
 export type RegistryMappingTarget =
     | 'body'
@@ -71,6 +59,21 @@ export type RegistryMappingTarget =
     | 'auth'
     | 'custom'
 
+/**
+ * Provider-independent meaning of a profile field.
+ *
+ * `key` is the snapshot/user-value storage key and `mapsTo` is the provider
+ * wire destination. Neither is a stable way to identify a generation setting
+ * across protocols, so runtime policy should prefer this semantic when it is
+ * present and retain key/path matching only for older imported snapshots.
+ */
+export type RegistryFieldSemantic =
+    | 'modelId'
+    | 'maxOutputTokens'
+    | 'temperature'
+    | 'reasoningEffort'
+    | 'thinkingBudgetTokens'
+
 export interface RegistryMapping {
     target: RegistryMappingTarget
     path: string
@@ -78,8 +81,15 @@ export interface RegistryMapping {
 
 export interface RegistryFieldSchema {
     key: string
+    semantic?: RegistryFieldSemantic
     type: RegistryFieldType
     label: string
+    labelI18n?: Record<string, string>
+    /** Optional app-language keys for built-in profiles that share labels/help
+     * with the regular settings UI. The literal strings remain fallbacks for
+     * remote/custom registries and unknown keys. */
+    labelKey?: string
+    helpKey?: string
     description?: string
     descriptionI18n?: Record<string, string>
     default?: unknown
@@ -102,6 +112,11 @@ export interface RegistryUiField {
     key: string
     widget: RegistryWidget
     visibility: UiVisibility
+    /** Optional settings-page presentation for controls that need to mirror
+     * the compact label/help-left, control-right row grammar. */
+    layout?: 'block' | 'row'
+    fixed?: number
+    disableable?: boolean
     group?: string
     order?: number
     placeholder?: string
@@ -112,6 +127,8 @@ export interface RegistryUiField {
 export interface RegistryUiGroup {
     id: string
     label: string
+    /** Optional app-language key for bundled groups. */
+    labelKey?: string
     labelI18n?: Record<string, string>
     order?: number
 }
@@ -124,6 +141,7 @@ export interface RegistryUiSchema {
 export interface RegistryEndpoint {
     kind: EndpointKind
     url?: string
+    path?: string
 }
 
 export interface RegistryAuth {
@@ -134,6 +152,7 @@ export interface RegistryAuth {
 export type RegistryCapability =
     | 'streaming'
     | 'vision'
+    | 'image-output'
     | 'tools'
     | 'json'
     | 'reasoning'
@@ -155,8 +174,11 @@ export type RegistryProfileStatus =
 
 export interface BaseProviderDefinition {
     id: string
-    version: number
     displayName: string
+    // Optional catalog grouping for related wire APIs owned by one vendor.
+    // The profile browser renders related providers in one shared group.
+    providerGroupId?: string
+    providerGroupDisplayName?: string
     adapterKind: AdapterKind
     authKinds: AuthKind[]
     endpointKinds: EndpointKind[]
@@ -183,12 +205,10 @@ export type RegistryTokenizer =
 
 export interface ModelProfile {
     id: string
-    version: number
     // Precise timestamp (epoch millis) of the profile's last revision. Basis for
     // the per-preset "update available" hint (custom-profiles plan): compared
     // against the preset's recorded sourceProfile.profileUpdatedAt. Optional —
-    // legacy/unstamped profiles compare as "unknown" (no hint). `version` is
-    // retained but no longer drives update detection.
+    // legacy/unstamped profiles compare as "unknown" (no hint).
     updatedAt?: number
     displayName: string
     displayNameI18n?: Record<string, string>
@@ -197,7 +217,11 @@ export interface ModelProfile {
     statusReason?: string
     statusSourceUrls?: string[]
     description?: string
+    /** Optional app help-language key for bundled profile descriptions. */
+    helpKey?: string
     descriptionI18n?: Record<string, string>
+    modelReleaseDate?: string
+    knowledgeCutoff?: string
     tags?: string[]
     sortOrder?: number
     recommendedTokenizer?: RegistryTokenizer
@@ -217,12 +241,6 @@ export interface ModelProfile {
 export interface ModelPresetSourceProfile {
     registryId: string
     profileId: string
-    profileVersion: number
-    // Optional for backwards compatibility: presets persisted before this
-    // field existed will have it undefined. Profile-update detection treats
-    // undefined as "unknown, backfill on next resolve" to avoid showing a
-    // spurious update card on every legacy preset.
-    providerBaseVersion?: number
     fetchedAt: number
     // The source profile's `updatedAt` captured at creation/replace time.
     // The "update available" hint compares this against the current profile's
@@ -232,9 +250,7 @@ export interface ModelPresetSourceProfile {
 
 export interface ResolvedModelProfileSnapshot {
     profileId: string
-    profileVersion: number
     providerBaseId: string
-    providerBaseVersion: number
     adapterKind: AdapterKind
     auth: RegistryAuth
     endpoint: RegistryEndpoint
@@ -287,6 +303,11 @@ export interface ModelPreset {
     // once instead of token-by-token. Only meaningful when useStreaming is on.
     // Default off (undefined/false) → ordinary token-by-token streaming.
     decoupledStreaming?: boolean
+    // Anthropic Messages request controls. These are preset-scoped because both
+    // options change the provider wire and must not leak to other Claude presets.
+    // They are only honored for the first-party `anthropic` provider.
+    claude1HourCaching?: boolean
+    claudeBatching?: boolean
     // Per-ModelPreset tool use (capabilities Stage 1). Default off
     // (undefined/false): while off, the request stays text-only so existing
     // bound chats are never routed through the tool loop. Only meaningful when
@@ -303,6 +324,10 @@ export interface ModelPreset {
     // declare the 'vision' capability (e.g. ollama / openai-compatible); profiles
     // that DO declare 'vision' already send images and ignore this.
     imageInput?: boolean
+    // Per-preset image processing quality for the shared OpenAI/Vertex profiles.
+    // OpenAI consumes auto/low/high as image detail; Gemini maps
+    // low/medium/high to mediaResolution and treats auto as provider default.
+    gptVisionQuality?: 'auto' | 'low' | 'medium' | 'high'
     // Fold non-leading system messages into user turns (role + content rewrite via
     // db.systemRoleReplacement/ContentReplacement). For models without a native
     // system role. Maps to the absence of LLMFlags.hasFullSystemPrompt.
@@ -332,8 +357,9 @@ export interface ModelPreset {
     promptCaching?: GeminiPromptCachingConfig
     apiKeyRef?: string
     inlineCredential?: unknown
-    fallbackModelPresetIds?: string[]
     pinned?: boolean
+    /** Optional user-defined folder used by the model-preset picker. */
+    folderId?: string
     order?: number
     createdAt: number
     updatedAt: number
@@ -400,6 +426,7 @@ export interface ApiKeyPoolEntry {
     name: string
     provider?: string
     key: string
+    order?: number
     createdAt: number
     updatedAt: number
 }
@@ -485,8 +512,6 @@ export interface SnapshotUiGroupChange {
 
 export interface SnapshotDiff {
     profileId: string
-    fromVersion: number
-    toVersion: number
     providerBaseChanged: boolean
     adapterKindChanged: boolean
     modelIdChanged: boolean
@@ -500,25 +525,6 @@ export interface SnapshotDiff {
     uiSchemaFieldChanges: SnapshotUiFieldChange[]
     uiSchemaGroupChanges: SnapshotUiGroupChange[]
 }
-
-export type ProfileUpdateAvailability =
-    | { status: 'no-source' }
-    | { status: 'profile-missing'; profileId: string }
-    | { status: 'current'; profileId: string; version: number }
-    | {
-        status: 'available'
-        profileId: string
-        fromVersion: number
-        toVersion: number
-        latestSnapshot: ResolvedModelProfileSnapshot
-        latestSourceProfile: ModelPresetSourceProfile
-    }
-    | {
-        status: 'downgrade'
-        profileId: string
-        currentVersion: number
-        registryVersion: number
-    }
 
 export interface OrphanedUserValue {
     key: string

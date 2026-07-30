@@ -17,6 +17,7 @@
     let { item, ctx }: Props = $props();
 
     let localValue: any = $state(untrack(() => getSettingValue(item, ctx)));
+    let disabled = $derived(typeof item.options?.disabled === 'function' ? item.options.disabled(ctx) : !!item.options?.disabled);
 
     // Sync: DB → local (one-way read)
     $effect(() => {
@@ -55,7 +56,7 @@
     // divider rhythm (border-t, dropped on the first field by SettingRenderer).
     // The legacy SliderInput operates on RAW stored values (e.g. temperature
     // 0–200 hundredths) and only scales at display time via `multiple`; ShSlider
-    // has no such concept, so the block branch converts to real units at the
+    // has no such concept, so the row/block branches convert to real units at the
     // binding boundary (track/input show 0.00–2.00, storage stays 0–200).
     // The -1000 "slider disabled" sentinel is surfaced as a header ShSwitch
     // (the slot the ModelPreset editor uses for its Reset affordance); turning
@@ -68,22 +69,33 @@
         return Math.round(v * 1e6) / 1e6;
     }
 
-    let blockMult = $derived(item.options?.multiple ?? 1);
-    let blockMin = $derived(roundReal((item.options?.min ?? 0) * blockMult));
-    let blockMax = $derived(roundReal((item.options?.max ?? 100) * blockMult));
-    let blockStep = $derived(roundReal((item.options?.step ?? 1) * blockMult));
-    let blockEnabled = $derived(typeof localValue === 'number' && localValue !== -1000);
+    let sliderMult = $derived(item.options?.multiple ?? 1);
+    let sliderMin = $derived(roundReal((item.options?.min ?? 0) * sliderMult));
+    let sliderMax = $derived(roundReal((item.options?.max ?? 100) * sliderMult));
+    let sliderStep = $derived(roundReal((item.options?.step ?? 1) * sliderMult));
+    let rowSliderMin = $derived(
+        item.options?.disableable ? roundReal(sliderMin - sliderStep) : sliderMin
+    );
+    let sliderEnabled = $derived(typeof localValue === 'number' && localValue !== -1000);
 
-    function readBlockValue(): number {
-        if (!blockEnabled) return blockMin;
-        return roundReal(localValue * blockMult);
+    function readSliderValue(): number {
+        if (!sliderEnabled) return sliderMin;
+        return roundReal(localValue * sliderMult);
     }
 
-    function writeBlockValue(v: number) {
-        localValue = roundReal(v / blockMult);
+    function writeSliderValue(v: number) {
+        localValue = roundReal(v / sliderMult);
     }
 
-    function setBlockEnabled(on: boolean) {
+    function writeRowSliderValue(v: number) {
+        if (item.options?.disableable && v < sliderMin) {
+            localValue = -1000;
+            return;
+        }
+        writeSliderValue(v);
+    }
+
+    function setSliderEnabled(on: boolean) {
         localValue = on ? (item.options?.min ?? 0) : -1000;
     }
 </script>
@@ -91,16 +103,22 @@
 {#if ctx.layout === 'row'}
     <SettingRowLayout {item}>
         {#snippet control()}
-            <div class="w-48">
-                <ShSlider
-                    min={item.options?.min ?? 0}
-                    max={item.options?.max ?? 100}
-                    step={item.options?.step ?? 1}
-                    format={rowFormat}
-                    inputWidth="w-16"
-                    bind:value={localValue}
-                />
-            </div>
+            {#if !item.options?.disableable || sliderEnabled}
+                <div class="w-48">
+                    <ShSlider
+                        min={rowSliderMin}
+                        max={sliderMax}
+                        step={sliderStep}
+                        fixed={item.options?.fixed}
+                        {disabled}
+                        format={rowFormat}
+                        inputWidth="w-16"
+                        bind:value={readSliderValue, writeRowSliderValue}
+                    />
+                </div>
+            {:else}
+                <ShSwitch checked={false} onCheckedChange={setSliderEnabled} />
+            {/if}
         {/snippet}
     </SettingRowLayout>
 {:else if ctx.layout === 'block'}
@@ -116,17 +134,18 @@
             </div>
             {#if item.options?.disableable}
                 <div class="shrink-0">
-                    <ShSwitch checked={blockEnabled} onCheckedChange={setBlockEnabled} />
+                    <ShSwitch checked={sliderEnabled} onCheckedChange={setSliderEnabled} />
                 </div>
             {/if}
         </div>
-        {#if !item.options?.disableable || blockEnabled}
+        {#if !item.options?.disableable || sliderEnabled}
             <ShSlider
                 className="mt-2"
-                min={blockMin}
-                max={blockMax}
-                step={blockStep}
-                bind:value={readBlockValue, writeBlockValue}
+                min={sliderMin}
+                max={sliderMax}
+                step={sliderStep}
+                {disabled}
+                bind:value={readSliderValue, writeSliderValue}
             />
         {/if}
     </div>

@@ -1,170 +1,103 @@
 <script lang="ts">
+    import { ImageIcon } from "@lucide/svelte";
+    import { onDestroy } from "svelte";
     import { language } from "src/lang";
+    import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
+    import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
+    import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import BaseRoundedButton from "src/lib/UI/BaseRoundedButton.svelte";
-    import Button from "src/lib/UI/GUI/Button.svelte";
-    import Check from "src/lib/UI/GUI/CheckInput.svelte";
-    import Help from "src/lib/Others/Help.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
-    import { alertConfirm, alertSelect } from "src/ts/alert";
+    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import { getCharImage } from "src/ts/characters";
-    import { changeUserPersona, exportUserPersona, importUserPersona, saveUserPersona, selectUserImg } from "src/ts/persona";
-    import Sortable from 'sortablejs/modular/sortable.core.esm.js';
-    import { onDestroy, onMount } from "svelte";
-    import { sleep, sortableOptions } from "src/ts/util";
-    import { DBState } from 'src/ts/stores.svelte';
-    import { requestImmediateSave } from "src/ts/globalApi.svelte";
-    import { v4 } from "uuid"
+    import { saveUserPersona, selectUserImg } from "src/ts/persona";
+    import type { SettingItem } from "src/ts/setting/types";
+    import { DBState, openPersonaList } from "src/ts/stores.svelte";
 
-    let stb: Sortable = null
-    let ele: HTMLDivElement = $state()
-    let sorted = $state(0)
-    let selectedId:string = null
-    const createStb = () => {
-        stb = Sortable.create(ele, {
-            onStart: async () => {
-                DBState.db.personas[DBState.db.selectedPersona].id ??= v4()
-                selectedId = DBState.db.personas[DBState.db.selectedPersona].id
-                saveUserPersona()
-            },
-            onEnd: async () => {
-                let idx:number[] = []
-                ele.querySelectorAll('[data-risu-idx]').forEach((e, i) => {
-                    idx.push(parseInt(e.getAttribute('data-risu-idx')))
-                })
-                let newValue:{
-                    personaPrompt:string
-                    name:string
-                    icon:string
-                    note?:string
-                    largePortrait?:boolean
-                    id?:string
-                }[] = []
-                idx.forEach((i) => {
-                    newValue.push(DBState.db.personas[i])
-                })
-                DBState.db.personas = newValue
-                const selectedPersona = DBState.db.personas.findIndex((e) => e.id === selectedId)
-                changeUserPersona(selectedPersona !== -1 ? selectedPersona : 0, 'noSave')
-                void requestImmediateSave()
-                try {
-                    stb.destroy()
-                } catch (error) {}
-                sorted += 1
-                await sleep(1)
-                createStb()
-            },
-            ...sortableOptions
-        })
+    const activePersona = $derived(DBState.db.personas[DBState.db.selectedPersona]);
+    const basicInfoItems: SettingItem[] = [
+        {
+            id: 'persona.name',
+            type: 'text',
+            labelKey: 'name',
+            helpKey: 'personaName',
+            bindKey: 'username',
+        },
+        {
+            id: 'persona.note',
+            type: 'text',
+            labelKey: 'note',
+            helpKey: 'personaNote',
+            bindKey: 'userNote',
+            options: { placeholder: '[Alternate Hunters persona]' },
+        },
+        {
+            id: 'persona.largePortrait',
+            type: 'check',
+            labelKey: 'largePortrait',
+            helpKey: 'personaLargePortrait',
+            getValue: (db) => !!db.personas[db.selectedPersona]?.largePortrait,
+            setValue: (db, value: boolean) => { db.personas[db.selectedPersona].largePortrait = value; },
+        },
+    ];
+    const descriptionItems: SettingItem[] = [{
+        id: 'persona.description',
+        type: 'textarea',
+        labelKey: 'description',
+        helpKey: 'personaDescription',
+        bindKey: 'personaPrompt',
+        options: {
+            placeholder: 'Put the description of this persona here.\nExample: [<user> is a 20 year old girl.]',
+        },
+    }];
+
+    function openPersonaManager() {
+        saveUserPersona();
+        openPersonaList.set(true);
     }
 
-    onMount(createStb)
-
     onDestroy(() => {
-        saveUserPersona()
-        if(stb){
-            try {
-                stb.destroy()
-            } catch (error) {}
-        }
-    })
+        saveUserPersona();
+    });
 </script>
+
 <SettingPage title={language.persona}>
-{#key sorted}
-<div class="p-4 rounded-md border-darkborderc border mb-2 flex-wrap flex gap-2 w-full max-w-full min-w-0" bind:this={ele}>
-    {#each DBState.db.personas as persona, i}
-        <button data-risu-idx={i} onclick={() => {
-            changeUserPersona(i)
-        }}>
-            {#if persona.icon === ''}
-                <div class="rounded-md h-20 w-20 shadow-lg bg-textcolor2 cursor-pointer hover:text-primary" class:ring-3={i === DBState.db.selectedPersona}></div>
-            {:else}
-                {#await getCharImage(persona.icon, 'css')}
-                    <div class="rounded-md h-20 w-20 shadow-lg bg-textcolor2 cursor-pointer hover:text-primary" class:ring-3={i === DBState.db.selectedPersona}></div>
-                {:then im} 
-                    <div class="rounded-md h-20 w-20 shadow-lg bg-textcolor2 cursor-pointer hover:text-primary" style={im} class:ring-3={i === DBState.db.selectedPersona}></div>                
-                {/await}
-            {/if}
-        </button>
-    {/each}
-    <div class="flex justify-center items-center ml-2 mr-2">
-        <BaseRoundedButton
-            onClick={async () => {
-                const sel = parseInt(await alertSelect([language.createfromScratch, language.importCharacter]))
-                if(sel === 0){
-                    DBState.db.personas.push({
-                        name: 'New Persona',
-                        icon: '',
-                        personaPrompt: '',
-                        note: ''
-                    })
-                    changeUserPersona(DBState.db.personas.length - 1)
-                    void requestImmediateSave()
-                } else if(sel === 1){
-                    await importUserPersona()
-                    void requestImmediateSave()
-                }
-            }}
-            ><svg viewBox="0 0 24 24" width="1.2em" height="1.2em"
-                ><path
-                fill="none"
-                stroke="currentColor"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                /></svg
-            >
-        </BaseRoundedButton>
-    </div>
-</div>
-{/key}
+    <PresetHeader
+        label={language.currentPersona}
+        activeName={DBState.db.username || '—'}
+        onManage={openPersonaManager}
+    />
 
-<div class="flex w-full items-starts rounded-md border-darkborderc border p-4 max-w-full flex-wrap">
-    <div class="flex flex-col mt-4 mr-4">
-        <button onclick={() => {selectUserImg()}}>
-            {#if DBState.db.userIcon === ''}
-                <div class="rounded-md h-28 w-28 shadow-lg bg-textcolor2 cursor-pointer hover:text-primary"></div>
-            {:else}
-                {#await getCharImage(DBState.db.userIcon, DBState.db.personas[DBState.db.selectedPersona].largePortrait ? 'lgcss' : 'css')}
-                    <div class="rounded-md h-28 w-28 shadow-lg bg-textcolor2 cursor-pointer hover:text-primary"></div>
-                {:then im} 
-                    <div class="rounded-md h-28 w-28 shadow-lg bg-textcolor2 cursor-pointer hover:text-primary" style={im}></div>                
-                {/await}
-            {/if}
-        </button>
-    </div>
-    <div class="flex grow flex-col p-2 max-w-full">
-        <span class="text-sm text-textcolor2">{language.name} <Help key="personaName" /></span>
-        <TextInput className="mt-2" marginBottom placeholder="User" bind:value={DBState.db.username}/>
-        <span class="text-sm text-textcolor2">{language.note} <Help key="personaNote" /></span>
-        {#if DBState.db.personaNote}
-            <TextInput className="mt-2" marginBottom bind:value={DBState.db.userNote} placeholder={`Put a unique identifier for this persona here.\nExample: [Alternate Hunters persona]`} />
-        {/if}
-        <span class="text-sm text-textcolor2">{language.description} <Help key="personaDescription" /></span>
-        <TextAreaInput className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.personaPrompt} placeholder={`Put the description of this persona here.\nExample: [<user> is a 20 year old girl.]`} />
-        <div class="flex gap-2 mt-4 max-w-full flex-wrap">
-            <Button onclick={exportUserPersona}>{language.export}</Button>
-            <Button onclick={importUserPersona}>{language.import}</Button>
+    <SettingLayout variant="section" title={language.basicInfo} first>
+        <div class="flex items-start gap-5 py-4 max-sm:flex-col">
+            <div class="flex h-[16.5rem] w-44 shrink-0 flex-col gap-2 max-sm:w-full max-sm:items-center">
+                <button
+                    type="button"
+                    class="relative w-44 overflow-hidden rounded-md border border-darkborderc bg-textcolor2 shadow-lg transition-[height] duration-200 focus-visible:ring-2 focus-visible:ring-primary"
+                    class:h-56={!!activePersona?.largePortrait}
+                    class:h-44={!activePersona?.largePortrait}
+                    aria-label={language.select}
+                    onclick={selectUserImg}
+                >
+                    {#if DBState.db.userIcon}
+                        {#await getCharImage(DBState.db.userIcon, 'css')}
+                            <div class="h-full w-full animate-pulse bg-textcolor2"></div>
+                        {:then imageStyle}
+                            <div class="h-full w-full bg-cover bg-center" style={imageStyle}></div>
+                        {/await}
+                    {/if}
+                </button>
+                <ShButton variant="outline" size="sm" className="w-full max-sm:w-44" onclick={selectUserImg}>
+                    <ImageIcon/>
+                    {language.select}
+                </ShButton>
+            </div>
 
-            <Button styled="danger" onclick={async () => {
-                if(DBState.db.personas.length === 1){
-                    return
-                }
-                const d = await alertConfirm(`${language.removeConfirm}${DBState.db.personas[DBState.db.selectedPersona].name}`)
-                if(d){
-                    saveUserPersona()
-                    let personas = DBState.db.personas
-                    personas.splice(DBState.db.selectedPersona, 1)
-                    DBState.db.personas = personas
-                    changeUserPersona(0, 'noSave')
-                    void requestImmediateSave()
-                }
-            }}>{language.remove}</Button>
-            <Check bind:check={DBState.db.personas[DBState.db.selectedPersona].largePortrait} name={language.largePortrait}/>
-            <Help key="personaLargePortrait" />
+            <div class="min-w-0 grow">
+                <SettingRenderer items={basicInfoItems} layout="row" />
+            </div>
         </div>
+    </SettingLayout>
+
+    <div>
+        <SettingRenderer items={descriptionItems} layout="row" />
     </div>
-</div>
 </SettingPage>

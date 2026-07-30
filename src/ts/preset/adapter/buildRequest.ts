@@ -1,7 +1,25 @@
 import type { ResolvedModelProfileSnapshot } from '../types'
+import {
+    getEffectiveMappedValue,
+    getEffectivePresetValue,
+} from '../runtime/effectiveConfig'
+import {
+    applyAdditionalParameters,
+    parseAdditionalParametersText,
+} from '../runtime/additionalParameters'
 import { appendQuery, applyAuth } from './auth'
+import {
+    buildCloudflareAiEndpointUrl,
+    CLOUDFLARE_CUSTOM_PATH_ACCOUNT_ID,
+} from './cloudflareEndpoint'
+import {
+    BEDROCK_CUSTOM_PATH_REGION,
+    buildBedrockConverseEndpointUrl,
+    buildBedrockMantleEndpointUrl,
+} from './bedrockEndpoint'
 import { ModelPresetAdapterError } from './error'
 import type { AdapterPreparedRequest, AdapterRequestContext } from './types'
+import { applyCustomRequestValues, resolvePresetAuth } from './customPreset'
 import {
     buildVertexGeminiEndpointUrl,
     buildVertexOpenAIEndpointUrl,
@@ -26,7 +44,7 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
     const userValues = ctx.preset.userValues
     for (const field of snapshot.schema) {
         if (!field.mapsTo) continue
-        const effective = pickEffective(userValues, field.key, field.default)
+        const effective = getEffectivePresetValue(ctx.preset, field.key)
         // Treat an empty string as "unset": a combobox/text field cleared back
         // to blank leaves '' in userValues, and sending e.g. reasoning_effort:''
         // is rejected by providers (no enum match). Skip it like undefined.
@@ -54,13 +72,18 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
     if (ctx.preset.customHeaders) {
         Object.assign(headers, ctx.preset.customHeaders)
     }
+    applyCustomRequestValues(ctx.preset, body, headers)
     // Freeform "additional parameters" textarea (legacy customModels syntax).
     // Routes `header::` prefix to headers, everything else to body. Sits
     // AFTER customBody so user-typed overrides have the final say, but
     // BEFORE applyAuth so auth headers cannot be hijacked.
     const additionalText = ctx.preset.additionalParamsText
     if (typeof additionalText === 'string' && additionalText.trim().length > 0) {
-        applyAdditionalParamsText(body, headers, additionalText)
+        applyAdditionalParameters(
+            body,
+            headers,
+            parseAdditionalParametersText(additionalText),
+        )
     }
 
     let url = baseUrl
@@ -74,7 +97,7 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
         headers,
         body,
     }
-    return applyAuth(prepared, snapshot.auth, ctx.credential)
+    return applyAuth(prepared, resolvePresetAuth(ctx.preset), ctx.credential)
 }
 
 function resolveEndpointUrl(
@@ -113,6 +136,23 @@ function resolveEndpointUrl(
             )
         }
         return snapshot.endpoint.url
+    }
+    if (snapshot.endpoint.kind === 'cloudflare-ai') {
+        return buildCloudflareAiEndpointUrl(
+            pickCustomString(snapshot, userValues, CLOUDFLARE_CUSTOM_PATH_ACCOUNT_ID),
+        )
+    }
+    if (snapshot.endpoint.kind === 'amazon-bedrock') {
+        return buildBedrockConverseEndpointUrl(
+            pickCustomString(snapshot, userValues, BEDROCK_CUSTOM_PATH_REGION),
+            snapshot.modelId,
+        )
+    }
+    if (snapshot.endpoint.kind === 'amazon-bedrock-mantle') {
+        return buildBedrockMantleEndpointUrl(
+            pickCustomString(snapshot, userValues, BEDROCK_CUSTOM_PATH_REGION),
+            snapshot.endpoint.path,
+        )
     }
     if (snapshot.endpoint.kind === 'vertex-openai') {
         return buildVertexOpenAIEndpointUrl(
@@ -173,25 +213,12 @@ function pickCustomString(
     userValues: Record<string, unknown>,
     path: string,
 ): string | undefined {
-    for (const field of snapshot.schema) {
-        if (field.mapsTo?.target !== 'custom') continue
-        if (field.mapsTo.path !== path) continue
-        const value = pickEffective(userValues, field.key, field.default)
-        if (typeof value === 'string') return value
-    }
-    return undefined
-}
-
-function pickEffective(
-    userValues: Record<string, unknown>,
-    key: string,
-    fallback: unknown,
-): unknown {
-    if (Object.prototype.hasOwnProperty.call(userValues, key)) {
-        const value = userValues[key]
-        if (value !== undefined) return value
-    }
-    return fallback
+    const value = getEffectiveMappedValue(
+        { profileSnapshot: snapshot, userValues },
+        'custom',
+        path,
+    )
+    return typeof value === 'string' ? value : undefined
 }
 
 function setNested(obj: Record<string, unknown>, path: string, value: unknown): void {
@@ -207,61 +234,4 @@ function setNested(obj: Record<string, unknown>, path: string, value: unknown): 
         cur = cur[part] as Record<string, unknown>
     }
     cur[parts[parts.length - 1]] = value
-}
-
-// Apply the freeform textarea (one entry per line) to body+headers.
-// Mirrors the legacy customModels params syntax (see process/request/shared.ts
-// applyAdditionalParameters) so existing users' muscle memory carries over:
-//   key=value           — body[key] = auto-typed value
-//   key.path=value      — body[key][path] = value (dot-notation supported)
-//   key=json::{...}     — body[key] = JSON.parse(...)
-//   header::Name=value  — headers[Name] = value
-//   key={{none}}        — delete body[key] (or headers if header:: prefix)
-// Implemented inline (not via shared.ts import) to avoid pulling
-// getDatabase into the adapter, which causes a Vite SSR cycle.
-function applyAdditionalParamsText(
-    body: Record<string, unknown>,
-    headers: Record<string, string>,
-    text: string,
-): void {
-    for (const raw of text.split('\n')) {
-        const line = raw.trim()
-        if (line.length === 0 || line.startsWith('#')) continue
-        const eqIdx = line.indexOf('=')
-        if (eqIdx <= 0) continue
-        const key = line.slice(0, eqIdx).trim()
-        const value = line.slice(eqIdx + 1)
-        if (key.length === 0) continue
-
-        if (value === '{{none}}') {
-            if (key.startsWith('header::')) delete headers[key.slice(8)]
-            else delete body[key]
-            continue
-        }
-        if (key.startsWith('header::')) {
-            headers[key.slice(8)] = value
-            continue
-        }
-        if (value.startsWith('json::')) {
-            try {
-                setNested(body, key, JSON.parse(value.slice(6)))
-            } catch {}
-            continue
-        }
-        if ((value.startsWith('"') && value.endsWith('"')) ||
-            (value.startsWith("'") && value.endsWith("'"))) {
-            setNested(body, key, value.slice(1, -1))
-            continue
-        }
-        if (value === 'true' || value === 'false') {
-            setNested(body, key, value === 'true')
-            continue
-        }
-        if (value === 'null') {
-            setNested(body, key, null)
-            continue
-        }
-        const num = Number(value)
-        setNested(body, key, Number.isNaN(num) ? value : num)
-    }
 }

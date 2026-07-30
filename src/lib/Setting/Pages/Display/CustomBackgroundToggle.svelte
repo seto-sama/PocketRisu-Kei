@@ -39,12 +39,12 @@
             <img src={previewUrl} alt="" class="h-8 w-12 rounded object-cover border border-darkborderc" />
         {/if}
         <ShButton variant="outline" size="sm" onclick={pick}>
-            <ImageIcon size={14} />
+            <ImageIcon />
             {hasBg ? language.edit : language.select}
         </ShButton>
         {#if hasBg}
-            <ShButton variant="ghost" size="icon-sm" onclick={clear} aria-label={language.remove}>
-                <XIcon size={16} />
+            <ShButton variant="destructive" size="icon-sm" onclick={clear} aria-label={language.remove}>
+                <XIcon />
             </ShButton>
         {/if}
     </div>

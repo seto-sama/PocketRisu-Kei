@@ -1,5 +1,5 @@
 /**
- * PocketRisu NodeOnly — Simplified Chinese help texts (`language.help`).
+ * PocketRisu Kei NodeOnly — Simplified Chinese help texts (`language.help`).
  *
  * Extracted from `src/lang/cn.ts` for maintainability. Entries override the
  * English defaults in `help.en.ts` via `lodash/merge` (see `src/lang/index.ts`).
@@ -58,18 +58,14 @@ export const helpCn = {
         "showUnrecommended": "激活后，将显示不建议使用的过时设置。不建议使用这些设置。",
         "imageCompression": "激活后，在导出角色时会压缩略图片。如果动画图片无法显示，请尝试关闭此选项。",
         "useExperimental": "激活后，将显示部分实验性功能。",
-        "forceProxyAsOpenAI": "激活后，使用反向代理（Reverse proxy）时将强制使用 OpenAI 格式。",
-        "forcePlainFetch": "激活后，将使用浏览器的 Fetch API 来替代原生 HTTP 请求。这可能会导致 CORS 错误。",
-        "autoFillRequestURL": "激活后，将自动填入请求 URL 以匹配当前模型。",
         "chainOfThought": "激活后，将在提示词中添加思维链（CoT）提示。",
-        "gptVisionQuality": "此选项用于设置图像检测模型的质量。质量越高，检测越准确，但会使用更多的 Token。",
+        "gptVisionQuality": "设置图像输入使用的细节级别或媒体分辨率。质量越高，越能识别细节，但会使用更多输入 Token，并可能增加延迟。",
         "genTimes": "此设置支持模型上的重滚（reroll）回应数量。除第一则回应外，其他回应将作为缓存使用，以降低成本。但若未多次重滚回应，可能增加成本。",
         "requestretrys": "此选项用于设置请求失败时的重试次数。",
         "emotionPrompt": "此选项用于设置情绪检测的提示词。留空将使用默认提示词。",
         "additionalParams": "此选项允许将附加的参数添加到请求主体（Request body）中。若要排除某些参数，可以将值设为 `{{none}}`。若要添加包头（Request header）而非主体，可以在键前加上 `header::`，如 `header::Authorization`。若要将值作为 JSON，可以在值前加上 `json::`，如 `json::{\"key\":\"value\"}`。其他情况下，系统将自动判定值的类型。",
         "antiClaudeOverload": "若 Claude 过载发生，叡苏会透过继续相同的提示来阻止它，以减少过载的概率。此功能仅适用于串流回应（Streamed Responses），对非官方 API 端点可能无效。",
         "triggerScript": "触发器（Trigger）是一个自定义脚本，在符合条件时执行。可用于修改聊天数据、执行命令、更改变量等。类型取决于触发时的情况，也可由按钮触发，如 {{button::Display::TriggerName}} 或带有 risu-trigger=\"<TriggerName>\" 属性的 HTML 按钮。",
-        "autoContinueChat": "激活后，当聊天不以标点符号结束时，系统将尝试继续对话。请勿在不使用标点符号的语言中激活此功能。",
         "combineTranslation": "激活后，将把被 HTML 标签分隔但属于同一句的文本合并后进行翻译，并在翻译结果上重新套用“修改显示”（Modify Display）。这有助于提高翻译的准确性。若激活此后接口出现异常，请关闭此选项并回报问题。",
         "dynamicAssets": "激活后，若在处理数据时找不到资源名称，系统将使用向量搜索（Vector Search）尝试查找最接近的资源名称并进行替换。",
         "dynamicAssetsEditDisplay": "激活后，动态资源将同样应用于“修改显示”阶段，但这可能会影响性能。",
@@ -90,6 +86,7 @@ export const helpCn = {
         "namespace": "命名空间（Namespace）是模块的唯一标识符，用于防止模块冲突，并与默认和其他模块等进行交互。若不确定如何填写，建议留空。",
         "moduleIntergration": "可在模块集成区域中输入模块的命名空间（Namespace）来激活模块。若要激活多个模块，可用逗号分隔，例如：`module1,module2,module3`。此功能便于高级用户通过默认敏捷运用模块。",
         "customCSS": "自定义 CSS 样式。若出现问题，可使用 (Ctrl + .) 激活或禁用。",
+        "returnCSSError": "自定义 CSS 出现错误时，在对应的样式位置显示错误详情。",
         "betaMobileGUI": "激活后，将在小于 800px 的屏幕上使用测试版行动接口，需刷新页面。",
         "unrecommended": "这是一个不建议使用的设置。建议关闭。",
         "jsonSchema": "JSON Schema 将在 AI 模型支持时发送给模型。\n\n然而，由于 JSON Schema 学习难度较高，在叡苏中，你可以使用 TypeScript 接口的子集来代替 JSON Schema。叡苏将在运行时进行转换。例如，如果你想发送如下的JSON：\n\n```js\n{\n  \"name\": \"叡苏\", // name 必须是叡苏，\n  \"age\": 1, // age 必须是数字，\n  \"icon\": \"slim\", // icon 必须是 ’slim‘ 或 ’rounded‘\n  \"thoughts\": [\"Good View!\", \"Lorem\"] // thoughts 必须是字符串数组\n}\n```\n\n你可以使用以下 TypeScript 接口：\n\n```typescript\ninterface Schema {\n  name: string;\n  age: number;\n  icon: ’slim‘|’rounded‘\n  thoughts: string[]\n}\n```\n\n接口名称不重要。欲了解更多信息，请参阅 TypeScript 说明文档：https://www.typescriptlang.org/docs/handbook/interfaces.html 。要检查支持的 TypeScript 子集，请查看以下内容。<details><summary>支持的 TypeScript 子集</summary>\n\n支持的类型包括 `boolean`、`number`、`string` 和 `Array`。高级类型不被支持（如：单元类型、交集类型、联合类型、可选类型、字面量类型等），除了以下几种情况：\n\n        - 原始数据型别（Primitive Type）的数组（Array）：（如 `string[]`、`Array<boolean>`）\n        - 字符串之间的单值类型（Unit Types）：（例如 `’slim‘|’rounded‘`）\n\n        属性必须在同一内联定义。若一行中有多个属性，将会产生错误。属性和接口名称仅可使用拉丁字符，并在 ASCII 范围内。属性名称不得以单引号或双引号包裹。接口内部不支持嵌套。在定义属性的行中，不能包含 `{` 或 `}`。如果想使用更高级的类型，请使用 JSON Schema。\n        </details>",
@@ -104,10 +101,8 @@ export const helpCn = {
         "translatorPrompt": "用于翻译的提示词。留空将使用默认提示。你还可以使用带有 {{slot}} 的 ChatML 格式表示目标语言：用 {{slot::content}} 表示内容，用 {{slot::tnote}} 表示翻译注释。",
         "translateBeforeHTMLFormatting": "激活后，将在正则脚本和 HTML 格式化之前翻译文本。这可能减少 Token 数，但可能破坏格式。",
         "autoTranslateCachedOnly": "如果在启用自动翻译的情况下启用，则仅会自动翻译用户之前已翻译过的消息。",
-        "presetChain": "如果不为空，每次用户在此输入框预设列表中的消息时，预设将会更改并随机应用。预设列表应以逗号分隔，例如 `preset1,preset2`。",
-        "legacyMediaFindings": "启用后，将使用旧方法查找媒体资源，而不使用额外的搜索算法。",
         "comfyWorkflow": "输入 Comfy UI 的 API 工作流。您可以通过点击“工作流 > 导出 (API)”按钮在 Comfy UI 中获取您的 API 工作流。您还必须在工作流文本中放入 {{risu_prompt}}。{{risu_prompt}} 将被替换为 Risu 提供的提示词。",
-        "automaticCachePoint": "如果缓存点不存在，则在聊天结束后自动创建缓存点。",
+        "automaticCachePoint": "如果没有明确设置缓存点，则自动为最近最多 3 条用户消息指定缓存点。",
         "experimentalChatCompressionDesc": "压缩未使用的聊天数据并保存到单独的文件中。这大大减少了聊天数据的大小，并大大提高了性能，但它是实验性的，可能不稳定，导致备份功能等出现问题。",
         "promptInfoInsideChatDesc": "启用后，这会将提示预设信息存储在聊天元数据中。存储的数据包括预设名称、活动切换和提示文本。这可能会略微增加处理时间和存储使用量。",
         "autoAdjustSchema": "启用后，将自动调整动态输出的 JSON 模式。",
@@ -122,7 +117,6 @@ export const helpCn = {
         "openRouterProviderOrder": "使用提供商的顺序，将优先使用第一个提供商，若该提供商不可用，则会使用下一个提供商。详见 https://openrouter.ai/docs/guides/routing/provider-selection#ordering-specific-providers",
         "openRouterProviderOnly": "仅使用此列表中的提供商，若所有提供商都不可用，请求将会失败。详见 https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
         "openRouterProviderIgnore": "忽略此列表中的提供商，若所有提供商都被忽略，请求将会失败。详见 https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",
-        "additionalPrompt": "启用提示词预处理时，这段文本会添加到主提示词的末尾。默认值是 'The assistant must act as {{char}}. user is {{user}}.'，用于设置基本的角色扮演背景。",
         "hideAllImagesDesc": "隐藏机器人图标、机器人图片资源和RisuRealm封面图片。",
         "embedding": "嵌入模型用于多个功能中的相似度搜索：\n\n- **长期记忆**: HypaV2, HypaV3, Hanurai Memory 和 SupaMemory (启用 HypaMemory 时)\n- **附加文本**: 基于上下文匹配角色附加信息\n- **动态资产**: 当未找到精确匹配时查找相似的资产名称\n- **情感图片**: 当情感方式设置为 'embedding' 时\n- **触发脚本**: 触发脚本中的相似度条件\n- **文件附件**: 在 PDF/TXT/XML 附件中搜索\n- **Playground**: Playground 中的嵌入测试",
         "enableScrollToActiveChar": "如果启用，在拖动角色时按下热键或按住 Ctrl 键将滚动到当前活跃的角色。如果文件夹已关闭，将自动打开。"

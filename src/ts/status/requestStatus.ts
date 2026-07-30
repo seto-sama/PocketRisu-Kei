@@ -405,7 +405,7 @@ function tick(): void {
             // non-terminal entry alive forever, and with it this 400ms timer.
             // Drop entries that have outlived any realistic request. Normal
             // requests end via endStatus well before this; the fetch timeout
-            // (localNetworkTimeoutSec, default 600s) fires the catch path first.
+            // (fixed 600s for local-network requests) fires the catch path first.
             if (!isTerminalPhase(e.phase) && now - e.startedAt > STATUS_ABANDON_MS) {
                 changed = true
                 continue // omit from next → removed, timer can stop

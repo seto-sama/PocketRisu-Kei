@@ -1,14 +1,15 @@
 <script lang="ts">
     // System → Backups tab. Single home for snapshot management, full server
-    // backups, and local backup actions. Migration-style legacy backups stay
-    // in MigrationSettings so this page focuses on day-to-day operations.
+    // backups, local backup actions, and migration-style import/export tools.
     import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
     import ShAlert from 'src/lib/UI/GUI/ShAlert.svelte'
     import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
     import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte'
-    import Help from 'src/lib/Others/Help.svelte'
     import ServerBackupList from 'src/lib/Setting/ServerBackupList.svelte'
+    import SettingRowLayout from 'src/lib/Setting/Wrappers/SettingRowLayout.svelte'
+    import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
+    import SettingRenderer from 'src/lib/Setting/SettingRenderer.svelte'
+    import type { SettingItem } from 'src/ts/setting/types'
     import {
         CameraIcon,
         SaveIcon,
@@ -17,18 +18,27 @@
         RotateCcwIcon,
         FolderIcon,
         TriangleAlertIcon,
-        RefreshCwIcon,
         TrashIcon,
+        DatabaseIcon,
+        TruckIcon,
     } from '@lucide/svelte'
     import { alertConfirm, alertError, alertWait, notifyError, notifySuccess } from 'src/ts/alert'
     import { forageStorage } from 'src/ts/globalApi.svelte'
-    import { setDatabase } from 'src/ts/storage/database.svelte'
-    import { decodeRisuSave } from 'src/ts/storage/risuSave'
+    import { getSyncClientId } from 'src/ts/storage/nodeStorage'
     import { language } from 'src/lang'
-    import { LoadLocalBackup, SaveLocalBackup, SaveServerBackup } from 'src/ts/drive/backuplocal'
+    import {
+        LoadLocalBackup,
+        SaveLocalBackup,
+        SaveLocalBackupForUpstream,
+        SaveManualSnapshot,
+        SavePartialLocalBackup,
+        SaveServerBackup,
+    } from 'src/ts/drive/backuplocal'
+    import { exportAsDataset } from 'src/ts/storage/exportAsDataset'
 
     // ── Types ────────────────────────────────────────────────────────────────
     interface Snapshot { key: string; size: number; timestamp: number | null }
+    interface ManualSnapshot { filename: string; size: number; timestamp: number | null }
     interface BackupPathInfo { path: string; default: string; isDefault: boolean }
     interface SnapshotLimits {
         maxCount: number
@@ -42,7 +52,10 @@
 
     // ── State ────────────────────────────────────────────────────────────────
     let snapshots = $state<Snapshot[]>([])
+    let manualSnapshots = $state<ManualSnapshot[]>([])
+    let initialLoaded = $state(false)
     let snapshotLoading = $state(false)
+    let manualSnapshotLoading = $state(false)
     let snapshotError = $state<string | null>(null)
 
     let pathInfo = $state<BackupPathInfo | null>(null)
@@ -52,7 +65,9 @@
     let pathDialogBusy = $state(false)
 
     let backupListEl = $state<ServerBackupList | undefined>(undefined)
+    let serverBackupSummary = $state<{ count: number; totalSize: number } | null>(null)
     let backupSaving = $state(false)
+    let manualSnapshotSaving = $state(false)
 
     let limits = $state<SnapshotLimits | null>(null)
     let limitsDialogOpen = $state(false)
@@ -63,7 +78,58 @@
     let limitsDialogBusy = $state(false)
 
     let bootReminder = $state(false)
-    let bootReminderLoaded = $state(false)
+    let scheduleSaving = $state(false)
+    let scheduleEnabled = $state(false)
+    let scheduleServerDays = $state(0)
+    let scheduleSnapshotDays = $state(0)
+    const backupScheduleTarget = {
+        get bootReminder() { return bootReminder },
+        set bootReminder(value: boolean) { bootReminder = value; void saveBootReminder(value) },
+        get enabled() { return scheduleEnabled },
+        set enabled(value: boolean) { setScheduleEnabled(value) },
+        get serverDays() { return scheduleServerDays },
+        set serverDays(value: number) { scheduleServerDays = value },
+        get snapshotDays() { return scheduleSnapshotDays },
+        set snapshotDays(value: number) { scheduleSnapshotDays = value },
+    }
+
+    const scheduleServerItem: SettingItem = {
+        id: 'backup.schedule.server',
+        type: 'number',
+        fallbackLabel: language.backupScheduleServer,
+        bindPath: 'serverDays',
+        condition: () => scheduleEnabled,
+        options: { min: 0, max: 365, suffix: language.backupScheduleDaysSuffix, disabled: () => scheduleSaving, onCommit: (value) => saveBackupSchedule({ serverDays: value }) },
+    }
+    const scheduleSnapshotItem: SettingItem = {
+        id: 'backup.schedule.snapshot',
+        type: 'number',
+        fallbackLabel: language.backupScheduleSnapshot,
+        bindPath: 'snapshotDays',
+        condition: () => scheduleEnabled,
+        options: { min: 0, max: 365, suffix: language.backupScheduleDaysSuffix, disabled: () => scheduleSaving, onCommit: (value) => saveBackupSchedule({ snapshotDays: value }) },
+    }
+    const backupNowItem = {
+        id: 'backup.create.now',
+        type: 'button' as const,
+        fallbackLabel: language.backupCreateNow,
+    }
+    const bootReminderItem: SettingItem = {
+        id: 'backup.boot.reminder',
+        type: 'check' as const,
+        fallbackLabel: language.backupBootReminder,
+        helpKey: 'bootBackupReminder' as const,
+        bindPath: 'bootReminder',
+    }
+    const scheduleToggleItem: SettingItem = {
+        id: 'backup.schedule.enabled',
+        type: 'check' as const,
+        fallbackLabel: language.backupScheduleEnabled,
+        helpKey: 'autoBackupSchedule' as const,
+        bindPath: 'enabled',
+        options: { disabled: () => scheduleSaving },
+    }
+    const backupScheduleItems = [bootReminderItem, scheduleToggleItem, scheduleServerItem, scheduleSnapshotItem]
 
     // Stats subset for warnings — fetched alongside snapshots/limits.
     // Uses backupDisk (the backup destination) rather than save/ — the user
@@ -114,19 +180,52 @@
         }
     }
 
+    async function loadManualSnapshots() {
+        manualSnapshotLoading = true
+        try {
+            const auth = await forageStorage.createAuth()
+            const res = await fetch('/api/db/manual-snapshots', { headers: { 'risu-auth': auth } })
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+            const json = await res.json()
+            manualSnapshots = json.snapshots ?? []
+        } catch (err) {
+            snapshotError = err instanceof Error ? err.message : String(err)
+        } finally {
+            manualSnapshotLoading = false
+        }
+    }
+
     async function deleteSnapshot(snap: Snapshot) {
         const when = snap.timestamp ? new Date(snap.timestamp).toLocaleString() : snap.key
         if (!(await alertConfirm(language.backupSnapshotDeleteConfirm(when)))) return
         try {
             const auth = await forageStorage.createAuth()
             const url = '/api/db/snapshots?key=' + encodeURIComponent(snap.key)
-            const res = await fetch(url, { method: 'DELETE', headers: { 'risu-auth': auth } })
+            const res = await fetch(url, { method: 'DELETE', headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId() } })
             if (!res.ok) {
                 const json = await res.json().catch(() => ({}))
                 throw new Error(json?.error || `HTTP ${res.status}`)
             }
             notifySuccess(language.backupSnapshotDeleted)
             await Promise.all([loadSnapshots(), loadLimits()])
+        } catch (err) {
+            alertError(language.backupSnapshotDeleteFailed + ': ' + (err instanceof Error ? err.message : String(err)))
+        }
+    }
+
+    async function deleteManualSnapshot(snap: ManualSnapshot) {
+        const when = snap.timestamp ? new Date(snap.timestamp).toLocaleString() : snap.filename
+        if (!(await alertConfirm(language.backupSnapshotDeleteConfirm(when)))) return
+        try {
+            const auth = await forageStorage.createAuth()
+            const url = '/api/db/manual-snapshots?filename=' + encodeURIComponent(snap.filename)
+            const res = await fetch(url, { method: 'DELETE', headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId() } })
+            if (!res.ok) {
+                const json = await res.json().catch(() => ({}))
+                throw new Error(json?.error || `HTTP ${res.status}`)
+            }
+            notifySuccess(language.backupSnapshotDeleted)
+            await loadManualSnapshots()
         } catch (err) {
             alertError(language.backupSnapshotDeleteFailed + ': ' + (err instanceof Error ? err.message : String(err)))
         }
@@ -144,8 +243,29 @@
             const auth = await forageStorage.createAuth()
             const res = await fetch('/api/db/snapshots/restore', {
                 method: 'POST',
-                headers: { 'risu-auth': auth, 'content-type': 'application/json' },
+                headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId(), 'content-type': 'application/json' },
                 body: JSON.stringify({ key: snap.key }),
+            })
+            const json = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`)
+            notifySuccess('Loaded backup')
+            location.search = ''
+            location.reload()
+        } catch (err) {
+            alertError(err instanceof Error ? err.message : String(err))
+        }
+    }
+
+    async function restoreManualSnapshot(snap: ManualSnapshot) {
+        if (!(await alertConfirm(language.backupLoadConfirm))) return
+        if (!(await alertConfirm(language.backupLoadConfirm2))) return
+        alertWait(language.serverBackupRestoring)
+        try {
+            const auth = await forageStorage.createAuth()
+            const res = await fetch('/api/db/manual-snapshots/restore', {
+                method: 'POST',
+                headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId(), 'content-type': 'application/json' },
+                body: JSON.stringify({ filename: snap.filename }),
             })
             const json = await res.json().catch(() => ({}))
             if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`)
@@ -199,7 +319,7 @@
             const auth = await forageStorage.createAuth()
             const res = await fetch('/api/db/snapshots/limits', {
                 method: 'PUT',
-                headers: { 'risu-auth': auth, 'content-type': 'application/json' },
+                headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId(), 'content-type': 'application/json' },
                 body: JSON.stringify({ maxCount: c, maxBytes: mb * 1024 * 1024 }),
             })
             const json = await res.json().catch(() => ({}))
@@ -239,7 +359,7 @@
     async function submitPathChange() {
         const trimmed = pathDraft.trim()
         if (!trimmed) {
-            pathDialogError = language.backupServerPathInputLabel
+            pathDialogError = language.backupServerPath
             return
         }
         pathDialogBusy = true
@@ -248,7 +368,7 @@
             const auth = await forageStorage.createAuth()
             const res = await fetch('/api/backup/server/path', {
                 method: 'PUT',
-                headers: { 'risu-auth': auth, 'content-type': 'application/json' },
+                headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId(), 'content-type': 'application/json' },
                 body: JSON.stringify({ path: trimmed }),
             })
             const json = await res.json().catch(() => ({}))
@@ -261,6 +381,7 @@
             notifySuccess(language.backupServerPathSuccess)
             // Refresh backup list since the dir changed (now empty unless user moved files).
             backupListEl?.loadBackups()
+            loadManualSnapshots()
         } catch (err) {
             pathDialogError = err instanceof Error ? err.message : String(err)
         } finally {
@@ -292,7 +413,6 @@
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const json = await res.json()
             bootReminder = !!json.enabled
-            bootReminderLoaded = true
         } catch (err) {
             console.error('[Boot reminder]', err)
         }
@@ -303,7 +423,7 @@
             const auth = await forageStorage.createAuth()
             const res = await fetch('/api/backup/boot-reminder', {
                 method: 'PUT',
-                headers: { 'risu-auth': auth, 'content-type': 'application/json' },
+                headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId(), 'content-type': 'application/json' },
                 body: JSON.stringify({ enabled: next }),
             })
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -315,7 +435,77 @@
         }
     }
 
-    // ── Server backup actions ───────────────────────────────────────────────
+    // ── Automatic backup schedule ──────────────────────────────────────────
+    async function loadBackupSchedule() {
+        try {
+            const auth = await forageStorage.createAuth()
+            const res = await fetch('/api/backup/schedule', { headers: { 'risu-auth': auth } })
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+            const json = await res.json()
+            scheduleEnabled = !!json?.enabled
+            scheduleServerDays = Number(json?.serverDays ?? 0)
+            scheduleSnapshotDays = Number(json?.snapshotDays ?? 0)
+        } catch (err) {
+            console.error('[Backup schedule]', err)
+        }
+    }
+
+    function normalizeScheduleDays(value: number) {
+        const days = Math.floor(Number(value))
+        if (!Number.isFinite(days) || days < 0) {
+            return 0
+        }
+        if (days > 365) {
+            return 365
+        }
+        return days
+    }
+
+    async function saveBackupSchedule(next?: { enabled?: boolean; serverDays?: number; snapshotDays?: number }) {
+        const enabled = next?.enabled ?? scheduleEnabled
+        const serverDays = normalizeScheduleDays(next?.serverDays ?? scheduleServerDays)
+        const snapshotDays = normalizeScheduleDays(next?.snapshotDays ?? scheduleSnapshotDays)
+        scheduleServerDays = serverDays
+        scheduleSnapshotDays = snapshotDays
+        scheduleSaving = true
+        try {
+            const auth = await forageStorage.createAuth()
+            const res = await fetch('/api/backup/schedule', {
+                method: 'PUT',
+                headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId(), 'content-type': 'application/json' },
+                body: JSON.stringify({ enabled, serverDays, snapshotDays }),
+            })
+            const json = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`)
+            scheduleEnabled = !!json.enabled
+            scheduleServerDays = Number(json.serverDays ?? serverDays)
+            scheduleSnapshotDays = Number(json.snapshotDays ?? snapshotDays)
+            notifySuccess(language.backupScheduleSuccess)
+        } catch (err) {
+            notifyError(language.backupScheduleFailed + ': ' + (err instanceof Error ? err.message : String(err)))
+        } finally {
+            scheduleSaving = false
+        }
+    }
+
+    function setScheduleEnabled(next: boolean) {
+        scheduleEnabled = next
+        saveBackupSchedule({ enabled: next })
+    }
+
+    // ── Backup creation actions ─────────────────────────────────────────────
+    async function createManualSnapshot() {
+        manualSnapshotSaving = true
+        try {
+            const result = await SaveManualSnapshot()
+            if (result) {
+                await Promise.all([loadManualSnapshots(), loadStats()])
+            }
+        } finally {
+            manualSnapshotSaving = false
+        }
+    }
+
     async function createServerBackup() {
         if (!(await alertConfirm(language.backupConfirm))) return
         backupSaving = true
@@ -338,65 +528,87 @@
         LoadLocalBackup()
     }
 
+    async function downloadUpstreamLocal() {
+        if (!(await alertConfirm(language.saveBackupForUpstreamConfirm))) return
+        SaveLocalBackupForUpstream()
+    }
+
+    async function restoreFromUpstreamLocalFile() {
+        if (!(await alertConfirm(language.backupLoadConfirm))) return
+        if (!(await alertConfirm(language.backupLoadConfirm2))) return
+        LoadLocalBackup()
+    }
+
+    async function loadInitialData() {
+        await Promise.all([
+            loadSnapshots(),
+            loadManualSnapshots(),
+            loadPath(),
+            loadLimits(),
+            loadBootReminder(),
+            loadBackupSchedule(),
+            loadStats(),
+        ])
+        initialLoaded = true
+    }
+
     $effect(() => {
-        loadSnapshots()
-        loadPath()
-        loadLimits()
-        loadBootReminder()
-        loadStats()
+        loadInitialData()
     })
 </script>
 
 <p class="text-textcolor2 text-sm mb-4">{language.backupTabDesc}</p>
 
-<!-- Server backup section ────────────────────────────────────────────────── -->
-<div class="border border-darkborderc bg-darkbg/40 rounded-md p-4 mb-4">
+{#if initialLoaded}
+<!-- Backup creation section ──────────────────────────────────────────────── -->
+<SettingLayout variant="panel">
     <div class="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <div class="flex items-center gap-2 text-textcolor">
-            <SaveIcon size={16} />
-            <span class="font-medium">{language.backupServer}</span>
+            <DatabaseIcon size={16} />
+            <span class="font-medium">{language.backupCreateSection}</span>
         </div>
     </div>
-    <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.backupServerDesc}</p>
 
     {#if insufficientForBackup}
-        <div class="bg-draculared/20 border border-draculared/40 rounded-md px-4 py-3 mb-3 flex items-center gap-2.5 text-red-300">
-            <TriangleAlertIcon class="size-4 shrink-0 text-red-400" />
-            <span class="leading-relaxed text-sm">{language.backupServerInsufficient}</span>
-        </div>
+        <ShAlert variant="destructive" className="mb-3">
+            {#snippet icon()}<TriangleAlertIcon />{/snippet}
+            {language.backupServerInsufficient}
+        </ShAlert>
     {:else if diskUsageLevel === 'crit' && diskUsedPct != null}
-        <div class="bg-draculared/20 border border-draculared/40 rounded-md px-4 py-3 mb-3 flex items-center gap-2.5 text-red-300">
-            <TriangleAlertIcon class="size-4 shrink-0 text-red-400" />
-            <span class="leading-relaxed text-sm">{language.storageDiskUsageHighWarning(diskUsedPct)}</span>
-        </div>
+        <ShAlert variant="destructive" className="mb-3">
+            {#snippet icon()}<TriangleAlertIcon />{/snippet}
+            {language.storageDiskUsageHighWarning(diskUsedPct)}
+        </ShAlert>
     {:else if diskUsageLevel === 'warn' && diskUsedPct != null}
-        <div class="bg-yellow-900/30 border border-yellow-700/40 rounded-md px-4 py-3 mb-3 flex items-center gap-2.5 text-yellow-300">
-            <TriangleAlertIcon class="size-4 shrink-0 text-yellow-400" />
-            <span class="leading-relaxed text-sm">{language.storageDiskUsageHighWarning(diskUsedPct)}</span>
-        </div>
+        <ShAlert variant="warning" className="mb-3">
+            {#snippet icon()}<TriangleAlertIcon />{/snippet}
+            {language.storageDiskUsageHighWarning(diskUsedPct)}
+        </ShAlert>
     {/if}
 
-    <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
-        {#if bootReminderLoaded}
-            <div class="flex items-center gap-2">
-                <label class="flex items-center gap-2 cursor-pointer select-none" title={language.backupBootReminderHint}>
-                    <ShSwitch bind:checked={bootReminder} onCheckedChange={(v) => { bootReminder = v; saveBootReminder(v); }} />
-                    <span class="text-textcolor text-sm">{language.backupBootReminder}</span>
-                </label>
-                <Help key="bootBackupReminder" />
-            </div>
-        {:else}
-            <span></span>
-        {/if}
-        <ShButton variant="primary" onclick={createServerBackup} disabled={backupSaving || insufficientForBackup}>
-            <SaveIcon size={16} />
-            {language.backupServerCreate}
-        </ShButton>
+    <div class="mb-3 [&>*:first-child]:border-t-0">
+        <SettingRowLayout item={backupNowItem}>
+            {#snippet control()}
+                <div class="flex items-center gap-2 flex-wrap justify-end">
+                    <ShButton variant="outline" size="sm" onclick={createManualSnapshot} disabled={manualSnapshotSaving}>
+                        <CameraIcon />
+                        {language.manualSnapshotCreate}
+                    </ShButton>
+                    <ShButton variant="primary" size="sm" onclick={createServerBackup} disabled={backupSaving || insufficientForBackup}>
+                        <SaveIcon />
+                        {language.backupServerCreate}
+                    </ShButton>
+                </div>
+            {/snippet}
+        </SettingRowLayout>
+        <div class="border-t border-darkborderc">
+            <SettingRenderer items={backupScheduleItems} target={backupScheduleTarget} layout="row" />
+        </div>
     </div>
 
     <!-- Path control -->
-    <div class="flex items-center gap-2 mb-3 p-2 border border-darkborderc/50 rounded-md bg-bgcolor/50">
-        <FolderIcon size={14} class="text-textcolor2 shrink-0" />
+    <div class="w-full flex items-center gap-2 p-2 border border-darkborderc/50 rounded-md bg-bgcolor/50">
+        <FolderIcon size={12} class="text-textcolor2 shrink-0" />
         <span class="text-textcolor2 text-xs shrink-0">{language.backupServerPath}:</span>
         <span class="text-textcolor text-xs font-mono truncate flex-1 min-w-0">
             {pathInfo?.path ?? '—'}
@@ -404,30 +616,48 @@
         {#if pathInfo?.isDefault}
             <span class="text-textcolor2 text-xs shrink-0 opacity-60">({language.backupServerPathDefault})</span>
         {/if}
-        <ShButton variant="outline" size="xs" onclick={openPathDialog}>
+        <ShButton variant="outline" size="sm" onclick={openPathDialog}>
             {language.backupServerPathChange}
         </ShButton>
     </div>
+</SettingLayout>
 
-    <ServerBackupList bind:this={backupListEl} />
-</div>
+<!-- Server backup section ────────────────────────────────────────────────── -->
+<SettingLayout variant="panel">
+    <div class="flex items-center justify-between gap-2 mb-3 flex-wrap">
+        <div class="flex items-center gap-2 text-textcolor">
+            <SaveIcon size={16} />
+            <span class="font-medium">{language.backupServer}</span>
+        </div>
+    </div>
+    <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.backupServerDesc}</p>
+    {#if serverBackupSummary}
+        <div class="flex items-start gap-2 mb-3 p-2 border border-darkborderc/50 rounded-md bg-bgcolor/50">
+            <span class="text-textcolor2 text-xs leading-relaxed">
+                {language.backupServerSummary(serverBackupSummary.count, serverBackupSummary.totalSize)}
+            </span>
+        </div>
+    {/if}
+
+    <ServerBackupList
+        bind:this={backupListEl}
+        onStatsChange={(count, totalSize) => serverBackupSummary = { count, totalSize }}
+    />
+</SettingLayout>
 
 <!-- Snapshot section ─────────────────────────────────────────────────────── -->
-<div class="border border-darkborderc bg-darkbg/40 rounded-md p-4 mb-4">
+<SettingLayout variant="panel">
     <div class="flex items-center justify-between gap-2 mb-3">
         <div class="flex items-center gap-2 text-textcolor">
             <CameraIcon size={16} />
             <span class="font-medium">{language.backupSnapshot}</span>
         </div>
-        <ShButton variant="outline" size="sm" onclick={loadSnapshots} disabled={snapshotLoading}>
-            <RefreshCwIcon size={14} class={snapshotLoading ? 'animate-spin' : ''} />
-        </ShButton>
     </div>
     <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageBackupsAutoDesc}</p>
 
     <!-- Retention limits row -->
     {#if limits}
-        <div class="flex items-start gap-2 mb-3 p-2 border border-darkborderc/50 rounded-md bg-bgcolor/50">
+        <div class="flex items-center gap-2 mb-3 p-2 border border-darkborderc/50 rounded-md bg-bgcolor/50">
             <!-- Stacked so the (now longer) "current/savings" line wraps to as many
                  lines as it needs on a narrow phone instead of being truncated. -->
             <div class="flex flex-col gap-0.5 flex-1 min-w-0">
@@ -437,12 +667,16 @@
                 </span>
             </div>
             <div class="shrink-0">
-                <ShButton variant="outline" size="xs" onclick={openLimitsDialog}>
+                <ShButton variant="outline" size="sm" onclick={openLimitsDialog}>
                     {language.backupSnapshotLimitsChange}
                 </ShButton>
             </div>
         </div>
     {/if}
+
+    <div class="flex items-center gap-2 text-textcolor mb-2">
+        <span class="text-sm font-medium">{language.backupSnapshotAutomatic}</span>
+    </div>
 
     {#if snapshotError}
         <ShAlert variant="destructive">
@@ -452,16 +686,16 @@
     {:else if snapshots.length === 0 && !snapshotLoading}
         <p class="text-textcolor2 text-sm">{language.backupSnapshotEmpty}</p>
     {:else if snapshots.length > 0}
-        <div class="border border-darkborderc rounded-md bg-darkbg/30 overflow-hidden">
-            {#each snapshots as snap, i (snap.key)}
-                <div class="flex items-center gap-3 px-3 py-2 {i > 0 ? 'border-t border-darkborderc/50' : ''}">
+        <SettingLayout variant="list" scrollable>
+            {#each snapshots as snap (snap.key)}
+                <SettingLayout variant="item">
                     <div class="flex flex-col min-w-0 flex-1">
                         <span class="text-sm text-textcolor">
                             {snap.timestamp ? new Date(snap.timestamp).toLocaleString() : snap.key}
                         </span>
                         <span class="text-xs text-textcolor2 tabular-nums">{fmtBytes(snap.size)}</span>
                     </div>
-                    <div class="flex items-center gap-2 shrink-0">
+                    {#snippet control()}
                         <button class="text-textcolor2 hover:text-primary cursor-pointer" title={language.backupSnapshotRestore} aria-label={language.backupSnapshotRestore}
                             onclick={() => restoreSnapshot(snap)}>
                             <RotateCcwIcon size={18}/>
@@ -470,15 +704,46 @@
                             onclick={() => deleteSnapshot(snap)}>
                             <TrashIcon size={18}/>
                         </button>
-                    </div>
-                </div>
+                    {/snippet}
+                </SettingLayout>
             {/each}
-        </div>
+        </SettingLayout>
     {/if}
-</div>
+
+	    <div class="flex items-center justify-between gap-2 text-textcolor mt-4 mb-2">
+        <span class="text-sm font-medium">{language.backupSnapshotManual}</span>
+	    </div>
+
+    {#if manualSnapshots.length === 0 && !manualSnapshotLoading}
+        <p class="text-textcolor2 text-sm">{language.manualSnapshotEmpty}</p>
+    {:else if manualSnapshots.length > 0}
+        <SettingLayout variant="list" scrollable>
+            {#each manualSnapshots as snap (snap.filename)}
+                <SettingLayout variant="item">
+                    <div class="flex flex-col min-w-0 flex-1">
+                        <span class="text-sm text-textcolor">
+                            {snap.timestamp ? new Date(snap.timestamp).toLocaleString() : snap.filename}
+                        </span>
+                        <span class="text-xs text-textcolor2 tabular-nums">{fmtBytes(snap.size)}</span>
+                    </div>
+                    {#snippet control()}
+                        <button class="text-textcolor2 hover:text-primary cursor-pointer" title={language.backupSnapshotRestore} aria-label={language.backupSnapshotRestore}
+                            onclick={() => restoreManualSnapshot(snap)}>
+                            <RotateCcwIcon size={18}/>
+                        </button>
+                        <button class="text-textcolor2 hover:text-red-400 cursor-pointer" title={language.backupSnapshotDelete} aria-label={language.backupSnapshotDelete}
+                            onclick={() => deleteManualSnapshot(snap)}>
+                            <TrashIcon size={18}/>
+                        </button>
+                    {/snippet}
+                </SettingLayout>
+            {/each}
+        </SettingLayout>
+    {/if}
+</SettingLayout>
 
 <!-- Local backup section ────────────────────────────────────────────────── -->
-<div class="border border-darkborderc bg-darkbg/40 rounded-md p-4 mb-4">
+<SettingLayout variant="panel">
     <div class="flex items-center gap-2 text-textcolor mb-3">
         <DownloadIcon size={16} />
         <span class="font-medium">{language.backupLocal}</span>
@@ -486,37 +751,75 @@
     <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.backupLocalDesc}</p>
 
     <div class="flex flex-col gap-3">
-        <div class="flex items-center justify-between gap-3 p-3 border border-darkborderc/50 rounded-md bg-bgcolor/50">
-            <div class="flex flex-col min-w-0 flex-1">
-                <span class="text-textcolor text-sm font-medium">{language.backupLocalDownload}</span>
-                <span class="text-textcolor2 text-xs leading-relaxed mt-0.5">{language.backupLocalDownloadDesc}</span>
-            </div>
+        <SettingLayout variant="action" title={language.backupLocalDownload} description={language.help.backupLocalDownloadDesc}>
+            {#snippet control()}
             <ShButton variant="outline" size="sm" onclick={downloadLocal}>
-                <DownloadIcon size={14} />
+                <DownloadIcon />
                 {language.backupLocalDownload}
             </ShButton>
-        </div>
-        <div class="flex items-center justify-between gap-3 p-3 border border-darkborderc/50 rounded-md bg-bgcolor/50">
-            <div class="flex flex-col min-w-0 flex-1">
-                <span class="text-textcolor text-sm font-medium">{language.loadBackupLocal}</span>
-                <span class="text-textcolor2 text-xs leading-relaxed mt-0.5">{language.backupLocalRestoreDesc}</span>
-            </div>
+            {/snippet}
+        </SettingLayout>
+        <SettingLayout variant="action" title={language.loadBackupLocal} description={language.help.backupLocalRestoreDesc}>
+            {#snippet control()}
             <ShButton variant="outline" size="sm" onclick={restoreFromLocalFile}>
-                <UploadIcon size={14} />
+                <UploadIcon />
                 {language.loadBackupLocal}
             </ShButton>
-        </div>
+            {/snippet}
+        </SettingLayout>
     </div>
-</div>
+</SettingLayout>
+
+<!-- Data migration section ──────────────────────────────────────────────── -->
+<SettingLayout variant="panel">
+    <div class="flex items-center gap-2 text-textcolor mb-3">
+        <TruckIcon size={16} />
+        <span class="font-medium">{language.migration}</span>
+    </div>
+    <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.migrationDesc}</p>
+
+    <div class="flex flex-col gap-3">
+        <SettingLayout variant="action" title={language.saveBackupForUpstream} description={language.help.migrationUpstreamExportDesc}>
+            {#snippet control()}
+            <ShButton variant="outline" size="sm" onclick={downloadUpstreamLocal}>
+                <DownloadIcon />
+                {language.migrationCompatBackupExportButton}
+            </ShButton>
+            {/snippet}
+        </SettingLayout>
+        <SettingLayout variant="action" title={language.savePartialLocalBackup} description={language.help.migrationPartialBackupDesc}>
+            {#snippet control()}
+            <ShButton variant="outline" size="sm" onclick={SavePartialLocalBackup}>
+                <DownloadIcon />
+                {language.migrationCompatSnapshotExportButton}
+            </ShButton>
+            {/snippet}
+        </SettingLayout>
+        <SettingLayout variant="action" title={language.migrationLoadUpstreamBackup} description={language.help.migrationUpstreamRestoreDesc}>
+            {#snippet control()}
+            <ShButton variant="outline" size="sm" onclick={restoreFromUpstreamLocalFile}>
+                <UploadIcon />
+                {language.migrationCompatBackupImportButton}
+            </ShButton>
+            {/snippet}
+        </SettingLayout>
+        <SettingLayout variant="action" title={language.exportAsDataset} description={language.help.migrationDatasetExportDesc}>
+            {#snippet control()}
+            <ShButton variant="outline" size="sm" onclick={exportAsDataset}>
+                <DownloadIcon />
+                {language.migrationDatasetExportButton}
+            </ShButton>
+            {/snippet}
+        </SettingLayout>
+    </div>
+</SettingLayout>
+{/if}
 
 <!-- Path-change dialog ──────────────────────────────────────────────────── -->
 <ShDialog bind:open={pathDialogOpen} size="lg">
     {#snippet title()}{language.backupServerPathDialog}{/snippet}
     <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.backupServerPathDialogDesc}</p>
-    <label class="flex flex-col gap-1">
-        <span class="text-textcolor2 text-sm">{language.backupServerPathInputLabel}</span>
-        <ShInput bind:value={pathDraft} placeholder="/absolute/path/to/backups" />
-    </label>
+    <ShInput bind:value={pathDraft} placeholder="/absolute/path/to/backups" aria-label={language.backupServerPath} />
     {#if pathDialogError}
         <ShAlert variant="destructive" className="mt-3">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}

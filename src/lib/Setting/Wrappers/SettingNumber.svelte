@@ -14,6 +14,7 @@
     let { item, ctx }: Props = $props();
 
     let localValue: any = $state(untrack(() => getSettingValue(item, ctx)));
+    let disabled = $derived(typeof item.options?.disabled === 'function' ? item.options.disabled(ctx) : !!item.options?.disabled);
 
     // Sync: DB → local (one-way read)
     $effect(() => {
@@ -38,14 +39,20 @@
          compact input vertically centered on the right (SettingRowLayout). -->
     <SettingRowLayout {item}>
         {#snippet control()}
-            <NumberInput
-                className="w-24"
-                size="sm"
-                padding={true}
-                min={item.options?.min}
-                max={item.options?.max}
-                bind:value={localValue}
-            />
+            <div class="flex items-center gap-2">
+                <NumberInput
+                    className={item.options?.inputClassName ?? 'w-24'}
+                    size="sm"
+                    padding={true}
+                    min={item.options?.min}
+                    max={item.options?.max}
+                    placeholder={item.options?.placeholder}
+                    {disabled}
+                    bind:value={localValue}
+                    onChange={() => item.options?.onCommit?.(localValue, ctx)}
+                />
+                {#if item.options?.suffix}<span class="text-textcolor2 text-xs shrink-0">{item.options.suffix}</span>{/if}
+            </div>
         {/snippet}
     </SettingRowLayout>
 {:else}
@@ -58,6 +65,9 @@
         marginBottom={true}
         min={item.options?.min}
         max={item.options?.max}
+        placeholder={item.options?.placeholder}
+        {disabled}
         bind:value={localValue}
+        onChange={() => item.options?.onCommit?.(localValue, ctx)}
     />
 {/if}

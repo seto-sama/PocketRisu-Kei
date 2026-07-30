@@ -55,7 +55,7 @@ export interface AdapterStreamEvent {
     id?: string
 }
 
-export type AdapterChatRole = 'system' | 'user' | 'assistant' | 'tool'
+export type AdapterChatRole = 'system' | 'developer' | 'user' | 'assistant' | 'tool'
 
 // A single function/tool invocation requested by the model. `arguments` is the
 // raw JSON string the model emitted (matches OpenAI's wire shape and the classic
@@ -94,6 +94,18 @@ export interface AdapterImagePart {
     mime?: string
 }
 
+export interface AdapterMediaPart {
+    kind: 'audio' | 'video'
+    base64: string
+    mime?: string
+}
+
+export interface AdapterGeneratedMedia {
+    kind: 'image' | 'audio'
+    base64: string
+    mime: string
+}
+
 export interface AdapterChatMessage {
     role: AdapterChatRole
     content: string
@@ -109,6 +121,7 @@ export interface AdapterChatMessage {
     // only — never persisted (history-restored turns reconstruct from fields).
     providerEcho?: unknown
     images?: AdapterImagePart[]          // role:'user' — image attachments (vision)
+    media?: AdapterMediaPart[]           // role:'user' — enabled audio/video attachments
     // Native prompt-cache boundary flag, preserved from OpenAIChat.cachePoint
     // (cache prompt card / automaticCachePoint — the same infra Anthropic
     // caching consumes). The google-gemini adapter folds the LAST flagged
@@ -138,11 +151,18 @@ export interface AdapterUsage {
 
 export interface AdapterChatResponse {
     text: string
+    media?: AdapterGeneratedMedia[]       // generated image/audio payloads
     toolCalls?: AdapterToolCall[]        // calls the model requested this turn
     reasoning?: AdapterReasoningPart[]   // thinking blocks emitted this turn (echo + display)
     providerEcho?: unknown               // raw assistant payload for verbatim re-send (see AdapterChatMessage)
     finishReason?: string
     usage?: AdapterUsage
+    /**
+     * A persistent generation job whose initial response did not contain usage.
+     * Anthropic Message Batches populate this so the final result usage can be
+     * reported back into the same usage row.
+     */
+    deferredUsageJobId?: string
     raw: unknown
 }
 
@@ -174,6 +194,12 @@ export interface AdapterCacheContext {
 export interface AdapterChatOptions {
     messages: AdapterChatMessage[]
     tools?: AdapterToolDef[]             // when present, enables tool use on the request
+    // Prompt → Advanced JSON Schema, resolved once by request.ts and translated
+    // to each provider's structured-output wire by the adapter.
+    structuredOutput?: {
+        schema: Record<string, unknown>
+        strict: boolean
+    }
     abortSignal?: AbortSignal
     fetchImpl?: typeof fetch
     // Per-request identifier (= the message generationId issued in sendChat).

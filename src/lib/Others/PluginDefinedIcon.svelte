@@ -3,7 +3,7 @@
 
     let {
         ico,
-        className = 'w-5 h-5'
+        className = ''
     }: {
         ico: {
             iconType:'html'|'img'|'none',
@@ -38,10 +38,21 @@
 
 </script>
 
-<div class={className}>
+<div
+    class="plugin-defined-icon shrink-0 {className}"
+    style="width: var(--icon-size, 20px); height: var(--icon-size, 20px);"
+>
     {#if ico.iconType === 'html'}
         {@html iconPurify(ico.icon)}
     {:else if ico.iconType === 'img'}
         <img src={isSafeSchema(ico.icon)} alt="icon" />
     {/if}
 </div>
+
+<style>
+    .plugin-defined-icon :global(svg),
+    .plugin-defined-icon img {
+        width: 100%;
+        height: 100%;
+    }
+</style>

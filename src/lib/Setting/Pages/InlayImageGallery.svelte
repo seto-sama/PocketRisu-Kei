@@ -1,10 +1,9 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { Collapsible } from 'bits-ui'
-  import { ChevronDown as ChevronDownIcon, ChevronLeft, ChevronRight, Funnel as FilterIcon, X, Download, Trash2, Info, ImageIcon } from '@lucide/svelte'
+  import { Copy, Download, Trash2, ImageIcon } from '@lucide/svelte'
   import OptionInput from "../../UI/GUI/OptionInput.svelte";
-  import ShBadge from '../../UI/GUI/ShBadge.svelte'
+  import CheckInput from '../../UI/GUI/CheckInput.svelte'
   import ShButton from '../../UI/GUI/ShButton.svelte'
   import ShSelect from '../../UI/GUI/ShSelect.svelte'
 
@@ -24,9 +23,11 @@
     type InlayScanResult,
   } from 'src/ts/process/files/inlays'
   import SettingPage from '../../UI/GUI/SettingPage.svelte'
+  import SettingLayout from '../Wrappers/SettingLayout.svelte'
   import SettingTabs from '../../UI/GUI/SettingTabs.svelte'
   import SettingRenderer from '../SettingRenderer.svelte'
   import { inlayImageSettingsItems } from 'src/ts/setting/inlayImageSettingsData'
+  import FullscreenImageViewer from '../../UI/GUI/FullscreenImageViewer.svelte'
 
   let submenu = $state(0)
 
@@ -167,6 +168,19 @@
     return fallback.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
   }
 
+  function buildInlayReference(id: string): string {
+    return `{{inlayed::${id}}}`
+  }
+
+  async function copyInlayReference(id: string) {
+    try {
+      await navigator.clipboard.writeText(buildInlayReference(id))
+      notifySuccess(language.copied)
+    } catch (error) {
+      notifyError(`${error}`)
+    }
+  }
+
   function withExtension(name: string, ext: string): string {
     const safeExt = (ext ?? '').trim() || 'bin'
     const lowerName = name.toLowerCase()
@@ -192,6 +206,11 @@
     viewerOpen = true
     viewerId = id
     loadViewerAsset(id)
+  }
+
+  function handleCardClick(event: MouseEvent, id: string) {
+    if (event.target instanceof Element && event.target.closest('label')) return
+    openViewer(id)
   }
 
   function handleCardKeydown(event: KeyboardEvent, id: string) {
@@ -354,7 +373,7 @@
   loadAssets()
 </script>
 
-<div class="h-full min-h-0 flex flex-col overflow-hidden">
+<div class="min-h-0 flex flex-col {submenu === 0 ? 'h-full overflow-hidden' : ''}">
   <div class="shrink-0">
     <SettingPage title={language.playground.inlayImageGallery}>
       <SettingTabs tabs={[
@@ -365,9 +384,7 @@
   </div>
 
   {#if submenu === 1}
-    <div class="flex-1 min-h-0 overflow-y-auto">
-      <SettingRenderer items={inlayImageSettingsItems} />
-    </div>
+    <SettingRenderer items={inlayImageSettingsItems} layout="row" />
   {:else}
     <header class="shrink-0 flex flex-col gap-3 bg-bgcolor pb-4">
       <div class="flex flex-wrap gap-3 items-center">
@@ -377,26 +394,17 @@
         <div class="flex gap-2 ml-auto">
           {#if hasSelection}
             <ShButton onclick={deleteSelected} variant="destructive" size="sm">{language.playground.inlayDeleteSelected}</ShButton>
-            <ShButton onclick={deselectAll} variant="default" size="sm">
+            <ShButton onclick={deselectAll} variant="outline" size="sm">
               {language.playground.inlayDeselectAll} ({selection.size})
             </ShButton>
           {:else if allItems.length > 0}
-            <ShButton onclick={selectAll} variant="default" size="sm">{language.playground.inlaySelectAll}</ShButton>
+            <ShButton onclick={selectAll} variant="outline" size="sm">{language.playground.inlaySelectAll}</ShButton>
           {/if}
         </div>
       </div>
 
       {#if allItems.length > 0}
-        <Collapsible.Root bind:open={filtersOpen}>
-          <Collapsible.Trigger class="group flex items-center gap-1 text-textcolor2 hover:text-textcolor text-sm transition-colors">
-            <FilterIcon size={14} />
-            <span>{language.playground.inlayFilter}</span>
-            {#if activeFilterCount > 0}
-              <ShBadge variant="secondary" className="ml-1">{activeFilterCount}</ShBadge>
-            {/if}
-            <ChevronDownIcon size={14} class="transition-transform group-data-[state=closed]:-rotate-90" />
-          </Collapsible.Trigger>
-          <Collapsible.Content>
+        <SettingLayout variant="filter" title={language.systemLogsFilters} bind:open={filtersOpen} activeCount={activeFilterCount}>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
               <div class="flex flex-col gap-1 text-xs text-textcolor2">
                 <span>{language.playground.inlaySort}</span>
@@ -436,8 +444,7 @@
                 </ShSelect>
               </div>
             </div>
-          </Collapsible.Content>
-        </Collapsible.Root>
+        </SettingLayout>
       {/if}
     </header>
 
@@ -460,38 +467,44 @@
                 {selection.has(item.id) ? 'border-borderc' : 'border-darkborderc hover:border-borderc/70'}"
               role="button"
               tabindex="0"
-              onclick={() => openViewer(item.id)}
+              onclick={(event) => handleCardClick(event, item.id)}
               onkeydown={(event) => handleCardKeydown(event, item.id)}
             >
               {#if item.type === 'image'}
-                <img alt={item.name} class="w-full h-full object-cover" src={`/api/asset/${Buffer.from('inlay_thumb/' + item.id, 'utf-8').toString('hex')}`} loading="lazy" />
+                <img
+                  alt={item.name}
+                  class="w-full h-full object-cover"
+                  src={`/api/asset/${Buffer.from('inlay_thumb/' + item.id, 'utf-8').toString('hex')}`}
+                  loading="lazy"
+                  draggable={false}
+                />
               {:else}
                 <div class="w-full h-full flex items-center justify-center text-textcolor2/40">
                   <ImageIcon size={28} />
                 </div>
               {/if}
 
-              <button
-                class="absolute top-1.5 left-1.5 z-10 w-5 h-5 rounded flex items-center justify-center transition-all border
-                  {selection.has(item.id)
-                    ? 'bg-borderc border-borderc'
-                    : 'bg-black/50 border-white/40 opacity-0 group-hover:opacity-100'}"
-                onclick={(e) => { e.stopPropagation(); toggleSelect(item.id) }}
+              <div
+                class="absolute top-1.5 left-1.5 z-10 transition-opacity
+                  {selection.has(item.id) ? '' : 'opacity-0 group-hover:opacity-100'}"
                 title={selection.has(item.id) ? language.playground.inlayDeselectAll : language.playground.inlaySelectAll}
               >
-                {#if selection.has(item.id)}
-                  <svg class="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M2 6l3 3 5-5" />
-                  </svg>
-                {/if}
-              </button>
+                <CheckInput
+                  card
+                  check={selection.has(item.id)}
+                  hiddenName
+                  margin={false}
+                  name={item.name}
+                  onChange={() => toggleSelect(item.id)}
+                />
+              </div>
 
               {#if getStatusLabel(item)}
                 <div
-                  class="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-yellow-500 flex items-center justify-center"
+                  class="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-warning text-darkbg flex items-center justify-center"
                   title={getStatusLabel(item) ?? ''}
                 >
-                  <span class="text-black text-[9px] font-bold leading-none">!</span>
+                  <span class="text-[9px] font-bold leading-none">!</span>
                 </div>
               {/if}
 
@@ -504,21 +517,44 @@
                 {#if getCharacterName(item)}
                   <p class="text-white/60 text-[10px] truncate leading-tight">{getCharacterName(item)}</p>
                 {/if}
-                <div class="flex gap-1.5 mt-1.5 justify-end">
+                <div class="flex justify-between items-end mt-1.5">
                   <button
-                    class="w-6 h-6 rounded bg-white/15 hover:bg-white/30 flex items-center justify-center text-white transition-colors"
-                    onclick={(e) => { e.stopPropagation(); downloadCurrent(item) }}
-                    title={language.download}
+                    class="w-6 h-6 rounded bg-selected/70 hover:bg-borderc flex items-center justify-center text-textcolor transition-colors"
+                    onclick={(e) => { e.stopPropagation(); copyInlayReference(item.id) }}
+                    title={language.copy}
                   >
-                    <Download size={11} />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="11"
+                      height="11"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      class="lucide-icon lucide lucide-copy"
+                    >
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
                   </button>
-                  <button
-                    class="w-6 h-6 rounded bg-draculared/30 hover:bg-draculared/70 flex items-center justify-center text-white transition-colors"
-                    onclick={(e) => { e.stopPropagation(); deleteAsset(item.id, item.name) }}
-                    title={language.playground.inlayDelete}
-                  >
-                    <Trash2 size={11} />
-                  </button>
+                  <div class="flex gap-1.5 justify-end">
+                    <button
+                      class="w-6 h-6 rounded bg-selected/70 hover:bg-borderc flex items-center justify-center text-textcolor transition-colors"
+                      onclick={(e) => { e.stopPropagation(); downloadCurrent(item) }}
+                      title={language.download}
+                    >
+                      <Download size={12} />
+                    </button>
+                    <button
+                      class="w-6 h-6 rounded bg-draculared/30 hover:bg-draculared/70 flex items-center justify-center text-white transition-colors"
+                      onclick={(e) => { e.stopPropagation(); deleteAsset(item.id, item.name) }}
+                      title={language.playground.inlayDelete}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -536,154 +572,86 @@
 </div>
 
 <!-- Fullscreen viewer -->
-{#if viewerOpen}
-  <div class="fixed inset-0 z-50 flex overflow-hidden" style="background: #09090b;">
-
-    <!-- Image panel -->
-    <div class="flex-1 relative flex items-center justify-center min-w-0 overflow-hidden">
-
-      <!-- Top toolbar -->
-      <div class="absolute top-0 inset-x-0 z-10 flex items-center gap-3 px-4 py-3 bg-gradient-to-b from-black/70 to-transparent pointer-events-none">
-        <div class="flex-1 min-w-0">
-          <p class="text-white text-sm font-semibold truncate">{currentViewerItem?.name ?? viewerId}</p>
-          {#if viewerIndex >= 0}
-            <p class="text-white/40 text-xs">{viewerIndex + 1} / {sortedItems.length}</p>
-          {/if}
-        </div>
-        <div class="flex gap-2 shrink-0 pointer-events-auto">
-          <button
-            class="w-9 h-9 rounded-full border border-white/20 bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
-            onclick={() => (infoPanelOpen = !infoPanelOpen)}
-            title={language.playground.inlayInfo}
-          >
-            <Info size={16} />
-          </button>
-          <button
-            class="w-9 h-9 rounded-full border border-white/20 bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
-            onclick={() => currentViewerItem && downloadCurrent(currentViewerItem)}
-            title={language.download}
-          >
-            <Download size={16} />
-          </button>
-          <button
-            class="w-9 h-9 rounded-full border border-white/20 bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
-            onclick={closeViewer}
-            title={language.goback}
-          >
-            <X size={16} />
-          </button>
-        </div>
+<FullscreenImageViewer
+  open={viewerOpen}
+  src={viewerUrl}
+  alt={currentViewerItem?.name ?? viewerId}
+  title={currentViewerItem?.name ?? viewerId}
+  position={viewerIndex}
+  total={sortedItems.length}
+  loading={viewerLoading}
+  error={viewerError}
+  loadingLabel={language.playground.inlayLoadingOriginal}
+  {canGoPrev}
+  {canGoNext}
+  bind:infoOpen={infoPanelOpen}
+  infoLabel={language.playground.inlayInfo}
+  downloadLabel={language.download}
+  closeLabel={language.goback}
+  onClose={closeViewer}
+  onPrev={() => goToNeighbor(-1)}
+  onNext={() => goToNeighbor(1)}
+  onDownload={() => currentViewerItem && downloadCurrent(currentViewerItem)}
+>
+  {#snippet statusOverlay()}
+    {#if getStatusLabel(currentViewerItem)}
+      <div class="risu-status-warning absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full text-xs font-medium">
+        {getStatusLabel(currentViewerItem)}
       </div>
+    {/if}
+  {/snippet}
 
-      <!-- Prev arrow -->
-      {#if canGoPrev}
-        <button
-          class="absolute left-3 z-10 w-11 h-11 rounded-full border border-white/20 bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
-          onclick={() => goToNeighbor(-1)}
-        >
-          <ChevronLeft size={22} />
-        </button>
+  {#snippet info()}
+    <div class="px-4 py-3 space-y-1.5">
+      <p class="text-textcolor text-sm font-medium break-all leading-snug" title={currentViewerItem?.name}>
+        {currentViewerItem?.name ?? viewerId}
+      </p>
+      <p class="text-textcolor2/60 text-xs font-mono break-all leading-snug">{viewerId}</p>
+      {#if currentViewerItem?.ext}
+        <p class="text-textcolor2 text-xs uppercase font-mono">{currentViewerItem.ext}</p>
       {/if}
-
-      <!-- Image / loading / error -->
-      <div class="w-full h-full flex items-center justify-center px-16 py-14">
-        {#if viewerLoading}
-          <div class="flex flex-col items-center gap-4">
-            <div class="w-12 h-12 border-4 border-white/15 border-t-white/80 rounded-full animate-spin"></div>
-            <p class="text-white/50 text-sm">{language.playground.inlayLoadingOriginal}</p>
-          </div>
-        {:else if viewerError}
-          <p class="text-red-300 text-sm">{viewerError}</p>
-        {:else if viewerUrl}
-          <img
-            alt={currentViewerItem?.name ?? viewerId}
-            class="max-w-full max-h-full object-contain rounded shadow-2xl"
-            style="max-height: calc(100vh - 112px);"
-            src={viewerUrl}
-          />
-        {/if}
-      </div>
-
-      <!-- Next arrow -->
-      {#if canGoNext}
-        <button
-          class="absolute right-3 z-10 w-11 h-11 rounded-full border border-white/20 bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
-          onclick={() => goToNeighbor(1)}
-        >
-          <ChevronRight size={22} />
-        </button>
+      {#if currentViewerItem?.width && currentViewerItem?.height}
+        <p class="text-textcolor2 text-xs">{currentViewerItem.width} × {currentViewerItem.height} px</p>
       {/if}
-
-      <!-- Status badge at bottom -->
-      {#if getStatusLabel(currentViewerItem)}
-        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-yellow-500/90 text-black text-xs font-medium">
-          {getStatusLabel(currentViewerItem)}
-        </div>
+      {#if getCharacterName(currentViewerItem)}
+        <p class="text-textcolor2 text-xs">{language.character}: {getCharacterName(currentViewerItem)}</p>
+      {/if}
+      {#if getChatName(currentViewerItem)}
+        <p class="text-textcolor2 text-xs">{language.Chat}: {getChatName(currentViewerItem)}</p>
+      {/if}
+      {#if formatTimestamp(currentViewerItem?.meta?.createdAt)}
+        <p class="text-textcolor2/70 text-xs">{language.playground.inlayCreatedAt} {formatTimestamp(currentViewerItem?.meta?.createdAt)}</p>
       {/if}
     </div>
 
-    <!-- Info panel -->
-    {#if infoPanelOpen}
-      <div class="w-72 xl:w-80 shrink-0 flex flex-col overflow-hidden border-l border-white/10" style="background: #18181b;">
-
-        <!-- Panel header -->
-        <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
-          <span class="text-white/80 text-sm font-semibold">{language.playground.inlayInfo}</span>
-          <button class="text-white/40 hover:text-white transition-colors" onclick={() => (infoPanelOpen = false)}>
-            <X size={16} />
-          </button>
-        </div>
-
-        <div class="flex-1 overflow-y-auto">
-
-          <!-- File info -->
-          <div class="px-4 py-3 space-y-1.5 border-b border-white/10">
-            <p class="text-white text-sm font-medium break-all leading-snug" title={currentViewerItem?.name}>
-              {currentViewerItem?.name ?? viewerId}
-            </p>
-            <p class="text-white/30 text-xs font-mono break-all leading-snug">{viewerId}</p>
-            {#if currentViewerItem?.ext}
-              <p class="text-white/50 text-xs uppercase font-mono">.{currentViewerItem.ext}</p>
-            {/if}
-            {#if currentViewerItem?.width && currentViewerItem?.height}
-              <p class="text-white/50 text-xs">{currentViewerItem.width} × {currentViewerItem.height} px</p>
-            {/if}
-            {#if getCharacterName(currentViewerItem)}
-              <p class="text-white/60 text-xs">{language.character}: {getCharacterName(currentViewerItem)}</p>
-            {/if}
-            {#if getChatName(currentViewerItem)}
-              <p class="text-white/60 text-xs">{language.Chat}: {getChatName(currentViewerItem)}</p>
-            {/if}
-            {#if formatTimestamp(currentViewerItem?.meta?.createdAt)}
-              <p class="text-white/35 text-xs">{language.playground.inlayCreatedAt} {formatTimestamp(currentViewerItem?.meta?.createdAt)}</p>
-            {/if}
-            {#if formatTimestamp(currentViewerItem?.meta?.updatedAt)}
-              <p class="text-white/35 text-xs">{language.playground.inlayUpdatedAt} {formatTimestamp(currentViewerItem?.meta?.updatedAt)}</p>
-            {/if}
-          </div>
-
-          <!-- Actions -->
-          <div class="px-4 py-4 space-y-2">
-            <h3 class="text-white/50 text-[11px] font-semibold uppercase tracking-wider">
-              {language.playground.inlayActions}
-            </h3>
-            <button
-              onclick={() => currentViewerItem && downloadCurrent(currentViewerItem)}
-              class="w-full flex items-center gap-2 px-3 py-2 rounded border border-white/15 hover:bg-white/5 text-white/70 hover:text-white text-sm transition-colors"
-            >
-              <Download size={14} />
-              {language.download}
-            </button>
-            <button
-              onclick={() => currentViewerItem && deleteAsset(currentViewerItem.id, currentViewerItem.name)}
-              class="w-full flex items-center gap-2 px-3 py-2 rounded border border-draculared/40 hover:bg-draculared/15 text-red-400 hover:text-red-300 text-sm transition-colors"
-            >
-              <Trash2 size={14} />
-              {language.playground.inlayDelete}
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-  </div>
-{/if}
+    <div class="px-4 py-4 space-y-2">
+      <h3 class="text-textcolor2 text-[11px] font-semibold uppercase tracking-wider">
+        {language.playground.inlayActions}
+      </h3>
+      <button
+        type="button"
+        onclick={() => currentViewerItem && copyInlayReference(currentViewerItem.id)}
+        class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc hover:bg-selected/50 text-textcolor2 hover:text-textcolor text-sm transition-colors"
+      >
+        <Copy size={14} />
+        {language.copy}
+      </button>
+      <button
+        type="button"
+        onclick={() => currentViewerItem && downloadCurrent(currentViewerItem)}
+        class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc hover:bg-selected/50 text-textcolor2 hover:text-textcolor text-sm transition-colors"
+      >
+        <Download size={12} />
+        {language.download}
+      </button>
+      <button
+        type="button"
+        onclick={() => currentViewerItem && deleteAsset(currentViewerItem.id, currentViewerItem.name)}
+        class="w-full flex items-center gap-2 px-3 py-2 rounded border border-draculared/40 hover:bg-draculared/15 text-draculared text-sm transition-colors"
+      >
+        <Trash2 size={12} />
+        {language.playground.inlayDelete}
+      </button>
+    </div>
+  {/snippet}
+</FullscreenImageViewer>

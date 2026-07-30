@@ -131,35 +131,6 @@ jobs:
           docker buildx imagetools create $TAGS \
             $(printf "${IMAGE}@sha256:%s " *)
 
-      # Dual publish to legacy GHCR path for v1.5.x Docker users
-      # (ghcr.io/mrbart3885/risuai-nodeonly). PAT belongs to mrbart3885 account.
-      # Required: if the PAT is missing/rotated, this step fails loudly so we don't
-      # silently leave existing Docker users on a stale image. Verify GHCR_LEGACY_PAT
-      # is set before tagging a release.
-      - name: Log in to legacy GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: mrbart3885
-          password: ${{ secrets.GHCR_LEGACY_PAT }}
-
-      - name: Create legacy manifest list and push
-        working-directory: /tmp/digests
-        shell: bash
-        run: |
-          NEW="${{ env.REGISTRY }}/${{ steps.lower.outputs.image_name }}"
-          LEGACY="${{ env.REGISTRY }}/mrbart3885/risuai-nodeonly"
-          TAGS=""
-          if [[ "${{ steps.version.outputs.is_tag }}" == "true" ]]; then
-            TAGS="-t ${LEGACY}:latest"
-            TAGS="$TAGS -t ${LEGACY}:v${{ steps.version.outputs.version }}"
-            TAGS="$TAGS -t ${LEGACY}:v${{ steps.version.outputs.minor }}"
-          else
-            TAGS="-t ${LEGACY}:${{ steps.version.outputs.version }}"
-          fi
-          docker buildx imagetools create $TAGS \
-            $(printf "${NEW}@sha256:%s " *)
-
   cleanup-old-images:
     needs: merge
     if: startsWith(github.ref, 'refs/tags/v')
@@ -175,7 +146,6 @@ jobs:
             const pkg = context.repo.repo.toLowerCase();
 
             // Detect owner type — Organization vs User — to use the matching package API.
-            // PocketRisu/PocketRisu is an Organization, the previous mrbart3885/* was a User.
             const { data: ownerInfo } = await github.rest.users.getByUsername({ username: owner });
             const isOrg = ownerInfo.type === 'Organization';
             core.info(`Owner '${owner}' type: ${ownerInfo.type}`);

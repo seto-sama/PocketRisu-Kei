@@ -1,98 +1,246 @@
 <script lang="ts">
-    import { PlusIcon, TrashIcon, LinkIcon, CodeXmlIcon, PowerIcon, PowerOffIcon, ShieldIcon } from "@lucide/svelte";
+    import { PlusIcon, TrashIcon, LinkIcon, CodeXmlIcon, PowerIcon, PowerOffIcon, ShieldIcon, SquarePenIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     import { alertConfirm, alertMd, alertSelect, notifySuccess } from "src/ts/alert";
     import { TriangleAlert } from '@lucide/svelte';
 
-    import { DBState, hotReloading } from "src/ts/stores.svelte";
-    import { checkPluginUpdate, createBlankPlugin, importPlugin, loadPlugins, updatePlugin } from "src/ts/plugins/plugins.svelte";
+    import { DBState, hotReloading, popUpEditorStore } from "src/ts/stores.svelte";
+    import { checkPluginUpdate, importPlugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { resetPluginPermission } from "src/ts/plugins/apiV3/v3.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
     import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
     import { hotReloadPluginFiles } from "src/ts/plugins/apiV3/developMode";
+    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
+    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
 
-    let showParams = $state([])
+    let showParams = $state<string[]>([])
+    let pluginSearch = $state('')
+    let isDraggingPlugin = $state(false)
+    let draggedPluginIndex = $state(-1)
+    let dragOverPluginIndex = $state(-1)
+    let suppressPluginClick = $state(false)
+    let {
+        embedded = false,
+    }: {
+        embedded?: boolean;
+    } = $props();
+
+    function pluginTitle(plugin: RisuPlugin) {
+        return plugin.displayName ?? plugin.name
+    }
+
+    function pluginDescription(plugin: RisuPlugin) {
+        const parts: string[] = []
+        if (plugin.displayName && plugin.displayName !== plugin.name) parts.push(plugin.name)
+        if (plugin.versionOfPlugin) parts.push(plugin.versionOfPlugin)
+        if (plugin.version) parts.push(`API ${plugin.version}`)
+        return parts.join(' / ') || plugin.name
+    }
+
+    function pluginKey(plugin: RisuPlugin, index: number) {
+        return plugin.name || `${index}`
+    }
+
+    function filteredPlugins(plugins: RisuPlugin[] = [], search: string) {
+        const normalized = search.toLowerCase()
+        return plugins.map((plugin, index) => ({ plugin, index })).filter(({ plugin }) => {
+            if (!normalized) return true
+            return pluginTitle(plugin).toLowerCase().includes(normalized)
+                || plugin.name.toLowerCase().includes(normalized)
+        })
+    }
+
+    const visiblePlugins = $derived(filteredPlugins(DBState.db.plugins, pluginSearch))
+
+    function movePlugin(fromIndex: number, toIndex: number) {
+        const plugins = DBState.db.plugins ?? []
+        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= plugins.length || toIndex > plugins.length) return
+
+        const next = [...plugins]
+        const [moved] = next.splice(fromIndex, 1)
+        if (!moved) return
+        const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
+        next.splice(adjustedToIndex, 0, moved)
+        DBState.db.plugins = next
+        loadPlugins()
+        void requestImmediateSave()
+    }
+
+    function startPluginDrag(index: number, e: DragEvent) {
+        e.stopPropagation()
+        const target = e.target as HTMLElement | null
+        if (target?.closest('[data-no-row-drag="true"]')) {
+            e.preventDefault()
+            return
+        }
+        isDraggingPlugin = true
+        draggedPluginIndex = index
+        dragOverPluginIndex = index
+        suppressPluginClick = true
+        e.dataTransfer?.setData('text/plain', 'plugin')
+        e.dataTransfer?.setData('pluginIndex', String(index))
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+    }
+
+    function updatePluginDragTarget(index: number, e: DragEvent) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+        dragOverPluginIndex = e.clientY < rect.top + rect.height / 2 ? index : index + 1
+    }
+
+    function dropPlugin(e: DragEvent) {
+        e.preventDefault()
+        e.stopPropagation()
+        const kind = e.dataTransfer?.getData('text/plain')
+        if (kind !== 'plugin') return
+        const sourceIndex = Number(e.dataTransfer?.getData('pluginIndex') || draggedPluginIndex)
+        movePlugin(sourceIndex, dragOverPluginIndex)
+        endPluginDrag()
+    }
+
+    function endPluginDrag() {
+        isDraggingPlugin = false
+        draggedPluginIndex = -1
+        dragOverPluginIndex = -1
+        setTimeout(() => {
+            suppressPluginClick = false
+        }, 0)
+    }
+
+    function openPluginScriptEditor(index: number, plugin: RisuPlugin) {
+        const originalScript = plugin.script ?? ''
+        popUpEditorStore.value = originalScript
+        popUpEditorStore.mode = 'default'
+        popUpEditorStore.language = 'javascript'
+        popUpEditorStore.onSave = () => {
+            const nextScript = popUpEditorStore.value
+            if (nextScript === originalScript) return true
+
+            const foundIndex = DBState.db.plugins?.findIndex((p) => p.name === plugin.name) ?? -1
+            const currentIndex = foundIndex >= 0 ? foundIndex : index
+            const currentPlugin = DBState.db.plugins?.[currentIndex]
+            if (!currentPlugin) return true
+
+            currentPlugin.script = nextScript
+            DBState.db.plugins[currentIndex] = currentPlugin
+            loadPlugins()
+            void requestImmediateSave()
+            notifySuccess('Plugin updated.')
+            return true
+        }
+        popUpEditorStore.open = true
+    }
 </script>
 
-<SettingPage title={language.plugin}>
-<span class="text-draculared text-xs mb-4">{language.pluginWarn}</span>
+{#snippet content()}
+<SettingLayout variant="search" className="mt-4">
+    <TextInput className="min-w-0 grow" placeholder={language.search} bind:value={pluginSearch} />
+    {#snippet control()}
+    <IconButtonGroup size="lg">
+        <IconButton
+            onclick={() => {
+                importPlugin()
+            }}
+        >
+            <PlusIcon />
+        </IconButton>
 
-<div class="text-textcolor2 mb-2 flex gap-2 justify-end">
-    <button
-        onclick={() => {
-            importPlugin()
-        }}
-        class="hover:text-textcolor cursor-pointer"
-    >
-        <PlusIcon />
-    </button>
-
-    <button
-        onclick={async () => {
-            const v = parseInt(await alertSelect([
-                "Import plugin with hot reload",
-                "Download plugin template",
-                language.cancel
-            ]))
-            switch(v){
-                case 0:
-                    await hotReloadPluginFiles()
-                    break;
-                case 1:{
-                    const a = document.createElement('a');
-                    a.href = '/plugin_start.7z';
-                    a.download = 'plugin_starter.7z';
-                    document.body.appendChild(a);
+        <IconButton
+            onclick={async () => {
+                const v = parseInt(await alertSelect([
+                    "Import plugin with hot reload",
+                    "Download plugin template",
+                    language.cancel
+                ]))
+                switch(v){
+                    case 0:
+                        await hotReloadPluginFiles()
+                        break;
+                    case 1:{
+                        const a = document.createElement('a');
+                        a.href = '/plugin_start.7z';
+                        a.download = 'plugin_starter.7z';
+                        document.body.appendChild(a);
+                    }
                 }
-            }
-        }}
-        class="hover:text-textcolor cursor-pointer"
-    >
-        <CodeXmlIcon />
-    </button>
-</div>
+            }}
+        >
+            <CodeXmlIcon />
+        </IconButton>
+    </IconButtonGroup>
+    {/snippet}
+</SettingLayout>
 
-<div class="border-solid border-darkborderc p-2 flex flex-col border-1">
+<div class="w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto">
     {#if !DBState.db.plugins || DBState.db.plugins?.length === 0}
-        <span class="text-textcolor2">{language.noPlugins}</span>
+        <div class="text-textcolor2 text-sm text-center py-8">{language.noPlugins}</div>
     {/if}
-    {#each DBState.db.plugins as plugin, i}
-        {#if i!==0}
+    {#if DBState.db.plugins && DBState.db.plugins.length > 0 && visiblePlugins.length === 0}
+        <div class="text-textcolor2 text-sm text-center py-8">{language.noData}</div>
+    {/if}
+    {#each visiblePlugins as { plugin, index } (plugin.name)}
         <div
-            class="border-darkborderc mt-2 mb-2 w-full border-solid border-b-1 seperator"
+            class="h-1 rounded-full transition-colors"
+            class:bg-primary={isDraggingPlugin && dragOverPluginIndex === index}
+            class:bg-transparent={!isDraggingPlugin || dragOverPluginIndex !== index}
+            role="presentation"
+            ondragover={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+                dragOverPluginIndex = index
+            }}
+            ondrop={dropPlugin}
         ></div>
-        {/if}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="flex gap-2" aria-labelledby="show-params" role='button' tabindex="0" onclick={() => {
-            if(showParams.includes(i)){
-                showParams.splice(showParams.indexOf(i),1)
+        <div
+            class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors text-left cursor-grab active:cursor-grabbing"
+            class:opacity-50={isDraggingPlugin && draggedPluginIndex === index}
+            role="button"
+            tabindex="0"
+            draggable="true"
+            ondragstart={(e) => startPluginDrag(index, e)}
+            ondragend={endPluginDrag}
+            ondragover={(e) => updatePluginDragTarget(index, e)}
+            ondrop={dropPlugin}
+            onclick={() => {
+            if(suppressPluginClick) return
+            const key = pluginKey(plugin, index)
+            if(showParams.includes(key)){
+                showParams.splice(showParams.indexOf(key),1)
             }
             else{
-                showParams.push(i)
+                showParams.push(key)
             }
         }}>
-            <div class="font-bold grow">
-                <span>
-                    {plugin.displayName ?? plugin.name}
+            <div class="flex flex-col min-w-0 grow">
+                <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
+                    <span class="truncate">{pluginTitle(plugin)}</span>
                 </span>
+                <span class="text-xs text-textcolor2 truncate">{pluginDescription(plugin)}</span>
                 {#if hotReloading.includes(plugin.name)}
-                    <span class="text-sm rounded bg-amber-700 ml-2 px-2 py-1 text-white">
+                    <span class="text-xs rounded bg-amber-700 mt-1 px-2 py-0.5 text-white w-fit">
                         Hot
                     </span>
                 {/if}
             </div>
+            <IconButtonGroup size="default" className="shrink-0 ml-2" data-no-row-drag="true">
             {#if plugin.version === 2 || plugin.version === "2.1"}
-                <button class="text-yellow-400 hover:gray-200 cursor-pointer" onclick={() => {
+                <IconButton className="text-yellow-400" onclick={(e) => {
+                    e.stopPropagation()
                     alertMd(language.pluginV2Warning);
                 }} >
                     <TriangleAlert />
-                </button>
+                </IconButton>
             {/if}
 
             {#if plugin.customLink}
@@ -102,8 +250,9 @@
                             href={link.link}
                             target="_blank"
                             rel="nofollow noopener noreferrer"
-                            class="text-textcolor2 hover:text-textcolor cursor-pointer"
+                            class="inline-flex size-6 shrink-0 items-center justify-center text-textcolor2 hover:text-primary"
                             title={link.hoverText}
+                            onclick={(e) => { e.stopPropagation() }}
                         >
                             <LinkIcon></LinkIcon>
                         </a>
@@ -114,9 +263,10 @@
             {#if plugin.updateURL}
                 {#await checkPluginUpdate(plugin) then updateInfo}
                     {#if updateInfo}
-                        <button
-                            class="text-green-400 hover:gray-200 cursor-pointer"
-                            onclick={async () => {
+                        <IconButton
+                            className="text-green-400"
+                            onclick={async (e) => {
+                                e.stopPropagation()
                                 const v = await alertConfirm(
                                     language.pluginUpdateFoundInstallIt
                                 );
@@ -126,19 +276,20 @@
                             }}
                         >
                             <PlusIcon />
-                        </button>
+                        </IconButton>
                     {/if}
                 {/await}
             {/if}
 
-            <button
-                class="textcolor2 hover:gray-200 cursor-pointer"
+            <IconButton
+                active={plugin.enabled}
+                activeColor="primary"
                 onclick={async (e) => {
                     plugin.enabled = !plugin.enabled
-                    DBState.db.plugins[i] = plugin
+                    DBState.db.plugins[index] = plugin
                     loadPlugins()
                     void requestImmediateSave()
-                    e.preventDefault()
+                    e.stopPropagation()
                 }}
             >
                 {#if plugin.enabled}
@@ -146,10 +297,9 @@
                 {:else}
                     <PowerOffIcon />
                 {/if}
-            </button>
+            </IconButton>
 
-            <button
-                class="textcolor2 hover:text-primary cursor-pointer"
+            <IconButton
                 title={language.resetPluginPermission}
                 onclick={async (e) => {
                     e.stopPropagation()
@@ -163,12 +313,23 @@
                 }}
             >
                 <ShieldIcon />
-            </button>
+            </IconButton>
+
+            <IconButton
+                title={language.edit}
+                onclick={(e) => {
+                    e.stopPropagation()
+                    openPluginScriptEditor(index, plugin)
+                }}
+            >
+                <SquarePenIcon />
+            </IconButton>
 
             <!--Also, remove button.-->
-            <button
-                class="textcolor2 hover:gray-200 cursor-pointer"
-                onclick={async () => {
+            <IconButton
+                tone="destructive"
+                onclick={async (e) => {
+                    e.stopPropagation()
                     const v = await alertConfirm(
                         language.removeConfirm +
                             (plugin.displayName ?? plugin.name),
@@ -178,7 +339,7 @@
                             DBState.db.currentPluginProvider = "";
                         }
                         let plugins = DBState.db.plugins ?? [];
-                        plugins.splice(i, 1);
+                        plugins.splice(index, 1);
                         DBState.db.plugins = plugins;
                         loadPlugins()
                         void requestImmediateSave()
@@ -186,7 +347,8 @@
                 }}
             >
                 <TrashIcon />
-            </button>
+            </IconButton>
+            </IconButtonGroup>
         </div>
         {#if plugin.version === 1}
             <span class="text-draculared text-xs">
@@ -195,8 +357,8 @@
                     .replace("{{required_version}}", "API V3")}
             </span>
             <!--List up args-->
-        {:else if Object.keys(plugin.arguments).filter((i) => !i.startsWith("hidden_")).length > 0 && showParams.includes(i)}
-            <div class="flex flex-col mt-2 bg-dark-900/50 p-3">
+        {:else if Object.keys(plugin.arguments).filter((i) => !i.startsWith("hidden_")).length > 0 && showParams.includes(pluginKey(plugin, index))}
+            <div class="flex flex-col mt-1 mb-2 bg-dark-900/50 p-3 rounded-md border border-darkborderc">
                 {#each Object.keys(plugin.arguments) as arg}
                     {#if !arg.startsWith("hidden_")}
                         {#if typeof(plugin?.argMeta?.[arg]?.divider) === 'string'}
@@ -220,7 +382,7 @@
                             <SelectInput
                                 className="mt-2 mb-4"
                                 bind:value={
-                                    DBState.db.plugins[i].realArg[arg] as string
+                                    DBState.db.plugins[index].realArg[arg] as string
                                 }
                             >
                                 {#each plugin.arguments[arg] as a}
@@ -233,17 +395,17 @@
                                 <TextAreaInput
                                     className="mt-2"
                                     bind:value={
-                                        DBState.db.plugins[i].realArg[arg] as string
+                                        DBState.db.plugins[index].realArg[arg] as string
                                     }
                                     placeholder={plugin?.argMeta?.[arg]?.placeholder}
                                 />
                             {:else if plugin?.argMeta?.[arg]?.radio}
                                 {#each plugin?.argMeta?.[arg]?.radio?.split(",") as radioOption}
                                     <CheckInput
-                                        check={DBState.db.plugins[i].realArg[arg] === (radioOption.split('|').at(-1))}
+                                        check={DBState.db.plugins[index].realArg[arg] === (radioOption.split('|').at(-1))}
                                         onChange={(e) => {
                                             if(e){
-                                                DBState.db.plugins[i].realArg[arg] = (radioOption.split('|').at(-1))
+                                                DBState.db.plugins[index].realArg[arg] = (radioOption.split('|').at(-1))
                                             }
                                         }}
                                         margin={false}
@@ -254,7 +416,7 @@
                                 <TextInput
                                     className="mt-2"
                                     bind:value={
-                                        DBState.db.plugins[i].realArg[arg] as string
+                                        DBState.db.plugins[index].realArg[arg] as string
                                     }
                                     placeholder={plugin?.argMeta?.[arg]?.placeholder}
                                 />
@@ -262,9 +424,9 @@
                         {:else if plugin.arguments[arg] === "int"}
                             {#if plugin?.argMeta?.[arg]?.checkbox}
                                 <CheckInput
-                                    check={DBState.db.plugins[i].realArg[arg] === '1'}
+                                    check={DBState.db.plugins[index].realArg[arg] === '1'}
                                     onChange={(e) => {
-                                        DBState.db.plugins[i].realArg[arg] = e ? '1' : '0'
+                                        DBState.db.plugins[index].realArg[arg] = e ? '1' : '0'
                                     }}
                                     margin={false}
                                     name={
@@ -274,10 +436,10 @@
                             {:else if plugin?.argMeta?.[arg]?.radio}
                                 {#each plugin?.argMeta?.[arg]?.radio?.split(",") as radioOption}
                                     <CheckInput
-                                        check={DBState.db.plugins[i].realArg[arg] === parseInt(radioOption.split('|').at(-1))}
+                                        check={DBState.db.plugins[index].realArg[arg] === parseInt(radioOption.split('|').at(-1))}
                                         onChange={(e) => {
                                             if(e){
-                                                DBState.db.plugins[i].realArg[arg] = parseInt(radioOption.split('|').at(-1))
+                                                DBState.db.plugins[index].realArg[arg] = parseInt(radioOption.split('|').at(-1))
                                             }
                                         }}
                                         margin={false}
@@ -288,7 +450,7 @@
                                 <NumberInput
                                     className="mt-2"
                                     bind:value={
-                                        DBState.db.plugins[i].realArg[arg] as number
+                                        DBState.db.plugins[index].realArg[arg] as number
                                     }
                                     placeholder={plugin?.argMeta?.[arg]?.placeholder}
                                 />
@@ -299,5 +461,30 @@
             </div>
         {/if}
     {/each}
+    {#if DBState.db.plugins && DBState.db.plugins.length > 0}
+        <div
+            class="h-1 rounded-full transition-colors"
+            class:bg-primary={isDraggingPlugin && dragOverPluginIndex === DBState.db.plugins.length}
+            class:bg-transparent={!isDraggingPlugin || dragOverPluginIndex !== DBState.db.plugins.length}
+            role="presentation"
+            ondragover={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+                dragOverPluginIndex = DBState.db.plugins.length
+            }}
+            ondrop={dropPlugin}
+        ></div>
+    {/if}
 </div>
-</SettingPage>
+
+<span class="block text-draculared text-xs mt-4">{language.pluginWarn}</span>
+{/snippet}
+
+{#if embedded}
+    {@render content()}
+{:else}
+    <SettingPage title={language.plugin}>
+        {@render content()}
+    </SettingPage>
+{/if}

@@ -5,6 +5,7 @@
     import SelectInput from 'src/lib/UI/GUI/SelectInput.svelte';
     import OptionInput from 'src/lib/UI/GUI/OptionInput.svelte';
     import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
+    import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte';
 
     let showLegacy = $state(false);
 
@@ -36,26 +37,21 @@
     };
 </script>
 
-<div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
-    <div class="flex flex-col min-w-0">
-        <span class="text-sm text-textcolor">{language.colorScheme}</span>
-        {#if language.help.colorScheme}<p class="text-xs text-textcolor2 mt-0.5">{language.help.colorScheme}</p>{/if}
-    </div>
-    <div class="shrink-0">
+<SettingLayout variant="row" title={language.colorScheme} description={language.help.colorScheme}>
+    {#snippet control()}
         <SelectInput className="w-48" size="sm" value={DBState.db.colorSchemeName} onchange={onSchemeInputChange}>
             {#each visibleSchemes as scheme}
                 <OptionInput value={scheme}>{optionLabel(scheme)}</OptionInput>
             {/each}
             <OptionInput value="custom">Custom</OptionInput>
         </SelectInput>
-    </div>
-</div>
+    {/snippet}
+</SettingLayout>
 
-<div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
-    <div class="flex flex-col min-w-0">
-        <span class="text-sm text-textcolor">{language.showLegacyColorSchemes}</span>
-    </div>
-    <div class="shrink-0">
-        <ShSwitch checked={showLegacy} onCheckedChange={(c) => (showLegacy = c)} />
-    </div>
-</div>
+{#if DBState.db.colorSchemeName !== 'custom'}
+    <SettingLayout variant="row" title={language.showLegacyColorSchemes}>
+        {#snippet control()}
+            <ShSwitch checked={showLegacy} onCheckedChange={(c) => (showLegacy = c)} />
+        {/snippet}
+    </SettingLayout>
+{/if}

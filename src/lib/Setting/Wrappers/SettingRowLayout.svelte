@@ -14,7 +14,7 @@
 
     // Inline help text under the label (replaces the tooltip icon in row mode).
     const helpText = $derived(
-        item.helpKey ? (language.help as any)[item.helpKey] : undefined
+        item.helpKey ? (language.help as any)[item.helpKey] : item.description
     );
 </script>
 

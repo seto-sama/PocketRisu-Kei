@@ -1,23 +1,8 @@
-<button title={name+' '+language.showHelp} class="relative help inline-flex items-center cursor-default hover:text-primary" style="vertical-align: -2px;" onclick={() => {
-    alertMd(language.help[key])
-}}>
-    
-    {#if key === "experimental"}
-        <div class="text-red-500 hover:text-primary">
-            <FlaskConicalIcon size={16} />
-        </div>
-    {:else if unrecommended}
-        <div class="text-red-500 hover:text-primary">
-            <TriangleAlert size={14} />
-        </div>
-    {:else}
-        <CircleQuestionMarkIcon size={14} />
-    {/if}    
-</button>
 <script lang="ts">
     import { TriangleAlert, FlaskConicalIcon, CircleQuestionMarkIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import { alertMd } from "src/ts/alert";
+    import { parseMarkdownSafe } from "src/ts/parser/parser.svelte";
+    import ShTooltip from "src/lib/UI/GUI/ShTooltip.svelte";
 
     interface Props {
         unrecommended?: boolean;
@@ -27,3 +12,30 @@
 
     let { unrecommended = false, key, name = '' }: Props = $props();
 </script>
+
+<ShTooltip className="[&_p]:m-0 [&_p+p]:mt-2 [&_ul]:my-2 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-2 [&_ol]:pl-4 [&_ol]:list-decimal [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_code]:break-words">
+    {#snippet trigger(props)}
+        <span
+            {...props}
+            role="button"
+            tabindex="0"
+            aria-label={`${name} ${language.showHelp}`.trim()}
+            class="relative help ml-1 inline-flex size-4 shrink-0 items-center justify-center cursor-help hover:text-primary"
+            style="vertical-align: -2px;"
+            onclick={(event) => event.stopPropagation()}
+        >
+            {#if key === "experimental"}
+                <span class="text-draculared hover:text-primary">
+                    <FlaskConicalIcon size={16} />
+                </span>
+            {:else if unrecommended}
+                <span class="text-draculared hover:text-primary">
+                    <TriangleAlert size={12} />
+                </span>
+            {:else}
+                <CircleQuestionMarkIcon size={12} />
+            {/if}
+        </span>
+    {/snippet}
+    {@html parseMarkdownSafe(language.help[key])}
+</ShTooltip>

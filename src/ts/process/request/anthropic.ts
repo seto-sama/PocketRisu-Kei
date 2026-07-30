@@ -3,7 +3,6 @@ import { HttpRequest } from "@smithy/protocol-http"
 import { SignatureV4 } from "@smithy/signature-v4"
 import { fetchNative, globalFetch, textifyReadableStream } from "src/ts/globalApi.svelte"
 import { LLMFlags, LLMFormat } from "src/ts/model/modellist"
-import { registerClaudeObserver } from "src/ts/observer.svelte"
 import { getDatabase } from "src/ts/storage/database.svelte"
 import { replaceAsync, simplifySchema, sleep } from "src/ts/util"
 import { v4 } from "uuid"
@@ -11,7 +10,7 @@ import type { MultiModal } from "../index.svelte"
 import { extractJSON } from "../templates/jsonSchema"
 import { callTool, decodeToolCall, encodeToolCall } from "../mcp/mcp"
 import type { RequestDataArgumentExtended, requestDataResponse, StreamResponseChunk } from './request'
-import { applyAdditionalParameters, applyParameters, getAdditionalParameters } from './shared'
+import { applyAdditionalParameters, applyParameters, buildGenerationContext, getAdditionalParameters } from './shared'
 
 interface Claude3TextBlock {
     type: 'text',
@@ -76,22 +75,6 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
     let replacerURL = arg.customURL ?? ('https://api.anthropic.com/v1/messages')
     let apiKey = arg.key || ((aiModel === 'reverse_proxy') ? db.proxyKey : db.claudeAPIKey)
     const maxTokens = arg.maxTokens
-    if(aiModel === 'reverse_proxy' && db.autofillRequestUrl){
-        if(replacerURL.endsWith('v1')){
-            replacerURL += '/messages'
-        }
-        else if(replacerURL.endsWith('v1/')){
-            replacerURL += 'messages'
-        }
-        else if(!(replacerURL.endsWith('messages') || replacerURL.endsWith('messages/'))){
-            if(replacerURL.endsWith('/')){
-                replacerURL += 'v1/messages'
-            }
-            else{
-                replacerURL += '/v1/messages'
-            }
-        }
-    }
 
     let claudeChat: Claude3Chat[] = []
     let systemPrompt:string = ''
@@ -557,10 +540,6 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
         "accept": "application/json",
     }
 
-    if(db.usePlainFetch){
-        headers['anthropic-dangerous-direct-browser-access'] = 'true'
-    }
-
     if(arg.tools && arg.tools.length > 0){
         body.tools = arg.tools.map((v) => {
             return {
@@ -782,14 +761,6 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
     }
     
     
-    if(db.claudeRetrivalCaching){
-        registerClaudeObserver({
-            url: replacerURL,
-            body: body,
-            headers: headers
-        })
-    }
-
     return requestClaudeHTTP(replacerURL, headers, body, arg)
 }
 
@@ -802,6 +773,7 @@ async function requestClaudeHTTP(replacerURL:string, headers:{[key:string]:strin
             headers: headers,
             method: "POST",
             chatId: arg.chatId,
+            generationContext: buildGenerationContext(arg),
             signal: arg.abortSignal,
             interceptor: 'anthropic_streaming'
         })
@@ -953,6 +925,7 @@ async function requestClaudeHTTP(replacerURL:string, headers:{[key:string]:strin
         headers: headers,
         method: "POST",
         chatId: arg.chatId,
+        generationContext: buildGenerationContext(arg),
         abortSignal: arg.abortSignal,
         interceptor: 'anthropic_http'
     })

@@ -127,6 +127,21 @@ describe('vision (Stage 3) image extraction', () => {
         }
         expect(toAdapterMessage(msg, true).images).toBeUndefined()
     })
+
+    test('restores enabled audio and video attachments with raw base64 and mime', () => {
+        const msg: OpenAIChat = {
+            role: 'user',
+            content: 'media',
+            multimodals: [
+                { type: 'audio', base64: 'data:audio/wav;base64,AA' },
+                { type: 'video', base64: 'data:video/mp4;base64,VV' },
+            ],
+        }
+        expect(toAdapterMessage(msg, false, false, true, true).media).toEqual([
+            { kind: 'audio', base64: 'AA', mime: 'audio/wav' },
+            { kind: 'video', base64: 'VV', mime: 'video/mp4' },
+        ])
+    })
 })
 
 describe('cachePoint preservation', () => {
@@ -152,6 +167,52 @@ describe('toAdapterMessage / toolResponseText', () => {
     test('maps the function role to tool', () => {
         expect(toAdapterMessage({ role: 'function', content: 'r', name: 'x' } as OpenAIChat))
             .toEqual({ role: 'tool', content: 'r', name: 'x' })
+    })
+
+    test('restores saved thoughts and falls back to think tags only when requested', () => {
+        const source: OpenAIChat = {
+            role: 'assistant',
+            content: '<think>tagged thought</think>Answer: ',
+            thoughts: ['saved thought'],
+        }
+
+        expect(toAdapterMessage(source)).toEqual({
+            role: 'assistant',
+            content: '<think>tagged thought</think>Answer: ',
+        })
+        expect(toAdapterMessage(source, false, true)).toEqual({
+            role: 'assistant',
+            content: 'Answer: ',
+            reasoning: [
+                { text: 'saved thought' },
+                { text: 'tagged thought' },
+            ],
+        })
+    })
+
+    test('restores reasoning only from the final assistant prefill', async () => {
+        const out = await expandAdapterMessages([
+            {
+                role: 'assistant',
+                content: '<think>old thought</think>Old answer',
+                thoughts: ['old saved thought'],
+            },
+            { role: 'user', content: 'Continue' },
+            {
+                role: 'assistant',
+                content: '<think>prefill thought</think>Answer: ',
+            },
+        ], makeDecoder({}), false, true)
+
+        expect(out[0]).toEqual({
+            role: 'assistant',
+            content: '<think>old thought</think>Old answer',
+        })
+        expect(out[2]).toEqual({
+            role: 'assistant',
+            content: 'Answer: ',
+            reasoning: [{ text: 'prefill thought' }],
+        })
     })
 
     test('joins only text content blocks', () => {

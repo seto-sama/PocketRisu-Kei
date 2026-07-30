@@ -71,20 +71,23 @@ export function addLorebookFolder(type:number) {
     }
 }
 
-export async function loadLoreBookV3Prompt(){
+export async function loadLoreBookV3Prompt(options: {
+    includeModuleLorebooks?: boolean
+    updateActivationState?: boolean
+} = {}){
     const selectedID = get(selectedCharID)
     const char = DBState.db.characters[selectedID]
     const page = char.chatPage
     const characterLore = char.globalLore ?? []
     const chatLore = char.chats[page].localLore ?? []
-    const moduleLorebook = getModuleLorebooks()
+    const moduleLorebook = options.includeModuleLorebooks === false ? [] : getModuleLorebooks()
     const fullLore = safeStructuredClone(characterLore.concat(chatLore).concat(moduleLorebook))
     const currentChat = char.chats[page].message
     const loreDepth = char.loreSettings?.scanDepth ?? DBState.db.loreBookDepth
     const loreToken = char.loreSettings?.tokenBudget ?? DBState.db.loreBookToken
     const fullWordMatchingSetting = char.loreSettings?.fullWordMatching ?? false
     const chatLength = currentChat.length + 1 //includes first message
-    const recursiveScanning = char.loreSettings?.recursiveScanning ?? true
+    const recursiveScanning = char.loreSettings?.recursiveScanning ?? !DBState.db.disableGlobalLorebookRecursiveScanning
     let recursivePrompt:{
         prompt: string,
         source: string,
@@ -234,6 +237,7 @@ export async function loadLoreBookV3Prompt(){
         pos:string,
         prompt:string
         role:'system'|'user'|'assistant'
+        hasRoleOverride:boolean
         order:number
         tokens:number
         priority:number
@@ -272,7 +276,8 @@ export async function loadLoreBookV3Prompt(){
             let order = fullLore[i].insertorder
             let priority = fullLore[i].insertorder
             let forceState:string = 'none'
-            let role:'system'|'user'|'assistant' = 'system'
+            let role:'system'|'user'|'assistant' = fullLore[i].role ?? 'system'
+            let hasRoleOverride = fullLore[i].role !== undefined
             let searchQueries:{
                 keys:string[],
                 negative:boolean,
@@ -289,6 +294,9 @@ export async function loadLoreBookV3Prompt(){
                             fullLore[i].comment = fullLore[j].comment
                             fullLore[i].content = fullLore[j].content
                             fullLore[i].alwaysActive = true
+                            fullLore[i].role = fullLore[j].role
+                            role = fullLore[j].role ?? 'system'
+                            hasRoleOverride = fullLore[j].role !== undefined
                             activated = true
                         }
                         break
@@ -362,6 +370,7 @@ export async function loadLoreBookV3Prompt(){
                     case 'role':{
                         if(arg[0] === 'user' || arg[0] === 'assistant' || arg[0] === 'system'){
                             role = arg[0]
+                            hasRoleOverride = true
                             return
                         }
                         return false
@@ -567,6 +576,7 @@ export async function loadLoreBookV3Prompt(){
                     pos: pos,
                     prompt: content,
                     role: role,
+                    hasRoleOverride: hasRoleOverride,
                     order: order,
                     tokens: await tokenize(content),
                     priority: priority,
@@ -575,10 +585,10 @@ export async function loadLoreBookV3Prompt(){
                 })
                 activatedIndexes.push(i)
 
-                if(keepActivateAfterMatch){
+                if(keepActivateAfterMatch && options.updateActivationState !== false){
                     setChatVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
                 }
-                if(dontActivateAfterMatch){
+                if(dontActivateAfterMatch && options.updateActivationState !== false){
                     setChatVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()), 'true')
                 }
 
@@ -660,9 +670,9 @@ export async function loadLoreBookV3Prompt(){
 
 }
 
-export async function importLoreBook(mode:'global'|'local'|'sglobal'){
+export async function importLoreBook(mode:'global'|'local'){
     const selectedID = get(selectedCharID)
-    const page = mode === 'sglobal' ? -1 : DBState.db.characters[selectedID].chatPage
+    const page = DBState.db.characters[selectedID].chatPage
     let lore = 
         mode === 'global' ? DBState.db.characters[selectedID].globalLore : 
         DBState.db.characters[selectedID].chats[page].localLore
@@ -739,10 +749,10 @@ export function convertExternalLorebook(entries:{[key:string]:CCLorebook}){
     return lore
 }
 
-export async function exportLoreBook(mode:'global'|'local'|'sglobal'){
+export async function exportLoreBook(mode:'global'|'local'){
     try {
         const selectedID = get(selectedCharID)
-        const page = mode === 'sglobal' ? -1 : DBState.db.characters[selectedID].chatPage
+        const page = DBState.db.characters[selectedID].chatPage
         const lore = 
             mode === 'global' ? DBState.db.characters[selectedID].globalLore : 
             DBState.db.characters[selectedID].chats[page].localLore        

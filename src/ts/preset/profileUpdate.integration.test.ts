@@ -1,19 +1,15 @@
 /**
  * Integration coverage for `applyProfileSnapshotUpdate` (plan §14-7 / §14-11).
  *
- * Unit-level tests already cover `getProfileUpdateAvailability` and
- * `diffProfileSnapshot` (see profileUpdate.test.ts). This file exercises the
- * apply step end-to-end: starting from a ModelPreset that targets a v1 profile
- * snapshot, simulate a registry that has rolled the profile to v2, then drive
- * the full availability-check + apply flow and assert that the resulting
+ * Unit-level tests already cover `diffProfileSnapshot` (see
+ * profileUpdate.test.ts). This file exercises the apply step end-to-end:
+ * starting from a ModelPreset that targets an older profile snapshot, resolve
+ * the current registry snapshot, apply it, and assert that the resulting
  * ModelPreset is internally coherent.
  */
 import { describe, expect, test } from 'vitest'
-import {
-    applyProfileSnapshotUpdate,
-    getProfileUpdateAvailability,
-} from './profileUpdate'
-import { resolveSnapshot } from './registry'
+import { applyProfileSnapshotUpdate } from './profileUpdate'
+import { resolveSnapshot } from './registry/snapshot'
 import type {
     BaseProviderDefinition,
     ModelPreset,
@@ -25,7 +21,6 @@ import type {
 function makeBaseProvider(): BaseProviderDefinition {
     return {
         id: 'demo',
-        version: 1,
         displayName: 'Demo',
         adapterKind: 'openai-compatible',
         authKinds: ['bearer'],
@@ -53,7 +48,6 @@ function makeBaseProvider(): BaseProviderDefinition {
 function makeProfileV1(): ModelProfile {
     return {
         id: 'demo:standard',
-        version: 1,
         displayName: 'Demo v1',
         providerBaseId: 'demo',
         profileStatus: 'current',
@@ -82,7 +76,6 @@ function makeProfileV2(): ModelProfile {
     // path must handle: orphan → orphanValues, new field becomes addressable.
     return {
         id: 'demo:standard',
-        version: 2,
         displayName: 'Demo v2',
         providerBaseId: 'demo',
         profileStatus: 'current',
@@ -130,7 +123,6 @@ function makePresetOnV1(): ModelPreset {
         sourceProfile: {
             registryId: 'bundled',
             profileId: 'demo:standard',
-            profileVersion: 1,
             fetchedAt: 1_000,
         },
         profileSnapshot: v1Snapshot,
@@ -148,25 +140,22 @@ describe('applyProfileSnapshotUpdate — end-to-end v1 → v2 migration', () => 
         const preset = makePresetOnV1()
         const v2Registry = makeRegistry(makeProfileV2())
 
-        // Step 1: availability check confirms an update is offered. Pin `now`
-        // so the synthesized latestSourceProfile.fetchedAt is deterministic.
-        const availability = getProfileUpdateAvailability(preset, v2Registry, { now: () => 2_000 })
-        expect(availability.status).toBe('available')
-        if (availability.status !== 'available') return
-        expect(availability.fromVersion).toBe(1)
-        expect(availability.toVersion).toBe(2)
-
-        // Step 2: apply the update with the same fixed `now`.
+        const latestSnapshot = resolveSnapshot(v2Registry, 'demo:standard')
         const result = applyProfileSnapshotUpdate(
             preset,
-            availability.latestSnapshot,
-            { now: () => 2_000, sourceProfile: availability.latestSourceProfile },
+            latestSnapshot,
+            {
+                now: () => 2_000,
+                sourceProfile: {
+                    registryId: 'bundled',
+                    profileId: 'demo:standard',
+                    fetchedAt: 2_000,
+                },
+            },
         )
 
-        // Resulting preset points at v2 snapshot.
-        expect(result.preset.profileSnapshot.profileVersion).toBe(2)
+        // Resulting preset points at the current snapshot.
         expect(result.preset.profileSnapshot.modelId).toBe('demo-v2')
-        expect(result.preset.sourceProfile?.profileVersion).toBe(2)
         expect(result.preset.sourceProfile?.fetchedAt).toBe(2_000)
         expect(result.preset.updatedAt).toBe(2_000)
 
@@ -183,8 +172,6 @@ describe('applyProfileSnapshotUpdate — end-to-end v1 → v2 migration', () => 
         expect(result.newFieldKeys).toEqual(['thinkingBudget'])
 
         // Diff snapshot is internally consistent.
-        expect(result.diff.fromVersion).toBe(1)
-        expect(result.diff.toVersion).toBe(2)
         expect(result.diff.modelIdChanged).toBe(true)
         expect(result.diff.endpointChanged).toBe(true)
         expect(result.diff.defaultsChanged).toBe(true)
@@ -195,13 +182,10 @@ describe('applyProfileSnapshotUpdate — end-to-end v1 → v2 migration', () => 
         const preset = makePresetOnV1()
         preset.orphanValues = { staleKey: 'from-an-older-cycle' }
 
-        const v2Registry = makeRegistry(makeProfileV2())
-        const availability = getProfileUpdateAvailability(preset, v2Registry, { now: () => 2_000 })
-        if (availability.status !== 'available') throw new Error('expected available')
-
-        const result = applyProfileSnapshotUpdate(preset, availability.latestSnapshot, {
+        const latestSnapshot = snapshotFor(makeProfileV2())
+        const result = applyProfileSnapshotUpdate(preset, latestSnapshot, {
             now: () => 2_000,
-            sourceProfile: availability.latestSourceProfile,
+            sourceProfile: { registryId: 'bundled', profileId: 'demo:standard', fetchedAt: 2_000 },
         })
 
         // Both old and newly-orphaned keys survive.
@@ -226,14 +210,10 @@ describe('applyProfileSnapshotUpdate — end-to-end v1 → v2 migration', () => 
                 mapsTo: { target: 'body', path: 'reasoning_effort' },
             },
         ]
-        const v2Registry = makeRegistry(v2)
-
-        const availability = getProfileUpdateAvailability(preset, v2Registry, { now: () => 2_000 })
-        if (availability.status !== 'available') throw new Error('expected available')
-
-        const result = applyProfileSnapshotUpdate(preset, availability.latestSnapshot, {
+        const latestSnapshot = snapshotFor(v2)
+        const result = applyProfileSnapshotUpdate(preset, latestSnapshot, {
             now: () => 2_000,
-            sourceProfile: availability.latestSourceProfile,
+            sourceProfile: { registryId: 'bundled', profileId: 'demo:standard', fetchedAt: 2_000 },
         })
 
         expect(result.movedToOrphan).toEqual([
@@ -248,13 +228,10 @@ describe('applyProfileSnapshotUpdate — end-to-end v1 → v2 migration', () => 
         const preset = makePresetOnV1()
         const snapshotBefore = JSON.stringify(preset)
 
-        const v2Registry = makeRegistry(makeProfileV2())
-        const availability = getProfileUpdateAvailability(preset, v2Registry, { now: () => 2_000 })
-        if (availability.status !== 'available') throw new Error('expected available')
-
-        applyProfileSnapshotUpdate(preset, availability.latestSnapshot, {
+        const latestSnapshot = snapshotFor(makeProfileV2())
+        applyProfileSnapshotUpdate(preset, latestSnapshot, {
             now: () => 2_000,
-            sourceProfile: availability.latestSourceProfile,
+            sourceProfile: { registryId: 'bundled', profileId: 'demo:standard', fetchedAt: 2_000 },
         })
 
         expect(JSON.stringify(preset)).toBe(snapshotBefore)
