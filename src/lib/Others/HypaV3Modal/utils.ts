@@ -101,15 +101,45 @@ export function getFirstMessage(): string | null {
     : null;
 }
 
-export async function processRegexScript(
+export function processMessageCBS(
   msg: Message,
-  msgIndex: number = -1
+  msgIndex: number = -1,
+  firstMessage: boolean = false
+): Message {
+  const char = DBState.db.characters[get(selectedCharID)];
+
+  return {
+    ...msg,
+    data: risuChatParser(msg.data, {
+      chara: char,
+      chatID: msgIndex,
+      role: msg.role,
+      rmVar: true,
+      cbsConditions: {
+        chatRole: msg.role,
+        firstmsg: firstMessage,
+      },
+    }),
+  };
+}
+
+export async function processHypaV3Message(
+  msg: Message,
+  msgIndex: number = -1,
+  applyRegexScript: boolean = false,
+  firstMessage: boolean = false
 ): Promise<Message> {
   const char = DBState.db.characters[get(selectedCharID)];
+  const cbsProcessedMessage = processMessageCBS(msg, msgIndex, firstMessage);
+
+  if (!applyRegexScript) {
+    return cbsProcessedMessage;
+  }
+
   const newData: string = (
     await processScriptFull(
       char,
-      risuChatParser(msg.data, { chara: char, role: msg.role }),
+      cbsProcessedMessage.data,
       "editprocess",
       msgIndex,
       {
@@ -138,9 +168,13 @@ export async function getNextSummarizationTarget(
     );
     if (lastMessageIndex !== -1) {
       const nextMessage = chat.message[lastMessageIndex + 1] ?? null;
-      return nextMessage && shouldProcess
-        ? await processRegexScript(nextMessage, lastMessageIndex + 1)
-        : nextMessage;
+      return nextMessage
+        ? await processHypaV3Message(
+            nextMessage,
+            lastMessageIndex + 1,
+            shouldProcess
+          )
+        : null;
     }
   }
 
@@ -151,13 +185,13 @@ export async function getNextSummarizationTarget(
       chatId: "first",
       data: firstMessage,
     };
-    return shouldProcess ? await processRegexScript(message) : message;
+    return await processHypaV3Message(message, -1, shouldProcess, true);
   }
 
   const firstChatMessage = chat.message[0] ?? null;
-  return firstChatMessage && shouldProcess
-    ? await processRegexScript(firstChatMessage, 0)
-    : firstChatMessage;
+  return firstChatMessage
+    ? await processHypaV3Message(firstChatMessage, 0, shouldProcess)
+    : null;
 }
 
 export function getCategoryName(

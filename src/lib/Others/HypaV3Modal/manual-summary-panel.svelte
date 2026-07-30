@@ -12,7 +12,11 @@
   import { translateHTML } from "src/ts/translator/translator";
   import BulkResummaryResult from "./bulk-resummary-result.svelte";
   import type { BulkResummaryState } from "./types";
-  import { getFirstMessage, processRegexScript } from "./utils";
+  import {
+    getFirstMessage,
+    processHypaV3Message,
+    processMessageCBS,
+  } from "./utils";
   import ShInput from "src/lib/UI/GUI/ShInput.svelte";
   import ShButton from "src/lib/UI/GUI/ShButton.svelte";
   import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
@@ -22,6 +26,7 @@
     chatMemo?: string;
     role: Message["role"];
     data: string;
+    displayData: string;
     disabled: boolean;
   };
 
@@ -71,22 +76,30 @@
     const cutoffIndex = getManualSummaryCutoffIndex();
 
     if (firstMessage && -1 > cutoffIndex) {
+      const message = processMessageCBS(
+        { role: "char", data: firstMessage },
+        -1,
+        true
+      );
       messages.push({
         index: -1,
         role: "char",
         data: firstMessage,
+        displayData: message.data,
         disabled: false,
       });
     }
 
     chat.message.forEach((message, index) => {
       if (index <= cutoffIndex) return;
+      const cbsProcessedMessage = processMessageCBS(message, index);
 
       messages.push({
         index,
         chatMemo: message.chatId,
         role: message.role,
         data: message.data,
+        displayData: cbsProcessedMessage.data,
         disabled: !message.chatId,
       });
     });
@@ -104,7 +117,7 @@
       message.index.toString().includes(query) ||
       message.role.toLowerCase().includes(query) ||
       (message.chatMemo ?? "").toLowerCase().includes(query) ||
-      message.data.toLowerCase().includes(query)
+      message.displayData.toLowerCase().includes(query)
     );
   }
 
@@ -159,7 +172,7 @@
     };
 
     try {
-      const result = await translateHTML(message.data, false, "", -1, regenerate);
+      const result = await translateHTML(message.displayData, false, "", -1, regenerate);
       manualMessageTranslations = {
         ...manualMessageTranslations,
         [message.index]: result,
@@ -177,7 +190,7 @@
   }
 
   async function buildManualSummaryInput(): Promise<{ oaiMessages: OpenAIChat[]; chatMemos: string[]; selectedIndices: number[] }> {
-    const shouldProcess = DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings?.processRegexScript;
+    const shouldProcess = DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings?.processRegexScript ?? false;
     const selectedMessages = getSortedSelectedManualSummaryMessages();
     const processedMessages: Message[] = [];
 
@@ -188,11 +201,12 @@
         chatId: message.chatMemo ?? undefined,
       };
 
-      processedMessages.push(
-        shouldProcess
-          ? await processRegexScript(rawMessage, message.index)
-          : rawMessage
-      );
+      processedMessages.push(await processHypaV3Message(
+        rawMessage,
+        message.index,
+        shouldProcess,
+        message.index === -1
+      ));
     }
 
     return {
@@ -362,7 +376,7 @@
                     />
                     <span class="w-10 shrink-0 text-xs text-textcolor2">#{message.index}</span>
                     <span class="w-16 shrink-0 text-xs text-textcolor2">{message.role}</span>
-                    <span class="min-w-0 flex-1 truncate text-sm text-textcolor">{message.data}</span>
+                    <span class="min-w-0 flex-1 truncate text-sm text-textcolor">{message.displayData}</span>
                     <ChevronDownIcon size={16} class="shrink-0 text-textcolor2 transition-transform group-open:rotate-180" />
                   </summary>
                   <div class="bg-darkbg/40 p-3">
@@ -387,7 +401,7 @@
                         {manualMessageTranslations[message.index] ? language.cancel : language.hypaV3Modal.translate}
                       </ShButton>
                     </div>
-                    <pre class="whitespace-pre-wrap break-all rounded-md border border-darkborderc bg-bgcolor/50 p-2 text-xs text-textcolor">{manualMessageTranslations[message.index] ?? message.data}</pre>
+                    <pre class="whitespace-pre-wrap break-all rounded-md border border-darkborderc bg-bgcolor/50 p-2 text-xs text-textcolor">{manualMessageTranslations[message.index] ?? message.displayData}</pre>
                     {#if manualMessageTranslations[message.index]}
                       <div class="mt-2 text-xs text-textcolor2">{language.hypaV3Modal.translationLabel}</div>
                     {/if}

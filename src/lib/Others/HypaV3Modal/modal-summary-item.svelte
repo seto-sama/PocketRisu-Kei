@@ -36,7 +36,7 @@
     alertConfirmTwice,
     handleDualAction,
     getFirstMessage,
-    processRegexScript,
+    processHypaV3Message,
     getCategoryName,
   } from "./utils";
   import IconButton from "src/lib/UI/GUI/IconButton.svelte";
@@ -220,7 +220,12 @@
       msg = chat.message[msgIndex];
     }
 
-    return shouldProcess ? await processRegexScript(msg, msgIndex) : msg;
+    return await processHypaV3Message(
+      msg,
+      msgIndex,
+      shouldProcess,
+      chatMemo == null
+    );
   }
 
   async function deleteThis(): Promise<void> {
