@@ -39,6 +39,7 @@ const {
     getActiveBotPresetId,
     getBotPresetById,
     getBotPresetIndexById,
+    setDatabase,
     setActiveBotPresetById,
     withStableActivePreset,
 } = databaseModule
@@ -57,6 +58,21 @@ beforeEach(() => {
         ],
         botPresetsId: 1,
     }
+})
+
+describe('empty database initialization', () => {
+    test('creates the root structures required by patch sync', () => {
+        const db: any = {}
+
+        setDatabase(db)
+
+        expect(db.characters).toEqual([])
+        expect(db.botPresets).toHaveLength(1)
+        expect(db.botPresets[0].id).toEqual(expect.any(String))
+        expect(db.modules).toEqual([])
+        expect(db.personas).toHaveLength(1)
+        expect(db.pluginCustomStorage).toEqual({})
+    })
 })
 
 describe('createBotPresetTemplate', () => {

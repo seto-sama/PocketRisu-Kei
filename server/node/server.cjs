@@ -80,6 +80,7 @@ let fullChatStore = null; // Map<chaId, Map<chatId, chatObject>> — lazy-initia
 
 // ETag for database.bin
 let dbEtag = null;
+const MISSING_DATABASE_ETAG = '__missing_database__';
 let migrateRemoteBlocksIfNeeded;
 let restoreColdStorageCharactersInDb;
 let restoreColdStorageChat;
@@ -3385,6 +3386,10 @@ app.get('/api/read', async (req, res, next) => {
             value = kvGet(key);
         }
         if(value === null){
+            if (key === 'database/database.bin') {
+                dbEtag = MISSING_DATABASE_ETAG;
+                res.setHeader('x-db-etag', dbEtag);
+            }
             res.send();
         } else {
             // Strip chat payloads from database.bin — client gets stubs only
@@ -3589,17 +3594,32 @@ app.post('/api/write', async (req, res, next) => {
             if (key === 'database/database.bin') {
                 const ifMatch = req.headers['x-if-match'];
                 let currentEtag = dbEtag;
-                if (ifMatch && isCloudflareTunnelRequest(req)) {
-                    const raw = kvGet('database/database.bin');
-                    if (raw) {
+                const raw = kvGet('database/database.bin');
+                if (!raw) {
+                    currentEtag = MISSING_DATABASE_ETAG;
+                } else if (
+                    ifMatch
+                    && (
+                        isCloudflareTunnelRequest(req)
+                        || !currentEtag
+                        || currentEtag === MISSING_DATABASE_ETAG
+                    )
+                ) {
+                    try {
                         const currentDb = normalizeJSON(stripChatsFromDb(
                             await decodeDatabaseWithPersistentChatIds(raw)
                         ));
-                        const visibleDb = normalizeJSON(filterRemoteOnlyFolders(currentDb));
+                        const visibleDb = isCloudflareTunnelRequest(req)
+                            ? normalizeJSON(filterRemoteOnlyFolders(currentDb))
+                            : currentDb;
                         currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
+                    } catch (e) {
+                        logger.error('[Write] Failed to compute current database ETag:', e);
+                        res.status(500).send({ error: 'Failed to verify current database version' });
+                        return;
                     }
                 }
-                if (ifMatch && currentEtag && ifMatch !== currentEtag) {
+                if (ifMatch && ifMatch !== currentEtag) {
                     res.status(409).send({
                         error: 'ETag mismatch - concurrent modification detected',
                         currentEtag
