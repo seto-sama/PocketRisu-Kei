@@ -42,6 +42,7 @@
     import { translateStackTrace } from "../../ts/sourcemap";
     import { getDetailedOSLabel, getFallbackOSLabel, getRisuEnvironmentLabel } from "src/ts/platform";
     import { formatRequestBody, formatResponseBody, getResponseBodyDetails } from "src/ts/requestLogFormat";
+    import { PRODUCT_NAME } from "src/ts/branding";
 
     let showDetails = $state(false);
     let translatedStackTrace = $state('');
@@ -53,7 +54,7 @@
     const userAgent = typeof navigator === "undefined" ? "Unknown" : navigator.userAgent || "Unknown";
     const stackTraceCodeBlock = $derived.by(() => {
         const lines = [
-            `PocketRisu v${nodeOnlyVer}`,
+            `${PRODUCT_NAME} v${nodeOnlyVer}`,
             `OS: ${osLabel}`,
             `User-Agent: ${userAgent}`,
             `Risu environment: ${risuEnvironment}`,

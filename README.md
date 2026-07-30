@@ -1,82 +1,72 @@
 <p align="center">
-  <img src="assets/pocketrisu-banner-1024.png" alt="PocketRisu — Self-hosted AI Roleplay Chat Platform" width="900" />
+  <img src="assets/pocketrisu-banner-1024.png" alt="PocketRisu Kei" width="900" />
 </p>
 
-<h1 align="center">PocketRisu — Self-hosted AI Roleplay Chat</h1>
+<h1 align="center">PocketRisu Kei</h1>
+
+<p align="center">
+  A self-hosted AI roleplay chat frontend based on PocketRisu, extended with additional features and usability improvements
+</p>
 
 <p align="center">
   <strong>English</strong> | <a href="i18n/README.ko.md">한국어</a> | <a href="i18n/README.de.md">Deutsch</a> | <a href="i18n/README.cn.md">简体中文</a> | <a href="i18n/README.es.md">Español</a> | <a href="i18n/README.vi.md">Tiếng Việt</a> | <a href="i18n/README.zh-Hant.md">繁體中文</a>
 </p>
 
-<p align="center">
-  <a href="https://github.com/PocketRisu/PocketRisu/releases">
-    <img alt="Latest Release" src="https://img.shields.io/github/v/release/PocketRisu/PocketRisu?label=latest" />
-  </a>
-  <a href="LICENSE">
-    <img alt="License: GPL-3.0" src="https://img.shields.io/github/license/PocketRisu/PocketRisu" />
-  </a>
-  <a href="https://nodejs.org/">
-    <img alt="Node" src="https://img.shields.io/badge/node-≥22.12-brightgreen" />
-  </a>
-</p>
+> [!CAUTION]
+> **This project is a nightly build.** Features and data structures may change without notice, and some functionality may not work correctly. Always create a backup before updating.
 
-PocketRisu is a self-hosted AI roleplay chat platform you run on your PC or personal server and access from PC, tablet, and smartphone through a web browser.
+PocketRisu Kei is a personal modification based on [PocketRisu](https://github.com/PocketRisu/PocketRisu) `v1.8.1` / `63832a13`. It is not intended to be a stable release or to provide official support.
 
-<p align="center">
-  <table>
-    <tr>
-      <td align="center"><img src="assets/screenshots/screenshot-pc-chat.png" alt="PC chat" height="420" /></td>
-      <td align="center"><img src="assets/screenshots/screenshot-mobile-chat.png" alt="Mobile chat" height="420" /></td>
-    </tr>
-    <tr>
-      <td align="center"><b>PC</b></td>
-      <td align="center"><b>Mobile</b></td>
-    </tr>
-  </table>
-</p>
+Project links: [Repository](https://github.com/seto-sama/PocketRisu-Kei) · [Releases](https://github.com/seto-sama/PocketRisu-Kei/releases) · [Issues](https://github.com/seto-sama/PocketRisu-Kei/issues)
 
+## Changes from the original PocketRisu
+
+- Refactored the package, workspace, TypeScript, Vite, and Vitest toolchain.
+- Consolidated shared UI controls and settings wrappers.
+- Added preset folders and sortable pickers.
+- Organized prompt roles and preset behavior.
+- Extended the model preset runtime and adapters.
+- Added a `models.dev`-based model catalog.
+- Reworked model preset and credential management.
+- Consolidated the plugin and module tabs.
+- Added support for plugin-provided models in model presets.
+- Added HypaMemory management, manual summarization, and search.
+- Added translation cache management and translation cancellation.
+- Improved chat streaming and rendering stability.
+- Improved partial message editing.
+- Improved chat navigation, shortcuts, and mobile back behavior.
+- Improved themes, chat text display, and styling controls.
+- Reorganized image, TTS, and inlay settings.
+- Reworked the character list and sidebar UI.
+- Improved regex and lorebook editing.
+- Added chat and folder filtering for remote access and multi-device synchronization.
+- Added snapshots, automatic backups, and asset recovery.
+- Added persistent request logs.
+- Added usage tracking and cost estimation.
+- Moved part of chat generation to the server.
+- Consolidated UI and settings structures and removed legacy code paths.
+
+## Key features
+
+- Multiple AI providers, including OpenAI, Claude, Gemini, OpenRouter, and Ollama
+- A self-hosted server accessible from PCs, tablets, and smartphones
+- Unified SQLite storage for characters, chats, settings, and assets
+- Server backup and restore, snapshots, and automatic backups
+- Lorebooks, HypaMemoryV3, translation, regex scripts, and plugins
+- Request logs, token usage tracking, and estimated costs
+- TTS and embedded images, audio, and video in chats
+- For other features, see [PocketRisu](https://github.com/PocketRisu/PocketRisu).
 
 ## Documentation
 
 - [Installation guide](docs/en/install.md)
 - [RisuAI migration guide](docs/en/migration.md)
 - [Remote access guide](docs/en/remote.md)
-- [Termux installation guide (Android)](docs/en/termux.md)
+- [Android Termux installation guide](docs/en/termux.md)
 
+## RisuAI compatibility
 
-## RisuAI Compatibility
-
-PocketRisu is derived from [RisuAI](https://github.com/kwaroran/RisuAI) and refined for self-hosted environments. Existing RisuAI data can be migrated wholesale, and all RisuAI ecosystem assets remain usable as-is.
-
-- RisuRealm character downloads
-- Character cards (`.charx`, `.risum`, `.risup`, etc.)
-- Modules, lorebooks, presets
-- Backup files (`.bin`) with two-way compatibility
-
-For migration from an existing RisuAI installation, see the [migration guide](docs/en/migration.md).
-
-
-## Features
-
-- **Multiple AI providers**: OpenAI, Claude, Gemini, DeepInfra, OpenRouter, Ollama, and more
-- **Multi-device access**: Run one server, access from PC, tablet, and smartphone through a web browser
-- **Unified data storage**: All data (characters, chats, settings, inlay images) stored in a single SQLite database on your server (no external cloud dependency)
-- **Easy server-side backup**: The server handles backup and restore directly; local `.bin` backup export and import also supported
-- **Powerful dashboard**: Disk usage (per character / per module), reclaimable snapshot space, SQLite optimization, and more — all in one screen
-- **Lorebook & long-term memory**: World info / memory book, HypaMemoryV3, and other context retention features
-- **Automatic translation**: Auto-translate input and output for cross-language roleplay
-- **Regex scripts & plugins**: Modify model output and extend functionality
-- **TTS & additional assets**: Voice synthesis, embedded images / audio / video in chat
-- **Self-update**: Automatic version detection; portable distributions update from the web UI
-- **Mobile remote access**: Quick Tunnel (URL + QR) or Tailscale
-- **Multilingual UI**: Korean, English, Japanese, Chinese, and more
-
-
-## Community & Contact
-
-- Bug reports / feature requests: [GitHub Issues](https://github.com/PocketRisu/PocketRisu/issues)
-- Email: contact@pocketrisu.com
-
+PocketRisu Kei maintains compatibility with the RisuAI ecosystem. Existing RisuAI data, character cards, modules, lorebooks, presets, and backup files can be imported or exported. See the [migration guide](docs/en/migration.md) for details.
 
 ## License
 

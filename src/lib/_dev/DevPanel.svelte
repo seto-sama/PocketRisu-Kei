@@ -365,7 +365,7 @@ function hello(): string {
         latestVersion: '99.99.99-demo',
         hasUpdate: true,
         severity: 'optional',
-        releaseUrl: 'https://github.com/PocketRisu/PocketRisu/releases',
+        releaseUrl: 'https://github.com/seto-sama/PocketRisu-Kei/releases',
         releaseName: 'v99.99.99-demo (Dev Panel sample)',
         publishedAt: new Date().toISOString(),
         canSelfUpdate: true,

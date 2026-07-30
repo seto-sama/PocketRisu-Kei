@@ -32,7 +32,7 @@ PocketRisu를 설치하는 방법은 네 가지가 있습니다.
 
 ### 다운로드
 
-[Releases 페이지](https://github.com/PocketRisu/PocketRisu/releases)에서 OS에 맞는 파일을 받습니다.
+[Releases 페이지](https://github.com/seto-sama/PocketRisu-Kei/releases)에서 OS에 맞는 파일을 받습니다.
 
 | OS                      | 파일명                                    |
 | ----------------------- | ----------------------------------------- |
@@ -74,8 +74,8 @@ GUI 없는 Linux/macOS 서버에서 최신 버전을 한 번에 받아 실행합
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/PocketRisu/PocketRisu/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/PocketRisu/PocketRisu/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
 cd PocketRisu-${VERSION}-linux-x64
 ./start.sh
@@ -86,8 +86,8 @@ cd PocketRisu-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/PocketRisu/PocketRisu/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/PocketRisu/PocketRisu/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
 xattr -cr PocketRisu-${VERSION}-macos-arm64
 cd PocketRisu-${VERSION}-macos-arm64
@@ -121,7 +121,7 @@ Docker / Docker Desktop이 설치된 환경에서 동작합니다.
 ### 실행
 
 ```bash
-curl -L https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/docker-compose.yml -o docker-compose.yml
+curl -L https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
@@ -158,7 +158,7 @@ Node.js가 없다면 [Node.js 공식 사이트](https://nodejs.org/)에서 설�
 ### 설치
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/install.sh | bash
 ```
 
 설치가 완료되면 안내 메시지가 표시됩니다.
@@ -182,7 +182,7 @@ cd ~/pocketrisu
 > **v1.5.x → v1.6.0 1회성 안내**: Risuai-NodeOnly 시절(v1.5.x 이하)에 `install.sh`로 설치하셨다면, v1.6.0으로 첫 업데이트 전에 `update.sh`를 새 버전으로 한 번만 교체해주세요. (repo 이름이 PocketRisu로 바뀌어 옛 `update.sh`가 새 소스 디렉토리를 찾지 못합니다.)
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/update.sh -o update.sh && chmod +x update.sh
+> curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh
 > ```
 >
@@ -196,8 +196,8 @@ cd ~/pocketrisu
 소스 코드를 직접 받아 단계별로 빌드합니다. 코드 수정·디버깅이 필요한 개발자용입니다.
 
 ```bash
-git clone https://github.com/PocketRisu/PocketRisu.git
-cd PocketRisu
+git clone https://github.com/seto-sama/PocketRisu-Kei.git
+cd PocketRisu-Kei
 pnpm install
 pnpm build
 pnpm runserver

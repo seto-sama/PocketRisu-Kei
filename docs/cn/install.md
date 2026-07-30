@@ -34,7 +34,7 @@ PocketRisu 有四种安装方式。
 
 ### 下载
 
-从 [Releases 页面](https://github.com/PocketRisu/PocketRisu/releases)获取对应您 OS 的文件。
+从 [Releases 页面](https://github.com/seto-sama/PocketRisu-Kei/releases)获取对应您 OS 的文件。
 
 | OS                       | 文件                                      |
 | ------------------------ | ----------------------------------------- |
@@ -76,8 +76,8 @@ cd PocketRisu-vX.X.X-linux-*
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/PocketRisu/PocketRisu/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/PocketRisu/PocketRisu/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
 cd PocketRisu-${VERSION}-linux-x64
 ./start.sh
@@ -88,8 +88,8 @@ cd PocketRisu-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/PocketRisu/PocketRisu/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/PocketRisu/PocketRisu/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
 xattr -cr PocketRisu-${VERSION}-macos-arm64
 cd PocketRisu-${VERSION}-macos-arm64
@@ -123,7 +123,7 @@ cd PocketRisu-${VERSION}-macos-arm64
 ### 运行
 
 ```bash
-curl -L https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/docker-compose.yml -o docker-compose.yml
+curl -L https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
@@ -160,7 +160,7 @@ node --version
 ### 安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/install.sh | bash
 ```
 
 安装完成后会显示状态消息。
@@ -184,7 +184,7 @@ cd ~/pocketrisu
 > **v1.5.x → v1.6.0 一次性提示**: 如果您在 Risuai-NodeOnly 时代(v1.5.x 或更早)通过 `install.sh` 安装,请在首次 v1.6.0 更新前一次性将 `update.sh` 替换为新版本。(仓库已重命名为 PocketRisu,旧 `update.sh` 无法找到新的源目录。)
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/update.sh -o update.sh && chmod +x update.sh
+> curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh
 > ```
 >
@@ -198,8 +198,8 @@ cd ~/pocketrisu
 手动克隆并构建源码。适用于需要修改或调试代码的开发者。
 
 ```bash
-git clone https://github.com/PocketRisu/PocketRisu.git
-cd PocketRisu
+git clone https://github.com/seto-sama/PocketRisu-Kei.git
+cd PocketRisu-Kei
 pnpm install
 pnpm build
 pnpm runserver

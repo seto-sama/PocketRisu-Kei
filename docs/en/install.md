@@ -32,7 +32,7 @@ Download and run a pre-compiled binary. No Node.js, Docker, or other tools requi
 
 ### Download
 
-Get the file for your OS from the [Releases page](https://github.com/PocketRisu/PocketRisu/releases).
+Get the file for your OS from the [Releases page](https://github.com/seto-sama/PocketRisu-Kei/releases).
 
 | OS                      | File                                      |
 | ----------------------- | ----------------------------------------- |
@@ -74,8 +74,8 @@ For Linux/macOS servers without a GUI, fetch and run the latest version in one c
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/PocketRisu/PocketRisu/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/PocketRisu/PocketRisu/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
 cd PocketRisu-${VERSION}-linux-x64
 ./start.sh
@@ -86,8 +86,8 @@ cd PocketRisu-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/PocketRisu/PocketRisu/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/PocketRisu/PocketRisu/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
 xattr -cr PocketRisu-${VERSION}-macos-arm64
 cd PocketRisu-${VERSION}-macos-arm64
@@ -121,7 +121,7 @@ Runs on a system with Docker or Docker Desktop installed.
 ### Run
 
 ```bash
-curl -L https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/docker-compose.yml -o docker-compose.yml
+curl -L https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
@@ -158,7 +158,7 @@ Install from the [official Node.js site](https://nodejs.org/) if not present.
 ### Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/install.sh | bash
 ```
 
 A status message is shown when installation finishes.
@@ -182,7 +182,7 @@ cd ~/pocketrisu
 > **One-time note for v1.5.x → v1.6.0**: If you installed via `install.sh` during the Risuai-NodeOnly era (v1.5.x or earlier), replace `update.sh` with the new version once before your first v1.6.0 update. (The repository was renamed to PocketRisu, and the old `update.sh` cannot find the new source directory.)
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/update.sh -o update.sh && chmod +x update.sh
+> curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh
 > ```
 >
@@ -196,8 +196,8 @@ cd ~/pocketrisu
 Manually clone and build the source. For developers who need to modify or debug code.
 
 ```bash
-git clone https://github.com/PocketRisu/PocketRisu.git
-cd PocketRisu
+git clone https://github.com/seto-sama/PocketRisu-Kei.git
+cd PocketRisu-Kei
 pnpm install
 pnpm build
 pnpm runserver

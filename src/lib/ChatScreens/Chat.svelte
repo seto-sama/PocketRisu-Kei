@@ -26,6 +26,7 @@
     import { createRevenantChatTranslationRecovery } from "src/ts/process/revenantGeneration/chatRecovery.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
+    import { PRODUCT_NAME } from "src/ts/branding";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -707,7 +708,7 @@
                 
                 const imgs = doc.querySelectorAll('img')
                 for(const img of imgs){
-                    img.setAttribute('alt', 'from PocketRisu')
+                    img.setAttribute('alt', `from ${PRODUCT_NAME}`)
                     const url = img.getAttribute('src')
                     
                     img.setAttribute('style', `
@@ -864,7 +865,7 @@
     ${doc.body.innerHTML}
 </div>
 <div style="text-align: center; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')};">
-    <span style="font-size: 0.75rem; color: ${root.style.getPropertyValue('--risu-theme-textcolor2')}; opacity: 0.7;">From PocketRisu</span>
+    <span style="font-size: 0.75rem; color: ${root.style.getPropertyValue('--risu-theme-textcolor2')}; opacity: 0.7;">From ${PRODUCT_NAME}</span>
 </div>
 </div>
 </div>`

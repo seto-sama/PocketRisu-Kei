@@ -10,8 +10,8 @@
 
 # 📦 PocketRisu
 
-[![Latest Release](https://img.shields.io/github/v/release/PocketRisu/PocketRisu?label=latest)](https://github.com/PocketRisu/PocketRisu/releases)
-[![License: GPL-3.0](https://img.shields.io/github/license/PocketRisu/PocketRisu)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/seto-sama/PocketRisu-Kei?label=latest)](https://github.com/seto-sama/PocketRisu-Kei/releases)
+[![License: GPL-3.0](https://img.shields.io/github/license/seto-sama/PocketRisu-Kei)](LICENSE)
 [![Node](https://img.shields.io/badge/node-≥22.12-brightgreen)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/docker-supported-blue)](#2--docker)
 
@@ -188,7 +188,7 @@ Tailscale 등 VPN을 설치하지 않아도 됩니다.
 
 **1단계: 다운로드**
 
-[📥 Releases 페이지](https://github.com/PocketRisu/PocketRisu/releases)에서 자신의 OS에 맞는 파일을 다운로드하세요.
+[📥 Releases 페이지](https://github.com/seto-sama/PocketRisu-Kei/releases)에서 자신의 OS에 맞는 파일을 다운로드하세요.
 
 | OS | 파일명 |
 |----|--------|
@@ -252,8 +252,8 @@ GUI 없이 터미널에서 직접 다운로드하여 설치할 수 있습니다.
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/PocketRisu/PocketRisu/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/PocketRisu/PocketRisu/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o risuai.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o risuai.tar.gz
 tar -xzf risuai.tar.gz && rm risuai.tar.gz
 cd PocketRisu-${VERSION}-linux-x64
 ./start.sh
@@ -262,8 +262,8 @@ cd PocketRisu-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/PocketRisu/PocketRisu/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/PocketRisu/PocketRisu/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o risuai.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o risuai.tar.gz
 tar -xzf risuai.tar.gz && rm risuai.tar.gz
 cd PocketRisu-${VERSION}-macos-arm64
 xattr -cr .
@@ -297,7 +297,7 @@ Docker는 프로그램을 "컨테이너"라는 독립된 공간에서 실행해�
 터미널(Windows: PowerShell, Mac/Linux: Terminal)을 열고 아래 명령어를 붙여넣으세요:
 
 ```bash
-curl -L https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/docker-compose.yml -o docker-compose.yml
+curl -L https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
@@ -343,7 +343,7 @@ Node.js가 없다면: [Node.js 공식 사이트](https://nodejs.org/)에서 설�
 터미널에서 아래 명령어 한 줄을 실행하세요:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/install.sh | bash
 ```
 
 설치가 완료되면 안내 메시지가 표시됩니다.
@@ -366,7 +366,7 @@ cd ~/pocketrisu
 
 > ⚠️ **v1.5.x → v1.6.0 1회성 안내**: Risuai-NodeOnly 시절(v1.5.x 이하)에 `install.sh`로 설치한 분은, v1.6.0으로 첫 업데이트 전에 `update.sh`를 새 버전으로 한 번만 교체해주세요. (repo 이름이 PocketRisu로 바뀌어 옛 `update.sh`가 새 소스 디렉토리를 찾지 못합니다.)
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/update.sh -o update.sh && chmod +x update.sh
+> curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh
 > ```
 > 이후 업데이트부터는 평소대로 `./update.sh`만 실행하면 됩니다.
@@ -378,8 +378,8 @@ cd ~/pocketrisu
 > 소스 코드를 직접 관리하고 싶은 분을 위한 방법입니다.
 
 ```bash
-git clone https://github.com/PocketRisu/PocketRisu.git
-cd PocketRisu
+git clone https://github.com/seto-sama/PocketRisu-Kei.git
+cd PocketRisu-Kei
 pnpm install
 pnpm build
 pnpm runserver
@@ -504,7 +504,7 @@ https://내PC이름.tail어쩌구.ts.net
 ### 🧪 안정성
 
 - 이 프로젝트는 **개인이 관리하는 커뮤니티 수정 버전**이며, 아직 충분한 테스트를 거치지 못했습니다. 예기치 않은 오류가 발생할 수 있습니다.
-- 문제가 발생하면 [Issues](https://github.com/PocketRisu/PocketRisu/issues)에 보고해주세요.
+- 문제가 발생하면 [Issues](https://github.com/seto-sama/PocketRisu-Kei/issues)에 보고해주세요.
 
 ### 💾 데이터 보호
 

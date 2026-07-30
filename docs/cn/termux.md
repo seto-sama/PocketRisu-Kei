@@ -53,8 +53,8 @@ PocketRisu 不为 Termux 提供预编译的二进制文件,因此由手机自行
 
 ```bash
 pkg install -y git && \
-  git clone https://github.com/PocketRisu/PocketRisu.git && \
-  cd PocketRisu && \
+  git clone https://github.com/seto-sama/PocketRisu-Kei.git && \
+  cd PocketRisu-Kei && \
   bash scripts/termux/build.sh
 ```
 

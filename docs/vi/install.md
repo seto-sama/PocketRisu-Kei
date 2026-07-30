@@ -34,7 +34,7 @@ Tải xuống và chạy tệp nhị phân được biên dịch sẵn. Không c
 
 ### Tải xuống
 
-Lấy tệp cho OS của bạn từ [trang Releases](https://github.com/PocketRisu/PocketRisu/releases).
+Lấy tệp cho OS của bạn từ [trang Releases](https://github.com/seto-sama/PocketRisu-Kei/releases).
 
 | OS                       | Tệp                                       |
 | ------------------------ | ----------------------------------------- |
@@ -76,8 +76,8 @@ Mở `http://localhost:6001` trong trình duyệt.
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/PocketRisu/PocketRisu/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/PocketRisu/PocketRisu/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
 cd PocketRisu-${VERSION}-linux-x64
 ./start.sh
@@ -88,8 +88,8 @@ cd PocketRisu-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/PocketRisu/PocketRisu/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/PocketRisu/PocketRisu/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
 xattr -cr PocketRisu-${VERSION}-macos-arm64
 cd PocketRisu-${VERSION}-macos-arm64
@@ -123,7 +123,7 @@ Chạy trên hệ thống có Docker hoặc Docker Desktop được cài đặt.
 ### Chạy
 
 ```bash
-curl -L https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/docker-compose.yml -o docker-compose.yml
+curl -L https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
@@ -160,7 +160,7 @@ Cài đặt từ [trang chính thức của Node.js](https://nodejs.org/) nếu 
 ### Cài đặt
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/install.sh | bash
 ```
 
 Thông báo trạng thái hiển thị khi cài đặt hoàn tất.
@@ -184,7 +184,7 @@ cd ~/pocketrisu
 > **Lưu ý một lần cho v1.5.x → v1.6.0**: Nếu bạn đã cài đặt qua `install.sh` trong thời kỳ Risuai-NodeOnly (v1.5.x trở về trước), hãy thay `update.sh` bằng phiên bản mới một lần trước lần cập nhật v1.6.0 đầu tiên. (Repository đã được đổi tên thành PocketRisu và `update.sh` cũ không thể tìm thấy thư mục mã nguồn mới.)
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/update.sh -o update.sh && chmod +x update.sh
+> curl -fsSL https://raw.githubusercontent.com/seto-sama/PocketRisu-Kei/main/update.sh -o update.sh && chmod +x update.sh
 > ./update.sh
 > ```
 >
@@ -198,8 +198,8 @@ cd ~/pocketrisu
 Clone và build mã nguồn thủ công. Dành cho nhà phát triển cần sửa đổi hoặc gỡ lỗi mã.
 
 ```bash
-git clone https://github.com/PocketRisu/PocketRisu.git
-cd PocketRisu
+git clone https://github.com/seto-sama/PocketRisu-Kei.git
+cd PocketRisu-Kei
 pnpm install
 pnpm build
 pnpm runserver

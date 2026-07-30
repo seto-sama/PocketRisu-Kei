@@ -1,84 +1,75 @@
 <p align="center">
-  <img src="../assets/pocketrisu-banner-1024.png" alt="PocketRisu — Selbst gehostete KI-Rollenspiel-Chat-Plattform" width="900" />
+  <img src="../assets/pocketrisu-banner-1024.png" alt="PocketRisu Kei" width="900" />
 </p>
 
-<h1 align="center">PocketRisu — Selbst gehostete KI-Rollenspiel-Chat-Plattform</h1>
+<h1 align="center">PocketRisu Kei</h1>
+
+<p align="center">
+  Ein selbstgehostetes KI-Rollenspiel-Chat-Frontend auf Basis von PocketRisu, erweitert um zusätzliche Funktionen und Verbesserungen der Benutzerfreundlichkeit
+</p>
 
 <p align="center">
   <a href="../README.md">English</a> | <a href="README.ko.md">한국어</a> | <strong>Deutsch</strong> | <a href="README.cn.md">简体中文</a> | <a href="README.es.md">Español</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-Hant.md">繁體中文</a>
 </p>
 
-<p align="center">
-  <a href="https://github.com/PocketRisu/PocketRisu/releases">
-    <img alt="Latest Release" src="https://img.shields.io/github/v/release/PocketRisu/PocketRisu?label=latest" />
-  </a>
-  <a href="../LICENSE">
-    <img alt="License: GPL-3.0" src="https://img.shields.io/github/license/PocketRisu/PocketRisu" />
-  </a>
-  <a href="https://nodejs.org/">
-    <img alt="Node" src="https://img.shields.io/badge/node-≥22.12-brightgreen" />
-  </a>
-</p>
+> [!NOTE]
+> Diese README wurde maschinell übersetzt. Die genauesten Informationen finden Sie in der [englischen](../README.md) oder [koreanischen](README.ko.md) Version.
 
-> 🌐 Diese README wurde maschinell übersetzt. Für die genauesten Informationen siehe die [englische](../README.md) oder [koreanische](README.ko.md) Version. Beiträge willkommen.
+> [!CAUTION]
+> **Dieses Projekt ist ein Nightly-Build.** Funktionen und Datenstrukturen können sich ohne Vorankündigung ändern und einzelne Funktionen möglicherweise nicht korrekt arbeiten. Erstellen Sie vor jedem Update unbedingt ein Backup.
 
-PocketRisu ist eine selbstgehostete KI-Rollenspiel-Chat-Plattform, die Sie auf Ihrem PC oder persönlichen Server betreiben und über einen Webbrowser von PC, Tablet und Smartphone aus nutzen.
+PocketRisu Kei ist eine persönliche Modifikation auf Basis von [PocketRisu](https://github.com/PocketRisu/PocketRisu) `v1.8.1` / `63832a13`. Es ist weder als stabile Veröffentlichung noch mit offiziellem Support vorgesehen.
 
-<p align="center">
-  <table>
-    <tr>
-      <td align="center"><img src="../assets/screenshots/screenshot-pc-chat.png" alt="PC-Chat" height="420" /></td>
-      <td align="center"><img src="../assets/screenshots/screenshot-mobile-chat.png" alt="Mobiler Chat" height="420" /></td>
-    </tr>
-    <tr>
-      <td align="center"><b>PC</b></td>
-      <td align="center"><b>Mobil</b></td>
-    </tr>
-  </table>
-</p>
+Projektlinks: [Repository](https://github.com/seto-sama/PocketRisu-Kei) · [Veröffentlichungen](https://github.com/seto-sama/PocketRisu-Kei/releases) · [Issues](https://github.com/seto-sama/PocketRisu-Kei/issues)
 
+## Änderungen gegenüber dem ursprünglichen PocketRisu
+
+- Paket-, Workspace-, TypeScript-, Vite- und Vitest-Werkzeuge überarbeitet.
+- Gemeinsame UI-Steuerelemente und Einstellungs-Wrapper zusammengeführt.
+- Preset-Ordner und sortierbare Auswahllisten hinzugefügt.
+- Prompt-Rollen und Preset-Verhalten bereinigt.
+- Laufzeit und Adapter für Modell-Presets erweitert.
+- Einen auf `models.dev` basierenden Modellkatalog hinzugefügt.
+- Verwaltung von Modell-Presets und Zugangsdaten neu gestaltet.
+- Plugin- und Modul-Tabs zusammengeführt.
+- Plugin-Modelle in Modell-Presets ermöglicht.
+- HypaMemory-Verwaltung, manuelle Zusammenfassung und Suche hinzugefügt.
+- Verwaltung des Übersetzungs-Caches und Abbrechen laufender Übersetzungen hinzugefügt.
+- Stabilität von Chat-Streaming und Rendering verbessert.
+- Teilweises Bearbeiten von Nachrichten verbessert.
+- Chat-Navigation, Tastenkürzel und mobiles Zurück-Verhalten verbessert.
+- Themes, Chat-Textanzeige und Stiloptionen verbessert.
+- Einstellungen für Bilder, TTS und Inlays neu geordnet.
+- Charakterliste und Seitenleisten-UI überarbeitet.
+- Bearbeitung von regulären Ausdrücken und Lorebooks verbessert.
+- Chat- und Ordnerfilter für Fernzugriff sowie Synchronisierung mehrerer Geräte hinzugefügt.
+- Snapshots, automatische Backups und Asset-Wiederherstellung hinzugefügt.
+- Dauerhafte Anfrageprotokolle hinzugefügt.
+- Nutzungsaufzeichnung und Kostenschätzung hinzugefügt.
+- Einen Teil der Chat-Generierung auf den Server verlagert.
+- UI- und Einstellungsstrukturen vereinheitlicht und veraltete Pfade entfernt.
+
+## Hauptfunktionen
+
+- Mehrere KI-Anbieter, darunter OpenAI, Claude, Gemini, OpenRouter und Ollama
+- Selbstgehosteter Server für PC, Tablet und Smartphone
+- Einheitliche SQLite-Speicherung für Charaktere, Chats, Einstellungen und Assets
+- Server-Backup und -Wiederherstellung, Snapshots und automatische Backups
+- Lorebooks, HypaMemoryV3, Übersetzung, Regex-Skripte und Plugins
+- Anfrageprotokolle, Token-Nutzung und geschätzte Kosten
+- TTS sowie Bilder, Audio und Video im Chat
+- Weitere Funktionen finden Sie bei [PocketRisu](https://github.com/PocketRisu/PocketRisu).
 
 ## Dokumentation
 
 - [Installationsanleitung](../docs/de/install.md)
 - [RisuAI-Migrationsleitfaden](../docs/de/migration.md)
-- [Fernzugriff](../docs/de/remote.md)
-- [Termux-Installationsanleitung (Android)](../docs/de/termux.md)
-
+- [Fernzugriffsleitfaden](../docs/de/remote.md)
+- [Android-Termux-Installationsanleitung](../docs/de/termux.md)
 
 ## RisuAI-Kompatibilität
 
-PocketRisu ist von [RisuAI](https://github.com/kwaroran/RisuAI) abgeleitet und für selbstgehostete Umgebungen optimiert. Bestehende RisuAI-Daten können vollständig migriert werden, und alle RisuAI-Ökosystem-Assets bleiben unverändert nutzbar.
-
-- RisuRealm-Charakter-Downloads
-- Charakterkarten (`.charx`, `.risum`, `.risup` usw.)
-- Module, Lorebooks, Presets
-- Backup-Dateien (`.bin`) mit bidirektionaler Kompatibilität
-
-Für die Migration von einer bestehenden RisuAI-Installation siehe den [Migrationsleitfaden](../docs/de/migration.md).
-
-
-## Funktionen
-
-- **Mehrere KI-Anbieter**: OpenAI, Claude, Gemini, DeepInfra, OpenRouter, Ollama und mehr
-- **Mehrgerätezugriff**: Einen Server betreiben und von PC, Tablet und Smartphone über einen Webbrowser zugreifen
-- **Vereinheitlichte Datenspeicherung**: Alle Daten (Charaktere, Chats, Einstellungen, Inlay-Bilder) werden in einer einzigen SQLite-Datenbank auf Ihrem Server gespeichert (keine externe Cloud-Abhängigkeit)
-- **Einfaches serverseitiges Backup**: Der Server verwaltet Backup und Wiederherstellung direkt; lokaler `.bin`-Backup-Export und -Import werden ebenfalls unterstützt
-- **Leistungsstarkes Dashboard**: Festplattennutzung (pro Charakter / pro Modul), wiederherstellbarer Snapshot-Speicher, SQLite-Optimierung und mehr — alles in einem Bildschirm
-- **Lorebook & Langzeitgedächtnis**: World Info / Memory Book, HypaMemoryV3 und andere Kontext-Erhaltungsfunktionen
-- **Automatische Übersetzung**: Automatische Übersetzung von Ein- und Ausgabe für sprachübergreifendes Rollenspiel
-- **Regex-Skripte & Plugins**: Modellausgabe ändern und Funktionalität erweitern
-- **TTS & zusätzliche Assets**: Sprachsynthese, eingebettete Bilder / Audio / Video im Chat
-- **Selbstaktualisierung**: Automatische Versionserkennung; portable Distributionen aktualisieren sich über die Web-UI
-- **Mobiler Fernzugriff**: Quick Tunnel (URL + QR) oder Tailscale
-- **Mehrsprachige UI**: Koreanisch, Englisch, Japanisch, Chinesisch und mehr
-
-
-## Community & Kontakt
-
-- Fehlerberichte / Funktionswünsche: [GitHub Issues](https://github.com/PocketRisu/PocketRisu/issues)
-- E-Mail: contact@pocketrisu.com
-
+PocketRisu Kei bleibt mit dem RisuAI-Ökosystem kompatibel. Vorhandene RisuAI-Daten, Charakterkarten, Module, Lorebooks, Presets und Backup-Dateien können importiert oder exportiert werden. Details finden Sie im [Migrationsleitfaden](../docs/de/migration.md).
 
 ## Lizenz
 

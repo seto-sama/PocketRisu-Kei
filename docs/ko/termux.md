@@ -51,8 +51,8 @@ Termux 앱을 연 후 다음 한 줄을 실행합니다.
 
 ```bash
 pkg install -y git && \
-  git clone https://github.com/PocketRisu/PocketRisu.git && \
-  cd PocketRisu && \
+  git clone https://github.com/seto-sama/PocketRisu-Kei.git && \
+  cd PocketRisu-Kei && \
   bash scripts/termux/build.sh
 ```
 

@@ -51,7 +51,7 @@ describe('server smoke', () => {
     })
     expect(managedRes.status).toBe(400)
     const managedBody = await managedRes.json() as { error?: string }
-    expect(managedBody.error).toContain('PocketRisu app files')
+    expect(managedBody.error).toContain('PocketRisu Kei app files')
 
     const safePath = path.join(serverRoot, 'data', 'backups')
     const safeRes = await client.fetch('/api/backup/server/path', {

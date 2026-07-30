@@ -28,7 +28,7 @@ export const languageKorean = {
     networkFetch:
       "네트워크가 불안정하거나 서버가 응답하지 않을 때 자주 발생합니다.",
     networkFetchWeb:
-      "이것은 CORS 오류일 수 있습니다. 이는 브라우저의 제한으로 인해 웹 버전을 사용할 때만 발생합니다. 데스크톱 로컬 버전이나 다른 버전의 PocketRisu를 사용해보세요.",
+      "이것은 CORS 오류일 수 있습니다. 이는 브라우저의 제한으로 인해 웹 버전을 사용할 때만 발생합니다. 데스크톱 로컬 버전이나 다른 버전의 PocketRisu Kei를 사용해보세요.",
     requestLogRemoved: "요청 로그가 삭제되었습니다.",
     requestLogRemovedDesc:
       "요청 로그는 앱이 재시작되거나 새로고침되면 삭제됩니다.",
@@ -64,9 +64,9 @@ export const languageKorean = {
     texttheme: "텍스트 색상을 선택해주세요",
     inputName: "마지막으로, 닉네임을 입력해 주세요",
     welcome:
-      "PocketRisu에 오신 것을 환영해요! 저는 PocketRisu 셋업을 도와줄 아이리스라고 해요. 먼저 닉네임을 입력해 주세요!",
+      "PocketRisu Kei에 오신 것을 환영해요! 저는 PocketRisu Kei 셋업을 도와줄 아이리스라고 해요. 먼저 닉네임을 입력해 주세요!",
     welcome2:
-      "{username}님 안녕하세요! PocketRisu를 시작하려면 몇 가지 설정만 하시면 되요. Ai 제공자를 선택해 주세요!",
+      "{username}님 안녕하세요! PocketRisu Kei를 시작하려면 몇 가지 설정만 하시면 되요. Ai 제공자를 선택해 주세요!",
     openRouterProvider:
       "OpenRouter는 여러 무료/유료 모델이 있습니다. 기본적으로 무료로 설정됩니다.",
     hordeProvider:
@@ -826,9 +826,9 @@ export const languageKorean = {
   chatWidthWide: "넓게",
   chatWidthFull: "제한 없음",
   customCSSWarning:
-    "PocketRisu는 원본 RisuAI와 UI 구성(HTML/CSS)이 다르기 때문에, 기존에 쓰던 커스텀 CSS가 레이아웃을 깨거나 의도와 다르게 동작할 수 있습니다. 어떤 부분을 덮어쓰는지 정확히 아는 경우에만 사용하세요.",
+    "PocketRisu Kei는 원본 RisuAI와 UI 구성(HTML/CSS)이 다르기 때문에, 기존에 쓰던 커스텀 CSS가 레이아웃을 깨거나 의도와 다르게 동작할 수 있습니다. 어떤 부분을 덮어쓰는지 정확히 아는 경우에만 사용하세요.",
   customHTMLWarning:
-    "PocketRisu는 원본 RisuAI와 UI 구성(HTML/CSS)이 다르기 때문에, 기존에 쓰던 커스텀 Chat HTML이 정상적으로 렌더되지 않을 수 있습니다. 어떤 부분을 덮어쓰는지 정확히 아는 경우에만 사용하세요.",
+    "PocketRisu Kei는 원본 RisuAI와 UI 구성(HTML/CSS)이 다르기 때문에, 기존에 쓰던 커스텀 Chat HTML이 정상적으로 렌더되지 않을 수 있습니다. 어떤 부분을 덮어쓰는지 정확히 아는 경우에만 사용하세요.",
   sayNothing: "어떤 문자열도 입력되지 않을 시 'say nothing' 입력",
   regexScript: "정규식 스크립트",
   regexTarget: "대상",
@@ -1213,8 +1213,8 @@ export const languageKorean = {
     "삭제된 캐릭터는 휴지통에 보관됩니다. 복구하거나 영구 삭제할 수 있습니다. 3일 후에는 자동으로 영구 삭제됩니다.",
   shareExport: "공유/엑스포트",
   risupresetDesc:
-    "Risupreset 포맷은 포맷을 공유하기 위한 PocketRisu 전용 포맷입니다.",
-  risuMDesc: "RisuM 포맷은 PocketRisu 모듈을 위해 특별히 설계된 포맷입니다.",
+    "Risupreset 포맷은 포맷을 공유하기 위한 PocketRisu Kei 전용 포맷입니다.",
+  risuMDesc: "RisuM 포맷은 PocketRisu Kei 모듈을 위해 특별히 설계된 포맷입니다.",
   jsonDesc: "JSON은 데이터를 저장하고 불러오기 위한 일반적인 포맷입니다.",
   nickname: "닉네임",
   useRegexLorebook: "정규식 사용",
@@ -1504,7 +1504,7 @@ export const languageKorean = {
   home: "홈",
   showSavingIcon: "저장 아이콘 표시",
   pluginVersionWarn:
-    "이 플러그인은 {{plugin_version}} 버전입니다. 이 버전의 PocketRisu와 호환되지 않습니다. 플러그인을 {{required_version}} 버전으로 업데이트하세요.",
+    "이 플러그인은 {{plugin_version}} 버전입니다. 이 버전의 PocketRisu Kei와 호환되지 않습니다. 플러그인을 {{required_version}} 버전으로 업데이트하세요.",
   imageTranslation: "이미지 번역",
   banCharacterset: "문자 집합으로 자동 재생성",
   realmDirectOpen: "RisuRealm 미리보기에서 바로 열기",
@@ -1892,11 +1892,11 @@ export const languageKorean = {
     "## 나이틀리 빌드\n\n나이틀리 빌드에 연결하려고 합니다. 이 버전은 테스트용이며 버그가 포함되어 있을 수 있습니다. **이 버전에서는 버그 등 문제가 발생하더라도 직접적으로 해결하는 것을 지원하지 않습니다.**",
   loginSionyw: "Sionyw 계정으로 로그인",
   pluginRiskDetectedAlert:
-    "PocketRisu가 API 키나 개인 데이터를 훔칠 수도 있는 위험한 코드를 감지했습니다. 이 플러그인을 설치하지 않는 것을 권장합니다.",
+    "PocketRisu Kei가 API 키나 개인 데이터를 훔칠 수도 있는 위험한 코드를 감지했습니다. 이 플러그인을 설치하지 않는 것을 권장합니다.",
   doNotInstall: "설치하지 않음",
   continueAnyway: "무시하고 계속",
   pluginNoRiskButAlert:
-    "PocketRisu가 위험한 코드를 감지하지 못했지만, 신뢰할 수 없는 출처의 플러그인을 설치하면 보안 위험이 발생할 수 있습니다.",
+    "PocketRisu Kei가 위험한 코드를 감지하지 못했지만, 신뢰할 수 없는 출처의 플러그인을 설치하면 보안 위험이 발생할 수 있습니다.",
   pluginRisksInuserFriendly: {
     eval: "문자열에서 코드 실행",
     globalAccess: "글로벌 변수 접근",
@@ -2307,12 +2307,12 @@ export const languageKorean = {
   storageDiskOther: "기타 (시스템 및 다른 앱)",
   storageDiskFree: "여유 공간",
   storageDiskRisuTotal: (size: number) =>
-    `PocketRisu 합계: ${(size / 1024 / 1024).toFixed(1)} MB`,
+    `PocketRisu Kei 합계: ${(size / 1024 / 1024).toFixed(1)} MB`,
 
   // 항목별 라벨 (분포 리스트의 ⓘ 설명)
   storageRowDbFile: "risuai.db",
   storageRowDbFileDesc:
-    "PocketRisu의 메인 SQLite 데이터베이스 파일. 모든 채팅·캐릭터·에셋·설정이 여기 들어갑니다.",
+    "PocketRisu Kei의 메인 SQLite 데이터베이스 파일. 모든 채팅·캐릭터·에셋·설정이 여기 들어갑니다.",
   storageRowWal: "WAL (Write-Ahead Log)",
   storageRowWalDesc:
     "임시 트랜잭션 로그. 저장이 먼저 여기 기록된 뒤 본 파일에 통합됩니다. 사용 중엔 정상적으로 존재.",
@@ -2357,7 +2357,7 @@ export const languageKorean = {
     `${(size / 1024 / 1024).toFixed(1)} MB 회수 가능 — Optimize로 압축.`,
   storageInternalOnly: "저장공간과 함께보기",
   storageInternalOnlyHint:
-    "끄면 PocketRisu 내부 항목만, 켜면 기타 시스템·여유 공간까지 디스크 전체 기준으로 표시합니다.",
+    "끄면 PocketRisu Kei 내부 항목만, 켜면 기타 시스템·여유 공간까지 디스크 전체 기준으로 표시합니다.",
 
   // 2 GB BLOB 한계 (별도 섹션)
   storageBlobLimit: "2 GB BLOB 한계",
@@ -2469,7 +2469,7 @@ export const languageKorean = {
   // 데이터 이전 (구 "계정 & 파일")
   migration: "데이터 이전",
   migrationDesc:
-    "원본 RisuAI(또는 호환 시스템)에서 데이터를 가져오거나 PocketRisu 데이터를 원본 호환 형식으로 내보냅니다.",
+    "원본 RisuAI(또는 호환 시스템)에서 데이터를 가져오거나 PocketRisu Kei 데이터를 원본 호환 형식으로 내보냅니다.",
   migrationInfoBackupMoved:
     "서버 백업, 로컬 백업, 자동 스냅샷 관리는 [저장공간 관리 → 백업] 탭으로 이동했습니다.",
   migrationGotoBackupTab: "백업 탭 열기",
@@ -2478,7 +2478,7 @@ export const languageKorean = {
     "원본 RisuAI 호환 포맷으로 백업·내보내기를 수행하는 보조 기능들입니다. 일반적인 백업 작업은 백업 탭을 사용하세요.",
   migrationSaveFolderAccordion: "노드리스에서 save 폴더 가져오기",
   migrationSaveFolderDesc:
-    "이전에 사용하던 노드리스/RisuAI 인스턴스의 save 폴더를 PocketRisu로 가져올 때 사용합니다.",
+    "이전에 사용하던 노드리스/RisuAI 인스턴스의 save 폴더를 PocketRisu Kei로 가져올 때 사용합니다.",
   migrationLoadUpstreamBackup: "원본 리스 로컬 백업 불러오기",
   migrationCompatBackupExportButton: "호환 백업 내보내기",
   migrationCompatSnapshotExportButton: "호환 스냅샷 내보내기",
@@ -2581,10 +2581,10 @@ export const languageKorean = {
 
   relatedGithub: "GitHub",
   relatedGithubDesc: "Star를 눌러 프로젝트를 응원해주세요.",
-  relatedFeedbackForm: "의견 보내기",
-  relatedFeedbackFormDesc: "이슈 제보 및 의견을 보내주세요.",
-  relatedContactEmail: "개발자 이메일",
-  relatedContactEmailDesc: "개발자에게 직접 메일을 보낼 수 있어요.",
+  relatedFeedbackForm: "이슈 제보",
+  relatedFeedbackFormDesc: "버그를 제보하거나 의견을 남겨주세요.",
+  relatedContactEmail: "개발자 GitHub",
+  relatedContactEmailDesc: "개발자의 GitHub 프로필을 확인할 수 있어요.",
   relatedArcaLive: "아카라이브 채널",
   relatedArcaLiveDesc: "AI 채팅 채널에서 다른 사용자와 이야기를 나눠보세요.",
 

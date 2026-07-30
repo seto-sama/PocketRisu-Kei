@@ -1,5 +1,5 @@
 /**
- * PocketRisu NodeOnly — Traditional Chinese help texts (`language.help`).
+ * PocketRisu Kei NodeOnly — Traditional Chinese help texts (`language.help`).
  *
  * Extracted from `src/lang/zh-Hant.ts` for maintainability. Entries override the
  * English defaults in `help.en.ts` via `lodash/merge` (see `src/lang/index.ts`).
@@ -64,7 +64,7 @@ export const helpZhHant = {
         "requestretrys": "設定請求失敗時的重試次數。",
         "emotionPrompt": "此選項用於設定情緒檢測的提示詞。留空將使用預設提示詞。",
         "additionalParams": "此選項允許將附加的參數加入至請求主體（Request body）中。若要排除某些參數，可以將值設為 `{{none}}`。若要加入標頭（Request header）而非主體，可以在鍵前加上 `header::`，如 `header::Authorization`。若要將值作為 JSON，可以在值前加上 `json::`，如 `json::{\"key\":\"value\"}`。其他情況下，系統將自動判定值的類型。",
-        "antiClaudeOverload": "當 Claude 發生過載時，PocketRisu 會嘗試繼續發送相同的提示詞以防止請求中斷，藉此減少過載機率。此功能僅適用於串流回應 (Streamed Responses)，對非官方 API 端點可能無效。",
+        "antiClaudeOverload": "當 Claude 發生過載時，PocketRisu Kei 會嘗試繼續發送相同的提示詞以防止請求中斷，藉此減少過載機率。此功能僅適用於串流回應 (Streamed Responses)，對非官方 API 端點可能無效。",
         "triggerScript": "觸發式（Trigger）是一個自訂腳本，在符合條件時執行。可用於修改對話資料、執行指令、更改變數等。類型取決於觸發時的情況，也可由按鈕觸發，如 {{button::Display::TriggerName}} 或帶有 risu-trigger=\"<TriggerName>\" 屬性的 HTML 按鈕。",
         "combineTranslation": "啟用後，將把被 HTML 標籤分隔但屬於同一句的文字合併後進行翻譯，並在翻譯結果上重新套用「修改顯示」（Modify Display）。這有助於提高翻譯的準確性。若啟用此功能後介面出現異常，請關閉此選項並回報問題。",
         "dynamicAssets": "啟用後，若在處理資料時找不到資源名稱，系統將使用向量搜尋（Vector Search）嘗試尋找最接近的資源名稱並進行替換。",
@@ -73,7 +73,7 @@ export const helpZhHant = {
         "useRegexLorebook": "啟用後，Lorebook 將改用正規表達式（Regex）搜尋，而不再使用字串匹配。格式為 /regex/flags。",
         "customChainOfThought": "警告：不再建議使用思維鏈（CoT, Chain-of-Thought）切換功能。請將相關提示詞移至其他提示詞欄位。",
         "customPromptTemplateToggle": "可在此處設定自訂提示詞切換功能。使用 `<toggle variable>=<toggle name>` 格式，每行一個，例如：`cot=Toggle COT`。您可以在提示詞中透過 `{{getglobalvar::toggle_<toggle variable>}}` 語法來使用這些切換功能，如：`{{getglobalvar::toggle_cot}}`。",
-        "defaultVariables": "可在此處設定自訂預設變數。使用 `<variable name>=<variable value>` 格式，每行一個。例如：`name=PocketRisu`，可在觸發式和 CBS 變數中使用，如：`{{getvar::A}}`、`{{setvar::A::B}}` 或 `{{? $A + 1}}`。若提示詞模板的預設變數與角色的預設變數名稱相同，系統將使用角色的預設變數。",
+        "defaultVariables": "可在此處設定自訂預設變數。使用 `<variable name>=<variable value>` 格式，每行一個。例如：`name=PocketRisu Kei`，可在觸發式和 CBS 變數中使用，如：`{{getvar::A}}`、`{{setvar::A::B}}` 或 `{{? $A + 1}}`。若提示詞模板的預設變數與角色的預設變數名稱相同，系統將使用角色的預設變數。",
         "lowLevelAccess": "啟用後，將開放高計算需求的功能，並允許透過角色觸發式執行 AI 模型。除非確有需求，否則不要啟用。",
         "triggerLLMPrompt": "這是將發送到模型的提示詞。您可以使用 `@@role user`、`@@role system`、`@@role assistant` 來設定多輪對話及角色。例如：\n```\n@@role system\nrespond as hello\n@@role assistant\nhello\n@@role user\nhi\n```",
         "legacyTranslation": "啟用後，將使用舊版翻譯方法，在翻譯前對 Markdown 和引號進行預處理，而非在翻譯後處理。",
@@ -90,7 +90,7 @@ export const helpZhHant = {
         "betaMobileGUI": "啟用後，將在小於 800px 的螢幕上使用測試版行動介面，需重新整理頁面。",
         "enableScrollToActiveChar": "若已啟用，按下快捷鍵或在拖曳角色時按住 Ctrl 鍵將捲動至目前選取的角色。若資料夾已關閉，則會自動開啟。",
         "unrecommended": "這是不建議使用的設定，建議保持關閉。",
-        "jsonSchema": "JSON Schema 將在 AI 模型支援時發送給模型。\n\n然而，由於 JSON Schema 的學習成本較高，在 PocketRisu 中，您可以使用 TypeScript 介面的子集來代替 JSON Schema。PocketRisu 將在運行時進行轉換。例如，如果您想發送如下的 JSON：\n\n```js\n{\n  \"name\": \"PocketRisu\", // name 必須是 PocketRisu，\n  \"age\": 1, // age 必須是數字，\n  \"icon\": \"slim\", // icon 必須是 ’slim‘ 或 ’rounded‘\n  \"thoughts\": [\"Good View!\", \"Lorem\"] // thoughts 必須是字串陣列\n}\n```\n\n您可以使用以下 TypeScript 介面：\n\n```typescript\ninterface Schema {\n  name: string;\n  age: number;\n  icon: ’slim‘|’rounded‘\n  thoughts: string[]\n}\n```\n\n介面名稱不重要。欲了解更多資訊，請參閱 TypeScript 說明文件：https://www.typescriptlang.org/docs/handbook/interfaces.html 。要檢查支援的 TypeScript 子集，請查看以下內容。<details><summary>支援的 TypeScript 子集</summary>\n\n支援的類型包括 `boolean`、`number`、`string` 和 `Array`。進階類型不被支援（如：單元類型、交集類型、聯合類型、可選類型、字面量類型等），除了以下幾種情況：\n\n        - 原始資料型別（Primitive Type）的陣列（Array）：（如 `string[]`、`Array<boolean>`）\n        - 字串之間的單值類型（Unit Types）：（例如 `’slim‘|’rounded‘`）\n\n        屬性必須在同一行內定義。若一行中有多個屬性，將會產生錯誤。屬性和介面名稱僅可使用拉丁字符，並在 ASCII 範圍內。屬性名稱不得以單引號或雙引號包裹。介面內部不支援巢狀。在定義屬性的行中，不能包含 `{` 或 `}`。如果想使用更進階的類型，請使用 JSON Schema。\n        </details>",
+        "jsonSchema": "JSON Schema 將在 AI 模型支援時發送給模型。\n\n然而，由於 JSON Schema 的學習成本較高，在 PocketRisu Kei 中，您可以使用 TypeScript 介面的子集來代替 JSON Schema。PocketRisu Kei 將在運行時進行轉換。例如，如果您想發送如下的 JSON：\n\n```js\n{\n  \"name\": \"PocketRisu Kei\", // name 必須是 PocketRisu Kei，\n  \"age\": 1, // age 必須是數字，\n  \"icon\": \"slim\", // icon 必須是 ’slim‘ 或 ’rounded‘\n  \"thoughts\": [\"Good View!\", \"Lorem\"] // thoughts 必須是字串陣列\n}\n```\n\n您可以使用以下 TypeScript 介面：\n\n```typescript\ninterface Schema {\n  name: string;\n  age: number;\n  icon: ’slim‘|’rounded‘\n  thoughts: string[]\n}\n```\n\n介面名稱不重要。欲了解更多資訊，請參閱 TypeScript 說明文件：https://www.typescriptlang.org/docs/handbook/interfaces.html 。要檢查支援的 TypeScript 子集，請查看以下內容。<details><summary>支援的 TypeScript 子集</summary>\n\n支援的類型包括 `boolean`、`number`、`string` 和 `Array`。進階類型不被支援（如：單元類型、交集類型、聯合類型、可選類型、字面量類型等），除了以下幾種情況：\n\n        - 原始資料型別（Primitive Type）的陣列（Array）：（如 `string[]`、`Array<boolean>`）\n        - 字串之間的單值類型（Unit Types）：（例如 `’slim‘|’rounded‘`）\n\n        屬性必須在同一行內定義。若一行中有多個屬性，將會產生錯誤。屬性和介面名稱僅可使用拉丁字符，並在 ASCII 範圍內。屬性名稱不得以單引號或雙引號包裹。介面內部不支援巢狀。在定義屬性的行中，不能包含 `{` 或 `}`。如果想使用更進階的類型，請使用 JSON Schema。\n        </details>",
         "strictJsonSchema": "啟用後，某些模型將嚴格遵循提供的 JSON Schema。若停用，可能會忽略 JSON Schema。",
         "extractJson": "此欄位不為空時，將從回應中提取特定 JSON 資料。例如：要從回應 `{\"response\": {\"text\": [\"hello\"]}}` 提取 `response.text[0]`，請填寫 `response.text.0`。",
         "translatorNote": "可在此處為每個角色加入獨特的翻譯備註，但僅適用於使用 Ax. 模型進行翻譯。要啟用此功能，請在語言設定中包含 `{{slot::tnote}}`。此功能不適用群組對話。",

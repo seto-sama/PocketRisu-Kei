@@ -1,5 +1,5 @@
 /**
- * PocketRisu NodeOnly — English help texts (`language.help`).
+ * PocketRisu Kei NodeOnly — English help texts (`language.help`).
  *
  * Extracted from `src/lang/en.ts` for maintainability. See
  * `.agent/notes/help-audit/` (workspace) for the audit, structure rationale,
@@ -130,7 +130,7 @@ export const helpEn = {
         additionalParamsHelp: "One per line. Supports `key=value`, `key=json::{...}`, `header::Name=value`, `key={{none}}`.",
         tokenizerOverrideHelp: "Used for token counting. Leave Auto to use the profile recommendation.",
         antiClaudeOverload:
-            "If Claude overload happens, PocketRisu would try to prevent it by continuing with same prompt, making it less likely to happen. works only for streamed responses. this could not work for non-official api endpoints.",
+            "If Claude overload happens, PocketRisu Kei would try to prevent it by continuing with same prompt, making it less likely to happen. works only for streamed responses. this could not work for non-official api endpoints.",
         triggerScript:
             'Trigger Script is a custom script that runs when a condition is met. it can be used to modify the chat data, run a command, change variable, and etc. the type depends when it is triggered. it can also be run by buttons, which can be used with {{button::Display::TriggerName}}, or HTML buttons with `risu-trigger="<TriggerName>"` attribute.',
         combineTranslation:
@@ -144,7 +144,7 @@ export const helpEn = {
         customPromptTemplateToggle:
             "Here you can define your own prompt toggles. use `<toggle variable>=<toggle name>` format, seperated by newline. for example, `cot=Toggle COT`. you can use these toggles in prompt by using `{{getglobalvar::toggle_<toggle variable>}}`. like `{{getglobalvar::toggle_cot}}`.",
         defaultVariables:
-            "Here you can define your own default variables. use `<variable name>=<variable value>` format, seperated by newline. for example, `name=PocketRisu`, which then can be used with trigger scripts and variables CBS like `{{getvar::A}}`, `{{setvar::A::B}}` or `{{? $A + 1}}`. if prompt template's default variable and character's default variable has same name, character's default variable will be used.",
+            "Here you can define your own default variables. use `<variable name>=<variable value>` format, seperated by newline. for example, `name=PocketRisu Kei`, which then can be used with trigger scripts and variables CBS like `{{getvar::A}}`, `{{setvar::A::B}}` or `{{? $A + 1}}`. if prompt template's default variable and character's default variable has same name, character's default variable will be used.",
         lowLevelAccess:
             "If enabled, it will enable access to features that requires high computing powers and executing AI model via triggers in the character. do not enable this unless you really need these features.",
         triggerLLMPrompt:
@@ -171,8 +171,8 @@ export const helpEn = {
         enableScrollToActiveChar: "If enabled, pressing the hotkey or holding Ctrl while dragging a character will scroll to the currently active character. Folders will be opened automatically if closed.",
         unrecommended: "This is a unrecommended setting. it is not recommended to use this setting.",
         jsonSchema:
-            "This is a JSON Schema that will be sent to the AI model if AI model supports JSON Schema.\n\nHowever, since JSON Schema is hard to learn, In PocketRisu, you can use subset of TypeScript interface instead of JSON Schema. PocketRisu will convert it in runtime." +
-            'For example, if you want to send a JSON like this:\n\n```js\n{\n  "name": "PocketRisu", //name must be PocketRisu,\n  "age": 1, //age must be number,\n  "icon": "slim", //icon must be \'slim\' or \'rounded\'\n  "thoughts": ["Good View!", "Lorem"] //thoughts must be array of strings\n}\n```\n\n' +
+            "This is a JSON Schema that will be sent to the AI model if AI model supports JSON Schema.\n\nHowever, since JSON Schema is hard to learn, In PocketRisu Kei, you can use subset of TypeScript interface instead of JSON Schema. PocketRisu Kei will convert it in runtime." +
+            'For example, if you want to send a JSON like this:\n\n```js\n{\n  "name": "PocketRisu Kei", //name must be PocketRisu Kei,\n  "age": 1, //age must be number,\n  "icon": "slim", //icon must be \'slim\' or \'rounded\'\n  "thoughts": ["Good View!", "Lorem"] //thoughts must be array of strings\n}\n```\n\n' +
             "You can put this TypeScript interface:\n\n```typescript\ninterface Schema {\n  name: string;\n  age: number;\n  icon: 'slim'|'rounded'\n  thoughts: string[]\n}\n```\n\n" +
             "Name of the interface doesn't matter. for more information, see the typescript documentation. (https://www.typescriptlang.org/docs/handbook/interfaces.html), and to Check what subset of TypeScript is supported, see the below." +
             "<details><summary>Supported TypeScript Subset</summary>\n\n" +
@@ -363,7 +363,7 @@ export const helpEn = {
         theme: "Overall chat layout theme.",
         waifuWidth: "Width of the character illustration in the Waifulike theme.",
         waifuWidth2: "Width of the second character or secondary visual in the Waifulike theme.",
-        nodeOnlyStandardChatWidth: "Maximum chat card width in the PocketRisu Standard theme.",
+        nodeOnlyStandardChatWidth: "Maximum chat card width in the PocketRisu Kei Standard theme.",
         colorScheme: "Color palette used across the Risu UI.",
         colorSchemeTransferDesc: "Import or export a color palette JSON file.",
         textColor: "Message text color theme.",
@@ -504,7 +504,7 @@ export const helpEn = {
         cohereKey:
             "Cohere API key (https://dashboard.cohere.com/api-keys). Required when using Cohere's own models such as `command-r`.",
         ollamaURL:
-            "URL of your local or remote Ollama server (e.g. `http://localhost:11434`). Pairs well with PocketRisu's local-network mode for stable access to private LAN LLMs.",
+            "URL of your local or remote Ollama server (e.g. `http://localhost:11434`). Pairs well with PocketRisu Kei's local-network mode for stable access to private LAN LLMs.",
         ollamaModel:
             "Model name to call on the Ollama server. Run `ollama list` to see installed models and copy the name verbatim (e.g. `llama3:8b`).",
         nanogptKey:
@@ -658,7 +658,7 @@ export const helpEn = {
             "Use stop strings. The model's response is cut as soon as one of these strings appears. Useful for blocking patterns where the character impersonates the next speaker (e.g. `{{user}}: ...`).",
 
         memType:
-            "Long-term memory mode.\n\n- **None**: disabled (chat is sent as-is up to the max context limit)\n- **HypaV3**: PocketRisu's long-term memory that auto-summarizes and retrieves older chat to inject into the context. Slightly more cost / latency, but consistency in long chats improves a lot.",
+            "Long-term memory mode.\n\n- **None**: disabled (chat is sent as-is up to the max context limit)\n- **HypaV3**: PocketRisu Kei's long-term memory that auto-summarizes and retrieves older chat to inject into the context. Slightly more cost / latency, but consistency in long chats improves a lot.",
         hypaV3Description: "HypaMemory V3 is a long-term memory system that uses both summarization and vector search.",
         hypaV3SummaryModel:
             "Model used to summarize chat.\n\n- **subModel**: use the auxiliary model (most common)\n- **Qwen3 4B/14B**: free local summarization (runs in the browser or Node instance directly, downloads on first use)\n\nUsing a lighter model than the main model saves cost.",
@@ -826,7 +826,7 @@ export const helpEn = {
             "Reference image mode (None / Upload / Use Character Image). Works only when the model supports image input.",
 
         bootBackupReminder:
-            "When enabled, PocketRisu prompts you on every boot whether to create a server backup right away. Useful as a lightweight safety net before opening the app each session. Confirming runs a full server backup (the loading screen waits while it finishes); skipping continues straight to the app.",
+            "When enabled, PocketRisu Kei prompts you on every boot whether to create a server backup right away. Useful as a lightweight safety net before opening the app each session. Confirming runs a full server backup (the loading screen waits while it finishes); skipping continues straight to the app.",
         autoBackupSchedule:
             "When enabled, backups are created automatically once the specified number of days has passed since the last backup.",
         systemLogsExplicitOnlyHint: "Excludes console, uncaught exceptions, framework captures",

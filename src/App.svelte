@@ -37,6 +37,7 @@
     import Toaster from './lib/UI/GUI/Toaster.svelte';
     import RequestStatusToaster from './lib/UI/GUI/RequestStatusToaster.svelte';
     import sendSound from './etc/send.mp3'
+    import { PRODUCT_NAME } from './ts/branding'
 
     let gridOpen = $state(false)
     let aprilFools = $state(new Date().getMonth() === 3 && new Date().getDate() === 1)
@@ -155,7 +156,7 @@
                             aprilFoolsPage = 0
                             aprilFools = false
                         }}>
-                            PocketRisu  
+                            {PRODUCT_NAME}
                         </a>
                     </p>
 

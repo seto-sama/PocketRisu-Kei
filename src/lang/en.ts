@@ -30,7 +30,7 @@ export const languageEnglish = {
         vertexAuthError: "Vertex AI authentication details are missing.",
         networkFetch: "This happens when the network is unstable or the server is down.",
         networkFetchWeb:
-            "This can be a CORS error. this only happens when using web version due to limitations of the browser. try using desktop local version, or other version of PocketRisu.",
+            "This can be a CORS error. this only happens when using web version due to limitations of the browser. try using desktop local version, or other version of PocketRisu Kei.",
         requestLogRemoved: "This request log is removed.",
         requestLogRemovedDesc: "This request log removes when client is refreshed or reloaded.",
         persistFailureTitle: "Server save failed — changes are not being written to disk",
@@ -56,13 +56,13 @@ export const languageEnglish = {
         themeDescClassic: "Suitable for All devices",
         texttheme: "Select your text color",
         inputName: "Lastly, Input your Nickname.",
-        welcome: "Welcome to PocketRisu! I am Airisu, I am here guide you to setup PocketRisu. First, What may I call you?",
+        welcome: "Welcome to PocketRisu Kei! I am Airisu, I am here guide you to setup PocketRisu Kei. First, What may I call you?",
         welcome2: "Hello {username}! before we start, I will ask you some questions. You can change these settings later in settings.\n\nFirst select the AI provider.",
         openRouterProvider: "OpenRouter has a lot of models, some of them unfiltered and some of them free, but it is not as good as OpenAI.",
         hordeProvider: "Horde is a free provider, but the response time is long and the quality is low.",
         setProviderLater: "There are other providers, but you can set it later in settings. select this if you want to set it later.",
         setupOpenAI:
-            "To use OpenAI, you need to get an API key. \n1. go to https://beta.openai.com/ \n2. login with your account \n3. go to https://beta.openai.com/account/api-keys \n4. click 'Create New API Key' and name your key whatever you want. \n5. copy the key in the website.\n6. go back to PocketRisu\n7. paste it, and click send button.",
+            "To use OpenAI, you need to get an API key. \n1. go to https://beta.openai.com/ \n2. login with your account \n3. go to https://beta.openai.com/account/api-keys \n4. click 'Create New API Key' and name your key whatever you want. \n5. copy the key in the website.\n6. go back to PocketRisu Kei\n7. paste it, and click send button.",
         setupClaude: "To use Claude, you need to get an API key.",
         setupClaudeSteps: [
             "Go to this URL and Login as Google",
@@ -79,7 +79,7 @@ export const languageEnglish = {
             "Copy the key, and paste it in here and send it.",
         ],
         setupOpenRouter:
-            "To use OpenRouter, you need to get an API key. \n1. go to https://openrouter.ai/keys\n2. click 'Create Key'\n3. set key name whatever you want.\n4. copy the key in the website\n5. go back to PocketRisu\n6. paste it, and click send button.",
+            "To use OpenRouter, you need to get an API key. \n1. go to https://openrouter.ai/keys\n2. click 'Create Key'\n3. set key name whatever you want.\n4. copy the key in the website\n5. go back to PocketRisu Kei\n6. paste it, and click send button.",
         allDone: "All Done! please wait a moment.",
         setupLaterMessage: "Welcome {username}! do you want me to guide you to setup or do it yourself?",
         setupMessageOption1: "Guide me to setup",
@@ -753,8 +753,8 @@ export const languageEnglish = {
     chatWidthStandard: "Standard",
     chatWidthWide: "Wide",
     chatWidthFull: "No Limit",
-    customCSSWarning: "PocketRisu's UI structure (HTML/CSS) differs from upstream RisuAI, so existing custom CSS may break the layout or behave unexpectedly. Use only when you know what you are overriding.",
-    customHTMLWarning: "PocketRisu's UI structure (HTML/CSS) differs from upstream RisuAI, so existing custom Chat HTML may not render correctly. Use only when you know what you are overriding.",
+    customCSSWarning: "PocketRisu Kei's UI structure (HTML/CSS) differs from upstream RisuAI, so existing custom CSS may break the layout or behave unexpectedly. Use only when you know what you are overriding.",
+    customHTMLWarning: "PocketRisu Kei's UI structure (HTML/CSS) differs from upstream RisuAI, so existing custom Chat HTML may not render correctly. Use only when you know what you are overriding.",
     sayNothing: "Input 'say nothing' when no string inputed",
     regexScript: "Regex Script",
     regexTarget: "Target",
@@ -904,9 +904,9 @@ export const languageEnglish = {
     proxyAPIKey: "Key/Password",
     proxyRequestModel: "Request Model",
     officialWiki: "Official Wiki",
-    officialWikiDesc: "Official Wiki for PocketRisu. feel free to see.",
+    officialWikiDesc: "Official Wiki for PocketRisu Kei. feel free to see.",
     officialDiscord: "Official Discord",
-    officialDiscordDesc: "Official Discord to talk about PocketRisu",
+    officialDiscordDesc: "Official Discord to talk about PocketRisu Kei",
     persona: "Persona",
     icon: "Icon",
     account: "Account",
@@ -1024,7 +1024,7 @@ export const languageEnglish = {
     webdeeplwarn: "This option is not recommended for use with web version, as it can cause CORS errors.",
     saveBackupLocal: "Save Backup Locally",
     saveBackupForUpstream: "Save Backup for Original RisuAI",
-    saveBackupForUpstreamConfirm: "This backup is intended for moving your data to the original RisuAI (web/Tauri). Inlay images are excluded because their entry names use a layout that the original RisuAI cannot import. Other data (database, character assets, cold storage) is included.\n\nFor moving data between PocketRisu installations, use the regular local backup instead.\n\nProceed?",
+    saveBackupForUpstreamConfirm: "This backup is intended for moving your data to the original RisuAI (web/Tauri). Inlay images are excluded because their entry names use a layout that the original RisuAI cannot import. Other data (database, character assets, cold storage) is included.\n\nFor moving data between PocketRisu Kei installations, use the regular local backup instead.\n\nProceed?",
     loadBackupLocal: "Load Backup Locally",
     topP: "Top P",
     genTimes: "Generation Choices",
@@ -1134,8 +1134,8 @@ export const languageEnglish = {
     trashEmptied: "Permanently deleted {count} characters from the trash.",
     trashDesc: "Deleted characters are moved to trash. you can restore or delete them permanently. deleted characters are automatically purged after 3 days.",
     shareExport: "Share/Export",
-    risupresetDesc: "Risupreset format is a format specifically designed for PocketRisu presets.",
-    risuMDesc: "RisuM format is a format that is specifically designed for PocketRisu modules.",
+    risupresetDesc: "Risupreset format is a format specifically designed for PocketRisu Kei presets.",
+    risuMDesc: "RisuM format is a format that is specifically designed for PocketRisu Kei modules.",
     jsonDesc: "JSON format is a format that is easy to read and write for both humans and machines.",
     nickname: "Nickname",
     useRegexLorebook: "Use Regex",
@@ -1400,7 +1400,7 @@ export const languageEnglish = {
     home: "Home",
     showSavingIcon: "Show Saving Icon",
     pluginVersionWarn:
-        "This is {{plugin_version}} version of the plugin. which is not compatible with this version of PocketRisu. please update the plugin to {{required_version}} version.",
+        "This is {{plugin_version}} version of the plugin. which is not compatible with this version of PocketRisu Kei. please update the plugin to {{required_version}} version.",
     imageTranslation: "Image Translation",
     banCharacterset: "Auto Regenerate On Characterset",
     realmDirectOpen: "Directly open character in RisuRealm",
@@ -1693,7 +1693,7 @@ export const languageEnglish = {
     modelModeLockLegacy: "Lock to legacy model mode",
     modelModeLockLegacyDesc: "Use the original RisuAI model system",
     modelModeLockPreset: "Lock to model preset mode",
-    modelModeLockPresetDesc: "Use PocketRisu's model preset binding system",
+    modelModeLockPresetDesc: "Use PocketRisu Kei's model preset binding system",
     modelModeLockNone: "No lock",
     modelModeLockNoneDesc: "Choose the mode per chat",
     newChatModelModeLabel: "Default model mode for new chats",
@@ -1795,10 +1795,10 @@ export const languageEnglish = {
     nightlyWarning:
         "## Nightly Builds\n\nYou are connecting to a nightly build of the software. This version is meant for testing and most likely contains bugs. **In this version, even if you encounter issues, we do not support resolving them directly.**",
     loginSionyw: "Login with Sionyw Account",
-    pluginRiskDetectedAlert: "PocketRisu detected code that may be harmful which can STOLE YOUR API KEY OR PERSONAL DATA. we recommend you to NOT INSTALL THIS PLUGIN.",
+    pluginRiskDetectedAlert: "PocketRisu Kei detected code that may be harmful which can STOLE YOUR API KEY OR PERSONAL DATA. we recommend you to NOT INSTALL THIS PLUGIN.",
     doNotInstall: "Do Not Install",
     continueAnyway: "Continue Anyway",
-    pluginNoRiskButAlert: "PocketRisu did not detect harmful code, but please be aware that installing plugins from untrusted sources can pose security risks.",
+    pluginNoRiskButAlert: "PocketRisu Kei did not detect harmful code, but please be aware that installing plugins from untrusted sources can pose security risks.",
 
     pluginRisksInuserFriendly: {
         eval: "Evaluating Code from Strings",
@@ -1854,8 +1854,8 @@ export const languageEnglish = {
     partialBackupFirstConfirm: "⚠️ WARNING: Partial Local Backup ⚠️\n\nThis backup quickly saves only essential information.\n\nIncluded:\n- Database (chat history, characters, modules, plugins, prompts, settings, etc.)\n- Character profile icons (main images)\n- User icons and custom backgrounds\n- Persona icons\n- Folder images\n- Bot preset images\n\n⚠️ NOT Included:\n- Emotion images\n- Additional character assets\n- VITS voice files\n- All other additional media files\n\nThis backup file does NOT include all character assets!\nIf you need a complete backup, use the regular local backup.\n\nDo you want to continue?",
     partialBackupSecondConfirm: "⚠️⚠️ FINAL WARNING ⚠️⚠️\n\nThis backup saves only character profile images and does NOT save most other assets!\n\nWhat will be saved:\n- Database (chat history, characters, modules, plugins, prompts, settings, etc.)\n- Character profile icons (main images)\n- User icons and custom backgrounds\n- Persona icons\n- Folder images\n- Bot preset images\n\nWhat will NOT be saved:\n- Emotion images\n- Additional character assets\n- VITS voice files\n- All other media files\n\n⚠️ Proceed ONLY if you don't need character assets in your backup file! ⚠️\n\nAre you really sure you want to proceed with partial backup?",
     savePartialLocalBackup: "Save Partial Backup Locally (Excluding Character Assets)",
-    serverBackupHeader: "PocketRisu Server Backup",
-    serverBackupDesc: "Save and restore backup files directly on the device (server) where PocketRisu is installed, without downloading.",
+    serverBackupHeader: "PocketRisu Kei Server Backup",
+    serverBackupDesc: "Save and restore backup files directly on the device (server) where PocketRisu Kei is installed, without downloading.",
     serverBackupSave: "Save Backup to Server",
     serverBackupManage: "Manage Server Backups",
     serverBackupSaving: "Saving backup to server...",
@@ -1958,7 +1958,7 @@ export const languageEnglish = {
     togglePresetExported: (name: string) => `Preset "${name}" exported.`,
     longPressToPopupEditor: "Long press to open popup editor",
     showInputActionBar: "Show input action bar",
-    importSaveFolderHeader: "Load Save into PocketRisu",
+    importSaveFolderHeader: "Load Save into PocketRisu Kei",
     importSaveZip: "Load from Save Folder (Zip Upload)",
     importSaveZipDesc: "Compress your existing RisuAI project's save folder into a zip file and upload it here to import your data. Uploading may fail if the zip file is too large — in that case, copy the save folder directly into the server's save directory and restart to migrate automatically.",
     importSaveFolderScanning: "Scanning save folder...",
@@ -2031,7 +2031,7 @@ export const languageEnglish = {
         return `${Math.floor(seconds / 86400)} days ago`;
     },
     remoteAccess: "Remote Access",
-    remoteAccessDesc: "Use a remote access link to connect to this PocketRisu server from another device.",
+    remoteAccessDesc: "Use a remote access link to connect to this PocketRisu Kei server from another device.",
     remoteAccessOpen: "Open Remote Access",
     remoteAccessClose: "Close Remote Access",
     remoteAccessCloseConfirm: "Close remote access? The link will expire.",
@@ -2167,7 +2167,7 @@ export const languageEnglish = {
     storageDiskHeaderUnknown: "Disk size unavailable",
     storageDiskOther: "Other (system & apps)",
     storageDiskFree: "Free",
-    storageDiskRisuTotal: (size: number) => `PocketRisu total: ${(size / 1024 / 1024).toFixed(1)} MB`,
+    storageDiskRisuTotal: (size: number) => `PocketRisu Kei total: ${(size / 1024 / 1024).toFixed(1)} MB`,
 
     // Per-row labels (shown in the breakdown list with ⓘ explanations)
     storageRowDbFile: "risuai.db",
@@ -2203,7 +2203,7 @@ export const languageEnglish = {
     storageRowReclaimable: (size: number) =>
         `${(size / 1024 / 1024).toFixed(1)} MB reclaimable — run Optimize to compact.`,
     storageInternalOnly: "Show with full disk",
-    storageInternalOnlyHint: "Off shows only PocketRisu items; on includes system & free space relative to the disk.",
+    storageInternalOnlyHint: "Off shows only PocketRisu Kei items; on includes system & free space relative to the disk.",
 
     // 2 GB BLOB limit (separate section)
     storageBlobLimit: "2 GB BLOB limit",
@@ -2297,7 +2297,7 @@ export const languageEnglish = {
 
     // Data migration (formerly "Account & Files")
     migration: "Data Migration",
-    migrationDesc: "Move data between RisuAI (or compatible systems) and PocketRisu: import from upstream, or export to upstream-compatible format.",
+    migrationDesc: "Move data between RisuAI (or compatible systems) and PocketRisu Kei: import from upstream, or export to upstream-compatible format.",
     migrationInfoBackupMoved: "Server backups, local backups, and DB snapshots have moved to [Storage Management → Backups].",
     migrationGotoBackupTab: "Open Backups tab",
     migrationLegacyAccordion: "RisuAI-style backup (legacy)",
@@ -2405,10 +2405,10 @@ export const languageEnglish = {
 
     relatedGithub: "GitHub",
     relatedGithubDesc: "Star this project to show your support.",
-    relatedFeedbackForm: "Feedback Form",
-    relatedFeedbackFormDesc: "Submit issues or share suggestions.",
-    relatedContactEmail: "Contact",
-    relatedContactEmailDesc: "Send a direct email to the developer.",
+    relatedFeedbackForm: "Report an Issue",
+    relatedFeedbackFormDesc: "Submit a bug report or share a suggestion.",
+    relatedContactEmail: "Developer GitHub",
+    relatedContactEmailDesc: "Visit the developer's GitHub profile.",
     relatedArcaLive: "ArcaLive Channel",
     relatedArcaLiveDesc: "Discuss with other users in the AI chat channel.",
 

@@ -16,6 +16,7 @@ import { doingChat } from "./process/index.svelte";
 import { importCharacter } from "./characterCards";
 import { importCharacterPackage } from "./characterPackage";
 import { PngChunk } from "./pngChunk";
+import { PRODUCT_NAME } from "./branding";
 
 export function createNewCharacter() {
     let db = getDatabase()
@@ -309,7 +310,7 @@ export async function exportChat(page:number){
                     </tr>
                     ${chatContentHTML}
                 </table>
-                <p>Chat from PocketRisu</p>
+                <p>Chat from ${PRODUCT_NAME}</p>
             `
 
             //copy to clipboard
