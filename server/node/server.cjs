@@ -1017,7 +1017,7 @@ function getSelfUpdateAssetInfo(version) {
     const arch = process.arch; // x64, arm64
     const ext = process.platform === 'win32' ? 'zip' : 'tar.gz';
     const filename = `PocketRisu-v${version}-${platformName}-${arch}.${ext}`;
-    const url = `https://github.com/${GITHUB_REPO}/releases/download/v${version}/${filename}`;
+    const url = `https://github.com/${GITHUB_REPO}/releases/download/kei-v${version}/${filename}`;
     return { platformName, arch, ext, filename, url };
 }
 
@@ -1389,7 +1389,7 @@ async function fetchLatestRelease(lang) {
 
 function compareReleaseVersions(left, right) {
     const parse = (value) => {
-        const normalized = String(value || '').trim().replace(/^v/i, '');
+        const normalized = normalizeReleaseVersion(value);
         const [core, prerelease = ''] = normalized.split('-', 2);
         return {
             core: core.split('.').map((part) => Number.parseInt(part, 10) || 0),
@@ -1410,8 +1410,12 @@ function compareReleaseVersions(left, right) {
     return a.prerelease.localeCompare(b.prerelease, undefined, { numeric: true });
 }
 
+function normalizeReleaseVersion(value) {
+    return String(value || '').trim().replace(/^(?:kei-)?v/i, '');
+}
+
 function normalizeGitHubRelease(release, currentVersion) {
-    const latestVersion = String(release?.tag_name || '').replace(/^v/i, '');
+    const latestVersion = normalizeReleaseVersion(release?.tag_name);
     const hasUpdate = !!latestVersion && compareReleaseVersions(latestVersion, currentVersion) > 0;
     return {
         currentVersion,

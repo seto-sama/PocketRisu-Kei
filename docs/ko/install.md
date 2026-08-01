@@ -74,10 +74,11 @@ GUI 없는 Linux/macOS 서버에서 최신 버전을 한 번에 받아 실행합
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
+RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+VERSION=${RELEASE_TAG#*v}
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-cd PocketRisu-${VERSION}-linux-x64
+cd PocketRisu-v${VERSION}-linux-x64
 ./start.sh
 ```
 
@@ -86,11 +87,12 @@ cd PocketRisu-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
+RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+VERSION=${RELEASE_TAG#*v}
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-xattr -cr PocketRisu-${VERSION}-macos-arm64
-cd PocketRisu-${VERSION}-macos-arm64
+xattr -cr PocketRisu-v${VERSION}-macos-arm64
+cd PocketRisu-v${VERSION}-macos-arm64
 ./start.sh
 ```
 

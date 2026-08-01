@@ -9,19 +9,26 @@ info()  { printf '\033[1;34m[INFO]\033[0m  %s\n' "$*"; }
 warn()  { printf '\033[1;33m[WARN]\033[0m  %s\n' "$*"; }
 error() { printf '\033[1;31m[ERROR]\033[0m %s\n' "$*"; exit 1; }
 
+normalize_version() {
+    local version="$1"
+    version="${version#kei-v}"
+    version="${version#v}"
+    printf '%s' "$version"
+}
+
 # ── Check current version ─────────────────────────────────────────────────────
 
 CURRENT=""
 if [ -f .installed-version ]; then
-    CURRENT=$(cat .installed-version)
+    CURRENT=$(normalize_version "$(cat .installed-version)")
 fi
 
 if [ -z "$CURRENT" ]; then
     # Fallback: read from package.json
-    CURRENT="v$(node -e "console.log(require('./package.json').version)" 2>/dev/null || echo "unknown")"
+    CURRENT=$(node -e "console.log(require('./package.json').version)" 2>/dev/null || echo "unknown")
 fi
 
-info "Current version: $CURRENT"
+info "Current version: v$CURRENT"
 
 # ── Fetch latest release ───────────────────────────────────────────────────────
 
@@ -30,19 +37,20 @@ RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2
     || wget -qO- "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null) \
     || error "Failed to fetch release info."
 
-LATEST=$(echo "$RELEASE_JSON" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
-[ -n "$LATEST" ] || error "Could not determine latest version."
+RELEASE_TAG=$(echo "$RELEASE_JSON" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
+[ -n "$RELEASE_TAG" ] || error "Could not determine latest version."
+LATEST=$(normalize_version "$RELEASE_TAG")
 
 if [ "$CURRENT" = "$LATEST" ]; then
-    info "Already up to date ($CURRENT)."
+    info "Already up to date (v$CURRENT)."
     exit 0
 fi
 
-info "New version available: $LATEST"
+info "New version available: v$LATEST"
 
 # ── Confirm ────────────────────────────────────────────────────────────────────
 
-printf "Update from %s to %s? [Y/n]: " "$CURRENT" "$LATEST"
+printf "Update from v%s to v%s? [Y/n]: " "$CURRENT" "$LATEST"
 read -r answer
 [ "$answer" = "n" ] || [ "$answer" = "N" ] && { info "Aborted."; exit 0; }
 
@@ -58,9 +66,9 @@ fi
 
 # ── Download and extract ───────────────────────────────────────────────────────
 
-TARBALL_URL="https://github.com/$REPO/archive/refs/tags/$LATEST.tar.gz"
+TARBALL_URL="https://github.com/$REPO/archive/refs/tags/$RELEASE_TAG.tar.gz"
 
-info "Downloading $LATEST..."
+info "Downloading $RELEASE_TAG..."
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL "$TARBALL_URL" -o "$TMP_DIR/release.tar.gz"
 else
@@ -105,9 +113,9 @@ NODE_OPTIONS="--max-old-space-size=4096" pnpm build
 info "Removing dev dependencies..."
 pnpm prune --prod
 
-echo "$LATEST" > "$SCRIPT_DIR/.installed-version"
+echo "v$LATEST" > "$SCRIPT_DIR/.installed-version"
 
-info "Update complete! $CURRENT → $LATEST"
+info "Update complete! v$CURRENT → v$LATEST"
 echo ""
 echo "  Restart the server to apply the update:"
 echo "    pnpm runserver"

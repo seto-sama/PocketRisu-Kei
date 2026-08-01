@@ -3,7 +3,7 @@ name: Create GitHub Release with Portable Packages
 on:
   push:
     tags:
-      - 'v*'
+      - 'kei-v*'
   workflow_dispatch:
 
 permissions:
@@ -96,8 +96,8 @@ jobs:
         id: version
         shell: bash
         run: |
-          if [[ "$GITHUB_REF_NAME" == v* ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+          if [[ "$GITHUB_REF_NAME" == kei-v* ]]; then
+            echo "version=${GITHUB_REF_NAME#kei-v}" >> $GITHUB_OUTPUT
           else
             echo "version=$(node -e "console.log(require('./portable/package.json').version)")" >> $GITHUB_OUTPUT
           fi
@@ -316,7 +316,7 @@ jobs:
 
   release:
     needs: portable
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/kei-v')
     runs-on: ubuntu-latest
     steps:
       - name: Download all portable artifacts
