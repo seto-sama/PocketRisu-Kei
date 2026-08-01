@@ -114,6 +114,7 @@
     "@typescript/native": "npm:typescript@^7.0.2",
     "autoprefixer": "^10.5.4",
     "fast-check": "^4.9.0",
+    "fontkit": "2.0.4",
     "happy-dom": "^20.10.6",
     "internal-ip": "^9.0.0",
     "postcss": "^8.5.19",

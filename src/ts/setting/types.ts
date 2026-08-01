@@ -103,6 +103,7 @@ export interface SettingOptions {
     // text, textarea
     placeholder?: string;
     hideText?: boolean;     // For password-like inputs
+    suggestions?: string[]; // Optional datalist suggestions; free-form input remains allowed
     defaultValue?: unknown; // Display value when a bound field is undefined
     
     // number

@@ -10,6 +10,7 @@ import { updateAnimationSpeed } from '../gui/animation';
 import { updateGuisize } from '../gui/guisize';
 import { updateTextThemeAndCSS } from '../gui/colorscheme';
 import { PRODUCT_BASE_NAME } from '../branding';
+import { localFontFamilies } from 'virtual:pocketrisu-local-font-families';
 
 export const displayThemeGeneralSettingsItems: SettingItem[] = [
     {
@@ -97,6 +98,9 @@ export const displayThemeGeneralSettingsItems: SettingItem[] = [
         bindKey: 'customFont',
         condition: (ctx) => ctx.db.font === 'custom',
         onChange: () => updateTextThemeAndCSS(),
+        options: {
+            suggestions: localFontFamilies.map(({ family }) => family),
+        },
         keywords: ['font', 'custom'],
     },
     {

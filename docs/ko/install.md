@@ -217,6 +217,16 @@ pnpm build
 pnpm runserver
 ```
 
+### 로컬 폰트
+
+폰트 파일은 저장소에 포함하지 않습니다. 사용 권한이 있는 폰트를 직접 포함하려면:
+
+1. `.woff2`, `.woff`, `.ttf`, `.otf` 파일을 `public/assets/fonts/`에 넣습니다.
+2. `pnpm build`를 다시 실행합니다.
+3. 폰트 설정에서 **Custom**을 선택하고 입력 추천 목록에서 감지된 family를 선택합니다. Weight variable 폰트라면 `SUIT Variable 700`처럼 뒤에 숫자 weight를 붙입니다.
+
+Weight variable 폰트는 원본 family 이름과 파일에 포함된 weight 범위를 그대로 사용하므로 `SUIT Variable 475` 같은 중간값도 사용할 수 있습니다. Static 폰트라면 `Regular`, `Thin` 등의 접미사를 포함한 원본 family 이름을 선택합니다. `public/assets/fonts/` 아래의 폰트 파일은 Git에서 무시되며 해당 빌드 환경에만 남습니다.
+
 
 ---
 
