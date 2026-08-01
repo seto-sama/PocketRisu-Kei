@@ -56,8 +56,8 @@
     );
 
     const triggerBase =
-        'h-10 px-3 inline-flex items-center justify-between gap-2 text-base font-medium text-left transition-colors outline-none ' +
-        'focus-visible:ring-2 focus-visible:ring-borderc/50 ' +
+        'h-10 px-3 inline-flex items-center justify-between gap-2 border border-transparent text-base font-medium text-left transition-colors outline-none ' +
+        'focus-visible:border-borderc ' +
         'disabled:opacity-50 disabled:pointer-events-none ' +
         'hover:bg-selected/30';
 </script>

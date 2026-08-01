@@ -33,8 +33,8 @@
     // text-base: 16px constant, mirroring ShButton. xs/sm sizes override below.
     const base =
         'inline-flex items-center justify-center gap-1.5 rounded-md text-base font-medium shrink-0 ' +
-        'whitespace-nowrap transition-colors cursor-pointer outline-none select-none ' +
-        'focus-visible:ring-2 focus-visible:ring-borderc/50 focus-visible:border-borderc ' +
+        'whitespace-nowrap border border-transparent transition-colors cursor-pointer outline-none select-none ' +
+        'focus-visible:border-borderc ' +
         'disabled:opacity-50 disabled:pointer-events-none ' +
         '[&_svg]:pointer-events-none [&_svg]:shrink-0';
 

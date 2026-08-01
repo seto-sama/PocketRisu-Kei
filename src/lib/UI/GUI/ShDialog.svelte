@@ -105,7 +105,7 @@
                     {/if}
                     {#if closable}
                         <Dialog.Close
-                            class="absolute right-0 top-0 text-textcolor2 hover:text-textcolor transition-colors rounded-sm focus-visible:ring-2 focus-visible:ring-borderc/50 outline-none cursor-pointer"
+                            class="absolute right-0 top-0 rounded-sm border border-transparent text-textcolor2 hover:text-textcolor focus-visible:border-borderc transition-colors outline-none cursor-pointer"
                             aria-label="Close"
                         >
                             <XIcon size={18} />

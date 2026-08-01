@@ -230,7 +230,7 @@
                bg-transparent {sizeClasses[size]} text-textcolor select-none
                transition-colors cursor-pointer
                hover:bg-selected/30
-               focus-visible:border-borderc focus-visible:ring-3 focus-visible:ring-borderc/50
+               focus-visible:border-borderc outline-none
                {className}"
         tabindex={0}
         onclick={() => open ? closeDropdown() : openDropdown()}

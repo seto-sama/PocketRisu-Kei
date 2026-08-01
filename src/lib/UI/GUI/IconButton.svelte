@@ -46,8 +46,8 @@
     }: Props = $props();
 
     const classes = $derived(cn(
-        'inline-flex shrink-0 items-center justify-center text-textcolor2 transition-colors disabled:pointer-events-none disabled:opacity-30',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-borderc/50',
+        'inline-flex shrink-0 items-center justify-center rounded-md border border-transparent text-textcolor2 transition-colors disabled:pointer-events-none disabled:opacity-30',
+        'focus-visible:outline-none focus-visible:border-borderc',
         tone === 'destructive' ? 'hover:text-draculared' : 'hover:text-primary',
         active && (activeColor === 'primary' ? 'text-primary' : 'text-textcolor'),
         classAttr,

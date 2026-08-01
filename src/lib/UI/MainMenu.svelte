@@ -73,7 +73,7 @@
       <div class="flex items-center gap-2">
         <button
           type="button"
-          class="flex-1 flex items-center gap-2 text-2xl font-bold text-left outline-none focus-visible:ring-2 focus-visible:ring-borderc/50 rounded"
+          class="flex-1 flex items-center gap-2 rounded border border-transparent text-2xl font-bold text-left outline-none focus-visible:border-borderc transition-colors"
           aria-expanded={realmOpen}
           aria-controls="main-realm-section"
           onclick={() => (realmOpen = !realmOpen)}

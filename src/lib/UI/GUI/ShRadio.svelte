@@ -34,8 +34,8 @@
             class={
                 'group flex gap-2.5 w-full text-left text-sm text-textcolor ' +
                 (opt.description ? 'items-start ' : 'items-center ') +
-                'py-1.5 px-1 rounded-md outline-none transition-colors ' +
-                'hover:bg-selected/30 focus-visible:ring-2 focus-visible:ring-borderc/50 ' +
+                'py-1.5 px-1 rounded-md border border-transparent outline-none transition-colors ' +
+                'hover:bg-selected/30 focus-visible:border-borderc ' +
                 'disabled:opacity-50 disabled:cursor-not-allowed'
             }
         >

@@ -107,7 +107,7 @@
     <input
         bind:this={nameInput}
         bind:value={pendingName}
-        class="border border-darkborderc rounded-md px-3 py-2 text-textcolor bg-transparent focus:ring-borderc focus:ring-2 focus:outline-hidden w-full"
+        class="border border-darkborderc rounded-md px-3 py-2 text-textcolor bg-transparent focus:border-borderc focus:outline-hidden transition-colors w-full"
         placeholder={language.apiKeyName}
         autocomplete="off"
         onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) confirmSave(); }}
