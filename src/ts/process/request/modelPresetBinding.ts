@@ -9,20 +9,12 @@ import {
 import type { ModelModeExtended } from './shared'
 
 /**
- * P4 dual-regime resolution (plan v6 §7, model-preset-p4-task).
- *
  * `resolveChatModelBinding` is the single chokepoint that decides, per request
- * mode, whether a chat dispatches via the ModelPreset adapter path or the
- * classic global-model path. It is inserted in `requestChatDataMain` BEFORE the
- * legacy `db.seperateModelsForAxModels` block so a binding chat never reads the
- * global aux-model settings (no cross-regime leak).
+ * mode, which ModelPreset the chat dispatches through.
  *
  * Resolution rules:
- *  - regime gate: global `nodeOnlyModelModeLock` ('legacy'/'preset') forces the
- *    regime; 'none' uses the chat's own `chat.useModelPreset` only (the new-chat
- *    default is snapshotted at creation, not read here). Classic → 'classic'.
- *    Preset regime with no bundle → block (under a preset lock the global
- *    default binding is the fallback; under 'none' there is no live fallback).
+ *  - the persisted legacy model-mode settings are ignored; all chats use model
+ *    presets. A chat without its own binding uses the global default binding.
  *  - mode 'model'    → main slot.  unresolved → block (main is often expensive;
  *                      never silently fall back to a different model).
  *  - mode 'submodel' → sub slot.   unresolved → block.
@@ -35,7 +27,6 @@ import type { ModelModeExtended } from './shared'
  * auto-cleared so a re-imported preset reconnects.
  */
 export type ResolvedBinding =
-    | { kind: 'classic' }
     | { kind: 'modelPreset'; preset: ModelPreset }
     | { kind: 'block'; reason: 'main-unset' | 'sub-unset' }
 
@@ -49,28 +40,7 @@ export function resolveChatModelBinding(
     mode: ModelModeExtended,
 ): ResolvedBinding {
     const db = getDatabase()
-    const lock = db.nodeOnlyModelModeLock ?? 'none'
-
-    // Effective regime. A global lock forces every chat into one regime; 'none'
-    // defers to the chat's OWN stored choice only. The new-chat default
-    // (useModelPresetByDefault) is snapshotted into chats at creation
-    // (newChatModelDefaults), never read here — reading it here would
-    // retroactively flip every existing undecided chat.
-    const usePreset =
-        lock === 'preset' ? true :
-        lock === 'legacy' ? false :
-        (chat?.useModelPreset ?? false)
-
-    if (!usePreset) {
-        return { kind: 'classic' }
-    }
-
-    // Preset regime. Use the chat's own bundle. Under a global preset lock, a
-    // pre-existing chat may have no bundle yet (it predates the lock); fall back
-    // to the global default for that deliberate global case only. Under 'none'
-    // there is no live fallback — a 'none' preset chat always carries its own
-    // snapshot (seeded at creation / on sidebar open). No bundle → block.
-    const set = chat?.modelBinding ?? (lock === 'preset' ? db.defaultModelBinding : undefined)
+    const set = chat?.modelBinding ?? db.defaultModelBinding
     if (!set) {
         return { kind: 'block', reason: mode === 'model' ? 'main-unset' : 'sub-unset' }
     }

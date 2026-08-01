@@ -27,52 +27,29 @@ function bindingWith(main?: string) {
 beforeEach(() => {
     mockDb = {
         modelPresets: [PRESET],
-        nodeOnlyModelModeLock: 'none',
-        useModelPresetByDefault: false,
         defaultModelBinding: undefined,
     }
 })
 
-describe('resolveChatModelBinding — regime gate', () => {
-    test("lock 'none': an undecided existing chat stays classic", () => {
-        const chat = { useModelPreset: undefined, modelBinding: undefined } as any
-        expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'classic' })
-    })
-
-    test("lock 'none': new-chat default does NOT retroactively flip undecided chats (finding 1)", () => {
-        mockDb.useModelPresetByDefault = true // user set new-chat default = preset
-        const chat = { useModelPreset: undefined, modelBinding: undefined } as any
-        // The default is snapshotted at creation, never read here — so an old
-        // chat that never chose remains classic.
-        expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'classic' })
-    })
-
-    test("lock 'none': a chat that explicitly chose preset resolves its own bundle", () => {
+describe('resolveChatModelBinding — model-preset-only mode', () => {
+    test('resolves the chat binding regardless of its legacy mode value', () => {
         const chat = { useModelPreset: true, modelBinding: bindingWith('p-main') } as any
+        expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'modelPreset', preset: PRESET })
+        chat.useModelPreset = false
         expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'modelPreset', preset: PRESET })
     })
 
-    test("lock 'none': preset chat with no bundle blocks (no live default fallback — finding 2)", () => {
-        mockDb.defaultModelBinding = bindingWith('p-main') // set, but must NOT leak in
-        const chat = { useModelPreset: true, modelBinding: undefined } as any
-        expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'block', reason: 'main-unset' })
-    })
-
-    test("lock 'legacy': forces classic even when the chat chose preset", () => {
+    test('an old chat without a binding resolves through the global default', () => {
+        // Both removed global settings may still be present in imported data;
+        // neither is allowed to affect runtime resolution.
         mockDb.nodeOnlyModelModeLock = 'legacy'
-        const chat = { useModelPreset: true, modelBinding: bindingWith('p-main') } as any
-        expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'classic' })
-    })
-
-    test("lock 'preset': forces preset and falls back to the global default for un-seeded chats", () => {
-        mockDb.nodeOnlyModelModeLock = 'preset'
+        mockDb.useModelPresetByDefault = false
         mockDb.defaultModelBinding = bindingWith('p-main')
         const chat = { useModelPreset: false, modelBinding: undefined } as any
         expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'modelPreset', preset: PRESET })
     })
 
-    test("lock 'preset': blocks when neither the chat nor the global default has a bundle", () => {
-        mockDb.nodeOnlyModelModeLock = 'preset'
+    test('blocks when neither the chat nor the global default has a binding', () => {
         const chat = { useModelPreset: false, modelBinding: undefined } as any
         expect(resolveChatModelBinding(chat, 'model')).toEqual({ kind: 'block', reason: 'main-unset' })
     })
@@ -199,7 +176,7 @@ describe('resolvePresetMaxOutputTokens — output cap comes from the preset, not
 })
 
 describe('resolveChatMaxResponseTokens — the bug: stray legacy db.maxResponse must not leak into preset budgeting', () => {
-    test('classic chat uses the global db.maxResponse', () => {
+    test('an unresolved binding falls back to the global db.maxResponse', () => {
         mockDb.maxResponse = 300
         const chat = { useModelPreset: false, modelBinding: undefined } as any
         expect(resolveChatMaxResponseTokens(chat)).toBe(300)

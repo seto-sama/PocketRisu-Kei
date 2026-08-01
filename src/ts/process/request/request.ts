@@ -74,7 +74,6 @@ interface requestDataArgument{
     extractJson?:string
     imageResponse?:boolean
     previewBody?:boolean
-    staticModel?: string
     escape?:boolean
     tools?: MCPTool[]
     rememberToolUsage?: boolean
@@ -132,166 +131,124 @@ export interface StreamResponseChunk{[key:string]:string}
 
 export async function requestChatData(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
     const db = getDatabase()
-    const fallBackModels:string[] = safeStructuredClone(db?.fallbackModels?.[model] ?? [])
     const tools = arg.tools ?? (await getTools())
-    fallBackModels.push('')
-    let da:requestDataResponse
 
     if(arg.escape){
         arg.useStreaming = false
         console.warn('Escape is enabled, disabling streaming')
     }
 
-    const originalFormated = safeStructuredClone(arg.formated).map(m => {
+    arg.formated = safeStructuredClone(arg.formated).map(m => {
         m.content = risuUnescape(m.content)
         return m
     })
 
-    for(let fallbackIndex=0;fallbackIndex<fallBackModels.length;fallbackIndex++){
-        let trys = 0
-        arg.formated = safeStructuredClone(originalFormated)
-
-        if(fallbackIndex !== 0 && !fallBackModels[fallbackIndex]){
-            continue
+    let trys = 0
+    while(true){
+            
+        if(abortSignal?.aborted){
+            return {
+                type: 'fail',
+                result: 'Aborted'
+            }
         }
 
-        while(true){
-            
-            if(abortSignal?.aborted){
-                return {
-                    type: 'fail',
-                    result: 'Aborted'
-                }
+        if(pluginV2.replacerbeforeRequest.size > 0){
+            for(const replacer of pluginV2.replacerbeforeRequest){
+                arg.formated = await replacer(arg.formated, model)
             }
-    
-            if(pluginV2.replacerbeforeRequest.size > 0){
-                for(const replacer of pluginV2.replacerbeforeRequest){
-                    arg.formated = await replacer(arg.formated, model)
-                }
-            }
-            
-            try{
-                const currentChar = getCurrentCharacter()
-                if(currentChar){
-                    const perf = performance.now()
-                    const d = await runTrigger(currentChar, 'request', {
-                        chat: getCurrentChat(),
-                        displayMode: true,
-                        displayData: JSON.stringify(arg.formated)
-                    })
-        
-                    const got = JSON.parse(d.displayData)
-                    if(!got || !Array.isArray(got)){
-                        throw new Error('Invalid return')
-                    }
-                    arg.formated = got
-                    console.log('Trigger time', performance.now() - perf)
-                }
-            }
-            catch(e){
-                console.error(e)
-            }
-            
-    
-            da = await requestChatDataMain({
-                ...arg,
-                staticModel: fallBackModels[fallbackIndex],
-                tools: tools,
-            }, model, abortSignal)
+        }
 
-            // A ModelPreset response that already executed tools must be returned
-            // as-is and NEVER re-run: the side effects (possibly writes) are done.
-            // This guard runs BEFORE the abort check and the success-path retries
-            // (banned charset / blank fallback) — otherwise a follow-up abort or a
-            // ban/blank hit would discard the result and the outer loop would
-            // replay the prompt, double-executing tools. after-replacers still run
-            // (transform only), but in a try/catch so a throwing plugin can't lose
-            // the side-effect record either.
-            if(da.type === 'success' && da.toolExecuted){
-                if(arg.escape) da.result = risuEscape(da.result)
-                for(const replacer of pluginV2.replacerafterRequest){
-                    try { da.result = await replacer(da.result, model) }
-                    catch(e){ console.error('[ModelPreset] after-replacer failed', e) }
-                }
-                return {
-                    ...da,
-                    model: fallBackModels[fallbackIndex] || da.model
-                }
-            }
+        try{
+            const currentChar = getCurrentCharacter()
+            if(currentChar){
+                const perf = performance.now()
+                const d = await runTrigger(currentChar, 'request', {
+                    chat: getCurrentChat(),
+                    displayMode: true,
+                    displayData: JSON.stringify(arg.formated)
+                })
 
-            if(abortSignal?.aborted){
-                return {
-                    type: 'fail',
-                    result: 'Aborted'
+                const got = JSON.parse(d.displayData)
+                if(!got || !Array.isArray(got)){
+                    throw new Error('Invalid return')
                 }
+                arg.formated = got
+                console.log('Trigger time', performance.now() - perf)
             }
+        }
+        catch(e){
+            console.error(e)
+        }
 
-            if(da.type === 'success' && arg.escape){
-                da.result = risuEscape(da.result)
-            }
+        const da = await requestChatDataMain({
+            ...arg,
+            tools,
+        }, model, abortSignal)
 
-            if(da.type === 'success' && pluginV2.replacerafterRequest.size > 0){
-                for(const replacer of pluginV2.replacerafterRequest){
-                    da.result = await replacer(da.result, model)
-                }
+        // A ModelPreset response that already executed tools must be returned
+        // as-is and NEVER re-run: the side effects (possibly writes) are done.
+        // after-replacers still run (transform only), but in a try/catch so a
+        // throwing plugin cannot lose the side-effect record either.
+        if(da.type === 'success' && da.toolExecuted){
+            if(arg.escape) da.result = risuEscape(da.result)
+            for(const replacer of pluginV2.replacerafterRequest){
+                try { da.result = await replacer(da.result, model) }
+                catch(e){ console.error('[ModelPreset] after-replacer failed', e) }
             }
+            return da
+        }
 
-            if(da.type === 'success' && db.banCharacterset?.length > 0){
-                let failed = false
-                for(const set of db.banCharacterset){
-                    console.log(set)
-                    const checkRegex = new RegExp(`\\p{Script=${set}}`, 'gu')
-    
-                    if(checkRegex.test(da.result)){
-                        trys += 1
-                        failed = true
-                        break
-                    }
-                }
-    
-                if(failed){
-                    continue
-                }
+        if(abortSignal?.aborted){
+            return {
+                type: 'fail',
+                result: 'Aborted'
             }
-    
-            if(da.type === 'success' && fallbackIndex !== fallBackModels.length-1 && db.fallbackWhenBlankResponse){
-                if(da.result.trim() === ''){
+        }
+
+        if(da.type === 'success' && arg.escape){
+            da.result = risuEscape(da.result)
+        }
+
+        if(da.type === 'success' && pluginV2.replacerafterRequest.size > 0){
+            for(const replacer of pluginV2.replacerafterRequest){
+                da.result = await replacer(da.result, model)
+            }
+        }
+
+        if(da.type === 'success' && db.banCharacterset?.length > 0){
+            let failed = false
+            for(const set of db.banCharacterset){
+                console.log(set)
+                const checkRegex = new RegExp(`\\p{Script=${set}}`, 'gu')
+
+                if(checkRegex.test(da.result)){
+                    trys += 1
+                    failed = true
                     break
                 }
             }
-    
-            if(da.type !== 'fail' || da.noRetry){
-                return {
-                    ...da,
-                    // fallBackModels[fallbackIndex] is '' for the primary (non-fallback)
-                    // attempt; keep the dispatcher's own model label (e.g. a ModelPreset
-                    // name) instead of clobbering it with the empty sentinel.
-                    model: fallBackModels[fallbackIndex] || da.model
-                }
-            }
-    
-            if(da.failByServerError){
-                await sleep(1000)
-                if(db.antiServerOverloads){
-                    trys -= 0.5 // reduce trys by 0.5, so that it will retry twice as much
-                }
-            }
-            
-            trys += 1
-            if(trys > db.requestRetrys){
-                const isPluginModel = da.model === 'custom' || da.model?.startsWith('pluginmodel:::')
-                if(fallbackIndex === fallBackModels.length-1 || isPluginModel){
-                    return da
-                }
-                break
-            }
-        }   
-    }
 
+            if(failed){
+                continue
+            }
+        }
 
-    return da ?? {
-        type: 'fail',
-        result: "All models failed"
+        if(da.type !== 'fail' || da.noRetry){
+            return da
+        }
+
+        if(da.failByServerError){
+            await sleep(1000)
+            if(db.antiServerOverloads){
+                trys -= 0.5 // reduce trys by 0.5, so that it will retry twice as much
+            }
+        }
+
+        trys += 1
+        if(trys > db.requestRetrys){
+            return da
+        }
     }
 }
 
@@ -389,31 +346,24 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
     // block, so publish the mode here for revenant auxiliary generation too.
     targ.mode = model
 
-    // P4 dual-regime dispatch (plan v6 §7). Resolve the per-chat ModelPreset
-    // binding BEFORE any classic model selection so a binding chat never touches
-    // db.aiModel / db.seperateModels. Skipped when a staticModel (fallback retry)
-    // is forced — fallbacks are classic model ids.
-    if(!arg.staticModel){
-        const currentChat = getCurrentChat()
-        const binding = resolveChatModelBinding(currentChat, model)
-        if(binding.kind === 'modelPreset'){
-            return requestModelPreset(targ, applyPromptPresetParams(binding.preset, currentChat, model), abortSignal, model)
+    const currentChat = getCurrentChat()
+    const binding = resolveChatModelBinding(currentChat, model)
+    if(binding.kind === 'modelPreset'){
+        return requestModelPreset(targ, applyPromptPresetParams(binding.preset, currentChat, model), abortSignal, model)
+    }
+    if(binding.kind === 'block'){
+        return {
+            type: 'fail',
+            noRetry: true,
+            result: binding.reason === 'main-unset'
+                ? language.modelPresetBindingMainUnset
+                : language.modelPresetBindingSubUnset,
         }
-        if(binding.kind === 'block'){
-            return {
-                type: 'fail',
-                noRetry: true,
-                result: binding.reason === 'main-unset'
-                    ? language.modelPresetBindingMainUnset
-                    : language.modelPresetBindingSubUnset,
-            }
-        }
-        // binding.kind === 'classic' → fall through to the classic path below.
     }
 
-    targ.aiModel = arg.staticModel ? arg.staticModel : (model === 'model' ? db.aiModel : db.subModel)
+    targ.aiModel = model === 'model' ? db.aiModel : db.subModel
     targ.modelInfo = getModelInfo(targ.aiModel)
-    if(db.seperateModelsForAxModels && !arg.staticModel){
+    if(db.seperateModelsForAxModels){
         if(db.seperateModels[model]){
             targ.aiModel = db.seperateModels[model]
             targ.modelInfo = getModelInfo(targ.aiModel)
@@ -1018,8 +968,8 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     if (compiled.behavior.startWithUserInput) presetFlags.push(LLMFlags.mustStartWithUserInput)
     // reformater mutates its input in place (requiresAlternateRole appends merged
     // content onto the first message of a run). The preset path returns before the
-    // classic clone at ~405, and the retry loop (while(true)) only re-clones per
-    // fallback model, so mutating arg.formated directly would re-merge on every retry
+    // legacy clone below, and the retry loop reuses arg.formated, so mutating it
+    // directly would re-merge on every retry
     // (A,B → A\nB → A\nB\nB). Clone first, matching the classic path's safeStructuredClone.
     // Also guarded: reformater runs outside the request try below, so a throw returns
     // a graceful fail instead of propagating (mirrors the previewBody/request catches).

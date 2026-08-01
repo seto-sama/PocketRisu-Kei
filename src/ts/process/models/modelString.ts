@@ -2,12 +2,11 @@ import { getDatabase, getCurrentChat } from "src/ts/storage/database.svelte";
 
 export function getGenerationModelString(name?:string){
     const db = getDatabase()
-    // Binding-aware default label: when no explicit model name is passed (the
-    // primary generation), reflect the bound ModelPreset instead of the classic
-    // db.aiModel. Only applies in the binding regime; classic chats fall through.
+    // When no explicit model name is passed, reflect the effective main
+    // ModelPreset. Old per-chat model-mode flags are intentionally ignored.
     if(name === undefined){
         const chat = getCurrentChat()
-        const boundMainId = chat?.useModelPreset ? chat.modelBinding?.main : undefined
+        const boundMainId = chat?.modelBinding?.main ?? db.defaultModelBinding?.main
         if(boundMainId){
             const preset = db.modelPresets?.find(p => p.id === boundMainId)
             if(preset) return preset.name

@@ -1450,13 +1450,11 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         runLLMModel: async (options: {
             mode: ModelModeExtended
             messages: OpenAIChat[]
-            staticModel?: string
             allowPlugins?: boolean
         }) => {
             return requestChatDataMain({
                 formated: options.messages,
                 bias: {},
-                staticModel: options.staticModel,
 
                 // Calls into plugin-provided models are blocked by default to
                 // guard against accidental IPC loops between provider plugins.

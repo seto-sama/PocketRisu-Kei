@@ -763,7 +763,6 @@ export function setDatabase(data:Database){
     data.showPresetInSidebar ??= true
     data.showPersonaInSidebar ??= true
     data.showModuleSidebar ??= true
-    data.nodeOnlyModelModeLock ??= 'none'
     data.disableMobileDragDrop ??= false
     data.disableMobileBackNavigation ??= false
     data.disableToggleBinding ??= false
@@ -873,23 +872,11 @@ export function setCurrentChat(chat:Chat){
     setCurrentCharacter(char)
 }
 
-/**
- * Model-mode fields seeded into a freshly created (empty) chat so the
- * "default model mode for new chats" preference (useModelPresetByDefault)
- * applies AT BIRTH — a snapshot, not a runtime fallback. A runtime fallback
- * would retroactively flip every existing chat that never chose a mode, and
- * couple un-opened chats live to db.defaultModelBinding. Snapshotting here keeps
- * each chat independent. Returns {} when the default is legacy (leave the field
- * absent → classic), so existing chats are unaffected. Spread into new Chat
- * literals. Do NOT call for hydration placeholders or chats being restored with
- * their own mode.
- */
-export function newChatModelDefaults(): Partial<Pick<Chat, 'useModelPreset' | 'modelBinding'>> {
+/** Seed the global default model-preset binding into a freshly created chat. */
+export function newChatModelDefaults(): Pick<Chat, 'modelBinding'> {
     const db = getDatabase()
-    if (!db.useModelPresetByDefault) return {}
     const def = db.defaultModelBinding
     return {
-        useModelPreset: true,
         modelBinding: def ? structuredClone($state.snapshot(def)) : emptyModelBinding(),
     }
 }
@@ -1458,15 +1445,9 @@ export interface Database{
     modelPresets: ModelPreset[]
     /** User-defined groups for organizing model presets. */
     modelPresetFolders?: PromptPresetFolder[]
-    // P4 dual-regime global default binding (plan v6 §7). Copied into new chats
-    // (seeding); useModelPresetByDefault seeds the new-chat regime toggle.
-    useModelPresetByDefault?: boolean
+    // Global default binding copied into new chats. Existing chats without a
+    // binding resolve against it at runtime.
     defaultModelBinding?: ModelBindingSet
-    // Global model-mode lock. 'legacy'/'preset' force every chat into that
-    // regime (the per-chat dropdown is hidden); 'none' lets each chat decide,
-    // falling back to useModelPresetByDefault for chats that never chose. Read
-    // by resolveChatModelBinding (the runtime regime chokepoint).
-    nodeOnlyModelModeLock?: 'legacy' | 'preset' | 'none'
     modelPresetMigrationVersion?: number
     modelPresetMigrationAppliedAt?: number
     modelPresetMigrationReport?: ModelPresetMigrationSummary
@@ -2160,9 +2141,7 @@ export interface Chat{
     bookmarkNames?: { [chatId: string]: string };
     supaMemory?: boolean
     savedToggleValues?: Record<string, string>
-    // P4 dual-regime: per-chat model preset binding (plan v6 §7). useModelPreset
-    // is the regime toggle; modelBinding (the bundle) persists across toggling so
-    // it is restored on re-enable. Off (or absent) => classic global model path.
+    /** @deprecated Retained only so older chat data can round-trip unchanged. */
     useModelPreset?: boolean
     modelBinding?: ModelBindingSet
     /** Per-chat opt-in: when this chat's MAIN request goes through a ModelPreset,

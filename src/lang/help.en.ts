@@ -108,8 +108,6 @@ export const helpEn = {
         inlayImageLossless: "If enabled, inlay images will be saved as lossless PNG instead of compressed WebP. This preserves original quality but uses significantly more storage.",
         inlayImagePriority: "If enabled, inlays render as images first for faster loading. Video/audio inlays auto-switch after image load fails. Disable if you use many video/audio inlays.",
         inlayCompressAllDesc: "Compresses all inlay images.",
-        modelModeLock: "Choose how chats pick their model system. Lock everything to the legacy model system or to the model preset binding system, or leave it unlocked so each chat decides.",
-        newChatModelMode: "Which model system new chats start in when the mode is not locked.",
         showModelInSidebar: "Show the current AI model name in the sidebar for quick reference.",
         showPresetInSidebar: "Show the active prompt preset name in the sidebar for quick reference.",
         showPersonaInSidebar: "Show the active persona name in the sidebar for quick reference.",

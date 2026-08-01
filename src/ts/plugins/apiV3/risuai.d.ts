@@ -1987,11 +1987,10 @@ interface RisuaiPluginAPI {
     // ========== Model Requesters ==========
 
     /**
-     * Runs a request through a specified LLM model with given messages and options.
+     * Runs a request through the active chat's bound model preset.
      * @param options - Options for the LLM request
      * @param options.messages - Array of chat messages to send to the model
-     * @param options.staticModel - Optional static model name to use (e.g., 'gpt-4')
-     * @param options.mode - Request mode
+     * @param options.mode - Binding slot to use (main, sub, or auxiliary)
      * @param options.allowPlugins - If true, allow the call to resolve to a
      *   plugin-provided model (`pluginmodel:::*`). Default is false: plugin
      *   models are blocked to guard against accidental IPC loops between
@@ -2003,7 +2002,6 @@ interface RisuaiPluginAPI {
      */
     runLLMModel(options: {
         messages: any[];
-        staticModel?: string;
         mode: string;
         allowPlugins?: boolean;
     }): Promise<any>;
