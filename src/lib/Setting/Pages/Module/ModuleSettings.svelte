@@ -5,7 +5,6 @@
     
     import { DBState } from 'src/ts/stores.svelte';
     import Button from "src/lib/UI/GUI/Button.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
@@ -22,6 +21,7 @@
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
     import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import { openSettings, SettingsRoute } from "src/ts/routing";
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
@@ -32,7 +32,7 @@
     let moduleSearch = $state('')
     let charConversionMode = $state(false)
     let personaModuleTarget:RisuModule|null = $state(null)
-    let personaModuleDraft:string[] = $state([])
+    let personaModuleSelection:string[] = $state([])
     let personaFolder = $state('all')
     let personaSearch = $state('')
     let visiblePersonaIndexes = $state<number[]>([])
@@ -95,36 +95,39 @@
         personaModuleTarget = rmodule
         personaFolder = 'all'
         personaSearch = ''
-        personaModuleDraft = DBState.db.personas
+        personaModuleSelection = DBState.db.personas
             .map((persona) => persona.id)
             .filter((id): id is string => !!id && map[id]?.includes(rmodule.id))
     }
 
-    function setPersonaModuleDraft(personaId: string, checked: boolean) {
+    function setPersonaModuleSelection(personaId: string, checked: boolean) {
+        let next: string[]
         if (checked) {
-            if (!personaModuleDraft.includes(personaId)) {
-                personaModuleDraft = [...personaModuleDraft, personaId]
-            }
-            return
+            next = personaModuleSelection.includes(personaId)
+                ? personaModuleSelection
+                : [...personaModuleSelection, personaId]
+        } else {
+            next = personaModuleSelection.filter((id) => id !== personaId)
         }
-        personaModuleDraft = personaModuleDraft.filter((id) => id !== personaId)
+        personaModuleSelection = next
+        savePersonaModuleSelection(next)
     }
 
-    function togglePersonaModuleDraft(index: number) {
+    function togglePersonaModuleSelection(index: number) {
         const personaId = DBState.db.personas[index]?.id
         if (!personaId) return
-        setPersonaModuleDraft(personaId, !personaModuleDraft.includes(personaId))
+        setPersonaModuleSelection(personaId, !personaModuleSelection.includes(personaId))
     }
 
     function closePersonaModuleModal() {
         personaModuleTarget = null
-        personaModuleDraft = []
+        personaModuleSelection = []
     }
 
-    function savePersonaModuleModal() {
+    function savePersonaModuleSelection(selectedPersonaIds: string[]) {
         if (!personaModuleTarget) return
         const moduleId = personaModuleTarget.id
-        const selected = new Set(personaModuleDraft)
+        const selected = new Set(selectedPersonaIds)
         const map = {...getPersonaEnabledModules()}
         for (const persona of DBState.db.personas) {
             if (!persona.id) continue
@@ -142,8 +145,12 @@
             }
         }
         DBState.db.personaEnabledModules = map
+        void requestImmediateSave()
+    }
+
+    function openPersonaSettings() {
         closePersonaModuleModal()
-        notifySuccess(language.moduleUpdated)
+        openSettings(SettingsRoute.Persona)
     }
 
     function reorderModules(orderedIds: string[]) {
@@ -344,14 +351,14 @@
             itemNames={DBState.db.personas.map(persona => persona.name ?? '')}
             itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
             searchPlaceholder={language.personaSearch}
-            manageFolders={false}
+            readOnly
             itemDragDataKey="personaModuleIndex"
             bind:selectedFolder={personaFolder}
             bind:searchQuery={personaSearch}
             bind:visibleItemIndexes={visiblePersonaIndexes}
             bind:emptyMessage={emptyPersonaMessage}
             close={closePersonaModuleModal}
-            onSelectItem={togglePersonaModuleDraft}
+            onSelectItem={togglePersonaModuleSelection}
             onFoldersChange={(next) => {
                 DBState.db.personaFolders = next
                 void requestImmediateSave()
@@ -369,6 +376,8 @@
                 )
                 void requestImmediateSave()
             }}
+            configure={openPersonaSettings}
+            configureLabel={language.edit}
         >
             {#snippet itemContent(index)}
                 {@const persona = DBState.db.personas[index]}
@@ -384,15 +393,10 @@
                     {#if persona.note}<span class="text-textcolor2"> / {persona.note}</span>{/if}
                 </div>
                 <ShSwitch
-                    checked={!!persona.id && personaModuleDraft.includes(persona.id)}
+                    checked={!!persona.id && personaModuleSelection.includes(persona.id)}
                     className="mr-1"
                 />
             {/snippet}
-
-            <div class="flex justify-end gap-2 pt-2">
-                <ShButton variant="outline" onclick={closePersonaModuleModal}>{language.cancel}</ShButton>
-                <ShButton variant="primary" onclick={savePersonaModuleModal}>{language.confirm}</ShButton>
-            </div>
         </PresetPickerLayout>
     {/if}
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { DBState, modelProfileReplaceTarget, openModelProfileBrowser, settingsOpen, SettingsMenuIndex } from 'src/ts/stores.svelte';
+    import { DBState, modelProfileReplaceTarget, openModelProfileBrowser } from 'src/ts/stores.svelte';
     import { language } from "src/lang";
     import { alertConfirm, notifySuccess } from "src/ts/alert";
     import { PinIcon, PinOffIcon, TriangleAlert } from "@lucide/svelte";
@@ -9,6 +9,7 @@
     import PresetPickerActions from "./PresetPickerActions.svelte";
     import TextInput from "./GUI/TextInput.svelte";
     import { v4 as uuidv4 } from "uuid";
+    import { openSettings, SettingsRoute } from "src/ts/routing";
 
     interface Props {
         value?: string;
@@ -64,8 +65,7 @@
 
     function goToPresetSettings() {
         openOptions = false;
-        settingsOpen.set(true);
-        SettingsMenuIndex.set(16);
+        openSettings(SettingsRoute.ModelPreset);
     }
 
     function movePreset(sourceIndex: number, targetIndex: number) {
@@ -119,9 +119,10 @@
         bind:visibleItemIndexes
         bind:selectedFolder
         itemDragDataKey="presetIndex"
+        readOnly={showConfigure}
         close={() => { openOptions = false }}
         configure={showConfigure ? goToPresetSettings : undefined}
-        configureLabel={language.modelPresetConfigure}
+        configureLabel={language.edit}
         onFoldersChange={(next) => { DBState.db.modelPresetFolders = next }}
         onAssignItem={assignPresetToFolder}
         onDeleteFolder={(folderId) => {
@@ -156,10 +157,12 @@
                 </button>
             {/if}
         {/snippet}
-        <PresetPickerActions
-            onCreate={createPreset}
-            onRename={() => { editMode = !editMode }}
-        />
+        {#if !showConfigure}
+            <PresetPickerActions
+                onCreate={createPreset}
+                onRename={() => { editMode = !editMode }}
+            />
+        {/if}
     </PresetPickerLayout>
 {/if}
 

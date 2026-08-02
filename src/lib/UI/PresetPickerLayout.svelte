@@ -34,7 +34,7 @@
         itemNames: string[];
         itemSearchTexts?: string[];
         searchPlaceholder?: string;
-        manageFolders?: boolean;
+        readOnly?: boolean;
         visibleItemIndexes?: number[];
         emptyMessage?: string;
         selectedItemIndex?: number;
@@ -59,7 +59,7 @@
         searchQuery = $bindable(''),
         close,
         configure,
-        configureLabel = language.presetEdit,
+        configureLabel = language.edit,
         onFoldersChange,
         onAssignItem,
         onDeleteFolder,
@@ -67,7 +67,7 @@
         itemNames,
         itemSearchTexts = itemNames,
         searchPlaceholder = language.presetSearch,
-        manageFolders = true,
+        readOnly = false,
         visibleItemIndexes = $bindable([]),
         emptyMessage = $bindable(''),
         selectedItemIndex = -1,
@@ -132,6 +132,7 @@
     }
 
     function dropOnFolder(folderId: string, e: DragEvent) {
+        if (readOnly) return;
         e.preventDefault();
         e.stopPropagation();
         if (draggingFolderId) return;
@@ -144,6 +145,7 @@
     }
 
     function dragItemOverFolder(folderId: string, e: DragEvent) {
+        if (readOnly) return;
         e.preventDefault();
         e.stopPropagation();
         onFolderDragOver();
@@ -151,6 +153,7 @@
     }
 
     function reorderItems(orderedKeys: string[], draggedKey: string) {
+        if (readOnly) return;
         const source = Number(draggedKey);
         const newPosition = orderedKeys.indexOf(draggedKey);
         const nextKey = orderedKeys[newPosition + 1];
@@ -188,12 +191,6 @@
                 <IconButton size="lg" onclick={close}><XIcon /></IconButton>
             </div>
         </div>
-        {#if configure}
-            <ShButton variant="default" size="default" className="w-full mb-4" onclick={configure}>
-                <PencilIcon/>
-                <span class="ml-1">{configureLabel}</span>
-            </ShButton>
-        {/if}
     </div>
 
     <div class="flex min-h-0 grow border-t border-darkborderc max-sm:flex-col">
@@ -219,7 +216,7 @@
                 <div class="my-3 border-t border-darkborderc"></div>
                 <ShSortableList
                     className="flex flex-col gap-1"
-                    disabled={!manageFolders}
+                    disabled={readOnly}
                     dataTransferKey="presetFolderId"
                     onReorder={(orderedIds) => {
                         const byId = new Map(folders.map(folder => [folder.id, folder]));
@@ -243,7 +240,7 @@
                         onclick={() => selectedFolder = folder.id}
                         onkeydown={(e) => { if (e.key === 'Enter') selectedFolder = folder.id }}>
                         <FolderIcon size={18}/><span class="truncate grow">{folder.name}</span>
-                        {#if manageFolders}
+                        {#if !readOnly}
                             <span class="text-xs text-textcolor2 group-hover:hidden">{folderCount(folder.id)}</span>
                             <IconButtonGroup size="sm" className="no-sort hidden shrink-0 group-hover:flex">
                                 <IconButton
@@ -265,7 +262,7 @@
                 {/each}
                 </ShSortableList>
             </div>
-            {#if manageFolders}
+            {#if !readOnly}
                 <button class="shrink-0 mt-2 w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor2 hover:text-primary hover:bg-selected/30" onclick={createFolder}>
                     <FolderPlusIcon size={18}/><span>{language.presetNewFolder}</span>
                 </button>
@@ -282,7 +279,7 @@
             {#if itemContent && onSelectItem}
                 <ShSortableList
                     className="grow min-h-0 overflow-y-auto flex flex-col gap-1 [&>*]:shrink-0"
-                    disabled={!onMoveItem || itemEditMode}
+                    disabled={readOnly || !onMoveItem || itemEditMode}
                     dataTransferKey={itemDragDataKey}
                     dragPreviewText={(key) => itemNames[Number(key)] || 'Unnamed Preset'}
                     onReorder={(orderedKeys, event) => reorderItems(orderedKeys, event.item.getAttribute('data-sortable-key') ?? '')}
@@ -294,11 +291,11 @@
                             data-sortable-no-scale
                             class="preset-picker-item w-full h-10 min-w-0 flex items-center rounded-md text-left text-textcolor px-2 {index === selectedItemIndex ? '' : 'hover:bg-selected/30'}"
                             class:bg-selected={index === selectedItemIndex}
-                            class:cursor-grab={!!onMoveItem && !itemEditMode}
+                            class:cursor-grab={!readOnly && !!onMoveItem && !itemEditMode}
                             onclick={() => { if (!itemEditMode) onSelectItem(index) }}
                             onkeydown={(e) => { if (!itemEditMode && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelectItem(index) } }}>
                             {@render itemContent(index)}
-                            {#if onDuplicateItem || onExportItem || onDeleteItem}
+                            {#if !readOnly && (onDuplicateItem || onExportItem || onDeleteItem)}
                                 <IconButtonGroup className="no-sort ml-3 shrink-0">
                                     {#if onDuplicateItem}<IconButton onclick={(e) => { e.stopPropagation(); onDuplicateItem(index) }}><CopyIcon /></IconButton>{/if}
                                     {#if onExportItem}<IconButton onclick={(e) => { e.stopPropagation(); onExportItem(index) }}><DownloadIcon /></IconButton>{/if}
@@ -313,6 +310,11 @@
                 </ShSortableList>
             {/if}
             {@render children?.()}
+            {#if configure}
+                <div class="shrink-0 flex justify-start pt-2 max-sm:hidden">
+                    <ShButton variant="primary" size="sm" onclick={configure}>{configureLabel}</ShButton>
+                </div>
+            {/if}
         </section>
     </div>
 </div>
