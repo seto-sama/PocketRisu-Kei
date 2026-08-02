@@ -1,19 +1,20 @@
 <script lang="ts">
-    import { PlusIcon, ArrowLeftIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
+    import { PlusIcon, DownloadIcon, UploadIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import Button from "src/lib/UI/GUI/Button.svelte";
     import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import Portal from "src/lib/UI/GUI/Portal.svelte";
     import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import Help from "src/lib/Others/Help.svelte";
-    import { type triggerEffectV2, type triggerEffect, type triggerscript, displayAllowList, requestAllowList, type triggerV2IfAdvanced } from "src/ts/process/triggers";
+    import { type triggerEffectV2, type triggerEffect, type triggerscript, displayAllowList, requestAllowList } from "src/ts/process/triggers";
     import { onDestroy, onMount } from "svelte";
     import { DBState } from "src/ts/stores.svelte";
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import ShDisclosureList from "src/lib/UI/GUI/ShDisclosureList.svelte";
+    import Sortable from "sortablejs";
+    import { sleep, sortableOptions } from "src/ts/util";
+    import { alertConfirm } from "src/ts/alert";
+    import TriggerV2EffectData from "./TriggerV2EffectData.svelte";
 
     interface Props {
         value?: triggerscript[];
@@ -170,6 +171,12 @@
     let previousMenuMode = $state(0)    
     let menu0Container = $state<HTMLDivElement | null>(null)
     let triggerScrollRef = $state<HTMLDivElement | null>(null)
+    let triggerListElement = $state<HTMLDivElement | null>(null)
+    let triggerListSortable: Sortable | null = null
+    let triggerListKey = $state(0)
+    let openedTriggers = $state(new Set<triggerscript>())
+    let openedEffects = $state(new Set<triggerEffect>())
+    let addingEffectForIndex = $state(-1)
     
     let isRestoringMode = $state(false)
     let previousSelectedTriggerIndex = $state(-1)
@@ -484,6 +491,189 @@
         selectedEffectIndexSaved = -1;
     }
 
+    const toggleTrigger = (index: number) => {
+        const trigger = value?.[index]
+        if (!trigger || index === 0) return
+        if (openedTriggers.has(trigger)) {
+            openedTriggers.delete(trigger)
+            if (addingEffectForIndex === index) addingEffectForIndex = -1
+        } else {
+            openedTriggers.add(trigger)
+            selectedIndex = index
+        }
+        openedTriggers = new Set(openedTriggers)
+    }
+
+    const addTrigger = () => {
+        value = [...value, {
+            comment: "",
+            type: "manual",
+            conditions: [],
+            effect: []
+        }]
+        const trigger = value.at(-1)
+        if (trigger) {
+            openedTriggers.add(trigger)
+            openedTriggers = new Set(openedTriggers)
+            selectedIndex = value.length - 1
+        }
+    }
+
+    const removeTriggerAt = async (index: number) => {
+        const trigger = value?.[index]
+        if (!trigger || index === 0 || value.length <= 2) return
+        const confirmed = await alertConfirm(language.removeConfirm + (trigger.comment || 'Unnamed Trigger'))
+        if (!confirmed) return
+        openedTriggers.delete(trigger)
+        for (const effect of trigger.effect) openedEffects.delete(effect)
+        openedTriggers = new Set(openedTriggers)
+        openedEffects = new Set(openedEffects)
+        value = value.filter((_, triggerIndex) => triggerIndex !== index)
+        if (selectedIndex === index) close()
+    }
+
+    const getTriggerTypeLabel = (type: triggerscript['type']) => {
+        switch (type) {
+            case 'start': return language.triggerStart
+            case 'output': return language.triggerOutput
+            case 'input': return language.triggerInput
+            case 'manual': return language.triggerManual
+            case 'display': return language.editDisplay
+            case 'request': return language.editProcess
+            default: return type
+        }
+    }
+
+    const renameTrigger = (index: number, comment: string) => {
+        const trigger = value[index]
+        if (!trigger) return
+        const previousComment = trigger.comment
+        for (const candidate of value.slice(1)) {
+            for (const effect of candidate.effect) {
+                if (effect.type === 'v2RunTrigger' && effect.target === previousComment) effect.target = comment
+            }
+        }
+        trigger.comment = comment
+    }
+
+    const createTriggerListSortable = () => {
+        if (!triggerListElement || triggerListSortable || openedTriggers.size > 0) return
+        triggerListSortable = Sortable.create(triggerListElement, {
+            onEnd: async () => {
+                const indexes = Array.from(triggerListElement?.querySelectorAll('[data-trigger-v2-index]') ?? [])
+                    .map((element) => Number(element.getAttribute('data-trigger-v2-index')))
+                value = [value[0], ...indexes.map((index) => value[index]).filter(Boolean)]
+                try {
+                    triggerListSortable?.destroy()
+                } catch (error) {}
+                triggerListSortable = null
+                triggerListKey += 1
+                await sleep(1)
+                createTriggerListSortable()
+            },
+            ...sortableOptions,
+            handle: '[data-disclosure-toggle]',
+            animation: 150,
+            chosenClass: 'risu-chosen-item',
+            dragClass: 'risu-drag-item',
+            ghostClass: 'risu-ghost-item',
+        })
+    }
+
+    const toggleEffect = (triggerIndex: number, effect: triggerEffect) => {
+        selectedIndex = triggerIndex
+        if (openedEffects.has(effect)) {
+            openedEffects.delete(effect)
+        } else {
+            makeDefaultEditType(effect.type)
+            if (editTrigger?.type === effect.type) {
+                for (const [field, defaultValue] of Object.entries(editTrigger)) {
+                    if (!(field in effect)) effect[field] = safeStructuredClone(defaultValue)
+                }
+            }
+            openedEffects.add(effect)
+        }
+        openedEffects = new Set(openedEffects)
+    }
+
+    const removeEffectAt = (triggerIndex: number, effectIndex: number) => {
+        const effect = value[triggerIndex]?.effect[effectIndex]
+        if (!effect) return
+        selectedIndex = triggerIndex
+        selectedEffectIndex = effectIndex
+        deleteEffect()
+        openedEffects.delete(effect)
+        openedEffects = new Set(openedEffects)
+        value = [...value]
+    }
+
+    const getElseBlock = (triggerIndex: number, effectIndex: number) => {
+        const effects = value[triggerIndex]?.effect ?? []
+        const effect = effects[effectIndex] as triggerEffectV2 | undefined
+        if (!effect || (effect.type !== 'v2If' && effect.type !== 'v2IfAdvanced')) return null
+        const endIndentIndex = effects.findIndex((candidate, index) =>
+            index > effectIndex && candidate.type === 'v2EndIndent' && (candidate as triggerEffectV2).indent === effect.indent + 1)
+        if (endIndentIndex === -1) return { endIndentIndex, elseIndex: -1, elseEndIndex: -1 }
+        const elseIndex = effects[endIndentIndex + 1]?.type === 'v2Else' && (effects[endIndentIndex + 1] as triggerEffectV2).indent === effect.indent
+            ? endIndentIndex + 1
+            : -1
+        const elseEndIndex = elseIndex === -1
+            ? -1
+            : effects.findIndex((candidate, index) =>
+                index > elseIndex && candidate.type === 'v2EndIndent' && (candidate as triggerEffectV2).indent === effect.indent + 1)
+        return { endIndentIndex, elseIndex, elseEndIndex }
+    }
+
+    const toggleElseBlock = (triggerIndex: number, effectIndex: number, checked: boolean) => {
+        const trigger = value[triggerIndex]
+        const effect = trigger?.effect[effectIndex] as triggerEffectV2 | undefined
+        const block = getElseBlock(triggerIndex, effectIndex)
+        if (!trigger || !effect || !block) return
+        if (checked && block.elseIndex === -1 && block.endIndentIndex !== -1) {
+            trigger.effect.splice(block.endIndentIndex + 1, 0,
+                { type: 'v2Else', indent: effect.indent },
+                { type: 'v2EndIndent', indent: effect.indent + 1 })
+        } else if (!checked && block.elseIndex !== -1 && block.elseEndIndex !== -1) {
+            trigger.effect.splice(block.elseIndex, block.elseEndIndex - block.elseIndex + 1)
+        }
+        value = [...value]
+    }
+
+    const addEffect = (triggerIndex: number, type: string) => {
+        const trigger = value[triggerIndex]
+        if (!trigger) return
+        selectedIndex = triggerIndex
+        makeDefaultEditType(type)
+        const newEffect = safeStructuredClone(editTrigger) as triggerEffectV2
+        const lastEffect = trigger.effect.at(-1) as triggerEffectV2 | undefined
+        newEffect.indent = lastEffect?.type === 'v2EndIndent'
+            ? Math.max(0, lastEffect.indent - 1)
+            : (lastEffect?.indent ?? 0)
+        trigger.effect.push(newEffect)
+        if (newEffect.type === 'v2If' || newEffect.type === 'v2IfAdvanced' || newEffect.type === 'v2Loop' || newEffect.type === 'v2LoopNTimes' || newEffect.type === 'v2Else') {
+            trigger.effect.push({
+                type: 'v2EndIndent',
+                indent: newEffect.indent + 1,
+                endOfLoop: newEffect.type === 'v2Loop' || newEffect.type === 'v2LoopNTimes'
+            })
+        }
+        openedEffects.add(newEffect)
+        openedEffects = new Set(openedEffects)
+        addingEffectForIndex = -1
+        value = [...value]
+    }
+
+    $effect(() => {
+        if (openedTriggers.size > 0 && triggerListSortable) {
+            try {
+                triggerListSortable.destroy()
+            } catch (error) {}
+            triggerListSortable = null
+        } else if (openedTriggers.size === 0 && triggerListElement && !triggerListSortable) {
+            createTriggerListSortable()
+        }
+    })
+
     const isMultipleSelected = () => {
         return selectedTriggerIndices.length > 0
     }
@@ -563,14 +753,14 @@
         selectMode = 0
     }
 
-    const checkSupported = (e:string) => {
-        if(!value || value.length === 0 || selectedIndex < 0 || selectedIndex >= value.length || !value[selectedIndex]){
+    const checkSupported = (e:string, triggerIndex = selectedIndex) => {
+        if(!value || value.length === 0 || triggerIndex < 0 || triggerIndex >= value.length || !value[triggerIndex]){
             return false
         }
-        if(value[selectedIndex].type === 'display'){
+        if(value[triggerIndex].type === 'display'){
             return displayAllowList.includes(e)
         }
-        if(value[selectedIndex].type === 'request'){
+        if(value[triggerIndex].type === 'request'){
             return requestAllowList.includes(e)
         }
         if(effectCategories['Special'].includes(e)){
@@ -583,6 +773,7 @@
         return !effectCategories['Low Level'].includes(e)
     }
     const makeDefaultEditType = (type:string) => {
+        editTrigger = null as triggerEffectV2
         switch(type){
             case 'v2SetVar':
                 editTrigger = {
@@ -2130,10 +2321,10 @@
         e.stopPropagation()
     }
 
-    const formatEffectDisplay = (effect:triggerEffect) => {
+    const formatEffectDisplay = (effect:triggerEffect, triggerIndex = selectedIndex) => {
         const type = effect.type
 
-        if(!checkSupported(type)){
+        if(!checkSupported(type, triggerIndex)){
             return `<span class="text-red-500">${language.triggerDesc.v2UnsupportedTriggerDesc}</span>`
         }
 
@@ -2186,1931 +2377,188 @@
 
 
 
-    onMount(() => {
-        const checkMobileScreen = () => {
-            isMobileScreen = window.innerWidth < 768
-        }
-        
-        checkMobileScreen()
-        window.addEventListener('resize', checkMobileScreen)
-        
-        window.addEventListener('keydown', handleKeydown);
-        window.addEventListener('resize', updateGuideLines);
-        
-        const handleGlobalClick = (e: MouseEvent) => {
-            if (contextMenu) {
-                contextMenu = false
-            }
-        }
-        
-        const handleGlobalContextMenu = (e: MouseEvent) => {
-            if (contextMenu) {
-                e.preventDefault()
-            }
-        }
-        
-        document.addEventListener('click', handleGlobalClick, true);
-        document.addEventListener('contextmenu', handleGlobalContextMenu, true);
-        
-        return () => {
-            window.removeEventListener('resize', checkMobileScreen)
-            document.removeEventListener('click', handleGlobalClick, true);
-            document.removeEventListener('contextmenu', handleGlobalContextMenu, true);
-        }
-    })
+    onMount(createTriggerListSortable)
 
     onDestroy(() => {
-        window.removeEventListener('keydown', handleKeydown);
-        window.removeEventListener('resize', updateGuideLines);
-        scrollManager.stopAutoScroll();
+        if (triggerListSortable) {
+            try {
+                triggerListSortable.destroy()
+            } catch (error) {}
+        }
     })
 </script>
 
-<div
-    class="contain w-full max-w-full mt-2 flex flex-col border-selected border-1 bg-darkbg rounded-md"
->
-    <Button onclick={(e) => {
-        e.stopPropagation()
-        menuMode = 0
-        selectedIndex = 1
-        selectedTriggerIndices = [1]
-        lastSelectedTriggerIndex = 1
-        selectedTriggerIndex = 1
-    }}>
-        {language.edit}
-    </Button>
-</div>
-
-
-
-
-{#if selectedIndex > 0}
-<Portal>
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="text-textcolor absolute top-0 bottom-0 bg-black/50 max-w-full w-full h-full z-40 flex justify-center items-center" 
-         onclick={(e) => {
-             if (e.target === e.currentTarget) {
-                 contextMenu = false
-                 if (menuMode === 0) {
-                     clearTriggerSelection()
-                 }
-             }
-         }}
-         oncontextmenu={(e) => {
-             if (e.target === e.currentTarget) {
-                 e.preventDefault()
-                 contextMenu = false
-             }
-         }}
-    >
-        {#if contextMenu}
-            <div class="absolute flex-col gap-2 w-28 p-2 flex bg-darkbg border border-darkborderc rounded-md z-50" style={contextMenuLoc.style} 
-                 onclick={(e) => {
-                     e.stopPropagation()
-                 }}
-                 oncontextmenu={(e) => {
-                     e.preventDefault()
-                     e.stopPropagation()
-                 }}
-            >
-                {#if selectedTriggerIndices.length > 1 && selectMode === 0}
-                    <div class="text-textcolor2 text-xs border-b border-darkborderc pb-2 mb-2">
-                        {selectedTriggerIndices.length} selected
-                    </div>
-                {/if}
-                
-                {#if selectMode === 1}
-                    {#if selectedEffectIndex !== -1 && value[selectedIndex].effect[selectedEffectIndex].type !== 'v2EndIndent'}
-                        <button class="text-textcolor2 hover:text-textcolor" onclick={(e) => {
-                            e.stopPropagation()
-                            const currentEffect = value[selectedIndex].effect[selectedEffectIndex] as triggerEffectV2
-                            if(currentEffect.type === 'v2If' || currentEffect.type === 'v2IfAdvanced'){
-                                let hasExistingElse = false
-                                let pointer = selectedEffectIndex + 1
-                                let indent = currentEffect.indent
-                                
-                                while(pointer < value[selectedIndex].effect.length){
-                                    const effect = value[selectedIndex].effect[pointer] as triggerEffectV2
-                                    if(effect.type === 'v2EndIndent' && effect.indent === indent + 1){
-                                        if(pointer + 1 < value[selectedIndex].effect.length){
-                                            const nextEffect = value[selectedIndex].effect[pointer + 1] as triggerEffectV2
-                                            if(nextEffect.type === 'v2Else' && nextEffect.indent === indent){
-                                                hasExistingElse = true
-                                            }
-                                        }
-                                        break
-                                    }
-                                    pointer++
-                                }
-                                
-                                addElse = hasExistingElse
-                            }
-                            
-                            if(selectedIndex > 0) {
-                                selectedTriggerIndex = selectedIndex;
-                                selectedEffectIndexSaved = selectedEffectIndex;
-                            }
-                            menuMode = 3
-                            contextMenu = false
-                        }}>
-                            {language.edit}
-                        </button>
-                        
-                        <button class="text-textcolor2 hover:text-textcolor" onclick={(e) => {
-                            e.stopPropagation()
-                            copyEffect()
-                            contextMenu = false
-                        }}>
-                            {language.copy}
-                        </button>
-                        
-                        <button class="text-textcolor2 hover:text-textcolor" onclick={(e) => {
-                            e.stopPropagation()
-                            deleteEffect()
-                            contextMenu = false
-                        }}>
-                            {language.remove}
-                        </button>
-                    {/if}
-                    
-                    <button class="text-textcolor2 hover:text-textcolor" onclick={(e) => {
-                        e.stopPropagation()
-                        pasteEffect()
-                        contextMenu = false
-                    }}>
-                        {language.paste}
-                    </button>
-                    
-                {:else if selectMode === 0}
-                    <button class="text-textcolor2 hover:text-textcolor" onclick={(e) => {
-                        e.stopPropagation()
-                        copyTrigger()
-                        contextMenu = false
-                    }}>
-                        {language.copy}
-                    </button>
-                    
-                    <button class="text-textcolor2 hover:text-textcolor" onclick={(e) => {
-                        e.stopPropagation()
-                        pasteTrigger()
-                        contextMenu = false
-                    }}>
-                        {language.paste}
-                    </button>
-                    
-                    <button class="text-textcolor2 hover:text-textcolor" onclick={(e) => {
-                        e.stopPropagation()
-                        deleteTrigger()
-                        contextMenu = false
-                    }}>
-                        {language.remove}
-                    </button>
-                {/if}
-            </div>
+{#key triggerListKey}
+    <ShDisclosureList className="mt-2" bind:element={triggerListElement}>
+        {#if value.length <= 1}
+            <div class="px-3 py-8 text-center text-sm text-textcolor2">No Scripts</div>
         {/if}
-        <div class="max-w-full p-2 border border-darkborderc bg-bgcolor flex max-h-full flex-col-reverse md:flex-row overflow-y-auto md:overflow-y-visible" 
-             class:w-7xl={menuMode === 0} 
-             class:w-3xl={menuMode !== 0} 
-             class:h-full={menuMode!==2}
-             onclick={(e) => {
-                 if (contextMenu) {
-                     contextMenu = false
-                 }
-             }}
-             oncontextmenu={(e) => {
-                 if (contextMenu) {
-                     e.preventDefault()
-                 }
-             }}
-        >
-            {#if menuMode === 0}
-                <div class="pr-2 md:w-96 flex flex-col md:h-full mt-2 md:mt-0">
-                    <div class="flex-1 flex flex-col overflow-y-auto" bind:this={triggerScrollRef} onscroll={scrollManager.handleTriggerScroll} 
-                         ondragover={(e) => {
-                             if (!isMobileScreen && isDragging && triggerScrollRef) {
-                                 const rect = e.currentTarget.getBoundingClientRect()
-                                 const autoScrollDirection = scrollManager.checkAutoScrollZone(e.clientY, rect)
-                                 
-                                 if (autoScrollDirection) {
-                                     scrollManager.startAutoScroll(triggerScrollRef, autoScrollDirection)
-                                 } else {
-                                     scrollManager.stopAutoScroll()
-                                 }
-                             }
-                         }}
-                         ondragleave={(e) => {
-                             if (!isMobileScreen) {
-                                 const rect = e.currentTarget.getBoundingClientRect()
-                                 const mouseX = e.clientX
-                                 const mouseY = e.clientY
-                                 
-                                 if (mouseX < rect.left || mouseX > rect.right || 
-                                     mouseY < rect.top || mouseY > rect.bottom) {
-                                     dragOverIndex = -1
-                                     scrollManager.stopAutoScroll()
-                                 }
-                             }
-                         }}>
-                        {#each value as trigger, i}
-                            {#if i === 0}
-                                <!-- Header, skip the first trigger -->
-                            {:else}
-                                                        <div class="w-full h-0.5 min-h-0.5 transition-all duration-200" 
-                            class:hover:bg-gray-600={!isMobileScreen && !isDragging}
-                            class:h-0.5={!isDragging || dragOverIndex !== i}
-                            class:h-1={isDragging && dragOverIndex === i}
-                            class:bg-blue-500={isDragging && dragOverIndex === i}
-                            class:shadow-lg={isDragging && dragOverIndex === i}
-                            role="listitem"
-                            ondragover={(e) => {
-                                if (!isMobileScreen) {
-                                    e.preventDefault()
-                                }
-                            }} 
-                            ondrop={(e) => {
-                                if (!isMobileScreen) {
-                                    handleTriggerDrop(i, e)
-                                    dragOverIndex = -1
-                                }
-                            }}>
+        {#each value as trigger, i}
+            {#if i > 0}
+                <ShDisclosureList
+                    variant="item"
+                    open={openedTriggers.has(trigger)}
+                    onToggle={() => toggleTrigger(i)}
+                    data-disclosure-drag-name={trigger.comment || 'Unnamed Trigger'}
+                    data-trigger-v2-index={i}
+                >
+                    {#snippet header()}
+                        <div class="flex min-w-0 flex-1 items-center gap-2">
+                            <span class="min-w-0 flex-1 truncate">{trigger.comment || 'Unnamed Trigger'}</span>
+                            <span class="hidden shrink-0 text-xs text-textcolor2 sm:inline">
+                                {getTriggerTypeLabel(trigger.type)}
+                            </span>
                         </div>
-                                
-                                <button
-                                    class="p-2 text-start trigger-item select-none"
-                                    class:hover:cursor-grab={!isMobileScreen}
-                                    class:active:cursor-grabbing={!isMobileScreen}
-                                    class:text-textcolor2={!isTriggerSelected(i) && selectedIndex !== i}
-                                    class:text-textcolor={isTriggerSelected(i) || selectedIndex === i}
-                                    class:hover:text-textcolor={!isTriggerSelected(i) && selectedIndex !== i}
-                                    class:bg-darkbg={selectedIndex === i && !isMultipleSelected()}
-                                    class:bg-selected={isTriggerSelected(i)}
-                                    style="user-select: none;"
-                                    draggable={!isMobileScreen}
-                                    ondragstart={(e) => {
-                                        if (isMobileScreen) {
-                                            e.preventDefault()
-                                            return
-                                        }
-                                        isDragging = true
-                                        e.dataTransfer?.setData('text', 'trigger')
-                                        e.dataTransfer?.setData('triggerIndex', i.toString())
-                                        
-                                        const dragElement = document.createElement('div')
-                                        if (isMultipleSelected() && isTriggerSelected(i)) {
-                                            dragElement.textContent = `${selectedTriggerIndices.length} triggers selected`
-                                        } else {
-                                            dragElement.textContent = trigger?.comment || 'Unnamed Trigger'
-                                        }
-                                        dragElement.className = 'absolute -top-96 -left-96 px-4 py-2 bg-darkbg text-textcolor2 rounded-sm text-sm whitespace-nowrap shadow-lg pointer-events-none z-50'
-                                        document.body.appendChild(dragElement)
-                                        e.dataTransfer?.setDragImage(dragElement, 10, 10)
-                                        
-                                        setTimeout(() => {
-                                            document.body.removeChild(dragElement)
-                                        }, 0)
-                                    }}
-                                    ondragend={(e) => {
-                                        isDragging = false
-                                        dragOverIndex = -1
-                                        scrollManager.stopAutoScroll()
-                                    }}
-                                    ondragover={(e) => {
-                                        if (!isMobileScreen) {
-                                            e.preventDefault()
-                                            const rect = e.currentTarget.getBoundingClientRect()
-                                            const mouseY = e.clientY
-                                            const elementCenter = rect.top + rect.height / 2
-                                            
-                                            if (mouseY < elementCenter) {
-                                                dragOverIndex = i
-                                            } else {
-                                                dragOverIndex = i + 1
-                                            }
-                                        }
-                                    }}
-                                    ondragleave={(e) => {
-                                        if (!isMobileScreen) {
-                                            const rect = e.currentTarget.getBoundingClientRect()
-                                            const mouseX = e.clientX
-                                            const mouseY = e.clientY
-                                            
-                                            if (mouseX < rect.left || mouseX > rect.right || 
-                                                mouseY < rect.top || mouseY > rect.bottom) {
-                                                dragOverIndex = -1
-                                            }
-                                        }
-                                    }}
-                                    ondrop={(e) => {
-                                        if (!isMobileScreen) {
-                                            handleTriggerDrop(dragOverIndex, e)
-                                            dragOverIndex = -1
-                                        }
-                                    }}
-                                    onclick={(event) => {
-                                        handleTriggerClick(i, event)
-                                    }}
-                                    oncontextmenu={(e) => {
-                                        e.preventDefault()
-                                        handleContextMenu(e, 0, i)
-                                    }}
-                                >
-                                    {trigger?.comment || 'Unnamed Trigger'}
-                                </button>
-                            {/if}
-                        {/each}
-                        
-                        <div class="w-full h-0.5 min-h-0.5 transition-all duration-200" 
-                            class:hover:bg-gray-600={!isMobileScreen && !isDragging}
-                            class:h-0.5={!isDragging || dragOverIndex !== value.length}
-                            class:h-1={isDragging && dragOverIndex === value.length}
-                            class:bg-blue-500={isDragging && dragOverIndex === value.length}
-                            class:shadow-lg={isDragging && dragOverIndex === value.length}
-                            role="listitem"
-                            ondragover={(e) => {
-                                if (!isMobileScreen) {
-                                    e.preventDefault()
-                                    dragOverIndex = value.length
-                                }
-                            }} 
-                            ondrop={(e) => {
-                                if (!isMobileScreen) {
-                                    handleTriggerDrop(value.length, e)
-                                    dragOverIndex = -1
-                                }
-                            }}>
-                        </div>
-                    </div>
-                    <IconButtonGroup className="my-2">
-                        <IconButton onclick={() => {
-                            value.push({
-                                comment: "",
-                                type: "manual",
-                                conditions: [],
-                                effect: []
-                            })
-                            selectedIndex = value.length - 1
-                        }}>
-                            <PlusIcon />
+                    {/snippet}
+                    {#snippet actions()}
+                        <IconButton
+                            className="no-sort"
+                            tone="destructive"
+                            data-disclosure-action="delete"
+                            aria-label={language.remove}
+                            disabled={value.length <= 2}
+                            onclick={(event) => {
+                                event.stopPropagation()
+                                removeTriggerAt(i)
+                            }}
+                        >
+                            <TrashIcon />
                         </IconButton>
-                        <IconButton onclick={() => {
-                            const triggersToExport = value.slice(1);
-                            const jsonData = JSON.stringify(triggersToExport, null, 2);
-                            
-                            const blob = new Blob([jsonData], { type: 'application/json' });
-                            const url = URL.createObjectURL(blob);
-                            
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `triggers-${new Date().getTime()}.json`;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            
-                            URL.revokeObjectURL(url);
-                        }}>
-                            <DownloadIcon />
-                        </IconButton>
-                        <IconButton onclick={() => {
-                            importTriggers()
-                        }}>
-                            <UploadIcon />
-                        </IconButton>
-                    </IconButtonGroup>
-                    <Button className="mt-2" onclick={(e) => {
-                        e?.stopPropagation();
-                        close();
-                    }}>Close</Button>
-                </div>
+                    {/snippet}
 
-                <div class="md:flex-1 bg-darkbg flex-col flex h-svh min-h-svh md:h-auto md:min-h-0">
-                    <div class="mb-0 grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] items-stretch" onclick={() => {
-                        selectMode = 1
-                        selectedEffectIndex = -1
-                    }}>
-                        <div class="p-2 flex min-w-0 flex-col h-full min-h-18">
-                            <span class="block text-textcolor2">{language.name}</span>
-                            <div class="flex-1 min-w-0 min-h-10 flex">
-                                <TextInput className="flex-1 min-w-0 w-full" value={value && value[selectedIndex] ? (value[selectedIndex].comment || '') : ''} onchange={(e) => {
-                                if (!value || !value[selectedIndex] || selectedIndex < 0 || selectedIndex >= value.length) return;
-                                const comment = e.currentTarget.value
-                                const prev = value[selectedIndex].comment
-                                for(let i = 1; i < value.length; i++){
-                                    if (!value[i] || !value[i].effect) continue;
-                                    for(let j = 0; j < value[i].effect.length; j++){
-                                        const effect = value[i].effect[j]
-                                        if(effect && effect.type === 'v2RunTrigger' && effect.target === prev){
-                                            effect.target = comment
-                                        }
-                                    }
-                                }
-                                value[selectedIndex].comment = comment
-                            }} />
-                            </div>
-                        </div>
-                        <div class="p-2 flex min-w-0 flex-col h-full min-h-18">
-                            <span class="block text-textcolor2">{language.triggerOn}</span>
-                            {#if value && value[selectedIndex] && selectedIndex >= 0 && selectedIndex < value.length}
-                                <div class="flex-1 min-w-0 min-h-10 flex">
-                                    <SelectInput className="flex-1 min-w-0 w-full" bind:value={value[selectedIndex].type}>
-                                    <OptionInput value="start">{language.triggerStart}</OptionInput>
-                                    <OptionInput value="output">{language.triggerOutput}</OptionInput>
-                                    <OptionInput value="input">{language.triggerInput}</OptionInput>
-                                    <OptionInput value="manual">{language.triggerManual}</OptionInput>
-                                    <OptionInput value="display">{language.editDisplay}</OptionInput>
-                                    <OptionInput value="request">{language.editProcess}</OptionInput>
-                                </SelectInput>
-                                </div>
-                            {/if}
+                    <div data-disclosure-field>
+                        <div data-disclosure-label>{language.name}</div>
+                        <div data-disclosure-control>
+                            <TextInput
+                                value={trigger.comment}
+                                oninput={(event) => renameTrigger(i, event.currentTarget.value)}
+                            />
                         </div>
                     </div>
 
-                    <!-- <div class="mx-2 mb-2 p-2 bg-darkbg2 border border-darkborderc rounded-md">
-                        <div class="flex flex-wrap gap-2">
-                            <button class="px-3 py-1 text-xs bg-primary hover:bg-primary/90 text-white rounded-md transition-colors">
-                                TBD
-                            </button>
-                        </div>
-                    </div> -->
-                    
-                    <div class="border border-darkborderc mx-2 mb-2 rounded-md flex-1 overflow-x-hidden overflow-y-auto relative" bind:this={menu0Container}
-                         onscroll={scrollManager.handleMenu0Scroll}
-                         ondragover={(e) => {
-                             if (!isMobileScreen && isEffectDragging && menu0Container) {
-                                 const rect = e.currentTarget.getBoundingClientRect()
-                                 const autoScrollDirection = scrollManager.checkAutoScrollZone(e.clientY, rect)
-                                 
-                                 if (autoScrollDirection) {
-                                     scrollManager.startAutoScroll(menu0Container, autoScrollDirection)
-                                 } else {
-                                     scrollManager.stopAutoScroll()
-                                 }
-                             }
-                         }}
-                         ondragleave={(e) => {
-                             if (!isMobileScreen && isEffectDragging) {
-                                 const rect = e.currentTarget.getBoundingClientRect()
-                                 const mouseX = e.clientX
-                                 const mouseY = e.clientY
-                                 
-                                 if (mouseX < rect.left || mouseX > rect.right || 
-                                     mouseY < rect.top || mouseY > rect.bottom) {
-                                     effectDragOverIndex = -1
-                                     scrollManager.stopAutoScroll()
-                                 }
-                             }
-                         }}>
-                        {#key guideLineKey}
-                            {#each (value && value[selectedIndex] && value[selectedIndex].effect) ? value[selectedIndex].effect : [] as effect, i}
-                                {#if effect.type === 'v2If' || effect.type === 'v2IfAdvanced' || effect.type === 'v2Loop' || effect.type === 'v2LoopNTimes' || effect.type === 'v2Else'}
-                                    {@const blockIndent = (effect as triggerEffectV2).indent}
-                                    {@const endIndex = (value && value[selectedIndex] && value[selectedIndex].effect) ? value[selectedIndex].effect.findIndex((e, idx) => 
-                                        idx > i && e.type === 'v2EndIndent' && (e as triggerEffectV2).indent === blockIndent + 1
-                                    ) : -1}
-                                    {#if endIndex !== -1 && effectElements[i] && effectElements[endIndex] && menu0Container}
-                                        {@const startElement = effectElements[i]}
-                                        {@const endElement = effectElements[endIndex]}
-                                        {@const startRect = startElement.getBoundingClientRect()}
-                                        {@const endRect = endElement.getBoundingClientRect()}
-                                        {@const containerRect = menu0Container.getBoundingClientRect()}
-                                        {#if startRect.width > 0 && endRect.width > 0 && startRect.height > 0 && endRect.height > 0}
-                                            {@const startTop = startRect.bottom - containerRect.top + menu0Container.scrollTop}
-                                            {@const endTop = endRect.top - containerRect.top + menu0Container.scrollTop + endRect.height * 0.5}
-                                            {#if endTop > startTop}
-                                                <div 
-                                                    class="absolute w-px bg-gray-600 opacity-40"
-                                                    style="left: {0.5 + blockIndent * 1}rem; top: {startTop}px; height: {endTop - startTop}px;"
-                                                ></div>
-                                                <div 
-                                                    class="absolute h-px bg-gray-600 opacity-40"
-                                                    style="left: {0.5 + blockIndent * 1}rem; top: {endTop}px; width: 0.5rem;"
-                                                ></div>
-                                            {/if}
-                                        {/if}
-                                    {/if}
-                                {/if}
-                            {/each}
-                        {/key}
-                        
-                        {#each (value && value[selectedIndex] && value[selectedIndex].effect) ? value[selectedIndex].effect : [] as effect, i}
-                            <div class="w-full h-0.5 min-h-0.5 transition-all duration-200" 
-                                class:hover:bg-gray-600={!isMobileScreen && !isEffectDragging}
-                                class:h-0.5={!isEffectDragging || effectDragOverIndex !== i}
-                                class:h-1={isEffectDragging && effectDragOverIndex === i}
-                                class:bg-blue-500={isEffectDragging && effectDragOverIndex === i}
-                                class:shadow-lg={isEffectDragging && effectDragOverIndex === i}
-                                role="listitem"
-                                ondragover={(e) => {
-                                    if (!isMobileScreen && isEffectDragging) {
-                                        e.preventDefault()
-                                    }
-                                }} 
-                                ondrop={(e) => {
-                                    if (!isMobileScreen && isEffectDragging) {
-                                        handleEffectDrop(i, e)
-                                        effectDragOverIndex = -1
-                                    }
-                                }}>
-                            </div>
-
-                            <div class="flex items-center w-full relative"
-                                class:hover:bg-selected={selectedEffectIndex !== i}
-                                class:bg-selected={selectedEffectIndex === i}
-                                ondragover={(e) => {
-                                    if (!isMobileScreen && isEffectDragging) {
-                                        e.preventDefault()
-                                        const rect = e.currentTarget.getBoundingClientRect()
-                                        const mouseY = e.clientY
-                                        const elementCenter = rect.top + rect.height / 2
-                                        
-                                        if (mouseY < elementCenter) {
-                                            effectDragOverIndex = i
-                                        } else {
-                                            effectDragOverIndex = i + 1
-                                        }
-                                    }
-                                }}
-                                ondragleave={(e) => {
-                                    if (!isMobileScreen && isEffectDragging) {
-                                        const rect = e.currentTarget.getBoundingClientRect()
-                                        const mouseX = e.clientX
-                                        const mouseY = e.clientY
-                                        
-                                        if (mouseX < rect.left || mouseX > rect.right || 
-                                            mouseY < rect.top || mouseY > rect.bottom) {
-                                            effectDragOverIndex = -1
-                                        }
-                                    }
-                                }}
-                                ondrop={(e) => {
-                                    if (!isMobileScreen && isEffectDragging) {
-                                        handleEffectDrop(effectDragOverIndex, e)
-                                        effectDragOverIndex = -1
-                                    }
-                                }}>
-                                <button class="flex-1 p-2 text-start text-purple-500 relative break-all whitespace-normal overflow-hidden"
-                                    bind:this={effectElements[i]}
-                                    onclick={() => {
-                                        if(selectedEffectIndex === i && lastClickTime + 500 > Date.now()){
-                                            if(selectedIndex > 0) {
-                                                selectedTriggerIndex = selectedIndex;
-                                                selectedEffectIndexSaved = selectedEffectIndex;
-                                            }
-                                            menuMode = 1
-                                        }
-
-                                        selectMode = 1
-                                        lastClickTime = Date.now()
-                                        selectedEffectIndex = i
-                                    }}
-                                    oncontextmenu={(e) => handleContextMenu(e, 1, i, effect)}
-                                >
-                                    {#if effect.type === 'v2EndIndent'}
-                                        <div class="text-textcolor" style:margin-left={effect.indent + 'rem'}>...</div>
-                                    {:else}
-                                        {@html formatEffectDisplay(effect)}
-                                    {/if}
-                                </button>
-                                
-                                {#if effect.type !== 'v2EndIndent' && effect.type !== 'v2Else'}
-                                    <div class="w-8 h-full flex items-center justify-center cursor-move opacity-30 hover:opacity-70 transition-opacity"
-                                         draggable={!isMobileScreen}
-                                         onclick={(e) => {
-                                             e.stopPropagation();
-                                         }}
-                                         oncontextmenu={(e) => {
-                                             e.stopPropagation();
-                                             e.preventDefault();
-                                         }}
-                                         ondragstart={(e) => {
-                                             if (isMobileScreen) {
-                                                 e.preventDefault()
-                                                 return
-                                             }
-                                             isEffectDragging = true
-                                             e.dataTransfer?.setData('text', 'effect')
-                                             e.dataTransfer?.setData('effectIndex', i.toString())
-                                             
-                                             const dragElement = document.createElement('div')
-                                             dragElement.textContent = formatEffectDisplay(effect).replace(/<[^>]*>/g, '') || 'Effect'
-                                             dragElement.className = 'absolute -top-96 -left-96 px-4 py-2 bg-darkbg text-textcolor2 rounded-sm text-sm whitespace-nowrap shadow-lg pointer-events-none z-50'
-                                             document.body.appendChild(dragElement)
-                                             e.dataTransfer?.setDragImage(dragElement, 10, 10)
-                                             
-                                             setTimeout(() => {
-                                                 document.body.removeChild(dragElement)
-                                             }, 0)
-                                         }}
-                                         ondragend={(e) => {
-                                             isEffectDragging = false
-                                             effectDragOverIndex = -1
-                                             scrollManager.stopAutoScroll()
-                                         }}>
-                                        <div class="text-textcolor2 text-xs select-none">⋮⋮</div>
-                                    </div>
-                                {:else}
-                                    <div class="w-8 h-full flex items-center justify-center">
-                                        <div class="text-textcolor2 opacity-20 text-xs select-none"></div>
-                                    </div>
-                                {/if}
-                            </div>
-                        {/each}
-                        
-                        <div class="w-full h-0.5 min-h-0.5 transition-all duration-200" 
-                            class:hover:bg-gray-600={!isMobileScreen && !isEffectDragging}
-                            class:h-0.5={!isEffectDragging || effectDragOverIndex !== (value && value[selectedIndex] && value[selectedIndex].effect ? value[selectedIndex].effect.length : 0)}
-                            class:h-1={isEffectDragging && effectDragOverIndex === (value && value[selectedIndex] && value[selectedIndex].effect ? value[selectedIndex].effect.length : 0)}
-                            class:bg-blue-500={isEffectDragging && effectDragOverIndex === (value && value[selectedIndex] && value[selectedIndex].effect ? value[selectedIndex].effect.length : 0)}
-                            class:shadow-lg={isEffectDragging && effectDragOverIndex === (value && value[selectedIndex] && value[selectedIndex].effect ? value[selectedIndex].effect.length : 0)}
-                            role="listitem"
-                            ondragover={(e) => {
-                                if (!isMobileScreen && isEffectDragging) {
-                                    e.preventDefault()
-                                }
-                            }} 
-                            ondrop={(e) => {
-                                if (!isMobileScreen && isEffectDragging) {
-                                    handleEffectDrop(value && value[selectedIndex] && value[selectedIndex].effect ? value[selectedIndex].effect.length : 0, e)
-                                    effectDragOverIndex = -1
-                                }
-                            }}>
-                        </div>
-                        
-                        <button class="p-2 w-full text-start hover:bg-selected" onclick={() => {
-                            //add effect
-                            if(lastClickTime + 500 > Date.now()){
-                                selectedEffectIndex = -1
-                                if(selectedIndex > 0) {
-                                    selectedTriggerIndex = selectedIndex;
-                                    selectedEffectIndexSaved = selectedEffectIndex;
-                                }
-                                menuMode = 1
-                            }
-                            lastClickTime = Date.now()
-                        }} oncontextmenu={(e) => handleContextMenu(e, 1)}>
-                            ...
-                        </button>
-                    </div>
-                </div>
-            {:else if menuMode === 1}
-                <div class="flex-1 bg-darkbg flex flex-col md:flex-row overflow-y-auto md:overflow-y-visible">
-                    <div class="w-full md:w-48 border-b md:border-b-0 md:border-r border-darkborderc flex flex-col">
-                        <div class="p-4 border-b border-darkborderc flex items-center min-h-16">
-                            <button class="border-t-darkborderc text-start text-textcolor2 hover:text-textcolor" onclick={() => {
-                                if(selectedIndex > 0) {
-                                    selectedTriggerIndex = selectedIndex;
-                                    selectedEffectIndexSaved = selectedEffectIndex;
-                                }
-                                menuMode = 0
-                            }}>
-                                <ArrowLeftIcon />
-                            </button>
-                            <h3 class="ml-4 text-lg font-medium text-textcolor md:hidden">{language.triggerCategories[selectedCategory] || selectedCategory}</h3>
-                        </div>
-                        <div class="hidden md:flex md:flex-1 md:flex-col md:overflow-y-auto">
-                            {#each getAvailableCategories() as category}
-                                <button 
-                                    class="w-full p-3 text-left hover:bg-selected hover:text-textcolor transition-colors"
-                                    class:bg-selected={selectedCategory === category}
-                                    class:text-textcolor={selectedCategory === category}
-                                    class:text-textcolor2={selectedCategory !== category}
-                                    onclick={() => {
-                                        selectedCategory = category
-                                    }}
-                                >
-                                    {language.triggerCategories[category] || category}
-                                    {#if category === 'Deprecated'}
-                                        <span class="text-xs opacity-60 ml-1">(Deprecated)</span>
-                                    {/if}
-                                </button>
-                            {/each}
-                        </div>
-                        <div class="p-4 border-b border-darkborderc md:hidden">
-                            <SelectInput bind:value={selectedCategory}>
-                                {#each getAvailableCategories() as category}
-                                    <OptionInput value={category}>{language.triggerCategories[category] || category}</OptionInput>
-                                {/each}
+                    <div data-disclosure-field>
+                        <div data-disclosure-label>{language.triggerOn}</div>
+                        <div data-disclosure-control>
+                            <SelectInput bind:value={trigger.type}>
+                                <OptionInput value="start">{language.triggerStart}</OptionInput>
+                                <OptionInput value="output">{language.triggerOutput}</OptionInput>
+                                <OptionInput value="input">{language.triggerInput}</OptionInput>
+                                <OptionInput value="manual">{language.triggerManual}</OptionInput>
+                                <OptionInput value="display">{language.editDisplay}</OptionInput>
+                                <OptionInput value="request">{language.editProcess}</OptionInput>
                             </SelectInput>
                         </div>
-                        <div class="hidden md:block p-4 border-t border-darkborderc">
-                            <div class="text-textcolor2 text-xs">
-                                <CheckInput bind:check={DBState.db.showDeprecatedTriggerV2} name={language.showDeprecatedTriggerV2} grayText />
-                            </div>
-                        </div>
                     </div>
-                    
-                    <div class="flex-1 flex flex-col overflow-y-auto">
-                        <div class="hidden md:flex p-4 border-b border-darkborderc items-center min-h-16">
-                            <h3 class="text-lg font-medium text-textcolor">{language.triggerCategories[selectedCategory] || selectedCategory}</h3>
-                        </div>
-                        <div class="flex-1 overflow-y-auto">
-                            {#each getFilteredTriggers() as type}
-                                <button 
-                                    class="w-full p-3 text-left hover:bg-selected transition-colors text-textcolor2 hover:text-textcolor" 
-                                    class:opacity-60={effectCategories.Deprecated.includes(type)} 
-                                    onclick={(e) => {
-                                        e.stopPropagation()
-                                        makeDefaultEditType(type)
-                                        if(selectedIndex > 0) {
-                                            selectedTriggerIndex = selectedIndex;
-                                            selectedEffectIndexSaved = selectedEffectIndex;
-                                        }
-                                        menuMode = 2
-                                    }}
-                                >
-                                    <div>
+
+                    <div class="mt-2 mb-2 flex items-center justify-between">
+                        <span class="text-sm text-textcolor">{language.action} {language.list}</span>
+                        <IconButton aria-label={language.add} onclick={(event) => {
+                            event.stopPropagation()
+                            selectedIndex = i
+                            addingEffectForIndex = addingEffectForIndex === i ? -1 : i
+                        }}>
+                            {#if addingEffectForIndex === i}<XIcon />{:else}<PlusIcon />{/if}
+                        </IconButton>
+                    </div>
+
+                    {#if addingEffectForIndex === i}
+                        <div class="mb-2 rounded-md border border-darkborderc bg-darkbg p-2">
+                            <div data-disclosure-field>
+                                <div data-disclosure-label>{language.type}</div>
+                                <div data-disclosure-control>
+                                    <SelectInput bind:value={selectedCategory}>
+                                        {#each getAvailableCategories() as category}
+                                            <OptionInput value={category}>{language.triggerCategories[category] || category}</OptionInput>
+                                        {/each}
+                                    </SelectInput>
+                                </div>
+                            </div>
+                            <div class="max-h-64 overflow-y-auto rounded-md border border-darkborderc">
+                                {#each getFilteredTriggers() as type}
+                                    <button
+                                        type="button"
+                                        class="block w-full border-b border-darkborderc p-2 text-left text-sm text-textcolor2 last:border-b-0 hover:bg-selected hover:text-textcolor"
+                                        class:opacity-60={effectCategories.Deprecated.includes(type)}
+                                        onclick={() => addEffect(i, type)}
+                                    >
                                         {language.triggerDesc[type]}
                                         {#if effectCategories.Deprecated.includes(type)}
-                                            <span class="text-xs opacity-60 ml-1">(Deprecated)</span>
+                                            <span class="ml-1 text-xs opacity-60">(Deprecated)</span>
                                         {/if}
-                                    </div>
-                                </button>
-                            {/each}
-                        </div>
-                        <div class="md:hidden p-4 border-t border-darkborderc">
-                            <div class="text-textcolor2 text-xs">
-                                <CheckInput bind:check={DBState.db.showDeprecatedTriggerV2} name={language.showDeprecatedTriggerV2} grayText />
+                                    </button>
+                                {/each}
                             </div>
+                            <CheckInput bind:check={DBState.db.showDeprecatedTriggerV2} name={language.showDeprecatedTriggerV2} grayText className="mt-2" />
                         </div>
-                    </div>
-                </div>
-            {:else if menuMode === 2 || menuMode === 3}
-                <div class="flex-1 flex-col flex overflow-y-auto">
-                    <div class="flex items-center gap-2 mb-4">
-                        <button class="p-2 border-t-darkborderc text-start text-textcolor2 hover:text-textcolor" onclick={() => {
-                            if(menuMode === 3 && selectedIndex > 0) {
-                                selectedTriggerIndex = selectedIndex;
-                                selectedEffectIndexSaved = selectedEffectIndex;
-                            }
-                            menuMode = menuMode === 2 ? 1 : 0
-                        }}>
-                            <ArrowLeftIcon />
-                        </button>
-                        <h2 class="text-xl">
-                            {language.triggerDesc[editTrigger.type]}
-                        </h2>
-                    </div>
-                    {#if editTrigger.type === 'v2SetVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.varName}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.operator}</span>
-                        <SelectInput bind:value={editTrigger.operator}>
-                            <OptionInput value="=">{language.triggerInputLabels.operatorSet}</OptionInput>
-                            <OptionInput value="+=">{language.triggerInputLabels.operatorAdd}</OptionInput>
-                            <OptionInput value="-=">{language.triggerInputLabels.operatorSubtract}</OptionInput>
-                            <OptionInput value="*=">{language.triggerInputLabels.operatorMultiply}</OptionInput>
-                            <OptionInput value="/=">{language.triggerInputLabels.operatorDivide}</OptionInput>
-                            <OptionInput value="%=">{language.triggerInputLabels.operatorModulo}</OptionInput>
-                        </SelectInput>
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2If' || editTrigger.type === 'v2IfAdvanced'}
-                        
-                        <span class="block text-textcolor">{editTrigger.type === 'v2If' ? language.triggerInputLabels.varName : 'A'}</span>
-                        {#if editTrigger.type === 'v2IfAdvanced'}
-                            <SelectInput bind:value={editTrigger.sourceType}>
-                                <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                                <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                            </SelectInput>
-                        {/if}
-                        <TextInput bind:value={editTrigger.source} />
-
-                        <span class="block text text-textcolor">{language.triggerInputLabels.condition}</span>
-                        <SelectInput bind:value={editTrigger.condition} onchange={(e) => {
-                            if(e.currentTarget.value === '≡'){
-                                const trg = editTrigger as triggerV2IfAdvanced
-                                trg.condition = '≡'
-                                trg.target = 'true'
-                                trg.targetType = 'value'
-                            }
-                        }}>
-                            <OptionInput value="=">{language.triggerInputLabels.conditionEqual}</OptionInput>
-                            <OptionInput value="!=">{language.triggerInputLabels.conditionNotEqual}</OptionInput>
-                            <OptionInput value=">">{language.triggerInputLabels.conditionGreater}</OptionInput>
-                            <OptionInput value="<">{language.triggerInputLabels.conditionLess}</OptionInput>
-                            <OptionInput value=">=">{language.triggerInputLabels.conditionGreaterEqual}</OptionInput>
-                            <OptionInput value="<=">{language.triggerInputLabels.conditionLessEqual}</OptionInput>
-                            {#if editTrigger.type === 'v2IfAdvanced'}
-                                <OptionInput value="≒">{language.triggerInputLabels.conditionSimilar}</OptionInput>
-                                <OptionInput value="∋">{language.triggerInputLabels.conditionContains}</OptionInput>
-                                <OptionInput value="∈">{language.triggerInputLabels.conditionIn}</OptionInput>
-                                <OptionInput value="∌">{language.triggerInputLabels.conditionNotContains}</OptionInput>
-                                <OptionInput value="∉">{language.triggerInputLabels.conditionNotIn}</OptionInput>
-                                <OptionInput value="≡">{language.triggerInputLabels.conditionTruthy}</OptionInput>
-                            {/if}
-                        </SelectInput>
-
-                        <span class="block text-textcolor">{editTrigger.type === 'v2If' ? language.triggerInputLabels.value : 'B'}</span>
-                        {#if editTrigger.condition === '≡'}
-                            <SelectInput bind:value={editTrigger.target}>
-                                <OptionInput value="true">{language.triggerInputLabels.boolTrue}</OptionInput>
-                                <OptionInput value="false">{language.triggerInputLabels.boolFalse}</OptionInput>
-                                <OptionInput value="null">{language.triggerInputLabels.boolNull}</OptionInput>
-                            </SelectInput>
-                        {:else}
-                            <SelectInput bind:value={editTrigger.targetType}>
-                                <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                                <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                            </SelectInput>
-                            <TextInput bind:value={editTrigger.target} />
-                        {/if}
-
-                        <CheckInput bind:check={addElse} name={language.triggerInputLabels.addElse} className="mt-4"/>
-                    {:else if editTrigger.type === 'v2RunTrigger'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.trigger}</span>
-                        <SelectInput bind:value={editTrigger.target}>
-                            {#each value as trigger, i}
-                                {#if i === 0}
-                                    <!-- Header, skip the first trigger -->
-                                {:else}
-                                    <OptionInput value={trigger.comment}>{trigger.comment || 'Unnamed Trigger'}</OptionInput>
-                                {/if}
-                            {/each}
-                        </SelectInput>
-                    {:else if editTrigger.type === 'v2ConsoleLog'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.sourceType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.source} />
-
-                    {:else if editTrigger.type === 'v2ShowAlert'}
-                        <span>{language.triggerInputLabels.alertContent}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-
-                    {:else if editTrigger.type === 'v2RunLLM'}
-                        <span>{language.triggerInputLabels.prompt}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight bind:value={editTrigger.value} />
-
-                        <span>{language.triggerInputLabels.model}</span>
-                        <SelectInput bind:value={editTrigger.model}>
-                            <OptionInput value="model">{language.triggerInputLabels.modelMain}</OptionInput>
-                            <OptionInput value="submodel">{language.triggerInputLabels.modelSub}</OptionInput>
-                        </SelectInput>
-
-                        <CheckInput bind:check={editTrigger.streaming} name={language.streaming}/>
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2CheckSimilarity'}
-                        <span>{language.triggerInputLabels.source}</span>
-                        <SelectInput bind:value={editTrigger.sourceType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.source} />
-                        <span>{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2CutChat'}
-                        <span>{language.triggerInputLabels.start}</span>
-                        <SelectInput bind:value={editTrigger.startType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.start} />
-                        <span>{language.triggerInputLabels.end}</span>
-                        <SelectInput bind:value={editTrigger.endType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.end} />
-                        
-                    {:else if editTrigger.type === 'v2Command'}
-                        <span>{language.triggerInputLabels.cmd}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-
-                    {:else if editTrigger.type === 'v2SystemPrompt'}
-                        <span>{language.triggerInputLabels.location}</span>
-                        <SelectInput bind:value={editTrigger.location}>
-                            <OptionInput value="start">{language.triggerInputLabels.sysStart}</OptionInput>
-                            <OptionInput value="historyend">{language.triggerInputLabels.sysHistoryEnd}</OptionInput>
-                            <OptionInput value="promptend">{language.triggerInputLabels.sysPromptEnd}</OptionInput>
-                        </SelectInput>
-                        <span>{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight bind:value={editTrigger.value} />
-
-                    {:else if editTrigger.type === 'v2Impersonate'}
-                        <span>{language.triggerInputLabels.role}</span>
-                        <SelectInput bind:value={editTrigger.role}>
-                            <OptionInput value="user">{language.triggerInputLabels.roleUser}</OptionInput>
-                            <OptionInput value="char">{language.triggerInputLabels.roleChar}</OptionInput>
-                        </SelectInput>
-                        <span>{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight bind:value={editTrigger.value} />
-
-                    {:else if editTrigger.type === 'v2ModifyChat'}
-                        <span>{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                        <span>{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2LoopNTimes'}
-                        <span>{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2GetLastMessage'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2GetMessageAtIndex'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2GetMessageCount'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2ModifyLorebook'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.target}</span>
-                        <SelectInput bind:value={editTrigger.targetType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.target} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-
-                    {:else if editTrigger.type === 'v2GetLorebook'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.target}</span>
-                        <SelectInput bind:value={editTrigger.targetType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.target} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2GetLorebookCountNew'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2GetLorebookEntry'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2SetLorebookActivation'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                        <CheckInput bind:check={editTrigger.value} name={language.triggerInputLabels.alwaysActive} className="mt-4" />
-                    {:else if editTrigger.type === 'v2GetLorebookIndexViaName'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.name}</span>
-                        <SelectInput bind:value={editTrigger.nameType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.name} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2Random'}
-                        <span class="block text text-textcolor">{language.triggerInputLabels.min}</span>
-                        <SelectInput bind:value={editTrigger.minType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.min} />
-                        <span class="block text text-textcolor">{language.triggerInputLabels.max}</span>
-                        <SelectInput bind:value={editTrigger.maxType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.max} />
-
-                        <span class="block text text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetCharAt'}
-                        <span>{language.triggerInputLabels.source}</span>
-                        <SelectInput bind:value={editTrigger.sourceType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.source} />
-                        <span>{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    
-
-                    {:else if editTrigger.type === 'v2GetCharCount'}
-                        <span>{language.triggerInputLabels.source}</span>
-                        <SelectInput bind:value={editTrigger.sourceType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.source} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    
-                    {:else if editTrigger.type === 'v2ImgGen'}
-                        <span>{language.triggerInputLabels.prompt}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight bind:value={editTrigger.value} />
-
-                        <span>{language.triggerInputLabels.negPrompt}</span>
-                        <SelectInput bind:value={editTrigger.negValueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight bind:value={editTrigger.negValue} />
-
-                        <span>{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2ToLowerCase'}
-                        <span>{language.triggerInputLabels.source}</span>
-                        <SelectInput bind:value={editTrigger.sourceType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.source} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2ToUpperCase'}
-                        <span>{language.triggerInputLabels.source}</span>
-                        <SelectInput bind:value={editTrigger.sourceType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.source} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2SetCharAt'}
-                        <span>{language.triggerInputLabels.source}</span>
-                        <SelectInput bind:value={editTrigger.sourceType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.source} />
-                        <span>{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                        <span>{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2SplitString'}
-                        <span>{language.triggerInputLabels.source}</span>
-                        <SelectInput bind:value={editTrigger.sourceType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.source} />
-                        <span>{language.triggerInputLabels.delimiter}</span>
-                        <SelectInput bind:value={editTrigger.delimiterType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                            <OptionInput value="regex">{language.triggerInputLabels.regex}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.delimiter} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2JoinArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <SelectInput bind:value={editTrigger.varType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span>{language.triggerInputLabels.delimiter}</span>
-                        <SelectInput bind:value={editTrigger.delimiterType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.delimiter} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2GetCharacterDesc'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2SetCharacterDesc'}
-                        <span>{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight  bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2GetPersonaDesc'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2SetPersonaDesc'}
-                        <span>{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight  bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2ExtractRegex'}
-                        <span>{language.triggerInputLabels.source}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-                        <span>{language.triggerInputLabels.regex}</span>
-                        <SelectInput bind:value={editTrigger.regexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.regex} />
-
-                        <span>{language.triggerInputLabels.resultFormat}</span>
-                        <SelectInput bind:value={editTrigger.resultType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.result} />
-
-                        <span>{language.triggerInputLabels.flags}</span>
-                        <SelectInput bind:value={editTrigger.flagsType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.flags} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2MakeArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-
-                    {:else if editTrigger.type === 'v2GetArrayVarLength'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2GetArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2SetArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-
-                    {:else if editTrigger.type === 'v2PushArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-
-                    {:else if editTrigger.type === 'v2PopArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2ShiftArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-
-                    {:else if editTrigger.type === 'v2UnshiftArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-
-                    {:else if editTrigger.type === 'v2SpliceArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.start}</span>
-                        <SelectInput bind:value={editTrigger.startType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.start} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.itemType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.item} />
-                    {:else if editTrigger.type === 'v2SliceArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.start}</span>
-                        <SelectInput bind:value={editTrigger.startType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.start} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.end}</span>
-                        <SelectInput bind:value={editTrigger.endType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.end} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetIndexOfValueInArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-
-                        <TextInput bind:value={editTrigger.value} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2RemoveIndexFromArrayVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                    {:else if editTrigger.type === 'v2ConcatString'}
-                        <span class="block text-textcolor">A</span>
-                        <SelectInput bind:value={editTrigger.source1Type}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.source1} />
-
-                        <span class="block text-textcolor">B</span>
-                        <SelectInput bind:value={editTrigger.source2Type}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.source2} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetLastUserMessage'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetLastCharMessage'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetFirstMessage'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetAlertInput'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.alertContent}</span>
-                        <SelectInput bind:value={editTrigger.displayType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.display} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetAlertSelect'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.alertContent}</span>
-                        <SelectInput bind:value={editTrigger.displayType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.display} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.options}<Help key="v2GetAlertSelect" /></span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetDisplayState'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2SetDisplayState'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2Wait'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2GetRequestState'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetRequestStateRole'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2SetRequestState'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2SetRequestStateRole'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2GetRequestStateLength'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2QuickSearchChat'}
-                        <span class="block text-textcolor">{language.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.value}</OptionInput>
-                            <OptionInput value="var">{language.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-
-                        <span class="block text-textcolor">{language.condition}</span>
-                        <SelectInput bind:value={editTrigger.condition}>
-                            <OptionInput value="loose">loose</OptionInput>
-                            <OptionInput value="strict">strict</OptionInput>
-                            <OptionInput value="regex">regex</OptionInput>
-                        </SelectInput>
-
-                        <span class="block text-textcolor">{language.depth}</span>
-                        <SelectInput bind:value={editTrigger.depthType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.depth} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2Tokenize'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetAllLorebooks'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetLorebookByName'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.name}</span>
-                        <SelectInput bind:value={editTrigger.nameType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.name} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetLorebookByIndex'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2CreateLorebook'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.name}</span>
-                        <SelectInput bind:value={editTrigger.nameType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.name} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.activationKeys}</span>
-                        <SelectInput bind:value={editTrigger.keyType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.key} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.prompt}</span>
-                        <SelectInput bind:value={editTrigger.contentType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput bind:value={editTrigger.content} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.insertOrder}</span>
-                        <SelectInput bind:value={editTrigger.insertOrderType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.insertOrder} />
-                    {:else if editTrigger.type === 'v2ModifyLorebookByIndex'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.name}</span>
-                        <SelectInput bind:value={editTrigger.nameType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.name} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.activationKeys}</span>
-                        <SelectInput bind:value={editTrigger.keyType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.key} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.prompt}</span>
-                        <SelectInput bind:value={editTrigger.contentType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput bind:value={editTrigger.content} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.insertOrder}</span>
-                        <SelectInput bind:value={editTrigger.insertOrderType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.insertOrder} />
-                    {:else if editTrigger.type === 'v2DeleteLorebookByIndex'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                    {:else if editTrigger.type === 'v2SetLorebookAlwaysActive'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <SelectInput bind:value={editTrigger.indexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.index} />
-                        <CheckInput bind:check={editTrigger.value} name={language.triggerInputLabels.alwaysActive} className="mt-4" />
-                    {:else if editTrigger.type === 'v2UpdateChatAt'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.index}</span>
-                        <TextInput bind:value={editTrigger.index} />
-                    {:else if editTrigger.type === 'v2RegexTest'}
-                        <span>{language.triggerInputLabels.source}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-                        <span>{language.triggerInputLabels.regex}</span>
-                        <SelectInput bind:value={editTrigger.regexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.regex} />
-
-                        <span>{language.triggerInputLabels.flags}</span>
-                        <SelectInput bind:value={editTrigger.flagsType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.flags} />
-
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}<Help key="v2RegexTest" /></span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetReplaceGlobalNote'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2SetReplaceGlobalNote'}
-                        <span>{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2GetAuthorNote'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2SetAuthorNote'}
-                        <span>{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2MakeDictVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                    {:else if editTrigger.type === 'v2GetDictVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <SelectInput bind:value={editTrigger.varType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.key}</span>
-                        <SelectInput bind:value={editTrigger.keyType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.key} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2SetDictVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <SelectInput bind:value={editTrigger.varType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.key}</span>
-                        <SelectInput bind:value={editTrigger.keyType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.key} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2DeleteDictKey'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <SelectInput bind:value={editTrigger.varType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.key}</span>
-                        <SelectInput bind:value={editTrigger.keyType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.key} />
-                    {:else if editTrigger.type === 'v2HasDictKey'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <SelectInput bind:value={editTrigger.varType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.key}</span>
-                        <SelectInput bind:value={editTrigger.keyType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.key} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2ClearDict'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                    {:else if editTrigger.type === 'v2GetDictSize'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <SelectInput bind:value={editTrigger.varType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetDictKeys'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <SelectInput bind:value={editTrigger.varType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2GetDictValues'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.var}</span>
-                        <SelectInput bind:value={editTrigger.varType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2Calculate'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.expression}<Help key="v2Calculate" /></span>
-                        <SelectInput bind:value={editTrigger.expressionType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextAreaInput highlight bind:value={editTrigger.expression} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2ReplaceString'}
-                        <span>{language.triggerInputLabels.source}</span>
-                        <SelectInput bind:value={editTrigger.sourceType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.source} />
-                        <span>{language.triggerInputLabels.regex}</span>
-                        <SelectInput bind:value={editTrigger.regexType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.regex} />
-                        <span>{language.triggerInputLabels.resultFormat}</span>
-                        <SelectInput bind:value={editTrigger.resultType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.result} />
-                        <span>{language.triggerInputLabels.replacement}</span>
-                        <SelectInput bind:value={editTrigger.replacementType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.replacement} />
-                        <span>{language.triggerInputLabels.flags}</span>
-                        <SelectInput bind:value={editTrigger.flagsType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.flags} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.outputVar}</span>
-                        <TextInput bind:value={editTrigger.outputVar} />
-                    {:else if editTrigger.type === 'v2Comment'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <TextInput bind:value={editTrigger.value} />
-                    {:else if editTrigger.type === 'v2DeclareLocalVar'}
-                        <span class="block text-textcolor">{language.triggerInputLabels.varName}</span>
-                        <TextInput bind:value={editTrigger.var} />
-                        <span class="block text-textcolor">{language.triggerInputLabels.value}</span>
-                        <SelectInput bind:value={editTrigger.valueType}>
-                            <OptionInput value="value">{language.triggerInputLabels.value}</OptionInput>
-                            <OptionInput value="var">{language.triggerInputLabels.var}</OptionInput>
-                        </SelectInput>
-                        <TextInput bind:value={editTrigger.value} />
-                    {:else}
-                        <span>{language.noConfig}</span>
                     {/if}
 
-                    <Button className="mt-4" onclick={() => {
-                        if(!value || !value[selectedIndex] || selectedIndex < 0 || selectedIndex >= value.length) return;
-                        if(selectedEffectIndex === -1){
-                            value[selectedIndex].effect.push(editTrigger)
-
-                            if(editTrigger.type === 'v2If'  || editTrigger.type === 'v2IfAdvanced' || editTrigger.type === 'v2Loop' || editTrigger.type === 'v2Else' || editTrigger.type === 'v2LoopNTimes'){
-                                value[selectedIndex].effect.push({
-                                    type: 'v2EndIndent',
-                                    indent: editTrigger.indent + 1,
-                                    endOfLoop: editTrigger.type === 'v2Loop' || editTrigger.type === 'v2LoopNTimes'
-                                })
-
-                                if(addElse){
-                                    value[selectedIndex].effect.push({
-                                        type: 'v2Else',
-                                        indent: editTrigger.indent
-                                    })
-                                    value[selectedIndex].effect.push({
-                                        type: 'v2EndIndent',
-                                        indent: editTrigger.indent + 1
-                                    })
-                                }
-                            }
-                        }
-                        else if(menuMode === 2){
-                            editTrigger.indent = (value[selectedIndex].effect[selectedEffectIndex] as triggerEffectV2).indent
-                            if(editTrigger.type === 'v2If' || editTrigger.type === 'v2IfAdvanced' || editTrigger.type === 'v2Loop' || editTrigger.type === 'v2LoopNTimes' || editTrigger.type === 'v2Else'){
-                                value[selectedIndex].effect.splice(selectedEffectIndex, 0, {
-                                    type: 'v2EndIndent',
-                                    indent: editTrigger.indent + 1,
-                                    endOfLoop: editTrigger.type === 'v2Loop' || editTrigger.type === 'v2LoopNTimes'
-                                })
-                                
-                                if(addElse){
-                                    value[selectedIndex].effect.splice(selectedEffectIndex, 0, {
-                                        type: 'v2Else',
-                                        indent: editTrigger.indent
-                                    })
-                                    value[selectedIndex].effect.splice(selectedEffectIndex, 0, {
-                                        type: 'v2EndIndent',
-                                        indent: editTrigger.indent + 1
-                                    })
-                                }
-                            }
-                            value[selectedIndex].effect.splice(selectedEffectIndex, 0, editTrigger)
-                        }
-                        else if(menuMode === 3){
-                            const originalEffect = value[selectedIndex].effect[selectedEffectIndex] as triggerEffectV2
-                            const isIfType = editTrigger.type === 'v2If' || editTrigger.type === 'v2IfAdvanced'
-                            
-                            if(isIfType){
-                                let hasExistingElse = false
-                                let elseIndex = -1
-                                let endIndentIndex = -1
-                                
-                                let pointer = selectedEffectIndex + 1
-                                let indent = originalEffect.indent
-                                while(pointer < value[selectedIndex].effect.length){
-                                    const effect = value[selectedIndex].effect[pointer] as triggerEffectV2
-                                    if(effect.type === 'v2EndIndent' && effect.indent === indent + 1){
-                                        endIndentIndex = pointer
-                                        break
-                                    }
-                                    pointer++
-                                }
-                                
-                                if(endIndentIndex !== -1 && endIndentIndex + 1 < value[selectedIndex].effect.length){
-                                    const nextEffect = value[selectedIndex].effect[endIndentIndex + 1] as triggerEffectV2
-                                    if(nextEffect.type === 'v2Else' && nextEffect.indent === indent){
-                                        hasExistingElse = true
-                                        elseIndex = endIndentIndex + 1
-                                    }
-                                }
-                                
-                                if(addElse && !hasExistingElse){
-                                    value[selectedIndex].effect.splice(endIndentIndex + 1, 0, {
-                                        type: 'v2Else',
-                                        indent: indent
-                                    })
-                                    value[selectedIndex].effect.splice(endIndentIndex + 2, 0, {
-                                        type: 'v2EndIndent',
-                                        indent: indent + 1
-                                    })
-                                }
-                                else if(!addElse && hasExistingElse){
-                                    let elseEndIndex = -1
-                                    pointer = elseIndex + 1
-                                    while(pointer < value[selectedIndex].effect.length){
-                                        const effect = value[selectedIndex].effect[pointer] as triggerEffectV2
-                                        if(effect.type === 'v2EndIndent' && effect.indent === indent + 1){
-                                            elseEndIndex = pointer
-                                            break
-                                        }
-                                        pointer++
-                                    }
-                                    
-                                    if(elseEndIndex !== -1){
-                                        value[selectedIndex].effect.splice(elseIndex, elseEndIndex - elseIndex + 1)
-                                    }
-                                }
-                            }
-                            
-                            value[selectedIndex].effect[selectedEffectIndex] = editTrigger
-                        }
-                        else{
-                            value[selectedIndex].effect[selectedEffectIndex] = editTrigger
-                        }
-                        if(selectedIndex > 0) {
-                            selectedTriggerIndex = selectedIndex;
-                            selectedEffectIndexSaved = selectedEffectIndex;
-                        }
-                        menuMode = 0
-                        updateGuideLines()
-                    }}>Save</Button>
-
-                    {#if menuMode === 3}
-                        <Button className="mt-2" onclick={() => {
-                            deleteEffect()
-                            selectedEffectIndex = -1
-                            if(selectedIndex > 0) {
-                                selectedTriggerIndex = selectedIndex;
-                                selectedEffectIndexSaved = selectedEffectIndex;
-                            }
-                            menuMode = 0
-                        }}>Delete</Button>
-                    {/if}
-                </div>
+                    <ShDisclosureList background={false} className="border-darkborderc p-2">
+                        {#if trigger.effect.length === 0}
+                            <div class="px-3 py-6 text-center text-sm text-textcolor2">{language.noEffect}</div>
+                        {/if}
+                        {#each trigger.effect as effect, effectIndex}
+                            <div
+                                role="listitem"
+                                draggable={!openedEffects.has(effect) && effect.type !== 'v2EndIndent' && effect.type !== 'v2Else'}
+                                class:cursor-grab={!openedEffects.has(effect) && effect.type !== 'v2EndIndent' && effect.type !== 'v2Else'}
+                                ondragstart={(event) => {
+                                    event.dataTransfer?.setData('text/plain', 'trigger-v2-effect')
+                                    event.dataTransfer?.setData('effectIndex', effectIndex.toString())
+                                }}
+                                ondragover={(event) => event.preventDefault()}
+                                ondrop={(event) => {
+                                    event.preventDefault()
+                                    if (event.dataTransfer?.getData('text/plain') !== 'trigger-v2-effect') return
+                                    selectedIndex = i
+                                    const fromIndex = Number(event.dataTransfer?.getData('effectIndex'))
+                                    moveEffect(fromIndex, effectIndex)
+                                    value = [...value]
+                                }}
+                            >
+                                <TriggerV2EffectData
+                                    value={effect as triggerEffectV2}
+                                    open={openedEffects.has(effect)}
+                                    removable={effect.type !== 'v2EndIndent'}
+                                    showElse={effect.type === 'v2If' || effect.type === 'v2IfAdvanced'}
+                                    hasElse={(getElseBlock(i, effectIndex)?.elseIndex ?? -1) !== -1}
+                                    triggerNames={value.slice(1).map((candidate) => candidate.comment)}
+                                    titleHtml={effect.type === 'v2EndIndent'
+                                        ? `<span class="text-textcolor2" style="margin-left:${(effect as triggerEffectV2).indent}rem">...</span>`
+                                        : formatEffectDisplay(effect, i)}
+                                    onToggle={() => {
+                                        if (effect.type !== 'v2EndIndent') toggleEffect(i, effect)
+                                    }}
+                                    onRemove={() => removeEffectAt(i, effectIndex)}
+                                    onElseChange={(checked) => toggleElseBlock(i, effectIndex, checked)}
+                                />
+                            </div>
+                        {/each}
+                    </ShDisclosureList>
+                </ShDisclosureList>
             {/if}
-        </div>
-    </div>
-</Portal>
-{/if}
+        {/each}
+    </ShDisclosureList>
+{/key}
+
+<IconButtonGroup className="mt-2">
+    <IconButton aria-label={language.add} onclick={addTrigger}>
+        <PlusIcon />
+    </IconButton>
+    <IconButton aria-label="Export triggers" onclick={() => {
+        const jsonData = JSON.stringify(value.slice(1), null, 2)
+        const blob = new Blob([jsonData], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = `triggers-${new Date().getTime()}.json`
+        document.body.appendChild(anchor)
+        anchor.click()
+        anchor.remove()
+        URL.revokeObjectURL(url)
+    }}>
+        <DownloadIcon />
+    </IconButton>
+    <IconButton aria-label="Import triggers" onclick={importTriggers}>
+        <UploadIcon />
+    </IconButton>
+</IconButtonGroup>
