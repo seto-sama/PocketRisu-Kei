@@ -1,4 +1,5 @@
 import { helpKo } from "./help.ko";
+import { appendKoreanJosa } from "./koreanJosa";
 
 export const languageKorean = {
   formating: {
@@ -915,7 +916,8 @@ export const languageKorean = {
   chatInputExpandTitle: "메세지 입력",
   resendLastMessage: "마지막 메세지를 재전송하기",
   enterMessagePlaceholder: "메세지를 입력하세요...",
-  enterMessageToPersona: (name: string) => `${name}(으)로 메세지 보내기`,
+  enterMessageToPersona: (name: string) =>
+    `${appendKoreanJosa(name, "으로/로")} 메시지 보내기`,
   sendKeyEnter: "Enter (Shift+Enter로 줄바꿈)",
   sendKeyCtrlEnter: "Ctrl+Enter (Enter로 줄바꿈)",
   sendKeyShiftEnter: "Shift+Enter (Enter로 줄바꿈)",
