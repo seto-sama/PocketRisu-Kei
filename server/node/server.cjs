@@ -3013,17 +3013,12 @@ async function hubProxyFunc(req, res) {
     }
 }
 
-app.get('/proxy', reverseProxyFunc_get);
 app.get('/proxy2', reverseProxyFunc_get);
 app.get('/hub-proxy/*splat', hubProxyFunc);
 
-app.post('/proxy', reverseProxyFunc);
 app.post('/proxy2', reverseProxyFunc);
-app.put('/proxy', reverseProxyFunc);
 app.put('/proxy2', reverseProxyFunc);
-app.patch('/proxy', reverseProxyFunc);
 app.patch('/proxy2', reverseProxyFunc);
-app.delete('/proxy', reverseProxyFunc);
 app.delete('/proxy2', reverseProxyFunc);
 app.post('/hub-proxy/*splat', hubProxyFunc);
 
