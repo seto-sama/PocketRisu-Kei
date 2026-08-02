@@ -70,7 +70,7 @@
     }
 
     let {
-        message = $bindable(''),
+        message = '',
         name = '',
         largePortrait = false,
         isLastMemory,
@@ -146,11 +146,11 @@
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message = msg
     }
 
-    async function edit(){
+    async function edit(nextMessage:string){
         const msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
-        msg.data = message
+        msg.data = nextMessage
         if (msg.swipes && msg.swipeId !== undefined) {
-            msg.swipes[msg.swipeId] = message
+            msg.swipes[msg.swipeId] = nextMessage
         }
     }
 
@@ -173,11 +173,11 @@
     async function saveOriginalEdit() {
         const oldKey = originalEditTranslationKey
         const shouldMigrateTranslationKey = editTranslationKeyMode
-        message = editDraft
+        const nextMessage = editDraft
         editMode = false
         editTranslationKeyMode = false
-        await edit()
-        displaya(message)
+        await edit(nextMessage)
+        displaya(nextMessage)
 
         if (shouldMigrateTranslationKey && oldKey) {
             const newKey = await getTranslationCacheKey()
@@ -1368,7 +1368,7 @@
 
                         </div>
                         {#if editMode}
-                            <textarea class="grow h-138 sm:h-96 overflow-y-auto bg-transparent text-black p-2 mb-2 resize-none message-edit-area" bind:value={message}></textarea>
+                            <textarea class="grow h-138 sm:h-96 overflow-y-auto bg-transparent text-black p-2 mb-2 resize-none message-edit-area" bind:value={editDraft}></textarea>
                         {:else}
                             <div class="grow h-138 sm:h-96 overflow-y-auto p-2 mb-2 sm:mb-0">
                                 {@render textBox()}
