@@ -280,8 +280,7 @@ export interface ModelPreset {
     orphanValues?: Record<string, unknown>
     customBody?: Record<string, unknown>
     customHeaders?: Record<string, string>
-    // Freeform "additional parameters" textarea. One line per entry.
-    // Same legacy syntax as customModels[].params, parsed via
+    // Freeform "additional parameters" textarea. One line per entry, parsed by
     // applyAdditionalParameters at wire time. Supports:
     //   key=value           — body[key] = value (auto type: string/num/bool/null)
     //   key=json::{...}     — body[key] = JSON.parse(...)
@@ -449,10 +448,9 @@ export interface RegistryCache {
     }>
 }
 
-// v5 migration scope (plan v5): customModels-only. Everything else (provider
-// keys, reverse-proxy fields, native aiModel strings, botPreset overrides,
-// task bindings, bias, fallbacks) stays in the legacy DB untouched and is
-// surfaced via the "Legacy Info" UI. Summary/report types are sized to that.
+// Historical migration-report data is retained for imported database
+// compatibility even though current ModelPreset setup no longer runs that
+// migration flow.
 export interface ModelPresetMigrationSummary {
     version: number
     appliedAt: number

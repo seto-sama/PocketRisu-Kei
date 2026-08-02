@@ -105,7 +105,7 @@ function extractMedia(
 
 // Split an assistant message that embeds `<tool_call>` markers into the
 // structured assistant/tool sequence the wire expects. Mirrors the classic
-// processToolCalls (openAI/requests.ts) so both regimes round-trip identically.
+// tool-call persistence so encoded history round-trips identically.
 // A marker that fails to decode is left as literal text (no data invented).
 async function expandToolCallMessage(
     m: OpenAIChat,
@@ -173,7 +173,7 @@ export function toAdapterMessage(
     // Preserve the native prompt-cache boundary flag (cache card /
     // automaticCachePoint) so the google-gemini adapter can consume it.
     if (m.cachePoint) msg.cachePoint = true
-    // Vision: classic only attaches images to user turns (openAI/requests.ts),
+    // Vision: only attach images to user turns,
     // so mirror that — assistant/system image parts are dropped.
     if (includeImages && role === 'user') {
         const images = extractImages(m)

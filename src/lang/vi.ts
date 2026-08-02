@@ -1161,7 +1161,6 @@ export const languageVietnamese = {
     "fallbackModel": "Mô hình dự phòng",
     "fallbackWhenBlankResponse": "Dự phòng khi phản hồi trống",
     "doNotChangeFallbackModels": "Không thay đổi mô hình dự phòng khi thay đổi cài đặt trước",
-    "customModels": "Mô hình tùy chỉnh",
     "igpPrompt": "Lời nhắc IGP",
     "hypaMemoryV3Modal": "Hypa V3 Modal",
     "showMenuHypaMemoryModal": "Hiển thị Menu Hypa Modal",

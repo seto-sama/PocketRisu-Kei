@@ -92,25 +92,6 @@ function normalizePromptTemplate(template: PromptItem[]|null|undefined): PromptI
 }
 
 export function setDatabase(data:Database){
-    // Remove retired prompt preprocessing and preset-chain settings from
-    // databases created by older versions. They are intentionally not migrated:
-    // the prompt pipeline no longer reads or applies these values.
-    const legacyPromptData = data as Database & {
-        additionalPrompt?: unknown
-        descriptionPrefix?: unknown
-        presetChain?: unknown
-        promptPreprocess?: unknown
-    }
-    delete legacyPromptData.additionalPrompt
-    delete legacyPromptData.descriptionPrefix
-    delete legacyPromptData.presetChain
-    delete legacyPromptData.promptPreprocess
-    if(Array.isArray(data.botPresets)){
-        for(const preset of data.botPresets){
-            delete (preset as botPreset & { promptPreprocess?: unknown }).promptPreprocess
-        }
-    }
-
     if(Array.isArray(data.promptTemplate)){
         data.promptTemplate = normalizePromptTemplate(data.promptTemplate)
     }
@@ -699,10 +680,6 @@ export function setDatabase(data:Database){
         }))
     }
     data.hypaV3PresetFolders ??= []
-    if (data.botPresets) {
-        for (const preset of data.botPresets) {
-        }
-    }
     data.hypaV3PresetId ??= 0
     normalizeTranslatorPresetState(data)
     data.showDeprecatedTriggerV2 ??= false
@@ -753,7 +730,6 @@ export function setDatabase(data:Database){
         translate: data.fallbackModels.translate.filter((v) => v !== ''),
         otherAx: data.fallbackModels.otherAx.filter((v) => v !== '')
     }
-    data.customModels ??= []
     data.authRefreshes ??= []
     data.rememberToolUsage ??= true
     data.simplifiedToolUse ??= false
@@ -1431,17 +1407,6 @@ export interface Database{
     }
     doNotChangeFallbackModels: boolean
     fallbackWhenBlankResponse: boolean
-    customModels: {
-        id: string
-        internalId: string
-        url: string
-        format: LLMFormat
-        tokenizer: LLMTokenizer
-        key: string
-        name: string
-        params: string
-        flags: LLMFlags[]
-    }[]
     modelPresets: ModelPreset[]
     /** User-defined groups for organizing model presets. */
     modelPresetFolders?: PromptPresetFolder[]
@@ -1456,8 +1421,6 @@ export interface Database{
     // Small reactivity/revalidation timestamp only. The models.dev catalog is
     // stored separately in persistent KV and never embedded in this DB.
     modelProfileRegistryLastFetched?: number
-    /** @deprecated Removed with the models.dev runtime catalog migration. */
-    modelRegistrySeen?: Record<string, number>
     // Catalog display level: retired profiles can be hidden from the browser.
     // Display-only — profiles are still downloaded.
     modelProfileVisibilityLevel?: 'all' | 'hideDeprecated'
@@ -1467,16 +1430,10 @@ export interface Database{
     // Distinguishes the curated first-run allowlist from an intentional
     // user-selected empty hidden list ("show all").
     modelProfileProviderFilterInitialized?: boolean
-    /** @deprecated The only built-in model is Echo; models come from models.dev. */
-    modelPresetLocalRegistryOnly?: boolean
     modelPresetDefaultMaxContext?: number
     modelPresetDefaultMaxResponse?: number
     modelPresetPromptPresetFirst?: boolean
     modelPresetPromptParamsFirst?: boolean
-    /** @deprecated Official model discovery now always uses models.dev. */
-    useCustomModelRegistry?: boolean
-    /** @deprecated Official model discovery now always uses models.dev. */
-    modelProfileRegistryBaseUrl?: string
     igpPrompt:string
     authRefreshes:{
         url:string
@@ -2141,8 +2098,6 @@ export interface Chat{
     bookmarkNames?: { [chatId: string]: string };
     supaMemory?: boolean
     savedToggleValues?: Record<string, string>
-    /** @deprecated Retained only so older chat data can round-trip unchanged. */
-    useModelPreset?: boolean
     modelBinding?: ModelBindingSet
     /** Per-chat opt-in: when this chat's MAIN request goes through a ModelPreset,
      * override the preset's sampling parameters with the active prompt preset's
