@@ -76,19 +76,7 @@
             oncontextmenu={(e) => {
                 if(!readonly && DBState.db.longPressToPopupEditor){
                     e.preventDefault()
-                    popUpEditorStore.value = value
-                    popUpEditorStore.mode = 'default'
-                    popUpEditorStore.language = popupLanguage
-                    popUpEditorStore.open = true
-
-                    //lazy wait
-                    const checkInterval = setInterval(() => {
-                        if(!popUpEditorStore.open){
-                            value = popUpEditorStore.value
-                            onInput()
-                            clearInterval(checkInterval)
-                        }
-                    }, 100)
+                    openPopupEditor()
                 }
             }}
 ></textarea>
@@ -103,18 +91,7 @@
         oncontextmenu={(e) => {
             if(!readonly && DBState.db.longPressToPopupEditor){
                 e.preventDefault()
-                popUpEditorStore.value = value
-                popUpEditorStore.mode = 'default'
-                popUpEditorStore.language = popupLanguage
-                popUpEditorStore.open = true
-
-                const checkInterval = setInterval(() => {
-                    if(!popUpEditorStore.open){
-                        value = popUpEditorStore.value
-                        onInput()
-                        clearInterval(checkInterval)
-                    }
-                }, 100)
+                openPopupEditor()
             }
         }}
         role="textbox"
@@ -165,7 +142,7 @@
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
     import { highlighter, getNewHighlightId, removeHighlight, AllCBS } from 'src/ts/gui/highlight'
     import { onDestroy, onMount } from 'svelte';
-  import { DBState, disableHighlight, popUpEditorStore } from 'src/ts/stores.svelte';
+  import { DBState, disableHighlight, showPopupEditor } from 'src/ts/stores.svelte';
   import { isMobile } from 'src/ts/platform'
     import { Maximize2, CopyIcon, CheckIcon, RefreshCwIcon } from '@lucide/svelte'
     import { alertConfirm } from 'src/ts/alert'
@@ -189,7 +166,6 @@
         optimaizedInput?: boolean;
         highlight?: boolean;
         onchange?: () => void;
-        popupLanguage?: string;
         actionBar?: boolean;
         readonly?: boolean;
         tabindex?: number;
@@ -212,7 +188,6 @@
         optimaizedInput = true,
         highlight = false,
         onchange = () => {},
-        popupLanguage = 'markdown',
         actionBar = undefined,
         readonly = false,
         tabindex = undefined,
@@ -321,20 +296,16 @@
         autocompleteContents = []
     }
 
-    // Open the Monaco popup editor for this field, mirroring the contextmenu path.
+    // Open the shared popup editor for this field, mirroring the contextmenu path.
     const openPopupEditor = () => {
-        popUpEditorStore.value = value
-        popUpEditorStore.mode = 'default'
-        popUpEditorStore.language = popupLanguage
-        popUpEditorStore.open = true
-
-        const checkInterval = setInterval(() => {
-            if(!popUpEditorStore.open){
-                value = popUpEditorStore.value
+        showPopupEditor({
+            value,
+            onSave: (nextValue) => {
+                value = nextValue
                 onInput()
-                clearInterval(checkInterval)
+                return true
             }
-        }, 100)
+        })
     }
 
     const handlePopupEditorHotkey = (event: KeyboardEvent) => {

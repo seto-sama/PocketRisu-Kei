@@ -231,7 +231,7 @@ export const helpKo = {
         "lineHeight": "메시지 본문의 줄 간격입니다.",
         "iconSize": "캐릭터/페르소나 아이콘 크기입니다.",
         "textAreaSize": "캐릭터·로어북·프롬프트 등 편집용 텍스트 박스의 높이 단계입니다. (채팅 입력창에는 적용되지 않습니다)",
-        "textAreaTextSize": "위 편집용 텍스트 박스 안의 글자 크기 단계입니다. (채팅 입력창에는 적용되지 않습니다)",
+        "textAreaTextSize": "편집용 텍스트 박스 안의 글자 크기 단계입니다. (채팅 입력창에는 적용되지 않습니다)",
         "sideBarSize": "사이드바 너비 단계입니다.",
         "assetWidth": "채팅 안 에셋 이미지의 최대 너비입니다.",
         "animationSpeed": "UI 애니메이션 속도 배율입니다.",

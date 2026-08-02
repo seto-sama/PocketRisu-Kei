@@ -205,13 +205,36 @@ export const popupStore = $state({
     openId: 0,
 })
 
+export interface PopupEditorMetadata {
+    label: string
+    value: string
+}
+
+export interface PopupEditorOptions {
+    value: string
+    title?: string
+    metadata?: PopupEditorMetadata[]
+    formatJson?: boolean
+    onSave: (value: string) => boolean | Promise<boolean>
+}
+
 export const popUpEditorStore = $state({
     open: false,
     value: '',
-    mode: 'default' as 'default',
-    language: 'markdown' as string,
-    onSave: null as null | (() => boolean | Promise<boolean>)
+    title: '',
+    metadata: [] as PopupEditorMetadata[],
+    formatJson: false,
+    onSave: null as null | ((value: string) => boolean | Promise<boolean>)
 })
+
+export function showPopupEditor(options: PopupEditorOptions) {
+    popUpEditorStore.value = options.value
+    popUpEditorStore.title = options.title ?? ''
+    popUpEditorStore.metadata = options.metadata ?? []
+    popUpEditorStore.formatJson = options.formatJson ?? false
+    popUpEditorStore.onSave = options.onSave
+    popUpEditorStore.open = true
+}
 
 //Set might be more ideal, however since Svelte doesn't support reactive Sets, using array for now
 export const hotReloading = $state<string[]>([])

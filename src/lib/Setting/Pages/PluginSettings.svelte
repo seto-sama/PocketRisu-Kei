@@ -5,7 +5,7 @@
     import { alertConfirm, alertMd, alertSelect, notifySuccess } from "src/ts/alert";
     import { TriangleAlert } from '@lucide/svelte';
 
-    import { DBState, hotReloading, popUpEditorStore } from "src/ts/stores.svelte";
+    import { DBState, hotReloading, showPopupEditor } from "src/ts/stores.svelte";
     import { checkPluginUpdate, importPlugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { resetPluginPermission } from "src/ts/plugins/apiV3/v3.svelte";
@@ -118,26 +118,25 @@
 
     function openPluginScriptEditor(index: number, plugin: RisuPlugin) {
         const originalScript = plugin.script ?? ''
-        popUpEditorStore.value = originalScript
-        popUpEditorStore.mode = 'default'
-        popUpEditorStore.language = 'javascript'
-        popUpEditorStore.onSave = () => {
-            const nextScript = popUpEditorStore.value
-            if (nextScript === originalScript) return true
+        showPopupEditor({
+            value: originalScript,
+            title: pluginTitle(plugin),
+            onSave: (nextScript) => {
+                if (nextScript === originalScript) return true
 
-            const foundIndex = DBState.db.plugins?.findIndex((p) => p.name === plugin.name) ?? -1
-            const currentIndex = foundIndex >= 0 ? foundIndex : index
-            const currentPlugin = DBState.db.plugins?.[currentIndex]
-            if (!currentPlugin) return true
+                const foundIndex = DBState.db.plugins?.findIndex((p) => p.name === plugin.name) ?? -1
+                const currentIndex = foundIndex >= 0 ? foundIndex : index
+                const currentPlugin = DBState.db.plugins?.[currentIndex]
+                if (!currentPlugin) return true
 
-            currentPlugin.script = nextScript
-            DBState.db.plugins[currentIndex] = currentPlugin
-            loadPlugins()
-            void requestImmediateSave()
-            notifySuccess('Plugin updated.')
-            return true
-        }
-        popUpEditorStore.open = true
+                currentPlugin.script = nextScript
+                DBState.db.plugins[currentIndex] = currentPlugin
+                loadPlugins()
+                void requestImmediateSave()
+                notifySuccess('Plugin updated.')
+                return true
+            },
+        })
     }
 </script>
 
