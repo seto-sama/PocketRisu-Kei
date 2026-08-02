@@ -1,11 +1,12 @@
 <script lang="ts">
     import type { triggerscript } from "src/ts/storage/database.svelte";
+    import type { triggerCode } from "src/ts/process/triggers";
     import { language } from "src/lang";
     import { alertConfirm } from "src/ts/alert";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import TriggerV2List from "./TriggerV2List.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import type { Snippet } from "svelte";
+    import { getTriggerScriptMode } from "./triggerScriptMode";
 
     interface Props {
         value?: triggerscript[];
@@ -14,9 +15,27 @@
     }
 
     let { value = $bindable([]), lowLevelAble = false, header }: Props = $props();
-    let v1Enabled = $derived(value?.[0]?.effect?.[0]?.type !== 'triggercode' && value?.[0]?.effect?.[0]?.type !== 'triggerlua' && value?.[0]?.effect?.[0]?.type !== 'v2Header')
+    let triggerMode = $derived(getTriggerScriptMode(value))
+    let v1Enabled = $derived(triggerMode === 'v1')
+    let triggerV2LoadRevision = $state(0)
+    let triggerV2ListPromise: Promise<typeof import("./TriggerV2List.svelte").default> | null = null
+    let retryLabel = $derived((language as unknown as Record<string, string>).retry ?? 'Retry')
 
     const loadTriggerV1List = () => import("./TriggerV1List.svelte").then(m => m.default)
+    const loadTriggerV2List = async (_revision: number) => {
+        try {
+            triggerV2ListPromise ??= import("./TriggerV2List.svelte").then(m => m.default)
+            return await triggerV2ListPromise
+        } catch (error) {
+            triggerV2ListPromise = null
+            throw error
+        }
+    }
+
+    const retryTriggerV2Load = () => {
+        triggerV2ListPromise = null
+        triggerV2LoadRevision += 1
+    }
 </script>
 
 <div class="mt-2 flex items-center gap-2">
@@ -39,7 +58,7 @@
             }
         })}>V1</button>
     {/if}
-    <button class="border bg-bgcolor py-1 rounded-md text-sm px-2 text-textcolor {value?.[0]?.effect?.[0]?.type === 'v2Header' ? 'border-primary' : 'border-darkborderc'}" onclick={(async (e) => {
+    <button class="border bg-bgcolor py-1 rounded-md text-sm px-2 text-textcolor {triggerMode === 'v2' ? 'border-primary' : 'border-darkborderc'}" onclick={(async (e) => {
         e.stopPropagation()
         const codeType = value?.[0]?.effect?.[0]?.type
         if(codeType !== 'v2Header'){
@@ -64,7 +83,7 @@
             }]
         }
     })}>V2</button>
-    <button class="border bg-bgcolor py-1 rounded-md text-sm px-2 text-textcolor {value?.[0]?.effect?.[0]?.type === 'triggerlua' ? 'border-primary' : 'border-darkborderc'}" onclick={(async (e) => {
+    <button class="border bg-bgcolor py-1 rounded-md text-sm px-2 text-textcolor {triggerMode === 'lua' ? 'border-primary' : 'border-darkborderc'}" onclick={(async (e) => {
         e.stopPropagation()
         if(value?.[0]?.effect?.[0]?.type !== 'triggerlua'){
             if(value && value.length > 0){
@@ -89,10 +108,21 @@
 {#if v1Enabled}
     <span class="text-draculared">{language.triggerV1Warning}</span>
 {/if}
-{#if value?.[0]?.effect?.[0]?.type === 'triggerlua'}
-    <TextAreaInput margin="both" autocomplete="off" bind:value={value[0].effect[0].code}></TextAreaInput>
-{:else if value?.[0]?.effect?.[0]?.type === 'v2Header'}
-    <TriggerV2List bind:value={value} lowLevelAble={lowLevelAble}/>
+{#if triggerMode === 'lua'}
+    <TextAreaInput margin="both" autocomplete="off" bind:value={(value[0].effect[0] as triggerCode).code}></TextAreaInput>
+{:else if triggerMode === 'v2'}
+    {#await loadTriggerV2List(triggerV2LoadRevision)}
+        <div class="mt-2 text-sm text-textcolor2">{language.loading}</div>
+    {:then TriggerV2List}
+        <TriggerV2List bind:value={value} lowLevelAble={lowLevelAble}/>
+    {:catch error}
+        <div class="mt-2 flex items-center gap-2 text-sm text-draculared">
+            <span>{String(error)}</span>
+            <button class="rounded-md border border-darkborderc px-2 py-1 text-textcolor hover:border-borderc" onclick={retryTriggerV2Load}>
+                {retryLabel}
+            </button>
+        </div>
+    {/await}
 {:else}
     {#await loadTriggerV1List() then TriggerV1List}
         <TriggerV1List bind:value={value} lowLevelAble={lowLevelAble}/>
