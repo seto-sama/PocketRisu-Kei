@@ -276,7 +276,7 @@
                 <div class="flex items-center gap-2 border border-darkborderc rounded-md px-3 focus-within:border-primary">
                     <SearchIcon size={18} class="text-textcolor2 shrink-0"/>
                     <input bind:value={searchQuery} placeholder={searchPlaceholder}
-                        class="w-full py-2 bg-transparent text-textcolor placeholder:text-textcolor2 outline-none"/>
+                        class="w-full py-2 bg-transparent text-textcolor outline-none"/>
                 </div>
             </SettingLayout>
             {#if itemContent && onSelectItem}

@@ -206,7 +206,7 @@
             class={cn(
                 'shrink-0 numinput rounded-md border border-darkborderc bg-transparent ' +
                 'h-8 px-2 py-1 text-sm text-textcolor text-right ' +
-                'placeholder:text-textcolor2 placeholder:text-xs ' +
+                'placeholder:text-xs ' +
                 'focus:border-borderc focus:outline-hidden ' +
                 'disabled:opacity-50 disabled:cursor-not-allowed transition-colors',
                 inputWidth

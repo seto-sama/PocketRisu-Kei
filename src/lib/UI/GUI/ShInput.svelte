@@ -29,7 +29,7 @@
     // buttons elsewhere in the codebase.
     const base =
         'flex h-10 min-h-10 w-full min-w-0 rounded-md border border-darkborderc bg-transparent px-2.5 py-1 text-base ' +
-        'text-textcolor placeholder:text-textcolor2 ' +
+        'text-textcolor ' +
         'transition-colors outline-none ' +
         'focus-visible:border-borderc ' +
         'disabled:opacity-50 disabled:cursor-not-allowed ' +

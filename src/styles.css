@@ -151,7 +151,7 @@
 
   input::placeholder,
   textarea::placeholder {
-    color: var(--color-gray-400);
+    color: var(--risu-theme-textcolor2);
   }
 
   /* Keep the chat composer placeholder on a single line: the textarea height is
