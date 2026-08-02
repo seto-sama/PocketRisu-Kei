@@ -1229,7 +1229,6 @@ export const languageGerman = {
         "storageAccess": "Das Plugin versucht, auf den Speicher zuzugreifen, was zu Datenlecks oder unbefugter Datenmanipulation führen kann."
     },
     "generatedByAIDisclaimer": "Dieser Inhalt wurde von einer KI generiert und kann Ungenauigkeiten oder Verzerrungen enthalten.",
-    "aiGenerationWarning": "Die Inhalte werden von einer KI generiert und können Ungenauigkeiten oder Verzerrungen enthalten.",
     "loadMore": "Mehr laden",
     "bookmark": "Lesezeichen",
     "noRequestLogs": "Keine Anforderungsprotokolle verfügbar.",

@@ -1511,8 +1511,8 @@ import { isMobile } from 'src/ts/platform'
 
                 />
                 {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0)}
-                    <div class="ml-auto mr-auto mt-4 text-textcolor2 italic max-w-2/3 wrap-break-word text-center">
-                        {language.aiGenerationWarning}
+                    <div class="generated-by-ai-disclaimer ml-auto mr-auto mt-4 text-textcolor2 italic max-w-2/3 wrap-break-word text-center">
+                        {language.generatedByAIDisclaimer}
                     </div>
                 {/if}
                 {#if !DBState.db.characters[$selectedCharID].removedQuotes && DBState.db.characters[$selectedCharID].creatorNotes.length >= 2}

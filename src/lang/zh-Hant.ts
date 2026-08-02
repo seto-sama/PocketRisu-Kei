@@ -1310,7 +1310,6 @@ export const languageChineseTraditional = {
         "storageAccess": "外掛試圖存取儲存空間，這可能導致資料外洩或遭未經授權的修改。",
     },
     "generatedByAIDisclaimer": "此內容由 AI 生成，可能包含不準確資訊或偏見。",
-    "aiGenerationWarning": "內容將由 AI 生成，可能包含不準確資訊或偏見。",
     "duplicatePluginFoundUpdateIt": "偵測到已安裝相同的外掛。是否要更新現有外掛？",
     "pluginUpdateFoundInstallIt": "發現外掛更新，是否要進行安裝？",
     "goToChat": "前往對話",

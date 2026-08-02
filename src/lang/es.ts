@@ -1229,7 +1229,6 @@ export const languageSpanish = {
         "storageAccess": "El plugin intenta acceder al almacenamiento, lo que podría llevar a fugas de datos o manipulación de datos no autorizada."
     },
     "generatedByAIDisclaimer": "Este contenido fue generado por IA y puede contener inexactitudes o sesgos.",
-    "aiGenerationWarning": "El contenido será generado por IA y puede contener inexactitudes o sesgos.",
     "loadMore": "Cargar más",
     "goToChat": "Ir al chat",
     "noRequestLogs": "No hay registros de solicitudes disponibles.",

@@ -1229,7 +1229,6 @@ export const languageVietnamese = {
         "storageAccess": "Plugin cố gắng truy cập bộ nhớ, điều này có thể dẫn đến rò rỉ dữ liệu hoặc thao tác dữ liệu trái phép."
     },
     "generatedByAIDisclaimer": "Nội dung này được tạo bởi AI và có thể chứa thông tin không chính xác hoặc thiên kiến.",
-    "aiGenerationWarning": "Nội dung sẽ được tạo bởi AI và có thể chứa thông tin không chính xác hoặc thiên kiến.",
     "noRequestLogs": "Không có nhật ký yêu cầu nào.",
     "bookmark": "Dấu trang",
     "duplicatePluginFoundUpdateIt": "Phát hiện plugin trùng lặp. Bạn có muốn cập nhật plugin hiện có không?",

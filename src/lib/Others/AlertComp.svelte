@@ -249,11 +249,6 @@
                     {/each}
                 </div>
             {:else if $alertStore.type === 'requestdata'}
-                {#if aiLawApplies()}
-                <div>
-                    {language.generatedByAIDisclaimer}
-                </div>
-                {/if}
                 <div class="flex flex-wrap gap-2">
                     <Button selected={generationInfoMenuIndex === 0} size="sm" onclick={() => {generationInfoMenuIndex = 0}}>
                         {language.tokens}
@@ -413,6 +408,11 @@
                             </div>
                         </div>
                     {/if}
+                {/if}
+                {#if aiLawApplies()}
+                    <div class="generated-by-ai-disclaimer mt-6 text-sm text-textcolor2 italic">
+                        {language.generatedByAIDisclaimer}
+                    </div>
                 {/if}
             {/if}
         </div>

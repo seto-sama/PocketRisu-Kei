@@ -1229,7 +1229,6 @@ export const languageChinese = {
         "storageAccess": "该插件尝试访问存储，这可能导致数据泄露或未经授权的数据操作。"
     },
     "generatedByAIDisclaimer": "此内容由 AI 生成，可能包含不准确信息或偏见。",
-    "aiGenerationWarning": "内容将由 AI 生成，可能包含不准确信息或偏见。",
     "bookmark": "书签",
     "loadMore": "加载更多",
     "pluginUpdateFoundInstallIt": "发现插件更新。是否安装更新？",
