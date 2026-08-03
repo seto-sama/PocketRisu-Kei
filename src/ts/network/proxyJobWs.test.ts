@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { decodeProxyJobWsChunk, formatProxyStreamErrorMessage, parseProxyJobWsEvent } from './proxyJobWs'
+import {
+    decodeProxyJobWsChunk,
+    formatProxyStreamErrorMessage,
+    parseProxyJobWsEvent,
+    trimProxyJobWsReplay,
+} from './proxyJobWs'
 
 describe('parseProxyJobWsEvent', () => {
     it('parses valid proxy job events', () => {
@@ -10,6 +15,13 @@ describe('parseProxyJobWsEvent', () => {
         }))
         expect(event).not.toBeNull()
         expect(event?.type).toBe('chunk')
+    })
+
+    it('parses provider dispatch events', () => {
+        expect(parseProxyJobWsEvent(JSON.stringify({
+            type: 'provider_started',
+            startedAt: 123,
+        }))).toEqual({ type: 'provider_started', startedAt: 123 })
     })
 
     it('returns null for invalid input', () => {
@@ -22,6 +34,23 @@ describe('decodeProxyJobWsChunk', () => {
     it('decodes base64 payload into bytes', () => {
         const bytes = decodeProxyJobWsChunk(Buffer.from('abc', 'utf-8').toString('base64'))
         expect(new TextDecoder().decode(bytes)).toBe('abc')
+    })
+})
+
+describe('trimProxyJobWsReplay', () => {
+    const bytes = new TextEncoder().encode('abcdefgh')
+
+    it('keeps a chunk that starts at the expected journal offset', () => {
+        expect(new TextDecoder().decode(trimProxyJobWsReplay(bytes, 4, 4)!)).toBe('abcdefgh')
+    })
+
+    it('removes bytes already delivered before a reconnect', () => {
+        expect(new TextDecoder().decode(trimProxyJobWsReplay(bytes, 4, 7)!)).toBe('defgh')
+        expect(trimProxyJobWsReplay(bytes, 4, 12)).toBeNull()
+    })
+
+    it('rejects a journal gap', () => {
+        expect(() => trimProxyJobWsReplay(bytes, 8, 7)).toThrow('journal gap')
     })
 })
 

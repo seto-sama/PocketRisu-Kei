@@ -42,6 +42,47 @@ export const tokenizerList = [
     ['deepseek', 'DeepSeek'],
 ] as const
 
+type RevenantTokenizer = typeof tokenizerList[number][0]
+
+function getEffectiveRevenantTokenizer(): RevenantTokenizer | undefined {
+    const db = getDatabase()
+    if(db.aiModel === 'openrouter' || db.aiModel === 'reverse_proxy'){
+        // Keep this aligned with encode(): the legacy llama3 selection uses
+        // the llama tokenizer in that path.
+        if(db.customTokenizer === 'llama3') return 'llama'
+        if(tokenizerList.some(([id]) => id === db.customTokenizer)){
+            return db.customTokenizer as RevenantTokenizer
+        }
+        return 'tik'
+    }
+    if(db.aiModel === 'custom'){
+        const pluginTokenizer = pluginV2.providerOptions
+            .get(db.currentPluginProvider)?.tokenizer
+        if(pluginTokenizer === 'custom') return undefined
+        if(pluginTokenizer === 'o200k_base' || pluginTokenizer === 'cl100k_base'){
+            return 'tik'
+        }
+        if(tokenizerList.some(([id]) => id === pluginTokenizer)){
+            return pluginTokenizer as RevenantTokenizer
+        }
+        return 'tik'
+    }
+    switch(getModelInfo(db.aiModel).tokenizer){
+        case LLMTokenizer.Mistral: return 'mistral'
+        case LLMTokenizer.Llama: return 'llama'
+        case LLMTokenizer.Llama3: return 'llama3'
+        case LLMTokenizer.NovelAI: return 'novelai'
+        case LLMTokenizer.Claude: return 'claude'
+        case LLMTokenizer.NovelList: return 'novellist'
+        case LLMTokenizer.Gemma:
+        case LLMTokenizer.GoogleCloud: return 'gemma'
+        case LLMTokenizer.Cohere: return 'cohere'
+        case LLMTokenizer.DeepSeek: return 'deepseek'
+        case LLMTokenizer.Local: return undefined
+        default: return 'tik'
+    }
+}
+
 export async function encodeWithTokenizer(data: string, tokenizerType: string): Promise<(number[] | Uint32Array | Int32Array)> {
     switch (tokenizerType) {
         case 'tik':
@@ -331,6 +372,13 @@ export class ChatTokenizer {
         this.chatAdditionalTokens = chatAdditionalTokens
         this.useName = useName
         this.tokenizerOverride = tokenizerOverride
+    }
+    getRevenantSpec(){
+        return {
+            chatAdditionalTokens: this.chatAdditionalTokens,
+            useName: this.useName,
+            tokenizer: this.tokenizerOverride || getEffectiveRevenantTokenizer(),
+        }
     }
     private encodeText(data: string) {
         return this.tokenizerOverride

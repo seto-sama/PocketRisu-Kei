@@ -459,7 +459,7 @@ export function parseAmazonBedrockStreamEvent(
     return undefined
 }
 
-interface AwsEventMessage {
+export interface AwsEventMessage {
     headers: Record<string, string>
     payload: Uint8Array
 }

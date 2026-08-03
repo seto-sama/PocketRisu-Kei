@@ -10,63 +10,72 @@ import {
     setRevenantGenerationLocallyOwned,
     trackRevenantGenerationJob,
 } from './client'
-import type { RevenantGenerationContext } from './types'
+import { decodeRevenantGenerationJournal } from './journalDecoder'
+import { openRevenantJournalSocket } from './journalSocket'
+import type {
+    RecoverableAuxiliaryJob,
+    RecoverableGenerationJob,
+    RevenantGenerationContext,
+} from './types'
+
+type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 
 const defaultProxyJobHeartbeatSec = 15
 
 export function subscribeRecoverableGeneration(
-    jobId: string,
+    job: RecoverableGenerationJob,
     handlers: {
         onContent: (content: string) => void
         onDone: () => void
         onError?: (error: unknown) => void
     },
 ): () => void {
-    let disposed = false
-    let ws: WebSocket | undefined
-    let terminal = false
-    const fail = (error: unknown) => {
-        if (disposed || terminal) return
-        terminal = true
-        handlers.onError?.(error)
-    }
-
-    void createRevenantGenerationAuth().then(auth => {
-        if (disposed) return
-        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const wsUrl = `${wsProtocol}//${location.host}/proxy-stream-jobs/${encodeURIComponent(jobId)}/ws?risu-auth=${encodeURIComponent(auth)}&mode=recovery`
-        ws = new WebSocket(wsUrl)
-
-        ws.onmessage = event => {
-            const parsed = parseProxyJobWsEvent(typeof event.data === 'string' ? event.data : '')
-            if (!parsed) return
-            if (parsed.type === 'generation_content') {
-                handlers.onContent(parsed.content)
-            }
-            else if (parsed.type === 'done') {
-                terminal = true
-                handlers.onDone()
-                ws?.close()
-            }
-            else if (parsed.type === 'error') {
-                fail(new Error(formatProxyStreamErrorMessage(parsed.status, parsed.message)))
-                ws?.close()
-            }
-        }
-        ws.onerror = event => {
-            fail(event)
-        }
-        ws.onclose = () => {
-            fail(new Error('Recovery generation WebSocket closed before completion'))
-        }
-    }).catch(error => {
-        fail(error)
-    })
+    const controller = new AbortController()
+    void openRecoverableJournalStream(job, controller.signal)
+        .then(stream => decodeRevenantGenerationJournal(job, stream, handlers.onContent))
+        .then(() => {
+            if (!controller.signal.aborted) handlers.onDone()
+        })
+        .catch(error => {
+            if (!controller.signal.aborted) handlers.onError?.(error)
+        })
 
     return () => {
-        disposed = true
-        ws?.close()
+        controller.abort()
     }
+}
+
+export async function readRecoverableGenerationContent(
+    job: RecoverableJournalJob,
+): Promise<string> {
+    if (job.projection?.content) return job.projection.content
+    const stream = await openRecoverableJournalStream(job)
+    try {
+        return await decodeRevenantGenerationJournal(job, stream)
+    }
+    catch (error) {
+        // Interrupted journals can end inside an SSE/JSON frame. The last
+        // normalized client projection is still a valid partial recovery.
+        if (job.projection?.content) return job.projection.content
+        throw error
+    }
+}
+
+async function openRecoverableJournalStream(
+    job: RecoverableJournalJob,
+    signal?: AbortSignal,
+): Promise<ReadableStream<Uint8Array>> {
+    const auth = await createRevenantGenerationAuth()
+    return openRevenantJournalSocket({
+        jobId: job.jobId,
+        auth,
+        signal,
+        recovery: true,
+        onHeaders(status, headers) {
+            job.responseStatus = status
+            job.responseHeaders = headers
+        },
+    })
 }
 
 export async function fetchViaProxyJobWs(url: string, arg: {
@@ -77,6 +86,7 @@ export async function fetchViaProxyJobWs(url: string, arg: {
     requestTimeoutMs?: number
     revenant?: boolean
     onJobCreated?: (jobId: string) => void
+    onProviderStarted?: (startedAt: number) => void
     generationContext?: RevenantGenerationContext
 }): Promise<Response> {
     const auth = await createRevenantGenerationAuth()
@@ -117,84 +127,118 @@ export async function fetchViaProxyJobWs(url: string, arg: {
     if (arg.revenant && arg.generationContext?.jobType === 'model' && arg.generationContext.chatId) {
         trackRevenantGenerationJob(arg.generationContext.chatId, jobId)
     }
+    return arg.revenant
+        ? openRevenantProxyJobResponse(jobId, auth, arg.signal, arg.onProviderStarted)
+        : openLegacyProxyJobResponse(jobId, auth, arg.signal)
+}
+
+function deleteProxyJob(
+    jobId: string,
+    auth: string,
+    revenant: boolean,
+): Promise<void> {
+    return fetch(revenant
+        ? `/api/generation/jobs/${encodeURIComponent(jobId)}`
+        : `/proxy-stream-jobs/${encodeURIComponent(jobId)}`, {
+        method: 'DELETE',
+        headers: {
+            'risu-auth': auth,
+            ...(revenant ? { 'x-sync-client-id': getRevenantGenerationSyncClientId() } : {}),
+        },
+    }).then(() => {}, () => {})
+}
+
+function openRevenantProxyJobResponse(
+    jobId: string,
+    auth: string,
+    signal?: AbortSignal,
+    onProviderStarted?: (startedAt: number) => void,
+): Promise<Response> {
+    return new Promise((resolve, reject) => {
+        let settled = false
+        const stream = openRevenantJournalSocket({
+            jobId,
+            auth,
+            signal,
+            onProviderStarted,
+            onHeaders(status, headers) {
+                if (settled) return
+                settled = true
+                resolve(new Response(stream, {
+                    status,
+                    headers: {
+                        ...headers,
+                        'x-risu-revenant-generation': '1',
+                        'x-risu-generation-job-id': jobId,
+                    },
+                }))
+            },
+            onFatal(error) {
+                setRevenantGenerationLocallyOwned(jobId, false)
+                if (settled) return
+                settled = true
+                reject(error)
+            },
+            onDone() {
+                setRevenantGenerationLocallyOwned(jobId, false)
+                if (settled) return
+                settled = true
+                reject(new Error('Generation ended before provider response headers'))
+            },
+            onLocalAbort() {
+                setRevenantGenerationLocallyOwned(jobId, false)
+                void deleteProxyJob(jobId, auth, true)
+            },
+        })
+    })
+}
+
+function openLegacyProxyJobResponse(
+    jobId: string,
+    auth: string,
+    signal?: AbortSignal,
+): Promise<Response> {
     const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${wsProtocol}//${location.host}/proxy-stream-jobs/${encodeURIComponent(jobId)}/ws?risu-auth=${encodeURIComponent(auth)}`
-
-    return new Promise<Response>((resolve, reject) => {
+    return new Promise((resolve, reject) => {
         const ws = new WebSocket(wsUrl)
-        let resolved = false
-        let responseStatus = 200
-        let responseHeaders: Record<string, string> = {}
-        let streamController: ReadableStreamDefaultController<Uint8Array> | null = null
-        let receivedDone = false
-
+        let settled = false
+        let terminal = false
+        let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
+        const cleanup = () => signal?.removeEventListener('abort', abort)
+        const abort = () => {
+            terminal = true
+            ws.close()
+            void deleteProxyJob(jobId, auth, false)
+            const error = new DOMException('Aborted', 'AbortError')
+            if (!settled) {
+                settled = true
+                reject(error)
+            }
+            else {
+                try { streamController?.error(error) } catch { /* already closed */ }
+            }
+        }
         const stream = new ReadableStream<Uint8Array>({
             start(controller) {
                 streamController = controller
             },
             cancel() {
+                terminal = true
                 ws.close()
-                if (arg.revenant) setRevenantGenerationLocallyOwned(jobId, false)
-                fetch(arg.revenant
-                    ? `/api/generation/jobs/${encodeURIComponent(jobId)}`
-                    : `/proxy-stream-jobs/${encodeURIComponent(jobId)}`, {
-                    method: 'DELETE',
-                    headers: {
-                        'risu-auth': auth,
-                        ...(arg.revenant ? { 'x-sync-client-id': getRevenantGenerationSyncClientId() } : {}),
-                    },
-                }).catch(() => {})
+                void deleteProxyJob(jobId, auth, false)
             },
         })
-
-        const abortHandler = () => {
-            ws.close()
-            if (arg.revenant) setRevenantGenerationLocallyOwned(jobId, false)
-            fetch(arg.revenant
-                ? `/api/generation/jobs/${encodeURIComponent(jobId)}`
-                : `/proxy-stream-jobs/${encodeURIComponent(jobId)}`, {
-                method: 'DELETE',
-                headers: {
-                    'risu-auth': auth,
-                    ...(arg.revenant ? { 'x-sync-client-id': getRevenantGenerationSyncClientId() } : {}),
-                },
-            }).catch(() => {})
-            if (!resolved) {
-                resolved = true
-                reject(new DOMException('Aborted', 'AbortError'))
-            }
-        }
-
-        if (arg.signal) {
-            if (arg.signal.aborted) {
-                abortHandler()
-                return
-            }
-            arg.signal.addEventListener('abort', abortHandler, { once: true })
-        }
-
         ws.onmessage = event => {
             const parsed = parseProxyJobWsEvent(typeof event.data === 'string' ? event.data : '')
             if (!parsed) return
-
             switch (parsed.type) {
-                case 'job_accepted':
-                case 'ping':
-                    break
                 case 'upstream_headers':
-                    responseStatus = parsed.status
-                    responseHeaders = parsed.headers
-                    if (!resolved) {
-                        resolved = true
+                    if (!settled) {
+                        settled = true
                         resolve(new Response(stream, {
-                            status: responseStatus,
-                            headers: {
-                                ...responseHeaders,
-                                ...(arg.revenant ? {
-                                    'x-risu-revenant-generation': '1',
-                                    'x-risu-generation-job-id': jobId,
-                                } : {}),
-                            },
+                            status: parsed.status,
+                            headers: parsed.headers,
                         }))
                     }
                     break
@@ -202,58 +246,38 @@ export async function fetchViaProxyJobWs(url: string, arg: {
                     streamController?.enqueue(decodeProxyJobWsChunk(parsed.dataBase64))
                     break
                 case 'error': {
-                    receivedDone = true
+                    terminal = true
                     const message = formatProxyStreamErrorMessage(parsed.status, parsed.message)
-                    if (!resolved) {
-                        resolved = true
-                        resolve(new Response(message, {
-                            status: parsed.status ?? 502,
-                            headers: { 'content-type': 'text/plain' },
-                        }))
+                    if (!settled) {
+                        settled = true
+                        resolve(new Response(message, { status: parsed.status ?? 502 }))
                     }
-                    streamController?.close()
+                    else streamController?.error(new Error(message))
+                    cleanup()
                     ws.close()
                     break
                 }
                 case 'done':
-                    receivedDone = true
+                    terminal = true
                     streamController?.close()
+                    cleanup()
                     ws.close()
-                    break
             }
         }
-
-        ws.onerror = () => {
-            if (!resolved) {
-                resolved = true
-                reject(new Error('WebSocket connection failed'))
-            }
-        }
-
+        ws.onerror = () => ws.close()
         ws.onclose = () => {
-            arg.signal?.removeEventListener('abort', abortHandler)
-            const explicitlyAborted = arg.signal?.aborted === true
-            if (arg.revenant && !receivedDone && !explicitlyAborted) {
-                setRevenantGenerationLocallyOwned(jobId, false)
+            cleanup()
+            if (terminal) return
+            const error = new Error('WebSocket closed before completion')
+            if (!settled) {
+                settled = true
+                reject(error)
             }
-            try {
-                if (explicitlyAborted) {
-                    streamController?.error(new DOMException('Request aborted', 'AbortError'))
-                }
-                else if (arg.revenant && !receivedDone) {
-                    streamController?.error(new Error('Generation stream detached; server job continues'))
-                }
-                else {
-                    streamController?.close()
-                }
-            }
-            catch {
-                // The response stream may already be closed.
-            }
-            if (!resolved) {
-                resolved = true
-                reject(new Error('WebSocket closed before response'))
+            else {
+                try { streamController?.error(error) } catch { /* already closed */ }
             }
         }
+        if (signal?.aborted) abort()
+        else signal?.addEventListener('abort', abort, { once: true })
     })
 }

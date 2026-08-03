@@ -1,4 +1,4 @@
-import { type memoryVector, HypaProcesser, similarity, contextHash, getPersistedHypaVector, setPersistedHypaVector } from "./hypamemory";
+import { type HypaModel, type memoryVector, HypaProcesser, isBrowserLocalHypaModel, similarity, contextHash, getPersistedHypaVector, setPersistedHypaVector } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskRateLimiter } from "./taskRateLimiter";
 import {
@@ -16,7 +16,11 @@ import {
 } from "src/ts/storage/database.svelte";
 import { type OpenAIChat } from "../index.svelte";
 import { requestChatData } from "../request/request";
-import { resolveChatMaxResponseTokens } from "../request/modelPresetBinding";
+import {
+    resolveChatMaxResponseTokens,
+    resolveChatModelBinding,
+} from "../request/modelPresetBinding";
+import { compileModelPreset } from "src/ts/preset/runtime/compilePreset";
 import { chatCompletion, unloadEngine } from "../webllm";
 import { hypaV3ProgressStore } from "src/ts/stores.svelte";
 import { type ChatTokenizer } from "src/ts/tokenizer";
@@ -29,7 +33,14 @@ import { saveChatToServer } from "src/ts/storage/chatStorage";
 import {
     createRevenantOperation,
     isRevenantHypaV3SummaryOperation,
+    type RecoverableAuxiliaryJob,
 } from "../revenantGeneration/types";
+import { v4 as uuidv4 } from "uuid";
+import {
+    getRevenantHypaExecution,
+    prepareRevenantHypaExecution,
+    waitForRevenantHypaExecution,
+} from "../revenantGeneration/workflow";
 
 export interface HypaV3Preset {
     name: string;
@@ -108,11 +119,140 @@ export interface HypaV3Result {
     chats: OpenAIChat[];
     error?: string;
     memory?: SerializableHypaV3Data;
+    deferredRemoteSelection?: boolean;
+}
+
+export interface HypaV3ExecutionOptions {
+    /** Called before a Hypa run that may require browser-only embedding work. */
+    onClientEmbeddingRequired?: (model: HypaModel) => Promise<void>;
+    /** Placeholder used to pre-register main while server-side selection runs. */
+    deferredMemoryPrompt?: string;
+    /** Called when prompt construction must wait for browser-side Lua. */
+    onRemoteSelectionRequiresClient?: () => Promise<void>;
+    workflowId?: string;
+    signal?: AbortSignal;
+}
+
+interface RevenantHypaSelectionResult {
+    currentTokens: number;
+    memory: SerializableHypaV3Data;
+    chatSequence: Array<{
+        inputIndex?: number;
+        inputMemo?: string;
+        chat?: OpenAIChat;
+    }>;
 }
 
 const logPrefix = "[HypaV3]";
 const memoryPromptTag = "Past Events Summary";
 const summarySeparator = "\n\n";
+
+async function markClientEmbeddingBoundary(
+    options: HypaV3ExecutionOptions | undefined,
+    model: HypaModel,
+): Promise<void> {
+    if (!options?.onClientEmbeddingRequired || !isBrowserLocalHypaModel(model)) return;
+    await options.onClientEmbeddingRequired(model);
+}
+
+function canUseDurableHypaDispatch(room: Chat): boolean {
+    try {
+        const binding = resolveChatModelBinding(room, 'memory');
+        return binding.kind === 'modelPreset'
+            && compileModelPreset(binding.preset).backend === 'http';
+    }
+    catch {
+        return false;
+    }
+}
+
+function getRemoteEmbeddingConfig(model: HypaModel): {
+    model: HypaModel;
+    apiKey: string;
+    customUrl?: string;
+    customModel?: string;
+} | undefined {
+    if (isBrowserLocalHypaModel(model)) return undefined;
+    const db = getDatabase();
+    if (model === 'custom') {
+        const customUrl = db.hypaCustomSettings?.url?.trim();
+        if (!customUrl) return undefined;
+        return {
+            model,
+            apiKey: db.hypaCustomSettings?.key?.trim() || '',
+            customUrl,
+            customModel: db.hypaCustomSettings?.model?.trim() || undefined,
+        };
+    }
+    if (['ada', 'openai3small', 'openai3large'].includes(model)) {
+        return { model, apiKey: db.supaMemoryKey?.trim() || '' };
+    }
+    if (['voyage4large', 'voyageContext3', 'voyageContext4'].includes(model)) {
+        return { model, apiKey: db.voyageApiKey?.trim() || '' };
+    }
+    return undefined;
+}
+
+async function executeDurableHypaBatch<T>(
+    tasks: Array<(onRegistered: () => void) => Promise<T>>,
+    onAllRegistered?: () => Promise<boolean|void>,
+    detachAfterRegistration = false,
+): Promise<{
+    results: Array<{ success: boolean; data?: T; error?: Error }>;
+    successCount: number;
+    failureCount: number;
+    allSucceeded: boolean;
+    detached?: boolean;
+}> {
+    const running: Promise<{ success: boolean; data?: T; error?: Error }>[] = [];
+    let allRegistered = true;
+    // Compile and register each provider envelope in order, but do not wait for
+    // its provider response. Once registered, the durable server dispatcher
+    // owns concurrency/rate limiting and the next envelope can be submitted.
+    for (const task of tasks) {
+        let jobRegistered = false;
+        let registrationReleased = false;
+        let releaseRegistration!: () => void;
+        const registration = new Promise<void>(resolve => {
+            releaseRegistration = resolve;
+        });
+        const markRegistered = () => {
+            jobRegistered = true;
+            if (registrationReleased) return;
+            registrationReleased = true;
+            releaseRegistration();
+        };
+        const result = task(markRegistered).then(
+            data => ({ success: true, data }),
+            error => ({
+                success: false,
+                error: error instanceof Error ? error : new Error(String(error)),
+            }),
+        ).finally(() => {
+            if (registrationReleased) return;
+            registrationReleased = true;
+            releaseRegistration();
+        });
+        running.push(result);
+        await registration;
+        allRegistered &&= jobRegistered;
+    }
+    const canDetach = allRegistered && (await onAllRegistered?.()) !== false;
+    if (detachAfterRegistration && canDetach) {
+        void Promise.all(running);
+        return {
+            results: [],
+            successCount: 0,
+            failureCount: 0,
+            allSucceeded: true,
+            detached: true,
+        };
+    }
+    const results = await Promise.all(running);
+    const successCount = results.filter(result => result.success).length;
+    const failureCount = results.length - successCount;
+    return { results, successCount, failureCount, allSucceeded: failureCount === 0 };
+}
 
 function sameMemoSet(left: string[], right: string[]): boolean {
     if (left.length !== right.length) return false;
@@ -123,12 +263,23 @@ function sameMemoSet(left: string[], right: string[]): boolean {
 const hypaRecoveryCheckedAt = new Map<string, number>();
 const hypaRecoveryInFlight = new Map<string, Promise<number>>();
 
-export async function recoverHypaV3SummaryJobs(char: character, room: Chat): Promise<number> {
+export interface HypaV3RecoveryOptions {
+    workflowId?: string;
+    rejectFailed?: boolean;
+    force?: boolean;
+    onJobUpdate?: (job: RecoverableAuxiliaryJob) => void;
+}
+
+export async function recoverHypaV3SummaryJobs(
+    char: character,
+    room: Chat,
+    options: HypaV3RecoveryOptions = {},
+): Promise<number> {
     if (!char?.chaId || !room?.id) return 0;
-    const recoveryKey = `${char.chaId}/${room.id}`;
+    const recoveryKey = `${char.chaId}/${room.id}/${options.workflowId ?? ''}/${options.rejectFailed ? 'strict' : 'normal'}`;
     const existing = hypaRecoveryInFlight.get(recoveryKey);
     if (existing) return existing;
-    if (Date.now() - (hypaRecoveryCheckedAt.get(recoveryKey) ?? 0) < 2000) return 0;
+    if (!options.force && Date.now() - (hypaRecoveryCheckedAt.get(recoveryKey) ?? 0) < 2000) return 0;
     hypaRecoveryCheckedAt.set(recoveryKey, Date.now());
 
     const recovery = (async () => {
@@ -137,19 +288,24 @@ export async function recoverHypaV3SummaryJobs(char: character, room: Chat): Pro
             isContext: isRevenantHypaV3SummaryOperation,
             matchesContext: context =>
                 context.characterId === char.chaId && context.roomId === room.id,
+            matchesJob: job => !options.workflowId || job.workflowId === options.workflowId,
+            force: options.force,
+            onJobUpdate: options.onJobUpdate,
         });
         const consumedJobIds: string[] = [];
         let shouldPersist = false;
         let recovered = 0;
+        let failedJob: typeof jobs[number] | undefined;
         for (const job of jobs) {
             const context = job.operationContext;
 
-            if (job.status === 'generated' && job.rawContent.trim()) {
+            const projectedContent = job.projection?.content ?? '';
+            if (job.status === 'generated' && projectedContent.trim()) {
                 const serialData: SerializableHypaV3Data = room.hypaV3Data ?? { summaries: [] };
                 const alreadyApplied = serialData.summaries.some(summary =>
                     sameMemoSet(summary.chatMemos, context.chatMemos));
                 if (!alreadyApplied) {
-                    const text = job.rawContent
+                    const text = projectedContent
                         .replace(/<Thoughts>[\s\S]*?<\/Thoughts>/g, '')
                         .trim();
                     if (text) {
@@ -167,6 +323,9 @@ export async function recoverHypaV3SummaryJobs(char: character, room: Chat): Pro
                 // have saved the chat but crashed before consuming the job.
                 shouldPersist = true;
             }
+            else if (options.rejectFailed) {
+                failedJob ??= job;
+            }
             consumedJobIds.push(job.jobId);
         }
         if (shouldPersist) {
@@ -176,6 +335,11 @@ export async function recoverHypaV3SummaryJobs(char: character, room: Chat): Pro
         }
         for (const jobId of consumedJobIds) {
             await consumeRecoverableAuxiliaryGeneration(jobId);
+        }
+        if (failedJob) {
+            throw new Error(
+                `HypaV3 provider job ${failedJob.jobId} ended as ${failedJob.status}; automatic retry is disabled.`,
+            );
         }
         return recovered;
     })().finally(() => {
@@ -204,10 +368,36 @@ export async function hypaMemoryV3(
     maxContextTokens: number,
     room: Chat,
     char: character,
-    tokenizer: ChatTokenizer
+    tokenizer: ChatTokenizer,
+    options?: HypaV3ExecutionOptions,
 ): Promise<HypaV3Result> {
-    await recoverHypaV3SummaryJobs(char, room);
+    if (options?.workflowId) {
+        const existingExecution = await getRevenantHypaExecution<RevenantHypaSelectionResult>(
+            options.workflowId,
+            options.signal,
+        );
+        if (existingExecution) {
+            const remote = await waitForRevenantHypaExecution<RevenantHypaSelectionResult>(
+                options.workflowId,
+                options.signal,
+            );
+            room.hypaV3Data = remote.memory;
+            return {
+                currentTokens: remote.currentTokens,
+                chats: remote.chatSequence.map(item => item.chat ?? chats[item.inputIndex]),
+                memory: remote.memory,
+            };
+        }
+    }
     const settings = getCurrentHypaV3Preset().settings;
+    if (settings.similarMemoryRatio > 0) {
+        const model = getDatabase().hypaModel || "MiniLM";
+        // Persist this boundary before waiting for detached summary jobs. If
+        // the page disappears during that wait, the server may finish those
+        // jobs but knows that embedding needs a browser before proceeding.
+        await markClientEmbeddingBoundary(options, model);
+    }
+    await recoverHypaV3SummaryJobs(char, room);
 
     try {
         if (settings.useExperimentalImpl) {
@@ -219,7 +409,8 @@ export async function hypaMemoryV3(
                 maxContextTokens,
                 room,
                 char,
-                tokenizer
+                tokenizer,
+                options,
             );
         }
 
@@ -229,7 +420,7 @@ export async function hypaMemoryV3(
             maxContextTokens,
             room,
             char,
-            tokenizer
+            tokenizer,
         );
     } catch (error) {
         if (error instanceof Error) {
@@ -263,7 +454,8 @@ async function hypaMemoryV3MainExp(
     maxContextTokens: number,
     room: Chat,
     char: character,
-    tokenizer: ChatTokenizer
+    tokenizer: ChatTokenizer,
+    options?: HypaV3ExecutionOptions,
 ): Promise<HypaV3Result> {
     const db = getDatabase();
     const settings = getCurrentHypaV3Preset().settings;
@@ -462,6 +654,94 @@ async function hypaMemoryV3MainExp(
         startIdx = currentIndex;
     }
 
+    let remoteExecutionPrepared = false;
+    const prepareRemoteSelection = async (
+        batchId: string,
+        operationIds: string[],
+    ): Promise<boolean> => {
+        const embeddingModel = db.hypaModel || 'MiniLM';
+        const remoteEmbedding = getRemoteEmbeddingConfig(embeddingModel);
+        const tokenizerSpec = tokenizer.getRevenantSpec();
+        const serverTokenizers = new Set([
+            'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
+            'novellist', 'gemma', 'cohere', 'deepseek',
+        ]);
+        if (
+            !options?.workflowId
+            || !remoteEmbedding
+            || !tokenizerSpec.tokenizer
+            || !serverTokenizers.has(tokenizerSpec.tokenizer)
+        ) return false;
+        try {
+            await prepareRevenantHypaExecution(options.workflowId, {
+                schemaVersion: 1,
+                batchId,
+                expectedOperationIds: operationIds,
+                embedding: remoteEmbedding,
+                tokenizer: tokenizerSpec,
+                settings: {
+                    recentMemoryRatio: settings.recentMemoryRatio,
+                    similarMemoryRatio: settings.similarMemoryRatio,
+                    queryChatCount: settings.queryChatCount,
+                    summaryChunkSeparator: settings.summaryChunkSeparator,
+                },
+                memory: toSerializableHypaV3Data(data),
+                chats: chats.map(chat => ({
+                    role: chat.role,
+                    content: chat.content,
+                    ...(chat.name ? { name: chat.name } : {}),
+                    ...(chat.memo ? { memo: chat.memo } : {}),
+                })),
+                startIdx,
+                currentTokens,
+                maxContextTokens,
+                availableMemoryTokens,
+                memoryTokens,
+                shouldReserveMemoryTokens,
+                randomSeed: batchId,
+            });
+            remoteExecutionPrepared = true;
+            if (!options.deferredMemoryPrompt) {
+                await options.onRemoteSelectionRequiresClient?.();
+            }
+        }
+        catch (error) {
+            console.warn(`${logPrefix} Server selection unavailable; using client:`, error);
+        }
+        return remoteExecutionPrepared;
+    };
+    const consumeRemoteSelection = async (): Promise<HypaV3Result> => {
+        const remote = await waitForRevenantHypaExecution<RevenantHypaSelectionResult>(
+            options.workflowId,
+            options.signal,
+        );
+        room.hypaV3Data = remote.memory;
+        return {
+            currentTokens: remote.currentTokens,
+            chats: remote.chatSequence.map(item => item.chat ?? chats[item.inputIndex]),
+            memory: remote.memory,
+        };
+    };
+    const deferredRemoteSelection = (): HypaV3Result => {
+        const deferredMemoryPrompt = options?.deferredMemoryPrompt;
+        if (!deferredMemoryPrompt) {
+            throw new Error('Deferred Hypa selection requires a memory placeholder');
+        }
+        return {
+            currentTokens,
+            chats: [
+                {
+                    role: 'system',
+                    content: deferredMemoryPrompt,
+                    memo: 'supaMemory',
+                },
+                ...chats.slice(startIdx),
+            ],
+            memory: toSerializableHypaV3Data(data),
+            deferredRemoteSelection: true,
+        };
+    };
+
     // Process all collected summarization tasks
     if (toSummarizeArray.length > 0) {
         // Initialize rate limiter
@@ -486,13 +766,27 @@ async function hypaMemoryV3MainExp(
             });
         };
 
+        const batchId = uuidv4();
+        const useDurableDispatch = settings.summarizationModel === "subModel"
+            && canUseDurableHypaDispatch(room);
+        const operationIds = toSummarizeArray.map(() => uuidv4());
         const summarizationTasks = toSummarizeArray.map(
-            (item) => () => summarize(item, false, {
+            (item, index) => (onRegistered?: () => void) => summarize(item, false, {
                 characterId: char.chaId,
                 roomId: room.id,
+                batchId,
+                operationId: operationIds[index],
                 chatMemos: item.map(chat => chat.memo).filter((memo): memo is string => !!memo),
+                dispatchPolicy: useDurableDispatch ? {
+                    maxConcurrent: settings.summarizationMaxConcurrent,
+                    requestsPerMinute: settings.summarizationRequestsPerMinute,
+                } : undefined,
+                onJobCreated: onRegistered,
             })
         );
+        const prepareRemoteExecution = useDurableDispatch
+            ? () => prepareRemoteSelection(batchId, operationIds)
+            : undefined;
 
         // Start of performance measurement: summarize
         console.log(
@@ -501,9 +795,15 @@ async function hypaMemoryV3MainExp(
         );
         const summarizeStartTime = performance.now();
 
-        const batchResult = await rateLimiter.executeBatch<string>(
-            summarizationTasks
-        );
+        const batchResult = useDurableDispatch
+            ? await executeDurableHypaBatch<string>(
+                summarizationTasks,
+                prepareRemoteExecution,
+                !!options?.deferredMemoryPrompt,
+            )
+            : await rateLimiter.executeBatch<string>(
+                summarizationTasks.map(task => () => task())
+            );
 
         const summarizeEndTime = performance.now();
         console.debug(
@@ -518,6 +818,27 @@ async function hypaMemoryV3MainExp(
             msg: "",
             subMsg: "",
         });
+
+        if (
+            remoteExecutionPrepared
+            && 'detached' in batchResult
+            && batchResult.detached
+        ) {
+            return deferredRemoteSelection();
+        }
+
+        if (remoteExecutionPrepared) {
+            const failed = batchResult.results.find(result => !result.success || !result.data);
+            if (failed) {
+                return {
+                    currentTokens,
+                    chats,
+                    error: `${logPrefix} Summarization failed: ${failed.error || 'Empty summary returned'}`,
+                    memory: toSerializableHypaV3Data(data),
+                };
+            }
+            return consumeRemoteSelection();
+        }
 
         // Note:
         // We can't save some successful summaries to the DB temporarily
@@ -553,6 +874,14 @@ async function hypaMemoryV3MainExp(
         }
         room.hypaV3Data = toSerializableHypaV3Data(data);
         await recoverHypaV3SummaryJobs(char, room);
+    }
+
+    if (toSummarizeArray.length === 0 && data.summaries.length > 0) {
+        await prepareRemoteSelection(uuidv4(), []);
+        if (remoteExecutionPrepared) {
+            if (options?.deferredMemoryPrompt) return deferredRemoteSelection();
+            return consumeRemoteSelection();
+        }
     }
 
     console.log(
@@ -1048,7 +1377,7 @@ async function hypaMemoryV3Main(
     maxContextTokens: number,
     room: Chat,
     char: character,
-    tokenizer: ChatTokenizer
+    tokenizer: ChatTokenizer,
 ): Promise<HypaV3Result> {
     const db = getDatabase();
     const settings = getCurrentHypaV3Preset().settings;
@@ -1242,6 +1571,7 @@ async function hypaMemoryV3Main(
                 const summarizeResult = await summarize(toSummarize, false, {
                     characterId: char.chaId,
                     roomId: room.id,
+                    batchId: uuidv4(),
                     chatMemos: toSummarize.map(chat => chat.memo).filter((memo): memo is string => !!memo),
                 });
 
@@ -1777,7 +2107,15 @@ function sanitizeSummaryContent(content: string): string {
 export async function summarize(
     oaiMessages: OpenAIChat[],
     isResummarize: boolean = false,
-    revenantTarget?: { characterId: string; roomId: string; chatMemos: string[] },
+    revenantTarget?: {
+        characterId: string;
+        roomId: string;
+        batchId: string;
+        operationId?: string;
+        chatMemos: string[];
+        dispatchPolicy?: { maxConcurrent: number; requestsPerMinute: number };
+        onJobCreated?: () => void;
+    },
 ): Promise<string> {
     const db = getDatabase();
     const settings = getCurrentHypaV3Preset().settings;
@@ -1830,8 +2168,14 @@ export async function summarize(
                 noMultiGen: true,
                 revenantOperationContext: revenantTarget ? createRevenantOperation({
                     kind: 'hypav3-summary',
-                    ...revenantTarget,
+                    operationId: revenantTarget.operationId,
+                    characterId: revenantTarget.characterId,
+                    roomId: revenantTarget.roomId,
+                    batchId: revenantTarget.batchId,
+                    chatMemos: revenantTarget.chatMemos,
                 }) : undefined,
+                revenantDispatchPolicy: revenantTarget?.dispatchPolicy,
+                onRevenantJobCreated: revenantTarget?.onJobCreated,
             },
             "memory"
         );

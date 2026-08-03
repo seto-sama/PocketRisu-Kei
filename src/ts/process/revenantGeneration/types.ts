@@ -23,6 +23,67 @@ export type RevenantJobStatus =
     | 'failed_partial'
     | 'failed'
 
+export type RevenantWorkflowStatus = 'active' | 'completed' | 'cancelled' | 'failed'
+
+export type RevenantWorkflowStepStatus =
+    | 'pending'
+    | 'running'
+    | 'waiting_client'
+    | 'waiting_job'
+    | 'output_ready'
+    | 'completed'
+    | 'skipped'
+    | 'failed'
+
+export type RevenantWorkflowRecoveryPolicy =
+    | 'resume'
+    | 'replay_output'
+    | 'at_least_once'
+    | 'foreground_restart'
+    | 'skip'
+
+export interface RevenantWorkflowPlanStep {
+    key: string
+    kind: string
+    recoveryPolicy: RevenantWorkflowRecoveryPolicy
+    status?: Extract<RevenantWorkflowStepStatus, 'pending' | 'completed' | 'skipped'>
+    metadata?: Record<string, unknown>
+}
+
+export interface RevenantWorkflowStep extends Omit<RevenantWorkflowPlanStep, 'status'> {
+    order: number
+    status: RevenantWorkflowStepStatus
+    jobId?: string
+    metadata?: Record<string, unknown>
+    startedAt?: number
+    completedAt?: number
+    updatedAt: number
+}
+
+export interface RevenantWorkflow {
+    workflowId: string
+    characterId: string
+    roomId: string
+    ownerClientId: string
+    planVersion: number
+    status: RevenantWorkflowStatus
+    steps: RevenantWorkflowStep[]
+    createdAt: number
+    updatedAt: number
+    completedAt?: number
+}
+
+export interface RevenantWorkflowExecution<TResult = unknown> {
+    workflowId: string
+    kind: 'hypav3-selection'
+    status: 'queued' | 'running' | 'completed' | 'failed'
+    result?: TResult
+    error?: string
+    createdAt: number
+    updatedAt: number
+    completedAt?: number
+}
+
 export function isRevenantJobActive(status: string): boolean {
     return status === 'queued' || status === 'generating'
 }
@@ -38,6 +99,7 @@ export interface RevenantTranslationOperation {
 export interface RevenantHypaV3SummaryOperation {
     kind: 'hypav3-summary'
     operationId: string
+    batchId: string
     characterId: string
     roomId: string
     chatMemos: string[]
@@ -65,17 +127,39 @@ export type RevenantOperationContext =
 export interface RevenantGenerationContext {
     chatId: string
     jobType: ModelModeExtended
+    /** Concrete client adapter that owns parsing the provider wire response. */
+    adapterKind?: string
+    /** Whether the provider response uses its streaming wire format. */
+    streaming?: boolean
     characterId?: string
     roomId?: string
+    workflowId?: string
+    workflowStepKey?: string
     isContinuation: boolean
     continuationPrefix?: string
     operationContext?: RevenantOperationContext
+    dispatchPolicy?: RevenantDispatchPolicy
+    workflowDependency?: RevenantWorkflowDependency
     /** Canonical models.dev identity used by usage-cost accounting. */
     usageProviderId?: string
     usageModelId?: string
     usageServiceTier?: 'batch'
     /** Client-only callback; omitted when the context is serialized for the server. */
     onJobCreated?: (jobId: string) => void
+    /** Client-only callback fired when no durable server job could be created. */
+    onJobRegistrationUnavailable?: (error?: unknown) => void
+    /** Client-only callback fired when a queued job begins its provider request. */
+    onProviderStarted?: (startedAt: number) => void
+}
+
+export interface RevenantDispatchPolicy {
+    maxConcurrent: number
+    requestsPerMinute: number
+}
+
+export interface RevenantWorkflowDependency {
+    kind: 'hypav3-selection'
+    placeholder: string
 }
 
 export interface RevenantRerollSnapshot {
@@ -95,13 +179,22 @@ export interface RecoverableGenerationJob {
     chatId: string
     characterId?: string
     roomId?: string
+    workflowId?: string
+    workflowStepKey?: string
     isContinuation?: boolean
     continuationPrefix?: string
     generationInfo?: MessageGenerationInfo
     promptInfo?: MessagePresetInfo
     rerollSnapshot?: RevenantRerollSnapshot
+    adapterKind?: string
+    streaming?: boolean
     status: RevenantJobStatus
-    rawContent: string
+    responseStatus?: number
+    responseHeaders?: Record<string, string>
+    rawBytes?: number
+    projection?: RevenantNormalizedProjection
+    projectionError?: string
+    projectedAt?: number
     finishReason?: string
     createdAt: number
     updatedAt: number
@@ -115,14 +208,33 @@ export interface RecoverableAuxiliaryJob {
     jobType: Exclude<ModelModeExtended, 'model'>
     characterId?: string
     roomId?: string
+    workflowId?: string
+    workflowStepKey?: string
     operationContext?: RevenantOperationContext
+    adapterKind?: string
+    streaming?: boolean
     status: RevenantJobStatus
-    rawContent: string
+    responseStatus?: number
+    responseHeaders?: Record<string, string>
+    rawBytes?: number
+    projection?: RevenantNormalizedProjection
+    projectionError?: string
+    projectedAt?: number
     error?: string
+    dispatchedAt?: number
     createdAt: number
     updatedAt: number
     completedAt?: number
     materializedAt?: number
+}
+
+export interface RevenantNormalizedProjection {
+    // Rebuildable view of the append-only provider journal. The journal, not
+    // this object, remains the recovery source of truth.
+    schemaVersion: 1
+    source: 'server' | 'client'
+    adapterKind: string
+    content: string
 }
 
 export interface MaterializedGeneration {
@@ -131,20 +243,22 @@ export interface MaterializedGeneration {
 }
 
 export function createRevenantOperation(
-    operation: Omit<RevenantTranslationOperation, 'operationId'>,
+    operation: Omit<RevenantTranslationOperation, 'operationId'> & { operationId?: string },
 ): RevenantTranslationOperation
 export function createRevenantOperation(
-    operation: Omit<RevenantHypaV3SummaryOperation, 'operationId'>,
+    operation: Omit<RevenantHypaV3SummaryOperation, 'operationId'> & { operationId?: string },
 ): RevenantHypaV3SummaryOperation
 export function createRevenantOperation(
-    operation: Omit<RevenantLuaLlmOperation, 'operationId'>,
+    operation: Omit<RevenantLuaLlmOperation, 'operationId'> & { operationId?: string },
 ): RevenantLuaLlmOperation
 export function createRevenantOperation(
     operation: object,
 ): RevenantOperationContext {
     return {
         ...operation,
-        operationId: uuidv4(),
+        operationId: typeof (operation as { operationId?: unknown }).operationId === 'string'
+            ? (operation as { operationId: string }).operationId
+            : uuidv4(),
     } as RevenantOperationContext
 }
 

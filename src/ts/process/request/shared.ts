@@ -7,6 +7,10 @@ import {
     type ModelModeExtended,
 } from '../revenantGeneration/types'
 import {
+    getLocalRevenantWorkflow,
+    getRevenantWorkflowStepKey,
+} from '../revenantGeneration/workflow'
+import {
     applyAdditionalParameters,
     setObjectValue,
 } from 'src/ts/preset/runtime/additionalParameters'
@@ -43,18 +47,31 @@ export function buildGenerationContext(
     const chatId = arg.chatId ?? (arg.revenantRequestId ??= `aux-${uuidv4()}`)
 
     const activeChat = arg.currentChar?.chats?.[arg.currentChar.chatPage]
+    const characterId = arg.currentChar?.chaId
+    const roomId = activeChat?.id
+    const workflow = getLocalRevenantWorkflow(characterId, roomId)
     return {
         chatId,
         jobType,
-        characterId: arg.currentChar?.chaId,
-        roomId: activeChat?.id,
+        adapterKind: arg.revenantAdapterKind,
+        streaming: arg.revenantStreaming,
+        characterId,
+        roomId,
+        workflowId: workflow?.workflowId,
+        workflowStepKey: workflow
+            ? getRevenantWorkflowStepKey(jobType, arg.revenantOperationContext, chatId)
+            : undefined,
         isContinuation: arg.continue === true,
         continuationPrefix: arg.continue
             ? activeChat?.message?.at(-1)?.data
             : undefined,
         operationContext: arg.revenantOperationContext,
+        dispatchPolicy: arg.revenantDispatchPolicy,
+        workflowDependency: arg.revenantWorkflowDependency,
         ...usageIdentity,
         onJobCreated: arg.onRevenantJobCreated,
+        onJobRegistrationUnavailable: arg.onRevenantJobRegistrationUnavailable,
+        onProviderStarted: arg.onRevenantProviderStarted,
     }
 }
 

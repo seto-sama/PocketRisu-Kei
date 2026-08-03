@@ -65,10 +65,10 @@ export function prepareRevenantTranslationRequest(
 }
 
 export function decodeRevenantTranslation(
-    rawContent: string,
+    content: string,
     styleDecodes: string[],
 ): string {
-    return rawContent
+    return content
         .replace(/<style-data style-index="(\d+)" ?\/?>/g, (_match, index) =>
             styleDecodes[Number(index)] ?? '')
         .replace(/<\/style-data>/g, '')
@@ -77,10 +77,10 @@ export function decodeRevenantTranslation(
 export async function completeRevenantTranslation(
     cache: RevenantTranslationCache,
     request: RevenantTranslationRequest,
-    rawContent: string,
+    content: string,
     jobId?: string | null,
 ): Promise<string> {
-    const result = decodeRevenantTranslation(rawContent, request.styleDecodes)
+    const result = decodeRevenantTranslation(content, request.styleDecodes)
     await cache.store(request.cacheKey, result)
     if (jobId) {
         try {
@@ -125,11 +125,12 @@ async function recoverTranslationJob(
         ) as RecoverableTranslationJob
         const context = resolved.operationContext
         let recovered = false
-        if (resolved.status === 'generated' && resolved.rawContent.trim()) {
+        const projectedContent = resolved.projection?.content ?? ''
+        if (resolved.status === 'generated' && projectedContent.trim()) {
             const existingTranslation = await cache.get(context.cacheKey)
             if (context.replaceExisting || existingTranslation === null) {
                 const result = decodeRevenantTranslation(
-                    resolved.rawContent,
+                    projectedContent,
                     context.styleDecodes,
                 )
                 if (result !== existingTranslation) {

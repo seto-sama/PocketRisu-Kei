@@ -1,0 +1,114 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { get } from 'svelte/store'
+import type { RevenantWorkflow } from './types'
+import {
+    activeRevenantWorkflows,
+    cancelRevenantWorkflow,
+    createRevenantWorkflowResumeMetadata,
+    getActiveRevenantWorkflow,
+    getRevenantWorkflow,
+    getRevenantWorkflowResumeContext,
+} from './workflow'
+import { configureRevenantGenerationClient } from './client'
+
+function workflowWithMetadata(metadata?: Record<string, unknown>): RevenantWorkflow {
+    return {
+        workflowId: 'workflow-1',
+        characterId: 'character-1',
+        roomId: 'room-1',
+        ownerClientId: 'client-1',
+        planVersion: 1,
+        status: 'active',
+        createdAt: 1,
+        updatedAt: 1,
+        steps: [{
+            key: 'prompt.build',
+            kind: 'prompt.build',
+            recoveryPolicy: 'resume',
+            status: 'pending',
+            order: 0,
+            metadata,
+            updatedAt: 1,
+        }],
+    }
+}
+
+configureRevenantGenerationClient({
+    createAuth: async () => 'auth',
+    getSyncClientId: () => 'client-1',
+})
+
+afterEach(() => {
+    vi.unstubAllGlobals()
+})
+
+describe('revenant workflow resume checkpoint', () => {
+    it('round-trips the stable main message identity and invocation mode', () => {
+        const metadata = createRevenantWorkflowResumeMetadata({
+            version: 1,
+            chatProcessIndex: -1,
+            messageChatId: 'message-1',
+            continue: true,
+        })
+
+        expect(getRevenantWorkflowResumeContext(workflowWithMetadata(metadata))).toEqual({
+            version: 1,
+            chatProcessIndex: -1,
+            messageChatId: 'message-1',
+            continue: true,
+            rerollSnapshot: undefined,
+        })
+    })
+
+    it('rejects an incomplete checkpoint instead of guessing', () => {
+        expect(getRevenantWorkflowResumeContext(workflowWithMetadata({
+            version: 1,
+            chatProcessIndex: -1,
+            continue: false,
+        }))).toBeUndefined()
+    })
+})
+
+describe('active workflow client state', () => {
+    it('loads a terminal workflow so another device can apply cancellation UI state', async () => {
+        const workflow = { ...workflowWithMetadata(), status: 'cancelled' as const }
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ workflow }), { status: 200 }),
+        ))
+
+        await expect(getRevenantWorkflow('workflow-1')).resolves.toEqual(workflow)
+        expect(get(activeRevenantWorkflows)).toEqual([])
+    })
+
+    it('publishes a reconnected workflow and clears it when the server no longer has one', async () => {
+        const workflow = workflowWithMetadata()
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow }), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: null }), { status: 200 }))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await getActiveRevenantWorkflow('character-1', 'room-1')
+        expect(get(activeRevenantWorkflows)).toEqual([workflow])
+
+        await getActiveRevenantWorkflow('character-1', 'room-1')
+        expect(get(activeRevenantWorkflows)).toEqual([])
+    })
+
+    it('cancels a workflow from any connected client and clears the spinner state', async () => {
+        const workflow = workflowWithMetadata()
+        const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+            if (String(input).includes('/active?')) {
+                return new Response(JSON.stringify({ workflow }), { status: 200 })
+            }
+            expect(init?.method).toBe('POST')
+            expect(JSON.parse(String(init?.body))).toEqual({ status: 'cancelled' })
+            return new Response(JSON.stringify({ success: true }), { status: 200 })
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        await getActiveRevenantWorkflow('character-1', 'room-1')
+        await cancelRevenantWorkflow('workflow-1')
+
+        expect(get(activeRevenantWorkflows)).toEqual([])
+    })
+})

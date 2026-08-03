@@ -48,6 +48,7 @@ import {
 } from "src/ts/status/requestStatus";
 import type { RevenantGenerationContext, RevenantOperationContext } from "../revenantGeneration/types";
 import { reportRevenantGenerationUsage } from "../revenantGeneration/client";
+import { combineProviderStartedHandlers } from "../revenantGeneration/coordinator";
 import { MODELS_DEV_REGISTRY_ID } from "src/ts/preset/registry/modelsDev";
 
 export type ToolCall = {
@@ -78,10 +79,16 @@ interface requestDataArgument{
     tools?: MCPTool[]
     rememberToolUsage?: boolean
     forceStreaming?: boolean
+    revenantAdapterKind?: string
+    revenantStreaming?: boolean
     blockPlugins?: boolean
     /** Persisted data needed to apply an auxiliary result after a reload. */
     revenantOperationContext?:RevenantOperationContext
+    revenantDispatchPolicy?:import('../revenantGeneration/types').RevenantDispatchPolicy
+    revenantWorkflowDependency?:import('../revenantGeneration/types').RevenantWorkflowDependency
     onRevenantJobCreated?:(jobId:string) => void
+    onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
+    onRevenantProviderStarted?:(startedAt:number) => void
 }
 
 export interface RequestDataArgumentExtended extends requestDataArgument{
@@ -560,6 +567,7 @@ async function requestPluginPreset(
             chatId: arg.chatId,
             phase: 'connecting',
             now: Date.now(),
+            abortSignal: abortSignal ?? undefined,
         }))
     }
 
@@ -872,6 +880,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     }
     const kind = compiled.adapterKind
     const adapter = compiled.adapter
+    arg.revenantAdapterKind = kind
 
     const credential = buildModelPresetCredential(preset)
     const usageIdentity = modelsDevUsageIdentity(preset)
@@ -1054,6 +1063,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         // streaming tool_call assembly is a later stage. Status is NOT reported
         // for the tool path in v1 (it bypasses the pump); see the toast infra note.
         if (tools) {
+            arg.revenantStreaming = false
             const { result, toolsExecuted } = await runModelPresetToolLoop(
                 arg,
                 preset,
@@ -1076,6 +1086,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             && !(kind === 'anthropic-messages'
                 && preset.profileSnapshot.providerBaseId === 'anthropic'
                 && preset.claudeBatching)
+        arg.revenantStreaming = useStreaming
         const options: AdapterChatOptions = {
             messages,
             abortSignal: abortSignal ?? undefined,
@@ -1085,7 +1096,23 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             structuredOutput,
         }
         if (reportStatus) {
-            safeStatus(() => startStatus(genId, { kind: statusKind, label: preset.name, chatId: arg.chatId, phase: 'connecting', now: Date.now() }))
+            const startRequestStatus = (startedAt: number) => safeStatus(() => startStatus(genId, {
+                kind: statusKind,
+                label: preset.name,
+                chatId: arg.chatId,
+                phase: 'connecting',
+                now: startedAt,
+                abortSignal: abortSignal ?? undefined,
+            }))
+            if (arg.revenantDispatchPolicy || arg.revenantWorkflowDependency) {
+                arg.onRevenantProviderStarted = combineProviderStartedHandlers(
+                    arg.onRevenantProviderStarted,
+                    startRequestStatus,
+                )
+            }
+            else {
+                startRequestStatus(Date.now())
+            }
         }
         if(useStreaming){
             const gen = adapter.stream(preset, options, credential)

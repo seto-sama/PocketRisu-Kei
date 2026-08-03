@@ -24,7 +24,7 @@ import {
     findRecoverableAuxiliaryGeneration,
     listRecoverableAuxiliaryGenerations,
     resolveRecoverableAuxiliaryGenerations,
-    updateRecoverableAuxiliaryGenerationResult,
+    updateRecoverableAuxiliaryGenerationProjection,
 } from "./revenantGeneration/auxiliary";
 import type { RecoverableAuxiliaryJob } from "./revenantGeneration/types";
 import { loadLoreBookV3Prompt } from './lorebook.svelte';
@@ -549,9 +549,10 @@ export async function runScripted(code:string, arg:{
                 ));
                 const replayKey = `${execution.executionKey}:${callIndex}:${requestHash}`;
                 const existing = await getLuaReplayJob(replayKey);
-                if (existing?.status === 'generated' && existing.rawContent.length > 0) {
+                const projectedContent = existing?.projection?.content ?? '';
+                if (existing?.status === 'generated' && projectedContent.length > 0) {
                     execution.completedJobIds.add(existing.jobId);
-                    return { replay: existing.rawContent };
+                    return { replay: projectedContent };
                 }
                 if (existing) {
                     // Interrupted/failed work cannot provide a reliable return
@@ -586,7 +587,7 @@ export async function runScripted(code:string, arg:{
                     && candidate.operationContext.operationId === operationContext.operationId);
                 if (!job) return false;
                 if (isRevenantJobActive(job.status)) return false;
-                await updateRecoverableAuxiliaryGenerationResult(job.jobId, result);
+                await updateRecoverableAuxiliaryGenerationProjection(job.jobId, result);
                 ScriptingEngineState.revenantLuaExecution?.completedJobIds.add(job.jobId);
                 return true;
             };
@@ -1659,6 +1660,24 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
     } catch (error) {
         return content
     }
+}
+
+export function hasLuaEditRequestListener(char: character|simpleCharacterArgument): boolean {
+    return char.triggerscript
+        .concat(getModuleTriggers())
+        .some(trigger => {
+            const effect = trigger?.effect?.[0]
+            if (effect?.type !== 'triggerlua') return false
+            const listenerPattern = /\blistenEdit\s*\(\s*([^,\r\n)]+)/g
+            for (const match of effect.code.matchAll(listenerPattern)) {
+                const argument = match[1].trim()
+                const literal = argument.match(/^(['"])(.*?)\1$/)
+                // A dynamic first argument cannot be proven unrelated to
+                // editRequest, so retain the browser execution boundary.
+                if (!literal || literal[2] === 'editRequest') return true
+            }
+            return false
+        })
 }
 
 export async function runLuaButtonTrigger(char:character|simpleCharacterArgument, data:string):Promise<any>{

@@ -46,7 +46,7 @@ export async function sendResponsesRequest(
         options,
         'Failed to parse OpenAI Responses JSON response',
     )
-    return parseResponse(raw)
+    return parseResponsesResponse(raw)
 }
 
 export async function* streamResponsesRequest(
@@ -70,7 +70,7 @@ export async function* streamResponsesRequest(
             } catch (err) {
                 throw new ModelPresetAdapterError('parse', 'Failed to parse OpenAI Responses stream event', { cause: err })
             }
-            const delta = parseStreamEvent(raw)
+            const delta = parseResponsesStreamEvent(raw)
             if (delta) yield delta
         }
     } catch (err) {
@@ -223,7 +223,7 @@ function toDataUrl(image: AdapterImagePart): string {
     return `data:${image.mime ?? 'image/png'};base64,${image.base64}`
 }
 
-function parseResponse(raw: unknown): AdapterChatResponse {
+export function parseResponsesResponse(raw: unknown): AdapterChatResponse {
     if (!isPlainObject(raw)) throw new ModelPresetAdapterError('parse', 'OpenAI Responses response is not an object')
     const output = raw.output
     if (!Array.isArray(output)) throw new ModelPresetAdapterError('parse', 'OpenAI Responses response has no output array')
@@ -262,7 +262,7 @@ function parseResponse(raw: unknown): AdapterChatResponse {
     }
 }
 
-function parseStreamEvent(raw: unknown): AdapterChatStreamDelta | null {
+export function parseResponsesStreamEvent(raw: unknown): AdapterChatStreamDelta | null {
     if (!isPlainObject(raw) || typeof raw.type !== 'string') return null
     if (raw.type === 'response.output_text.delta' && typeof raw.delta === 'string') {
         return { textDelta: raw.delta, raw }
