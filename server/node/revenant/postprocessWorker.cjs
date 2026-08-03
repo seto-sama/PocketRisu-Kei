@@ -4,6 +4,7 @@ const {
     runRevenantOutputStage,
     runRevenantOutputTransform,
     runRevenantTriggerStage,
+    renderRevenantPostprocessPrompt,
 } = require('./postprocessPipeline.cjs');
 
 function createRevenantPostprocessWorker(options) {
@@ -11,6 +12,7 @@ function createRevenantPostprocessWorker(options) {
     const {
         claimGenerationWorkflowStep,
         getGenerationWorkflow,
+        finishGenerationWorkflow,
         listReadyChatWorkflowJobs,
         updateGenerationWorkflowStep,
     } = repository;
@@ -19,6 +21,10 @@ function createRevenantPostprocessWorker(options) {
         transformOutput = runRevenantOutputTransform,
         runOutputStage = runRevenantOutputStage,
         runTriggerStage = runRevenantTriggerStage,
+        renderPrompt = renderRevenantPostprocessPrompt,
+        materializeGeneration = async () => {
+            throw new Error('Revenant materializer is not configured');
+        },
     } = options;
     let timer = null;
     let running = false;
@@ -76,6 +82,7 @@ function createRevenantPostprocessWorker(options) {
                             status: 'failed',
                             metadata: { schemaVersion: 1, error: message },
                         });
+                        finishGenerationWorkflow(workflow.workflowId, 'failed');
                         logger.error(`[Revenant] Output transform failed for ${workflow.workflowId}:`, error);
                     }
                     outputStep = getGenerationWorkflow(workflow.workflowId)?.steps
@@ -85,33 +92,204 @@ function createRevenantPostprocessWorker(options) {
 
                 let triggerStep = getGenerationWorkflow(workflow.workflowId)?.steps
                     ?.find(step => step.key === 'trigger.output');
-                if (triggerStep?.status !== 'pending'
-                    || !claimGenerationWorkflowStep(workflow.workflowId, 'trigger.output', 'pending')) continue;
+                if (triggerStep?.status === 'pending'
+                    && claimGenerationWorkflowStep(workflow.workflowId, 'trigger.output', 'pending')) {
+                    try {
+                        const result = await runTriggerStage({
+                            recipe: workflow.context.postprocess,
+                            text: outputStep.metadata.text,
+                            chat: outputStep.metadata.chat,
+                            responses: triggerStep.metadata?.responses,
+                        });
+                        updateGenerationWorkflowStep(workflow.workflowId, 'trigger.output', {
+                            status: result.status === 'waiting_client' ? 'waiting_client' : 'completed',
+                            metadata: {
+                                schemaVersion: 1,
+                                ...(triggerStep.metadata?.responses
+                                    ? { responses: triggerStep.metadata.responses }
+                                    : {}),
+                                ...result,
+                            },
+                        });
+                    }
+                    catch (error) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        updateGenerationWorkflowStep(workflow.workflowId, 'trigger.output', {
+                            status: 'failed',
+                            metadata: { schemaVersion: 1, error: message },
+                        });
+                        finishGenerationWorkflow(workflow.workflowId, 'failed');
+                        logger.error(`[Revenant] Output trigger failed for ${workflow.workflowId}:`, error);
+                    }
+                }
+                triggerStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                    ?.find(step => step.key === 'trigger.output');
+                if (triggerStep?.status !== 'completed') continue;
+
+                let currentChat = triggerStep.metadata.chat;
+                let igpStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                    ?.find(step => step.key === 'igp');
+                if (igpStep?.status === 'pending'
+                    && claimGenerationWorkflowStep(workflow.workflowId, 'igp', 'pending')) {
+                    const rawPrompt = String(
+                        workflow.context.postprocess.database?.igpPrompt || '',
+                    ).trim();
+                    const prompt = rawPrompt
+                        ? renderPrompt(rawPrompt, workflow.context.postprocess, currentChat).trim()
+                        : '';
+                    if (!prompt) {
+                        updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
+                            status: 'skipped', metadata: { schemaVersion: 1, chat: currentChat },
+                        });
+                    }
+                    else if (!workflow.context.postprocess.igpProvider) {
+                        updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
+                            status: 'skipped',
+                            metadata: {
+                                schemaVersion: 1,
+                                chat: currentChat,
+                                error: 'IGP model preset is not configured',
+                            },
+                        });
+                    }
+                    else {
+                        const actionId = 'igp.provider';
+                        const response = igpStep.metadata?.responses?.[actionId];
+                        if (response === undefined) {
+                            updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
+                                status: 'waiting_client',
+                                metadata: {
+                                    schemaVersion: 1,
+                                    ...(igpStep.metadata?.responses
+                                        ? { responses: igpStep.metadata.responses }
+                                        : {}),
+                                    action: {
+                                        schemaVersion: 1,
+                                        actionId,
+                                        kind: 'provider.igp',
+                                        payload: {
+                                            backend: workflow.context.postprocess.igpProvider.backend,
+                                            modelPreset: workflow.context.postprocess.igpProvider.modelPreset,
+                                            prompt,
+                                        },
+                                    },
+                                },
+                            });
+                        }
+                        else if (response?.success !== true || typeof response.result !== 'string') {
+                            updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
+                                status: 'skipped',
+                                metadata: {
+                                    schemaVersion: 1, chat: currentChat,
+                                    error: String(response?.result || 'IGP provider request failed'),
+                                },
+                            });
+                        }
+                        else {
+                            currentChat = structuredClone(currentChat);
+                            const target = currentChat.message.findLast(message => message?.role === 'char');
+                            if (target) target.data += response.result;
+                            updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
+                                status: 'completed',
+                                metadata: {
+                                    schemaVersion: 1, chat: currentChat,
+                                    responses: igpStep.metadata.responses,
+                                },
+                            });
+                        }
+                    }
+                    igpStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                        ?.find(step => step.key === 'igp');
+                }
+                if (!['completed', 'skipped'].includes(igpStep?.status)) continue;
+                currentChat = igpStep.metadata?.chat || currentChat;
+
+                const foregroundEffects = [
+                    ...(outputStep.metadata.foregroundEffects || []),
+                    ...(triggerStep.metadata.foregroundEffects || []),
+                ];
+                const finalMessage = [...(currentChat.message || [])]
+                    .reverse()
+                    .find(message => message?.role === 'char');
+                if (workflow.context.postprocess.database?.notification && finalMessage?.data) {
+                    foregroundEffects.push({ kind: 'notification', text: finalMessage.data });
+                }
+                if (
+                    workflow.context.postprocess.database?.ttsEnabled
+                    && workflow.context.postprocess.database?.ttsAutoSpeech
+                    && finalMessage?.data
+                ) {
+                    foregroundEffects.push({ kind: 'tts', text: finalMessage.data });
+                }
+                if (triggerStep.metadata?.resend === true) {
+                    foregroundEffects.push({ kind: 'chat.resend' });
+                }
+                let foregroundStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                    ?.find(step => step.key === 'postprocess');
+                if (foregroundStep?.status === 'pending'
+                    && claimGenerationWorkflowStep(workflow.workflowId, 'postprocess', 'pending')) {
+                    const actionId = 'postprocess.ui-effects';
+                    const acknowledged = foregroundStep.metadata?.responses?.[actionId] !== undefined;
+                    if (foregroundEffects.length > 0 && !acknowledged) {
+                        updateGenerationWorkflowStep(workflow.workflowId, 'postprocess', {
+                            status: 'waiting_client',
+                            metadata: {
+                                schemaVersion: 1,
+                                ...(foregroundStep.metadata?.responses
+                                    ? { responses: foregroundStep.metadata.responses }
+                                    : {}),
+                                chat: currentChat,
+                                action: {
+                                    schemaVersion: 1,
+                                    actionId,
+                                    kind: 'ui.effects',
+                                    payload: { effects: foregroundEffects },
+                                },
+                            },
+                        });
+                    }
+                    else {
+                        updateGenerationWorkflowStep(workflow.workflowId, 'postprocess', {
+                            status: 'completed',
+                            metadata: {
+                                schemaVersion: 1, chat: currentChat, foregroundEffects,
+                                ...(foregroundStep.metadata?.responses
+                                    ? { responses: foregroundStep.metadata.responses }
+                                    : {}),
+                            },
+                        });
+                    }
+                    foregroundStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                        ?.find(step => step.key === 'postprocess');
+                }
+                if (foregroundStep?.status !== 'completed') continue;
+
+                const materializeStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                    ?.find(step => step.key === 'message.materialize');
+                if (materializeStep?.status === 'completed') {
+                    finishGenerationWorkflow(workflow.workflowId, 'completed');
+                    continue;
+                }
+                if (materializeStep?.status !== 'pending'
+                    || !claimGenerationWorkflowStep(
+                        workflow.workflowId,
+                        'message.materialize',
+                        'pending',
+                    )) continue;
                 try {
-                    const result = await runTriggerStage({
-                        recipe: workflow.context.postprocess,
-                        text: outputStep.metadata.text,
-                        chat: outputStep.metadata.chat,
-                        responses: triggerStep.metadata?.responses,
-                    });
-                    updateGenerationWorkflowStep(workflow.workflowId, 'trigger.output', {
-                        status: result.status === 'waiting_client' ? 'waiting_client' : 'completed',
-                        metadata: {
-                            schemaVersion: 1,
-                            ...(triggerStep.metadata?.responses
-                                ? { responses: triggerStep.metadata.responses }
-                                : {}),
-                            ...result,
-                        },
-                    });
+                    await materializeGeneration(job.jobId);
+                    finishGenerationWorkflow(workflow.workflowId, 'completed');
                 }
                 catch (error) {
-                    const message = error instanceof Error ? error.message : String(error);
-                    updateGenerationWorkflowStep(workflow.workflowId, 'trigger.output', {
-                        status: 'failed',
-                        metadata: { schemaVersion: 1, error: message },
+                    retry = true;
+                    updateGenerationWorkflowStep(workflow.workflowId, 'message.materialize', {
+                        status: 'pending',
+                        metadata: {
+                            schemaVersion: 1,
+                            error: error instanceof Error ? error.message : String(error),
+                        },
                     });
-                    logger.error(`[Revenant] Output trigger failed for ${workflow.workflowId}:`, error);
+                    logger.error(`[Revenant] Materialization failed for ${workflow.workflowId}:`, error);
                 }
             }
         }

@@ -14,7 +14,6 @@ describe('generation workflow step executions', () => {
                 workflowId: 'workflow-1',
                 characterId: 'character-1',
                 roomId: 'room-1',
-                ownerClientId: 'client-1',
                 context: { schemaVersion: 1, kind: 'chat-generation' },
                 plan: [{
                     key: 'model.main',
@@ -41,19 +40,13 @@ describe('generation workflow step executions', () => {
             db.finishGenerationJob('job-2', 'generated', 'provider_complete');
             create('job-3', 'execution-2');
             const beforeCancel = db.getGenerationWorkflow('workflow-1');
-            const claimed = db.claimGenerationWorkflow(
-                'workflow-1', 'client-2', 'client-1', 1,
-            );
-            const staleClaim = db.claimGenerationWorkflow(
-                'workflow-1', 'client-3', 'client-2', 1,
-            );
             const cancellation = db.cancelGenerationStepExecution(
                 'workflow-1', 'execution-2',
             );
             const workflow = db.getGenerationWorkflow('workflow-1');
             const jobs = db.listGenerationWorkflowJobs('workflow-1');
             process.stdout.write(JSON.stringify({
-                workflow, jobs, claimed, staleClaim, beforeCancel, cancellation,
+                workflow, jobs, beforeCancel, cancellation,
             }));
         `
         try {
@@ -75,9 +68,6 @@ describe('generation workflow step executions', () => {
                 schemaVersion: 1,
                 kind: 'chat-generation',
             })
-            expect(result.claimed).toMatchObject({ ownerClientId: 'client-2', ownerEpoch: 2 })
-            expect(result.staleClaim).toBeNull()
-            expect(result.workflow).toMatchObject({ ownerClientId: 'client-2', ownerEpoch: 2 })
             expect(result.workflow.steps[0]).toMatchObject({ status: 'failed' })
             expect(result.workflow.steps[0].executions[1]).toMatchObject({
                 executionId: 'execution-2',

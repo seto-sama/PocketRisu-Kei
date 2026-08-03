@@ -23,12 +23,11 @@ import { runInlayScreen } from "./inlayScreen";
 import { runImageEmbedding } from "./transformers";
 import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
 import { getModelInfo, LLMFlags } from "../model/modellist";
-import { resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
+import { applyPromptPresetParams, resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
 import { type RevenantChatWorkflowContext, type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant/types";
 import {
     cancelRevenantGeneration,
     checkpointRevenantGeneration,
-    finalizeRevenantGeneration,
     registerRevenantGenerationMetadata,
     updateRevenantGenerationMetadata,
 } from "./revenant/client";
@@ -49,11 +48,13 @@ import {
     cancelRevenantWorkflow,
     createChatGenerationWorkflowPlan,
     finishRevenantWorkflow,
+    getRevenantWorkflow,
     type RevenantWorkflowResumeContext,
     RevenantWorkflowBusyError,
     updateRevenantWorkflowStep,
     waitForRevenantHypaExecution,
 } from "./revenant/workflow";
+import { serviceRevenantClientActions } from './revenant/clientActions.svelte';
 
 export { recoverRevenantGenerationsForChat } from "./revenant/chatRecovery.svelte";
 
@@ -175,7 +176,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let revenantMainJobCreated = (resumeWorkflow?.steps
         .find(step => step.key === 'model.main')?.executions.length ?? 0) > 0
     let revenantMainRegistrationError:unknown
-    let revenantMaterialized = false
 
     const stageTimings = {
         stage1Start: 0,
@@ -308,6 +308,62 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
+    async function waitForServerWorkflow(workflowId:string):Promise<boolean>{
+        while(true){
+            if(abortSignal.aborted){
+                await cancelRevenantWorkflow(workflowId).catch(() => {})
+                revenantWorkflowId = undefined
+                finishStreamingDisplay()
+                doingChat.set(false)
+                return false
+            }
+            try{
+                const workflow = await getRevenantWorkflow(workflowId)
+                if(workflow.status === 'completed'){
+                    const canonicalChat = ['postprocess', 'igp', 'trigger.output', 'output.transform']
+                        .map(key => workflow.steps.find(step => step.key === key)?.metadata?.chat)
+                        .find(chat => chat && typeof chat === 'object' && Array.isArray((chat as Chat).message)) as Chat | undefined
+                    if(canonicalChat?.id === DBState.db.characters[selectedChar]?.chats?.[selectedChat]?.id){
+                        DBState.db.characters[selectedChar].chats[selectedChat] = normalizeChat(
+                            safeStructuredClone(canonicalChat),
+                        )
+                        currentChar.reloadKeys += 1
+                    }
+                    const resend = workflow.steps
+                        .find(step => step.key === 'postprocess')
+                        ?.metadata?.foregroundEffects
+                    const shouldResend = Array.isArray(resend)
+                        && resend.some(effect => effect && typeof effect === 'object'
+                            && (effect as { kind?: unknown }).kind === 'chat.resend')
+                    revenantWorkflowId = undefined
+                    finishStreamingDisplay()
+                    doingChat.set(false)
+                    if(shouldResend){
+                        return await sendChat(chatProcessIndex, { signal: abortSignal })
+                    }
+                    return true
+                }
+                if(workflow.status === 'cancelled' || workflow.status === 'failed'){
+                    const failedStep = workflow.steps.find(step => step.status === 'failed')
+                    const error = failedStep?.metadata?.error
+                    if(workflow.status === 'failed' && typeof error === 'string') throwError(error)
+                    revenantWorkflowId = undefined
+                    finishStreamingDisplay()
+                    doingChat.set(false)
+                    return false
+                }
+                if(workflow.steps.some(step => step.status === 'waiting_client')){
+                    await serviceRevenantClientActions(workflow, currentChar, abortSignal)
+                }
+            }
+            catch(error){
+                if(abortSignal.aborted) continue
+                console.warn('[Revenant] Failed to observe server workflow:', error)
+            }
+            await new Promise(resolve => setTimeout(resolve, 250))
+        }
+    }
+
     function wasWorkflowStepCompleted(stepKey:string):boolean{
         const status = resumeWorkflow?.steps.find(step => step.key === stepKey)?.status
         return status === 'completed' || status === 'skipped'
@@ -383,7 +439,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const claimBinding = resolveChatModelBinding(outgoingChat, 'model')
     if(!resumeWorkflow && !arg.preview && !arg.previewPrompt && claimBinding.kind === 'modelPreset'){
         try{
-            const compiledMainPreset = compileModelPreset(claimBinding.preset, {
+            const effectiveMainPreset = applyPromptPresetParams(
+                claimBinding.preset,
+                outgoingChat,
+                'model',
+            )
+            const compiledMainPreset = compileModelPreset(effectiveMainPreset, {
                 jsonSchemaRequested: DBState.db.jsonSchemaEnabled,
             })
             revenantMainBackend = compiledMainPreset.backend
@@ -394,6 +455,19 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             if(compiledMainPreset.backend !== 'echo'){
                 if(!outgoingChat.id) throw new Error('Cannot start generation because the chat has no id.')
                 const igpEnabled = !!(DBState.db.igpPrompt ?? '').trim()
+                let igpProvider:RevenantChatWorkflowContext['postprocess']['igpProvider']
+                if(igpEnabled){
+                    const igpBinding = resolveChatModelBinding(outgoingChat, 'emotion')
+                    if(igpBinding.kind === 'modelPreset'){
+                        const compiledIgpPreset = compileModelPreset(igpBinding.preset, {
+                            jsonSchemaRequested: false,
+                        })
+                        igpProvider = {
+                            backend: compiledIgpPreset.backend,
+                            modelPreset: safeStructuredClone(compiledIgpPreset.sourcePreset),
+                        }
+                    }
+                }
                 const resumeContext:RevenantWorkflowResumeContext = {
                     version: 1,
                     chatProcessIndex,
@@ -421,6 +495,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         rerollSnapshot,
                         providerBackend: compiledMainPreset.backend,
                         modelPreset: safeStructuredClone(compiledMainPreset.sourcePreset),
+                        igpProvider,
                         character: postprocessCharacter,
                         chat: safeStructuredClone(outgoingChat),
                         database: {
@@ -435,6 +510,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             dynamicAssets: DBState.db.dynamicAssets ?? false,
                             dynamicAssetsEditDisplay: DBState.db.dynamicAssetsEditDisplay ?? false,
                             igpPrompt: DBState.db.igpPrompt ?? '',
+                            notification: DBState.db.notification ?? false,
+                            ttsEnabled: DBState.db.ttsEnabled ?? false,
+                            ttsAutoSpeech: DBState.db.ttsAutoSpeech ?? false,
                         },
                         modules: safeStructuredClone(getModules()),
                         moduleRegexScripts: safeStructuredClone(getModuleRegexScripts()),
@@ -450,6 +528,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         persistUserMessage: outgoingMessage?.role === 'user',
                         hypaEnabled,
                         igpEnabled,
+                        pluginProvider: compiledMainPreset.backend === 'plugin',
                     }),
                 })
                 revenantWorkflowId = workflow.workflowId
@@ -1939,6 +2018,59 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         rerollSnapshot,
     })
 
+    if (revenantWorkflowId && revenantMainBackend === 'plugin') {
+        if (claimBinding.kind !== 'modelPreset') {
+            throwError(language.modelPresetBindingMainUnset)
+            await finishWorkflow('failed')
+            finishStreamingDisplay()
+            doingChat.set(false)
+            return false
+        }
+        try {
+            await updateRevenantWorkflowStep(
+                revenantWorkflowId,
+                'model.dispatch',
+                'waiting_client',
+                {
+                    schemaVersion: 1,
+                    action: {
+                        schemaVersion: 1,
+                        actionId: 'model.dispatch.plugin',
+                        kind: 'provider.main',
+                        payload: {
+                            modelPreset: safeStructuredClone(applyPromptPresetParams(
+                                claimBinding.preset,
+                                outgoingChat,
+                                'model',
+                            )),
+                            prompt: safeStructuredClone(formated),
+                            options: {
+                                streaming: true,
+                                continue: isContinuation,
+                                chatId: messageChatId,
+                                workflowDependency: revenantMainDependency,
+                            },
+                            generationMetadata: safeStructuredClone({
+                                generationInfo,
+                                promptInfo,
+                                rerollSnapshot,
+                            }),
+                        },
+                    },
+                },
+            )
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            throwError(message)
+            await finishWorkflow('failed')
+            finishStreamingDisplay()
+            doingChat.set(false)
+            return false
+        }
+        return await waitForServerWorkflow(revenantWorkflowId)
+    }
+
     const requestMainGeneration = (lifecycle: RevenantGenerationLifecycle = {}) =>
         requestChatData({
             formated: formated,
@@ -2049,45 +2181,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let resendChat = false
 
     async function finishSuccessfulWorkflow():Promise<true>{
-        await setWorkflowStep('postprocess', 'completed')
-        const generatedMessage = DBState.db.characters[selectedChar].chats[selectedChat].message
-            .slice()
-            .reverse()
-            .find(message => message?.chatId === messageChatId)
-            ?? (isContinuation
-                ? DBState.db.characters[selectedChar].chats[selectedChat].message
-                    .slice()
-                    .reverse()
-                    .find(message => message?.role === 'char')
-                : undefined)
-        if (generatedMessage && !revenantMaterialized) {
-            if (isContinuation) generatedMessage.chatId = messageChatId
-            await setWorkflowStep('message.materialize', 'running')
-            try {
-                const materialized = await finalizeRevenantGeneration(
-                    messageChatId,
-                    rawResult || result,
-                    generatedMessage,
-                    DBState.db.characters[selectedChar].chats[selectedChat],
-                )
-                if (materialized?.chat) {
-                    DBState.db.characters[selectedChar].chats[selectedChat] = normalizeChat(materialized.chat)
-                    currentChar.reloadKeys += 1
-                }
-                if(materialized) revenantMaterialized = true
-            } catch (error) {
-                // The journal remains the recovery source and materialize is
-                // deliberately the last workflow step. Leave the workflow
-                // active so another client can retry this exact boundary.
-                console.error('[GenerationJob] Failed to finalize revenant generation:', error)
-            }
-        }
-        if(revenantMaterialized) await finishWorkflow('completed')
         return true
     }
 
-    await setWorkflowStep('output.transform', 'running')
-    
     if(abortSignal.aborted === true){
         finishStreamingDisplay()
         await finishWorkflow('cancelled')
@@ -2143,9 +2239,14 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     void checkpointRevenantGeneration(messageChatId, rawResult).catch(error => {
                         console.error('[GenerationJob] Failed to checkpoint parsed response:', error)
                     })
-                    let result2 = await processScriptFull(nowChatroom, reformatContent(prefix + result), 'editoutput', msgIndex)
-                    DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = result2.data
-                    emoChanged = result2.emoChanged
+                    if(revenantWorkflowId){
+                        DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = reformatContent(prefix + result)
+                    }
+                    else{
+                        const result2 = await processScriptFull(nowChatroom, reformatContent(prefix + result), 'editoutput', msgIndex)
+                        DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = result2.data
+                        emoChanged = result2.emoChanged
+                    }
                     DBState.db.characters[selectedChar].reloadKeys += 1
                 }
                 if(readed.done){
@@ -2180,6 +2281,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             return false
         }
 
+        if(revenantWorkflowId){
+            return await waitForServerWorkflow(revenantWorkflowId)
+        }
+
         DBState.db.characters[selectedChar].chats[selectedChat] = runCurrentChatFunction(DBState.db.characters[selectedChar].chats[selectedChat])
         currentChat = DBState.db.characters[selectedChar].chats[selectedChat]        
         await setWorkflowStep('trigger.output', 'running')
@@ -2203,6 +2308,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
     else{
+        if(revenantWorkflowId){
+            rawResult = req.type === 'success'
+                ? req.result
+                : req.type === 'multiline'
+                    ? req.result.map(message => message[1]).join('\n')
+                    : ''
+            result = rawResult
+            return await waitForServerWorkflow(revenantWorkflowId)
+        }
         const msgs = (req.type === 'success') ? [['char',req.result]] as const 
                     : (req.type === 'multiline') ? req.result
                     : []

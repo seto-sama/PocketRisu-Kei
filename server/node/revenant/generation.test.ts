@@ -19,6 +19,7 @@ const { notifyRevenantJournalWaiters, streamRevenantJournal, sendRevenantJournal
     sendRevenantJournalEvent: (ws: FakeSocket, job: any, event: object) => void
 }
 const {
+    isRevenantWorkflowClientActionJobAllowed,
     normalizeRevenantDispatchPolicy,
     normalizeRevenantHypaExecutionRecipe,
     normalizeRevenantOperationContext,
@@ -26,9 +27,9 @@ const {
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowDependency,
-    hasRevenantWorkflowOwnerLease,
     resolveRevenantWorkflowRequestBody,
 } = generationPkg as {
+    isRevenantWorkflowClientActionJobAllowed: (input: Record<string, unknown>) => boolean
     normalizeRevenantDispatchPolicy: (
         value: unknown,
         operation: unknown,
@@ -48,18 +49,50 @@ const {
         jobType: string,
         workflowId?: string,
     ) => unknown
-    hasRevenantWorkflowOwnerLease: (
-        workflow: unknown,
-        clientId: string,
-        ownerEpoch: number,
-        active?: boolean,
-    ) => boolean
     resolveRevenantWorkflowRequestBody: (
         bodyBase64: string,
         dependency: unknown,
         execution: unknown,
     ) => string
 }
+
+describe('revenant delegated provider job validation', () => {
+    it('allows a claimed API v3 main dispatch only on model.main', () => {
+        const input = {
+            parentStepKey: 'model.dispatch',
+            actionId: 'model.dispatch.plugin',
+            jobType: 'model',
+            workflowStepKey: 'model.main',
+            action: { actionId: 'model.dispatch.plugin', kind: 'provider.main' },
+        }
+        expect(isRevenantWorkflowClientActionJobAllowed(input)).toBe(true)
+        expect(isRevenantWorkflowClientActionJobAllowed({
+            ...input,
+            workflowStepKey: 'client-action:model.dispatch.plugin',
+        })).toBe(false)
+        expect(isRevenantWorkflowClientActionJobAllowed({
+            ...input,
+            parentStepKey: 'trigger.output',
+        })).toBe(false)
+    })
+
+    it('keeps ordinary client action jobs out of model.main', () => {
+        const actionId = 'trigger.0.provider.llm'
+        const input = {
+            parentStepKey: 'trigger.output',
+            actionId,
+            jobType: 'otherAx',
+            workflowStepKey: `client-action:${actionId}`,
+            action: { actionId, kind: 'provider.llm' },
+        }
+        expect(isRevenantWorkflowClientActionJobAllowed(input)).toBe(true)
+        expect(isRevenantWorkflowClientActionJobAllowed({
+            ...input,
+            jobType: 'model',
+            workflowStepKey: 'model.main',
+        })).toBe(false)
+    })
+})
 
 describe('revenant durable dispatch validation', () => {
     const operation = {
@@ -278,6 +311,7 @@ describe('revenant workflow validation', () => {
             isContinuation: false,
             providerBackend: 'http',
             modelPreset: {},
+            igpProvider: { backend: 'plugin', modelPreset: { id: 'igp-preset' } },
             character: { chaId: 'character-1' },
             chat: { id: 'room-1', message: [] },
             database: {},
@@ -299,27 +333,21 @@ describe('revenant workflow validation', () => {
             'room-1',
         )).toBeUndefined()
         expect(normalizeRevenantWorkflowContext(
+            {
+                ...workflowContext,
+                postprocess: {
+                    ...workflowContext.postprocess,
+                    igpProvider: { backend: 'legacy', modelPreset: {} },
+                },
+            },
+            'character-1',
+            'room-1',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext(
             workflowContext,
             'different-character',
             'room-1',
         )).toBeUndefined()
-    })
-
-    it('accepts only the current workflow owner lease', () => {
-        const workflow = {
-            workflowId: 'workflow-1',
-            ownerClientId: 'client-2',
-            ownerEpoch: 2,
-            status: 'active',
-        }
-        expect(hasRevenantWorkflowOwnerLease(workflow, 'client-2', 2)).toBe(true)
-        expect(hasRevenantWorkflowOwnerLease(workflow, 'client-1', 2)).toBe(false)
-        expect(hasRevenantWorkflowOwnerLease(workflow, 'client-2', 1)).toBe(false)
-        expect(hasRevenantWorkflowOwnerLease(
-            { ...workflow, status: 'completed' },
-            'client-2',
-            2,
-        )).toBe(false)
     })
 
     it('normalizes an ordered checkpoint plan', () => {

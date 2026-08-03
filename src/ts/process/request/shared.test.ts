@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 const { workflowState } = vi.hoisted(() => ({
-    workflowState: { workflow: undefined as undefined | { workflowId: string, ownerEpoch: number } },
+    workflowState: { workflow: undefined as undefined | { workflowId: string } },
 }))
 
 // shared.ts imports getDatabase at module load; stub it so this pure-helper test
@@ -82,7 +82,7 @@ describe('buildGenerationRequest', () => {
     })
 
     test('reuses one step execution id across every provider round', () => {
-        workflowState.workflow = { workflowId: 'workflow-1', ownerEpoch: 3 }
+        workflowState.workflow = { workflowId: 'workflow-1' }
         const arg = {
             formated: [],
             bias: {},
@@ -101,14 +101,13 @@ describe('buildGenerationRequest', () => {
         expect(first?.workflow).toMatchObject({
             workflowId: 'workflow-1',
             stepKey: 'model.main',
-            ownerEpoch: 3,
         })
         expect(first?.workflow?.executionId).toBeTruthy()
         expect(second?.workflow?.executionId).toBe(first?.workflow?.executionId)
     })
 
-    test('links a delegated client action without borrowing the workflow owner epoch', () => {
-        workflowState.workflow = { workflowId: 'workflow-1', ownerEpoch: 9 }
+    test('links a delegated client action to its parent step', () => {
+        workflowState.workflow = { workflowId: 'workflow-1' }
         const request = buildGenerationRequest({
             formated: [], bias: {}, mode: 'model',
             currentChar: {
@@ -132,6 +131,34 @@ describe('buildGenerationRequest', () => {
                 actionId: 'trigger.0.provider.llm',
             },
         })
-        expect(request?.workflow).not.toHaveProperty('ownerEpoch')
+    })
+
+    test('links a delegated main plugin dispatch to model.main', () => {
+        workflowState.workflow = { workflowId: 'workflow-1' }
+        const request = buildGenerationRequest({
+            formated: [], bias: {}, mode: 'model', chatId: 'message-1',
+            currentChar: {
+                chaId: 'character-1', chatPage: 0,
+                chats: [{ id: 'room-1', message: [] }],
+            },
+            revenantClientAction: {
+                workflowId: 'workflow-1',
+                parentStepKey: 'model.dispatch',
+                actionId: 'model.dispatch.plugin',
+                executionId: 'action-execution-1',
+                jobStepKey: 'model.main',
+            },
+        } as any)
+
+        expect(request?.job.jobType).toBe('model')
+        expect(request?.workflow).toEqual({
+            workflowId: 'workflow-1',
+            stepKey: 'model.main',
+            executionId: 'action-execution-1',
+            clientAction: {
+                parentStepKey: 'model.dispatch',
+                actionId: 'model.dispatch.plugin',
+            },
+        })
     })
 })

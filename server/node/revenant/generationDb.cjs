@@ -4,7 +4,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const { generationJournalStore } = require('./generationJournal.cjs');
-const { cancelActiveGenerationWork } = require('./generationRestart.cjs');
+const { recoverInterruptedGenerationWork } = require('./generationRestart.cjs');
 
 const GENERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const CLIENT_ACTION_LEASE_MS = 5 * 60 * 1000;
@@ -76,8 +76,6 @@ db.exec(`
         workflow_id TEXT PRIMARY KEY,
         character_id TEXT NOT NULL,
         room_id TEXT NOT NULL,
-        owner_client_id TEXT NOT NULL,
-        owner_epoch INTEGER NOT NULL DEFAULT 1,
         plan_version INTEGER NOT NULL DEFAULT 1,
         context TEXT,
         status TEXT NOT NULL,
@@ -141,8 +139,11 @@ const generationColumns = new Set(
 const workflowColumns = new Set(
     db.prepare(`PRAGMA table_info(generation_workflows)`).all().map(column => column.name)
 );
-if (!workflowColumns.has('owner_epoch')) {
-    db.exec(`ALTER TABLE generation_workflows ADD COLUMN owner_epoch INTEGER NOT NULL DEFAULT 1`);
+if (workflowColumns.has('owner_epoch')) {
+    db.exec(`ALTER TABLE generation_workflows DROP COLUMN owner_epoch`);
+}
+if (workflowColumns.has('owner_client_id')) {
+    db.exec(`ALTER TABLE generation_workflows DROP COLUMN owner_client_id`);
 }
 if (!workflowColumns.has('context')) {
     db.exec(`ALTER TABLE generation_workflows ADD COLUMN context TEXT`);
@@ -220,11 +221,10 @@ if (generationColumns.has('raw_response')) {
 if (generationColumns.has('processed_content')) {
     db.exec(`UPDATE generation_jobs SET processed_content = NULL WHERE processed_content IS NOT NULL`);
 }
-// A browser disconnect is recoverable, but a server process restart ends the
-// workflow. Keep partial journals for retention/recovery, while ensuring no
-// queued provider request is resumed by the new process.
+// Reconcile process-local claims while preserving durable queues, workflow
+// snapshots, and completed journals for the new server process to resume.
 const restartAt = Date.now();
-cancelActiveGenerationWork(db, restartAt);
+recoverInterruptedGenerationWork(db, restartAt);
 db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_generation_jobs_active_main_room
     ON generation_jobs(character_id, room_id)
@@ -411,9 +411,9 @@ const stmtExpiredTerminalJobs = db.prepare(`
 `);
 const stmtCreateWorkflow = db.prepare(`
     INSERT INTO generation_workflows (
-        workflow_id, character_id, room_id, owner_client_id, owner_epoch,
+        workflow_id, character_id, room_id,
         plan_version, context, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, 1, 1, ?, 'active', ?, ?)
+    ) VALUES (?, ?, ?, 1, ?, 'active', ?, ?)
 `);
 const stmtCreateWorkflowStep = db.prepare(`
     INSERT INTO generation_workflow_steps (
@@ -518,12 +518,6 @@ const stmtUpdateWorkflowStep = db.prepare(`
 `);
 const stmtTouchWorkflow = db.prepare(`
     UPDATE generation_workflows SET updated_at = ? WHERE workflow_id = ? AND status = 'active'
-`);
-const stmtClaimWorkflow = db.prepare(`
-    UPDATE generation_workflows
-    SET owner_client_id = ?, owner_epoch = owner_epoch + 1, updated_at = ?
-    WHERE workflow_id = ? AND status = 'active'
-      AND owner_client_id = ? AND owner_epoch = ?
 `);
 const stmtFinishWorkflow = db.prepare(`
     UPDATE generation_workflows
@@ -685,8 +679,6 @@ function rowToWorkflow(row, includeSteps = true) {
         workflowId: row.workflow_id,
         characterId: row.character_id,
         roomId: row.room_id,
-        ownerClientId: row.owner_client_id,
-        ownerEpoch: row.owner_epoch,
         planVersion: row.plan_version,
         context: row.context ? JSON.parse(row.context) : undefined,
         status: row.status,
@@ -847,7 +839,6 @@ function createGenerationWorkflow(input) {
                 input.workflowId,
                 input.characterId,
                 input.roomId,
-                input.ownerClientId,
                 input.context ? JSON.stringify(input.context) : null,
                 now,
                 now,
@@ -871,23 +862,6 @@ function createGenerationWorkflow(input) {
         throw error;
     }
     return { busy: false, workflow: getGenerationWorkflow(input.workflowId) };
-}
-
-function claimGenerationWorkflow(
-    workflowId,
-    ownerClientId,
-    expectedOwnerClientId,
-    expectedOwnerEpoch,
-) {
-    const now = Date.now();
-    const result = stmtClaimWorkflow.run(
-        ownerClientId,
-        now,
-        workflowId,
-        expectedOwnerClientId,
-        expectedOwnerEpoch,
-    );
-    return result.changes === 1 ? getGenerationWorkflow(workflowId) : null;
 }
 
 function updateGenerationWorkflowStep(
@@ -1332,6 +1306,17 @@ function finishGenerationJob(jobId, status, finishReason, error = null, rawBytes
         jobId,
         status === 'generated' ? 'output_ready' : 'failed',
     );
+    if (job?.job_type === 'model' && job.workflow_id && status !== 'generated') {
+        const terminalStatus = status === 'cancelled' ? 'cancelled' : 'failed';
+        updateGenerationWorkflowStep(job.workflow_id, 'model.main', {
+            status: 'failed',
+            metadata: {
+                schemaVersion: 1,
+                error: String(error || finishReason || `Model generation ended as ${status}`),
+            },
+        });
+        cancelGenerationWorkflow(job.workflow_id, terminalStatus);
+    }
     return true;
 }
 
@@ -1454,7 +1439,6 @@ module.exports = {
     hasGenerationWorkflowClientActionClaim,
     resolveGenerationWorkflowClientAction,
     consumeGenerationWorkflowClientActionJobs,
-    claimGenerationWorkflow,
     updateGenerationWorkflowStep,
     finishGenerationWorkflow,
     cancelGenerationWorkflow,

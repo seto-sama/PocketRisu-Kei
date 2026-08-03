@@ -96,6 +96,8 @@ export interface requestDataArgument{
         parentStepKey: string
         actionId: string
         executionId: string
+        /** Main plugin dispatch writes its durable provider job to model.main. */
+        jobStepKey?: string
     }
 }
 

@@ -104,11 +104,6 @@ export async function fetchViaGenerationJob(url: string, arg: {
             'Content-Type': 'application/json',
             'risu-auth': auth,
             'x-sync-client-id': getRevenantGenerationSyncClientId(),
-            ...(arg.generationRequest.workflow?.ownerEpoch !== undefined ? {
-                'x-revenant-workflow-owner-epoch': String(
-                    arg.generationRequest.workflow.ownerEpoch,
-                ),
-            } : {}),
         },
         body: JSON.stringify({
             url,

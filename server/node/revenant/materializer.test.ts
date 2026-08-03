@@ -24,18 +24,34 @@ describe('revenant canonical materializer', () => {
                 roomId: 'room-1', chatId: 'message-1', status: 'generated', createdAt: 1,
             }),
             getGenerationWorkflow: () => ({
-                steps: [{ key: 'trigger.output', status: 'completed', metadata: { chat: canonical } }],
+                steps: [{
+                    key: 'trigger.output',
+                    status: 'completed',
+                    metadata: {
+                        chat: canonical,
+                        mutations: {
+                            character: { desc: 'server description' },
+                            database: { personaPrompt: 'server persona' },
+                        },
+                    },
+                }],
             }),
             listRecoverableGenerationJobs: () => [],
             markGenerationMaterialized: () => { materialized = true; return true },
         }
         const persistDbCacheWithChats = vi.fn()
         const broadcastDatabaseInvalidated = vi.fn()
+        const cachedDatabase = {
+            characters: [{ chaId: 'character-1', desc: 'old description', chats: [] }],
+            personaPrompt: 'old persona',
+        }
         const service = createRevenantMaterializer({
             repository,
             queueStorageOperation: (operation: () => Promise<any>) => operation(),
             ensureChatStore: vi.fn(),
-            getChatStorageState: () => ({ fullChatStore, saveTimers: {}, dbCache: { db: {} } }),
+            getChatStorageState: () => ({
+                fullChatStore, saveTimers: {}, dbCache: { db: cachedDatabase },
+            }),
             databaseHexKey: 'db',
             persistDbCacheWithChats,
             createBackupAndRotate: vi.fn(),
@@ -47,6 +63,8 @@ describe('revenant canonical materializer', () => {
         expect(result.message).toMatchObject({ data: 'server result', chatId: 'message-1' })
         expect(fullChatStore.get('character-1')?.get('room-1')).toEqual({ ...canonical, isStreaming: false })
         expect(persistDbCacheWithChats).toHaveBeenCalledWith('db', 'database/database.bin')
+        expect(cachedDatabase.characters[0].desc).toBe('server description')
+        expect(cachedDatabase.personaPrompt).toBe('server persona')
         expect(materialized).toBe(true)
         expect(broadcastDatabaseInvalidated).toHaveBeenCalledOnce()
     })

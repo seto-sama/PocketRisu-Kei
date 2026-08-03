@@ -61,7 +61,8 @@ export function buildGenerationRequest(
         },
         workflow: clientAction ? {
             workflowId: clientAction.workflowId,
-            stepKey: `client-action:${clientAction.actionId}`.slice(0, 128),
+            stepKey: clientAction.jobStepKey
+                ?? `client-action:${clientAction.actionId}`.slice(0, 128),
             executionId: clientAction.executionId,
             clientAction: {
                 parentStepKey: clientAction.parentStepKey,
@@ -71,7 +72,6 @@ export function buildGenerationRequest(
             workflowId: workflow.workflowId,
             stepKey: getRevenantWorkflowStepKey(jobType, arg.revenantOperationContext, chatId),
             executionId: arg.revenantStepExecutionId ??= uuidv4(),
-            ownerEpoch: workflow.ownerEpoch,
             dependency: arg.revenantWorkflowDependency,
         } : undefined,
         lifecycle: {

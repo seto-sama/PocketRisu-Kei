@@ -8,6 +8,13 @@ require('sucrase/register/ts');
 const { runRevenantOutputTransform } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'postprocess.ts',
 ));
+const { renderRevenantTemplate } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'headlessParser.ts',
+));
+
+function renderRevenantPostprocessPrompt(prompt, recipe, chat) {
+    return renderRevenantTemplate(String(prompt ?? ''), recipe, chat).text;
+}
 
 function outputLuaScripts(recipe) {
     return [
@@ -134,4 +141,5 @@ module.exports = {
     runRevenantOutputStage,
     runRevenantTriggerStage,
     runRevenantOutputTransform,
+    renderRevenantPostprocessPrompt,
 };

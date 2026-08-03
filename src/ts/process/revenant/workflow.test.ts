@@ -2,10 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
 import type { RevenantWorkflow } from './types'
 import {
-    acquireRevenantWorkflowMutationLease,
     activeRevenantWorkflows,
     cancelRevenantWorkflow,
-    claimRevenantWorkflow,
     createChatGenerationWorkflowPlan,
     createRevenantWorkflowResumeMetadata,
     getActiveRevenantWorkflow,
@@ -23,8 +21,6 @@ function workflowWithMetadata(metadata?: Record<string, unknown>): RevenantWorkf
         workflowId: 'workflow-1',
         characterId: 'character-1',
         roomId: 'room-1',
-        ownerClientId: 'client-1',
-        ownerEpoch: 1,
         planVersion: 1,
         status: 'active',
         createdAt: 1,
@@ -63,6 +59,7 @@ describe('revenant workflow resume checkpoint', () => {
             persistUserMessage: true,
             hypaEnabled: false,
             igpEnabled: true,
+            pluginProvider: false,
         })
 
         expect(plan.map(step => step.key)).toEqual([
@@ -70,6 +67,7 @@ describe('revenant workflow resume checkpoint', () => {
             'trigger.start',
             'memory.hypav3',
             'prompt.build',
+            'model.dispatch',
             'model.main',
             'output.transform',
             'trigger.output',
@@ -78,8 +76,26 @@ describe('revenant workflow resume checkpoint', () => {
             'message.materialize',
         ])
         expect(plan.find(step => step.key === 'memory.hypav3')?.status).toBe('skipped')
+        expect(plan.find(step => step.key === 'model.dispatch')?.status).toBe('skipped')
         expect(plan.find(step => step.key === 'message.materialize')?.recoveryPolicy).toBe('resume')
         expect(plan.at(-1)?.key).toBe('message.materialize')
+    })
+
+    it('waits for a browser dispatch only for plugin providers', () => {
+        const plan = createChatGenerationWorkflowPlan({
+            resumeContext: {
+                version: 1,
+                chatProcessIndex: -1,
+                messageChatId: 'message-1',
+                continue: false,
+            },
+            persistUserMessage: false,
+            hypaEnabled: false,
+            igpEnabled: false,
+            pluginProvider: true,
+        })
+
+        expect(plan.find(step => step.key === 'model.dispatch')?.status).toBe('pending')
     })
 
     it('round-trips the stable main message identity and invocation mode', () => {
@@ -109,8 +125,8 @@ describe('revenant workflow resume checkpoint', () => {
 })
 
 describe('active workflow client state', () => {
-    it('binds workflow job mutations to the remembered owner epoch', async () => {
-        const workflow = { ...workflowWithMetadata(), ownerEpoch: 4 }
+    it('authenticates workflow job mutations without a browser ownership lease', async () => {
+        const workflow = workflowWithMetadata()
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
             new Response(JSON.stringify({ workflow }), { status: 200 }),
         ))
@@ -119,7 +135,7 @@ describe('active workflow client state', () => {
         trackRevenantGenerationWorkflow('job-1', workflow.workflowId)
 
         const headers = await createRevenantJobMutationHeaders('job-1')
-        expect(headers['x-revenant-workflow-owner-epoch']).toBe('4')
+        expect(headers['x-revenant-workflow-owner-epoch']).toBeUndefined()
         expect(headers['x-sync-client-id']).toBe('client-1')
     })
 
@@ -147,8 +163,8 @@ describe('active workflow client state', () => {
         expect(get(activeRevenantWorkflows)).toEqual([])
     })
 
-    it('cancels from a reconnected client without the previous owner lease', async () => {
-        const workflow = { ...workflowWithMetadata(), ownerClientId: 'client-old' }
+    it('cancels from any reconnected client', async () => {
+        const workflow = workflowWithMetadata()
         const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
             if (String(input).includes('/active?')) {
                 return new Response(JSON.stringify({ workflow }), { status: 200 })
@@ -168,26 +184,4 @@ describe('active workflow client state', () => {
         expect(get(activeRevenantWorkflows)).toEqual([])
     })
 
-    it('claims a reconnected workflow once and remembers the new owner epoch', async () => {
-        const oldWorkflow = { ...workflowWithMetadata(), ownerClientId: 'client-old' }
-        const claimedWorkflow = {
-            ...oldWorkflow,
-            ownerClientId: 'client-1',
-            ownerEpoch: 2,
-        }
-        const fetchMock = vi.fn()
-            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: oldWorkflow }), { status: 200 }))
-            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: claimedWorkflow }), { status: 200 }))
-        vi.stubGlobal('fetch', fetchMock)
-
-        const active = await getActiveRevenantWorkflow('character-1', 'room-1')
-        await expect(acquireRevenantWorkflowMutationLease(active!)).resolves.toEqual({
-            workflow: claimedWorkflow,
-            acquired: true,
-        })
-        await expect(claimRevenantWorkflow('workflow-1')).resolves.toEqual(claimedWorkflow)
-
-        expect(fetchMock).toHaveBeenCalledTimes(2)
-        expect(get(activeRevenantWorkflows)).toEqual([claimedWorkflow])
-    })
 })

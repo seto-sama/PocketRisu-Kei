@@ -55,6 +55,7 @@ const {
 const { installRevenantGenerationRoutes } = require('./revenant/generationRoutes.cjs');
 const { createGenerationWorkers } = require('./revenant/generationWorkers.cjs');
 const { createRevenantMaterializer } = require('./revenant/materializer.cjs');
+const { createRevenantPostprocessWorker } = require('./revenant/postprocessWorker.cjs');
 const {
     createGenerationWorkflowService,
 } = require('./revenant/generationWorkflowService.cjs');
@@ -1887,6 +1888,11 @@ const revenantMaterializer = createRevenantMaterializer({
     broadcastDatabaseInvalidated: (request, payload) =>
         broadcastDatabaseInvalidated(request || { headers: {} }, payload),
 });
+const revenantPostprocessWorker = createRevenantPostprocessWorker({
+    repository: generationDb,
+    logger,
+});
+const scheduleRevenantPostprocess = revenantPostprocessWorker.schedule;
 
 async function runGenerationProviderJob(job, arg) {
     const targetUrl = sanitizeGenerationTargetUrl(arg.targetUrl);
@@ -2101,6 +2107,7 @@ async function runGenerationProviderJob(job, arg) {
         }
         markGenerationJobDone(job);
         scheduleHypaWorkflowExecution();
+        scheduleRevenantPostprocess();
     } catch (error) {
         job.cancelUpstream = null;
         try { await closeJournal(); } catch (persistError) {
@@ -2722,6 +2729,7 @@ installRevenantGenerationRoutes(app, {
     runGenerationProviderJob,
     scheduleGenerationDispatch,
     scheduleHypaWorkflowExecution,
+    scheduleRevenantPostprocess,
     terminateGenerationWorkflow: generationWorkflowService.terminateWorkflow,
     cancelGenerationStepExecution: generationWorkflowService.cancelStepExecution,
     generationRuntimeJobs,
@@ -2731,7 +2739,6 @@ installRevenantGenerationRoutes(app, {
     randomUUID: () => nodeCrypto.randomUUID(),
     addRequestLog,
     materializeGeneration: revenantMaterializer.materialize,
-    isSyncClientConnected: clientId => (syncClients.get(clientId)?.size ?? 0) > 0,
 });
 
 // app.get('/api/password', async(req, res)=> {
@@ -6232,6 +6239,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
     catch (error) { logger.error('[GenerationJob] Initial retention cleanup failed:', error); }
     scheduleGenerationDispatch();
     scheduleHypaWorkflowExecution();
+    scheduleRevenantPostprocess();
 
     // In-memory generation runtime garbage collection
     setInterval(() => {

@@ -91,8 +91,6 @@ export interface RevenantWorkflow {
     workflowId: string
     characterId: string
     roomId: string
-    ownerClientId: string
-    ownerEpoch: number
     planVersion: number
     context?: RevenantWorkflowContext
     status: RevenantWorkflowStatus
@@ -114,6 +112,9 @@ export interface RevenantPostprocessDatabaseSnapshot {
     dynamicAssets: boolean
     dynamicAssetsEditDisplay: boolean
     igpPrompt: string
+    notification: boolean
+    ttsEnabled: boolean
+    ttsAutoSpeech: boolean
 }
 
 export interface RevenantPostprocessRecipe {
@@ -123,12 +124,26 @@ export interface RevenantPostprocessRecipe {
     rerollSnapshot?: RevenantRerollSnapshot
     providerBackend: 'http' | 'plugin'
     modelPreset: unknown
+    igpProvider?: {
+        backend: 'http' | 'plugin' | 'echo'
+        modelPreset: unknown
+    }
     character: character
     chat: Chat
     database: RevenantPostprocessDatabaseSnapshot
     modules: unknown[]
     moduleRegexScripts: customscript[]
     moduleTriggers: triggerscript[]
+}
+
+export interface RevenantPostprocessMutationPatch {
+    character?: Partial<Pick<character,
+        'name' | 'desc' | 'replaceGlobalNote' | 'globalLore'>>
+    database?: {
+        personaPrompt?: string
+        personas?: unknown[]
+        globalChatVariables?: Record<string, string>
+    }
 }
 
 export interface RevenantChatWorkflowContext {
@@ -222,7 +237,6 @@ export interface RevenantWorkflowExecutionRef {
     workflowId: string
     stepKey: string
     executionId: string
-    ownerEpoch?: number
     dependency?: RevenantWorkflowDependency
     clientAction?: {
         parentStepKey: string
@@ -237,7 +251,7 @@ export interface RevenantGenerationLifecycle {
     onProviderStarted?: (startedAt: number) => void
 }
 
-/** Explicit boundary between durable work, workflow ownership, and observation. */
+/** Explicit boundary between durable work, workflow execution, and observation. */
 export interface RevenantGenerationRequest {
     job: RevenantProviderJobSpec
     workflow?: RevenantWorkflowExecutionRef
@@ -329,11 +343,6 @@ export interface RevenantNormalizedProjection {
     source: 'server' | 'client'
     adapterKind: string
     content: string
-}
-
-export interface MaterializedGeneration {
-    message?: Message
-    chat?: Chat
 }
 
 export function createRevenantOperation(

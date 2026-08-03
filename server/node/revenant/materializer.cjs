@@ -19,57 +19,49 @@ function completedServerChat(workflow) {
     return undefined;
 }
 
-function applyLegacyMessage(chat, job, incoming) {
-    const snapshot = job.rerollSnapshot;
-    let targetIndex = chat.message.findIndex(message => message?.chatId === job.chatId);
-    if (targetIndex < 0 && snapshot) targetIndex = snapshot.targetIndex;
-    if (targetIndex < 0 && job.isContinuation) {
-        for (let index = chat.message.length - 1; index >= 0; index--) {
-            if (chat.message[index]?.role === 'char') {
-                targetIndex = index;
-                break;
+function mergeMutationPatch(target, source) {
+    if (!source || typeof source !== 'object') return target;
+    if (source.character && typeof source.character === 'object') {
+        target.character = { ...(target.character || {}), ...structuredClone(source.character) };
+    }
+    if (source.database && typeof source.database === 'object') {
+        target.database = { ...(target.database || {}), ...structuredClone(source.database) };
+    }
+    return target;
+}
+
+function completedServerMutationPatch(workflow) {
+    const patch = {};
+    for (const key of ['output.transform', 'trigger.output', 'igp', 'postprocess']) {
+        const step = workflow?.steps?.find(item => item.key === key && item.status === 'completed');
+        mergeMutationPatch(patch, step?.metadata?.mutations);
+    }
+    return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
+function applyMutationPatch(database, characterId, patch) {
+    if (!database || !patch) return false;
+    let changed = false;
+    if (patch.character && typeof patch.character === 'object') {
+        const character = database.characters?.find(item => item?.chaId === characterId);
+        if (character) {
+            for (const field of ['name', 'desc', 'replaceGlobalNote', 'globalLore']) {
+                if (Object.prototype.hasOwnProperty.call(patch.character, field)) {
+                    character[field] = structuredClone(patch.character[field]);
+                    changed = true;
+                }
             }
         }
     }
-
-    let materializedMessage;
-    if (snapshot) {
-        const current = chat.message[targetIndex];
-        const alreadyCommitted = current?.chatId === job.chatId
-            && Array.isArray(current.swipes)
-            && current.swipes[current.swipeId] === incoming.data;
-        if (alreadyCommitted) return current;
-        const previousSwipes = Array.isArray(snapshot.targetMessage?.swipes)
-            ? [...snapshot.targetMessage.swipes]
-            : [snapshot.targetMessage?.data ?? ''];
-        materializedMessage = {
-            ...structuredClone(snapshot.targetMessage),
-            ...structuredClone(incoming),
-            role: 'char',
-            data: incoming.data,
-            chatId: job.chatId,
-            swipes: [...previousSwipes, incoming.data],
-            swipeId: previousSwipes.length,
-        };
-        chat.message.splice(
-            Math.max(0, targetIndex),
-            Math.max(0, chat.message.length - Math.max(0, targetIndex)),
-            materializedMessage,
-            ...structuredClone(snapshot.trailingMessages || []),
-        );
+    if (patch.database && typeof patch.database === 'object') {
+        for (const field of ['personaPrompt', 'personas', 'globalChatVariables']) {
+            if (Object.prototype.hasOwnProperty.call(patch.database, field)) {
+                database[field] = structuredClone(patch.database[field]);
+                changed = true;
+            }
+        }
     }
-    else {
-        materializedMessage = {
-            ...(targetIndex >= 0 ? chat.message[targetIndex] : {}),
-            ...structuredClone(incoming),
-            role: incoming.role === 'user' ? 'user' : 'char',
-            data: incoming.data,
-            chatId: job.chatId,
-        };
-        if (targetIndex >= 0) chat.message[targetIndex] = materializedMessage;
-        else chat.message.push(materializedMessage);
-    }
-    return materializedMessage;
+    return changed;
 }
 
 function createRevenantMaterializer(options) {
@@ -98,7 +90,7 @@ function createRevenantMaterializer(options) {
         broadcastDatabaseInvalidated = () => {},
     } = options;
 
-    async function materialize(jobId, input = {}) {
+    async function materialize(jobId) {
         return queueStorageOperation(async () => {
             const job = getGenerationJob(jobId, false);
             if (!job) throw new RevenantMaterializationError(404, 'Generation job not found');
@@ -130,17 +122,12 @@ function createRevenantMaterializer(options) {
 
             const workflow = job.workflowId ? getGenerationWorkflow(job.workflowId) : undefined;
             const serverChat = completedServerChat(workflow);
-            const submittedChat = input.chat?.id === job.roomId && Array.isArray(input.chat.message)
-                ? input.chat
-                : undefined;
-            const chat = structuredClone(serverChat || submittedChat || storedChat);
-            let materializedMessage = chat.message.find(message => message?.chatId === job.chatId);
             if (!serverChat) {
-                if (!input.message || typeof input.message.data !== 'string') {
-                    throw new RevenantMaterializationError(400, 'Processed generation message is required');
-                }
-                materializedMessage = applyLegacyMessage(chat, job, input.message);
+                throw new RevenantMaterializationError(409, 'Server postprocess result is not ready');
             }
+            const chat = structuredClone(serverChat);
+            const mutationPatch = completedServerMutationPatch(workflow);
+            let materializedMessage = chat.message.find(message => message?.chatId === job.chatId);
             if (!materializedMessage || typeof materializedMessage.data !== 'string') {
                 throw new RevenantMaterializationError(409, 'Server postprocess result is not ready');
             }
@@ -160,13 +147,16 @@ function createRevenantMaterializer(options) {
                 delete saveTimers[databaseHexKey];
             }
             if (dbCache[databaseHexKey]) {
+                applyMutationPatch(dbCache[databaseHexKey], job.characterId, mutationPatch);
                 await persistDbCacheWithChats(databaseHexKey, 'database/database.bin');
             }
             else {
                 const raw = kvGet('database/database.bin');
                 if (!raw) throw new Error('Compatible database is missing');
                 const dbObj = normalizeJSON(await decodeRisuSave(raw));
-                const fullDb = reassembleFullDb(stripChatsFromDb(dbObj));
+                const strippedDb = stripChatsFromDb(dbObj);
+                applyMutationPatch(strippedDb, job.characterId, mutationPatch);
+                const fullDb = reassembleFullDb(strippedDb);
                 kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
                 initChatStore(fullDb);
             }
@@ -174,7 +164,7 @@ function createRevenantMaterializer(options) {
             if (!markGenerationMaterialized(jobId)) {
                 throw new Error('Failed to mark generation materialized');
             }
-            broadcastDatabaseInvalidated(input.request, {
+            broadcastDatabaseInvalidated(undefined, {
                 chats: [{ characterId: job.characterId, chatId: job.roomId }],
             });
             return { success: true, message: materializedMessage, chat };
@@ -188,4 +178,6 @@ module.exports = {
     createRevenantMaterializer,
     RevenantMaterializationError,
     completedServerChat,
+    completedServerMutationPatch,
+    applyMutationPatch,
 };

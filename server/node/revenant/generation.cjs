@@ -95,6 +95,11 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
         || !['http', 'plugin'].includes(value.postprocess.providerBackend)
         || !value.postprocess.modelPreset
         || typeof value.postprocess.modelPreset !== 'object'
+        || (value.postprocess.igpProvider != null && (
+            !['http', 'plugin', 'echo'].includes(value.postprocess.igpProvider.backend)
+            || !value.postprocess.igpProvider.modelPreset
+            || typeof value.postprocess.igpProvider.modelPreset !== 'object'
+        ))
         || value.postprocess.character?.chaId !== characterId
         || value.postprocess.chat?.id !== roomId
         || !Array.isArray(value.postprocess.chat?.message)
@@ -127,14 +132,21 @@ function isValidRevenantWorkflowKey(value) {
     return typeof value === 'string' && WORKFLOW_KEY_PATTERN.test(value);
 }
 
-function hasRevenantWorkflowOwnerLease(workflow, clientId, ownerEpoch, active = true) {
-    return !!workflow
-        && (!active || workflow.status === 'active')
-        && typeof clientId === 'string'
-        && workflow.ownerClientId === clientId
-        && Number.isSafeInteger(ownerEpoch)
-        && ownerEpoch >= 1
-        && workflow.ownerEpoch === ownerEpoch;
+function isRevenantWorkflowClientActionJobAllowed(input) {
+    const action = input.action;
+    if (
+        !action
+        || action.actionId !== input.actionId
+        || typeof action.kind !== 'string'
+    ) return false;
+    if (action.kind === 'provider.main') {
+        return input.parentStepKey === 'model.dispatch'
+            && input.actionId === 'model.dispatch.plugin'
+            && input.jobType === 'model'
+            && input.workflowStepKey === 'model.main';
+    }
+    return input.jobType !== 'model'
+        && input.workflowStepKey === `client-action:${input.actionId}`.slice(0, 128);
 }
 
 function normalizeRevenantOperationContext(jobType, value) {
@@ -315,7 +327,7 @@ function normalizeRevenantHypaExecutionRecipe(value) {
 module.exports = {
     isRevenantJobActive,
     isValidRevenantWorkflowKey,
-    hasRevenantWorkflowOwnerLease,
+    isRevenantWorkflowClientActionJobAllowed,
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowContext,
     normalizeRevenantWorkflowStepUpdate,

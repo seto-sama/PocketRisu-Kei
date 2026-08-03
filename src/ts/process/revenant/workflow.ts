@@ -2,7 +2,6 @@ import {
     createRevenantCancellationHeaders,
     createRevenantGenerationAuth,
     getRevenantGenerationSyncClientId,
-    setRevenantWorkflowOwnerLease,
 } from './client'
 import { writable } from 'svelte/store'
 import type {
@@ -33,11 +32,9 @@ function rememberWorkflow(workflow: RevenantWorkflow): RevenantWorkflow {
     const key = roomKey(workflow.characterId, workflow.roomId)
     if (workflow.status === 'active') {
         activeWorkflows.set(key, workflow)
-        setRevenantWorkflowOwnerLease(workflow.workflowId, workflow.ownerEpoch)
         publishActiveWorkflows()
     }
     else if (activeWorkflows.delete(key)) {
-        setRevenantWorkflowOwnerLease(workflow.workflowId, undefined)
         publishActiveWorkflows()
     }
     return workflow
@@ -51,9 +48,7 @@ function forgetWorkflow(
     let changed = false
     if (characterId && roomId) {
         const key = roomKey(characterId, roomId)
-        const workflow = activeWorkflows.get(key)
         if (activeWorkflows.delete(key)) {
-            if (workflow) setRevenantWorkflowOwnerLease(workflow.workflowId, undefined)
             changed = true
         }
     }
@@ -61,7 +56,6 @@ function forgetWorkflow(
         for (const [key, workflow] of activeWorkflows) {
             if (workflow.workflowId === workflowId) {
                 activeWorkflows.delete(key)
-                setRevenantWorkflowOwnerLease(workflow.workflowId, undefined)
                 changed = true
             }
         }
@@ -77,23 +71,11 @@ async function revenantHeaders(json = false): Promise<Record<string, string>> {
     }
 }
 
-function rememberedWorkflow(workflowId: string): RevenantWorkflow | undefined {
-    for (const workflow of activeWorkflows.values()) {
-        if (workflow.workflowId === workflowId) return workflow
-    }
-    return undefined
-}
-
 async function workflowMutationHeaders(
-    workflowId: string,
+    _workflowId: string,
     json = false,
 ): Promise<Record<string, string>> {
-    const workflow = rememberedWorkflow(workflowId)
-    if (!workflow) throw new Error('Workflow owner lease is not available on this client')
-    return {
-        ...await revenantHeaders(json),
-        'x-revenant-workflow-owner-epoch': String(workflow.ownerEpoch),
-    }
+    return revenantHeaders(json)
 }
 
 export class RevenantWorkflowBusyError extends Error {
@@ -102,16 +84,6 @@ export class RevenantWorkflowBusyError extends Error {
     constructor(workflow?: RevenantWorkflow) {
         super('A generation workflow is already active for this room')
         this.name = 'RevenantWorkflowBusyError'
-        this.workflow = workflow
-    }
-}
-
-export class RevenantWorkflowOwnedError extends Error {
-    readonly workflow?: RevenantWorkflow
-
-    constructor(workflow?: RevenantWorkflow) {
-        super('The generation workflow owner is still connected')
-        this.name = 'RevenantWorkflowOwnedError'
         this.workflow = workflow
     }
 }
@@ -135,6 +107,7 @@ export function createChatGenerationWorkflowPlan(options: {
     persistUserMessage: boolean
     hypaEnabled: boolean
     igpEnabled: boolean
+    pluginProvider: boolean
 }): RevenantWorkflowPlanStep[] {
     return [
         {
@@ -159,6 +132,12 @@ export function createChatGenerationWorkflowPlan(options: {
             kind: 'preprocess.prompt.build',
             recoveryPolicy: 'resume',
             metadata: createRevenantWorkflowResumeMetadata(options.resumeContext),
+        },
+        {
+            key: 'model.dispatch',
+            kind: 'model.dispatch.client',
+            recoveryPolicy: 'resume',
+            status: options.pluginProvider ? 'pending' : 'skipped',
         },
         {
             key: 'model.main',
@@ -277,55 +256,6 @@ export async function getRevenantWorkflow(workflowId: string): Promise<RevenantW
     const body = await response.json() as { workflow?: RevenantWorkflow }
     if (!body.workflow) throw new Error('Invalid generation workflow response')
     return rememberWorkflow(body.workflow)
-}
-
-export async function claimRevenantWorkflow(
-    workflowId: string,
-): Promise<RevenantWorkflow> {
-    const localWorkflow = rememberedWorkflow(workflowId)
-    if (
-        localWorkflow?.status === 'active'
-        && localWorkflow.ownerClientId === getRevenantGenerationSyncClientId()
-    ) {
-        return localWorkflow
-    }
-    const response = await fetch(
-        `/api/generation/workflows/${encodeURIComponent(workflowId)}/claim`,
-        {
-            method: 'POST',
-            headers: await revenantHeaders(),
-        },
-    )
-    const body = await response.json().catch(() => ({})) as {
-        workflow?: RevenantWorkflow
-        error?: string
-    }
-    if (response.status === 409) {
-        throw new RevenantWorkflowOwnedError(body.workflow)
-    }
-    if (!response.ok || !body.workflow) {
-        throw new Error(body.error || `Failed to claim generation workflow: ${response.status}`)
-    }
-    return rememberWorkflow(body.workflow)
-}
-
-export async function acquireRevenantWorkflowMutationLease(
-    workflow: RevenantWorkflow,
-): Promise<{ workflow: RevenantWorkflow, acquired: boolean }> {
-    try {
-        return {
-            workflow: await claimRevenantWorkflow(workflow.workflowId),
-            acquired: true,
-        }
-    }
-    catch (error) {
-        if (!(error instanceof RevenantWorkflowOwnedError)) throw error
-        const observed = error.workflow ?? workflow
-        return {
-            workflow: rememberWorkflow(observed),
-            acquired: false,
-        }
-    }
 }
 
 export async function updateRevenantWorkflowStep(

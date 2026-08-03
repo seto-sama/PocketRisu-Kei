@@ -12,7 +12,7 @@ describe('generation workflow client actions', () => {
             const db = require(process.argv[1]);
             db.createGenerationWorkflow({
                 workflowId: 'workflow-1', characterId: 'character-1', roomId: 'room-1',
-                ownerClientId: 'old-owner', context: { schemaVersion: 1, kind: 'chat-generation' },
+                context: { schemaVersion: 1, kind: 'chat-generation' },
                 plan: [{ key: 'trigger.output', kind: 'postprocess.trigger.output', recoveryPolicy: 'resume', status: 'pending', order: 0 }],
             });
             db.updateGenerationWorkflowStep('workflow-1', 'trigger.output', {
@@ -60,7 +60,8 @@ describe('generation workflow client actions', () => {
             expect(result.duplicate).toEqual({ alreadyResolved: true })
             expect(result.consumed).toBe(1)
             expect(result.child.materializedAt).toBeTypeOf('number')
-            expect(result.workflow).toMatchObject({ ownerClientId: 'old-owner', ownerEpoch: 1 })
+            expect(result.workflow).not.toHaveProperty('ownerEpoch')
+            expect(result.workflow).not.toHaveProperty('ownerClientId')
             expect(result.workflow.steps[0]).toMatchObject({
                 status: 'pending',
                 metadata: { responses: { 'trigger.0.provider': { result: 'ok' } } },
