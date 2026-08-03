@@ -26,10 +26,6 @@ import { updateLorebooks } from "./characters";
 import { initMobileGesture } from "./hotkey";
 import { moduleUpdate } from "./process/modules";
 import { isLocalNetworkUrl } from "./network/localNetwork";
-import {
-    executionPolicyToTransportStrategy,
-    type LLMTransportStrategy,
-} from "./network/transportTypes";
 import { formatResponseBody } from "./requestLogFormat";
 import {
     createFetchLogEntry,
@@ -40,14 +36,9 @@ import {
     getServerFetchLogs as getServerFetchLogsRequest,
     type FetchLog,
 } from "./requestLogStore";
-import {
-    type RevenantGenerationContext,
-} from "./process/revenantGeneration/types";
+import { type RevenantGenerationRequest } from "./process/revenantGeneration/types";
 import { configureRevenantGenerationClient } from "./process/revenantGeneration/client";
-import {
-    fetchViaGenerationJob,
-    isGenerationJobFallbackEligible,
-} from "./process/revenantGeneration/stream";
+import { fetchViaGenerationJob } from "./process/revenantGeneration/stream";
 
 export const forageStorage = new AutoStorage()
 configureRevenantGenerationClient({
@@ -1306,7 +1297,7 @@ interface GlobalFetchArgs {
     abortSignal?: AbortSignal;
     useRisuToken?: boolean;
     chatId?: string;
-    generationContext?: RevenantGenerationContext;
+    generationRequest?: RevenantGenerationRequest;
     interceptor?: string;
     requestTimeoutMs?: number;
     networkRoute?: 'auto' | 'local_network';
@@ -1343,14 +1334,14 @@ export async function globalFetch(url: string, arg: GlobalFetchArgs = {}): Promi
         const useLocalNetworkRoute = arg.networkRoute === 'local_network' && isLocalNetworkUrl(url)
         const forcePlainFetch = (knownHostes.includes(urlHost) || arg.plainFetchForce) && !arg.plainFetchDeforce && !useLocalNetworkRoute
 
-        if (arg.generationContext && arg.interceptor) {
+        if (arg.generationRequest && arg.interceptor) {
             const response = await fetchNative(url, {
                 body: typeof arg.body === 'string' ? arg.body : JSON.stringify(arg.body),
                 headers: arg.headers,
                 method: arg.method,
                 signal: arg.abortSignal,
                 chatId: arg.chatId,
-                generationContext: arg.generationContext,
+                generationRequest: arg.generationRequest,
                 interceptor: arg.interceptor,
                 requestTimeoutMs: arg.requestTimeoutMs,
                 networkRoute: arg.networkRoute,
@@ -2119,13 +2110,11 @@ export interface FetchNativeArgs {
     signal?: AbortSignal,
     useRisuTk?: boolean,
     chatId?: string
-    generationContext?: RevenantGenerationContext
+    generationRequest?: RevenantGenerationRequest
     interceptor?: string
     requestTimeoutMs?: number
     networkRoute?: 'auto' | 'local_network'
     llmExecutionPolicy?: import('./network/transportTypes').LLMExecutionPolicy
-    /** @deprecated Internal compatibility override. Prefer llmExecutionPolicy. */
-    transportStrategy?: LLMTransportStrategy
 }
 
 export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Response> {
@@ -2173,43 +2162,34 @@ export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Re
     const timeoutSignal = buildTimeoutSignal(arg.signal, arg.requestTimeoutMs)
     const requestSignal = timeoutSignal.signal
     try {
-        const transportStrategy = arg.llmExecutionPolicy
-            ? executionPolicyToTransportStrategy(arg.llmExecutionPolicy)
-            : arg.transportStrategy ?? 'auto'
         // Provider LLM requests are owned by the Node server. The raw
         // response stream is persistently journaled on the server and replayed
         // through the same Response interface. Main requests remain recoverable
         // into chat; auxiliary requests are retained only as completed jobs.
-        const revenantGenerationContext = arg.generationContext
-            ?? (arg.chatId ? {
-                chatId: arg.chatId,
-                jobType: 'model' as const,
-                isContinuation: false,
-            } : undefined)
-        const useRevenantGenerationJob = !!revenantGenerationContext
+        const revenantGenerationRequest = arg.generationRequest
+        const useRevenantGenerationJob = !!revenantGenerationRequest
             && !!arg.interceptor
             && arg.method === 'POST'
+        if (revenantGenerationRequest && !arg.llmExecutionPolicy) {
+            throw new Error('LLM generation requests require an explicit execution policy')
+        }
         if (
             arg.llmExecutionPolicy?.kind === 'workflow'
             && (
-                !revenantGenerationContext?.workflowId
-                || !revenantGenerationContext.workflowStepKey
+                !revenantGenerationRequest?.workflow?.workflowId
+                || !revenantGenerationRequest.workflow.stepKey
             )
         ) {
             throw new Error('Workflow LLM execution requires an active workflow step')
         }
-        const durableRequired = transportStrategy === 'durable'
-            || !!revenantGenerationContext?.dispatchPolicy
-            || !!revenantGenerationContext?.workflowDependency
+        const durableRequired = arg.llmExecutionPolicy?.durability === 'required'
+            || !!revenantGenerationRequest?.job.dispatchPolicy
+            || !!revenantGenerationRequest?.workflow?.dependency
         if (durableRequired && !useRevenantGenerationJob) {
             throw new Error('Durable LLM transport requires a POST request with generation context and interceptor')
         }
-        if (durableRequired && (transportStrategy === 'proxy' || transportStrategy === 'direct')) {
-            throw new Error('Workflow and dispatched generation requests cannot bypass durable transport')
-        }
 
-        const attemptDurable = useRevenantGenerationJob
-            && (transportStrategy === 'auto' || transportStrategy === 'durable')
+        const attemptDurable = useRevenantGenerationJob && durableRequired
         if (attemptDurable) {
             try {
                 let revenantJobId = ''
@@ -2225,7 +2205,7 @@ export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Re
                         success: true,
                         date: new Date(startedAt).toLocaleTimeString(),
                         url,
-                        chatId: revenantGenerationContext.chatId,
+                        chatId: revenantGenerationRequest.job.chatId,
                     }).id
                 }
                 return withFetchLog(await fetchViaGenerationJob(url, {
@@ -2234,50 +2214,38 @@ export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Re
                     body: realBody,
                     signal: requestSignal,
                     requestTimeoutMs: arg.requestTimeoutMs,
-                    generationContext: revenantGenerationContext,
+                    generationRequest: revenantGenerationRequest,
                     onJobCreated: (jobId) => {
                         revenantJobId = jobId
-                        revenantGenerationContext.onJobCreated?.(jobId)
+                        revenantGenerationRequest.lifecycle?.onJobCreated?.(jobId)
                         if (
-                            !revenantGenerationContext.dispatchPolicy
-                            && !revenantGenerationContext.workflowDependency
+                            !revenantGenerationRequest.job.dispatchPolicy
+                            && !revenantGenerationRequest.workflow?.dependency
                         ) {
                             recordProviderRequest(Date.now())
                         }
                     },
                     onProviderStarted: (startedAt) => {
-                        revenantGenerationContext.onProviderStarted?.(startedAt)
+                        revenantGenerationRequest.lifecycle?.onProviderStarted?.(startedAt)
                         recordProviderRequest(startedAt)
                     },
                 }))
             } catch (wsErr) {
-                revenantGenerationContext.onJobRegistrationUnavailable?.(wsErr)
-                if (requestSignal?.aborted) throw wsErr
-                if (
-                    durableRequired
-                    || !isGenerationJobFallbackEligible(wsErr)
-                ) {
-                    // The server may already own a live job. Starting a second
-                    // direct request would duplicate the model response. A
-                    // dependent request also cannot fall back because its body
-                    // still contains the unresolved Hypa placeholder.
-                    throw wsErr
-                }
-                console.warn('[GenerationJobWS] fallback to /proxy2 because durable endpoint is unavailable:', wsErr)
+                revenantGenerationRequest.lifecycle?.onJobRegistrationUnavailable?.(wsErr)
+                // Registration failures are never downgraded to an ordinary
+                // provider request: the server may already own a live job.
+                throw wsErr
             }
         }
 
-        // A provider request that could not register its preferred durable job
-        // falls back to the server proxy, never to browser-direct fetch. This
-        // keeps credentials, CORS behavior, and remote-access behavior stable.
-        if (attemptDurable || transportStrategy === 'proxy') {
+        if (arg.llmExecutionPolicy?.providerRoute === 'server') {
             return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
                 ...arg,
                 signal: requestSignal
             }))
         }
 
-        if (transportStrategy === 'direct') {
+        if (arg.llmExecutionPolicy?.providerRoute === 'direct') {
             return withFetchLog(await fetch(url, {
                 body: realBody as any,
                 headers,

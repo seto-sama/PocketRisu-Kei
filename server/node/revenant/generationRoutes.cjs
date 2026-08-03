@@ -21,6 +21,7 @@ const {
 const {
     isRevenantJobActive,
     isValidRevenantWorkflowKey,
+    hasRevenantWorkflowOwnerLease,
     normalizeRevenantJobType,
     normalizeRevenantDispatchPolicy,
     normalizeRevenantWorkflowDependency,
@@ -33,6 +34,29 @@ const {
 const { createClientGenerationProjection } = require('./generationProjection.cjs');
 
 const WORKFLOW_OWNER_CLAIM_GRACE_MS = 5000;
+const WORKFLOW_OWNER_EPOCH_HEADER = 'x-revenant-workflow-owner-epoch';
+
+function requireWorkflowOwnerLease(req, res, workflowId, active = true) {
+    const workflow = getGenerationWorkflow(workflowId);
+    const clientId = String(req.headers['x-sync-client-id'] || '');
+    const ownerEpoch = Number(req.headers[WORKFLOW_OWNER_EPOCH_HEADER]);
+    if (!workflow || (active && workflow.status !== 'active')) {
+        res.status(404).send({ error: 'Active generation workflow not found' });
+        return undefined;
+    }
+    if (!hasRevenantWorkflowOwnerLease(workflow, clientId, ownerEpoch, active)) {
+        res.status(409).send({
+            error: 'Generation workflow owner lease is stale',
+            workflow,
+        });
+        return undefined;
+    }
+    return workflow;
+}
+
+function requireJobWorkflowOwnerLease(req, res, job) {
+    return !job?.workflowId || !!requireWorkflowOwnerLease(req, res, job.workflowId);
+}
 
 function installRevenantGenerationRoutes(app, deps) {
     const {
@@ -45,6 +69,7 @@ function installRevenantGenerationRoutes(app, deps) {
         scheduleGenerationDispatch,
         scheduleHypaWorkflowExecution,
         terminateGenerationWorkflow,
+        cancelGenerationStepExecution,
         generationRuntimeJobs,
         countActiveGenerationJobs,
         maxActiveJobs,
@@ -149,6 +174,7 @@ function installRevenantGenerationRoutes(app, deps) {
             workflow.workflowId,
             claimant,
             workflow.ownerClientId,
+            workflow.ownerEpoch,
         );
         if (!claimed) {
             res.status(409).send({
@@ -160,9 +186,29 @@ function installRevenantGenerationRoutes(app, deps) {
         res.send({ workflow: claimed });
     });
 
+    // Cancellation is an authenticated terminal control command, not a
+    // workflow-execution write. A reconnected browser must be able to stop the
+    // user's server-owned work immediately even though it does not hold the
+    // previous browser's owner epoch.
+    app.post('/api/generation/workflows/:workflowId/cancel', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const workflow = getGenerationWorkflow(req.params.workflowId, false);
+        if (!workflow) {
+            res.status(404).send({ error: 'Generation workflow not found' });
+            return;
+        }
+        const result = await terminateGenerationWorkflow(req.params.workflowId, 'cancelled');
+        res.send({
+            success: true,
+            ...(result.changed ? {} : { alreadyFinished: true }),
+        });
+    });
+
     app.put('/api/generation/workflows/:workflowId/steps/:stepKey', async (req, res, next) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
+        if (!requireWorkflowOwnerLease(req, res, req.params.workflowId)) return;
         const stepKey = req.params.stepKey;
         const update = normalizeRevenantWorkflowStepUpdate(req.body);
         if (!isValidRevenantWorkflowKey(stepKey) || !update) {
@@ -184,9 +230,28 @@ function installRevenantGenerationRoutes(app, deps) {
         }
     });
 
+    app.post('/api/generation/workflows/:workflowId/step-executions/:executionId/cancel', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        if (!isValidRevenantWorkflowKey(req.params.executionId)) {
+            res.status(400).send({ error: 'Invalid workflow step execution id' });
+            return;
+        }
+        const result = await cancelGenerationStepExecution(
+            req.params.workflowId,
+            req.params.executionId,
+        );
+        if (!result.changed) {
+            res.status(404).send({ error: 'Active workflow step execution not found' });
+            return;
+        }
+        res.send({ success: true, cancelledJobs: result.jobs.length });
+    });
+
     app.post('/api/generation/workflows/:workflowId/finish', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
+        if (!requireWorkflowOwnerLease(req, res, req.params.workflowId, false)) return;
         const status = normalizeRevenantWorkflowTerminalStatus(req.body?.status);
         if (!status) {
             res.status(400).send({ error: 'Invalid terminal workflow status' });
@@ -208,6 +273,7 @@ function installRevenantGenerationRoutes(app, deps) {
     app.put('/api/generation/workflows/:workflowId/hypav3-execution', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
+        if (!requireWorkflowOwnerLease(req, res, req.params.workflowId)) return;
         const recipe = normalizeRevenantHypaExecutionRecipe(req.body);
         if (!recipe) {
             res.status(400).send({ error: 'Invalid HypaV3 execution recipe' });
@@ -274,16 +340,22 @@ function installRevenantGenerationRoutes(app, deps) {
         const workflowStepKey = typeof req.body?.workflowStepKey === 'string'
             ? req.body.workflowStepKey
             : undefined;
+        const requestedStepExecutionId = typeof req.body?.workflowStepExecutionId === 'string'
+            ? req.body.workflowStepExecutionId
+            : undefined;
+        const stepExecutionId = workflowId ? requestedStepExecutionId : undefined;
         if (
             (workflowId && (
                 !isValidRevenantWorkflowKey(workflowId)
                 || !isValidRevenantWorkflowKey(workflowStepKey)
+                || !isValidRevenantWorkflowKey(stepExecutionId)
             ))
-            || (!workflowId && workflowStepKey)
+            || (!workflowId && (workflowStepKey || requestedStepExecutionId))
         ) {
             res.status(400).send({ error: 'Invalid generation workflow job link' });
             return;
         }
+        if (workflowId && !requireWorkflowOwnerLease(req, res, workflowId)) return;
         const dispatchPolicy = normalizeRevenantDispatchPolicy(
             req.body?.dispatchPolicy,
             operationContext,
@@ -355,6 +427,7 @@ function installRevenantGenerationRoutes(app, deps) {
                 operationContext,
                 workflowId,
                 workflowStepKey,
+                stepExecutionId,
                 adapterKind: req.body?.adapterKind,
                 streaming: req.body?.streaming === true,
                 dispatchGroup: dispatchPolicy?.dispatchGroup
@@ -448,12 +521,12 @@ function installRevenantGenerationRoutes(app, deps) {
     app.delete('/api/generation/jobs/:jobId', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
+        const persisted = getGenerationJob(req.params.jobId, false);
         const job = generationRuntimeJobs.get(req.params.jobId);
         if (job && !job.done) {
             job.abortController.abort();
             finishGenerationJob(req.params.jobId, 'cancelled', 'user_cancelled');
         } else {
-            const persisted = getGenerationJob(req.params.jobId, false);
             if (persisted && isRevenantJobActive(persisted.status)) {
                 finishGenerationJob(req.params.jobId, 'cancelled', 'user_cancelled');
             }
@@ -473,6 +546,7 @@ function installRevenantGenerationRoutes(app, deps) {
             res.status(404).send({ error: 'Generation job not found' });
             return;
         }
+        if (!requireJobWorkflowOwnerLease(req, res, job)) return;
         if (job.jobType === 'model') {
             res.status(400).send({ error: 'Main generation jobs must be materialized' });
             return;
@@ -501,6 +575,7 @@ function installRevenantGenerationRoutes(app, deps) {
             res.status(404).send({ error: 'Generation job not found' });
             return;
         }
+        if (!requireJobWorkflowOwnerLease(req, res, job)) return;
         setGenerationJobClientProjection(
             req.params.jobId,
             createClientGenerationProjection(job, content),
@@ -511,6 +586,12 @@ function installRevenantGenerationRoutes(app, deps) {
     app.put('/api/generation/jobs/:jobId/metadata', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
+        const job = getGenerationJob(req.params.jobId, false);
+        if (!job) {
+            res.status(404).send({ error: 'Generation job not found' });
+            return;
+        }
+        if (!requireJobWorkflowOwnerLease(req, res, job)) return;
         if (!updateGenerationJobMetadata(
             req.params.jobId,
             req.body?.generationInfo,
@@ -525,6 +606,12 @@ function installRevenantGenerationRoutes(app, deps) {
     app.post('/api/generation/jobs/:jobId/materialize', async (req, res, next) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
+        const leaseJob = getGenerationJob(req.params.jobId, false);
+        if (!leaseJob) {
+            res.status(404).send({ error: 'Generation job not found' });
+            return;
+        }
+        if (!requireJobWorkflowOwnerLease(req, res, leaseJob)) return;
         try {
             await queueStorageOperation(async () => {
                 const job = getGenerationJob(req.params.jobId, false);

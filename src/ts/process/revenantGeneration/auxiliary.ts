@@ -1,8 +1,9 @@
 import {
     createRevenantGenerationAuth,
-    getRevenantGenerationSyncClientId,
-    isRevenantGenerationLocallyOwned,
-    setRevenantGenerationLocallyOwned,
+    createRevenantJobMutationHeaders,
+    isRevenantGenerationLocallyObserved,
+    setRevenantGenerationLocallyObserved,
+    trackRevenantGenerationWorkflow,
 } from './client'
 import {
     isRevenantJobActive,
@@ -64,7 +65,7 @@ function notifyRecoverableTranslationSnapshot(): void {
         if (
             !key
             || !isTranslationPending(job)
-            || isRevenantGenerationLocallyOwned(job.jobId)
+            || isRevenantGenerationLocallyObserved(job.jobId)
         ) continue
         liveSignatures.push([
             job.jobId,
@@ -115,7 +116,7 @@ export function hasRecoverableTranslation(options: {
     const intentKey = translationIntentKey(options)
     if (Array.from(recoveredTranslationIntents.values()).includes(intentKey)) return true
     return auxiliaryGenerationSnapshot.some(job =>
-        !isRevenantGenerationLocallyOwned(job.jobId)
+        !isRevenantGenerationLocallyObserved(job.jobId)
         && isTranslationPending(job)
         && getTranslationJobKey(job)?.cacheKey === options.cacheKey
         && job.characterId === options.characterId
@@ -164,6 +165,7 @@ export async function listRecoverableAuxiliaryGenerations(
         }
         const jobs = (data.jobs as RecoverableAuxiliaryJob[])
             .filter(job => !consumedAuxiliaryGenerationIds.has(job.jobId))
+        for (const job of jobs) trackRevenantGenerationWorkflow(job.jobId, job.workflowId)
         if (requestId > latestCommittedAuxiliaryGenerationListRequestId) {
             latestCommittedAuxiliaryGenerationListRequestId = requestId
             auxiliaryGenerationListCache = { at: Date.now(), jobs }
@@ -194,6 +196,7 @@ export async function waitForRecoverableAuxiliaryGeneration(
             throw new Error(`Failed to inspect auxiliary generation: ${response.status}`)
         }
         const job = await response.json() as RecoverableAuxiliaryJob
+        trackRevenantGenerationWorkflow(job.jobId, job.workflowId)
         updateAuxiliaryGenerationJob(job)
         onUpdate?.(job)
         if (!isRevenantJobActive(job.status)) return job
@@ -265,7 +268,7 @@ export async function findRecoverableAuxiliaryGeneration(
 async function consumeRecoverableAuxiliaryGenerationOnce(jobId: string): Promise<void> {
     const consumingJob = auxiliaryGenerationSnapshot.find(job => job.jobId === jobId)
     const preserveTranslationIntent = consumingJob
-        && !isRevenantGenerationLocallyOwned(jobId)
+        && !isRevenantGenerationLocallyObserved(jobId)
         && consumingJob.status === 'generated'
         ? getTranslationJobKey(consumingJob)
         : undefined
@@ -277,13 +280,9 @@ async function consumeRecoverableAuxiliaryGenerationOnce(jobId: string): Promise
         notifyRecoverableTranslationSnapshot()
     }
     try {
-        const auth = await createRevenantGenerationAuth()
         const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/consume`, {
             method: 'POST',
-            headers: {
-                'risu-auth': auth,
-                'x-sync-client-id': getRevenantGenerationSyncClientId(),
-            },
+            headers: await createRevenantJobMutationHeaders(jobId),
         })
         if (!response.ok) {
             throw new Error(`Failed to consume auxiliary generation: ${response.status} ${await response.text()}`)
@@ -297,7 +296,8 @@ async function consumeRecoverableAuxiliaryGenerationOnce(jobId: string): Promise
         throw error
     }
     consumedAuxiliaryGenerationIds.add(jobId)
-    setRevenantGenerationLocallyOwned(jobId, false)
+    setRevenantGenerationLocallyObserved(jobId, false)
+    trackRevenantGenerationWorkflow(jobId, undefined)
     auxiliaryGenerationListCache = undefined
     updateAuxiliaryGenerationSnapshot(
         auxiliaryGenerationSnapshot.filter(job => job.jobId !== jobId),
@@ -325,14 +325,9 @@ export async function updateRecoverableAuxiliaryGenerationProjection(
     jobId: string,
     content: string,
 ): Promise<void> {
-    const auth = await createRevenantGenerationAuth()
     const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/projection`, {
         method: 'PUT',
-        headers: {
-            'content-type': 'application/json',
-            'risu-auth': auth,
-            'x-sync-client-id': getRevenantGenerationSyncClientId(),
-        },
+        headers: await createRevenantJobMutationHeaders(jobId, true),
         body: JSON.stringify({ content }),
     })
     if (!response.ok) {

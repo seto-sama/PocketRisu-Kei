@@ -1,6 +1,3 @@
-/** Low-level transport selection kept at the fetchNative compatibility boundary. */
-export type LLMTransportStrategy = 'auto' | 'durable' | 'proxy' | 'direct'
-
 /**
  * Application-level execution policy for an LLM provider call.
  *
@@ -48,10 +45,3 @@ export const EPHEMERAL_DIRECT_LLM_EXECUTION = Object.freeze({
     durability: 'off',
     providerRoute: 'direct',
 } as const satisfies LLMExecutionPolicy)
-
-export function executionPolicyToTransportStrategy(
-    policy: LLMExecutionPolicy,
-): Exclude<LLMTransportStrategy, 'auto'> {
-    if (policy.durability === 'required') return 'durable'
-    return policy.providerRoute === 'direct' ? 'direct' : 'proxy'
-}

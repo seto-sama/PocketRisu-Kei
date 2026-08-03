@@ -45,6 +45,7 @@ db.exec(`
         operation_context TEXT,
         workflow_id TEXT,
         workflow_step_key TEXT,
+        step_execution_id TEXT,
         adapter_kind TEXT,
         streaming INTEGER NOT NULL DEFAULT 0,
         dispatch_group TEXT,
@@ -75,6 +76,7 @@ db.exec(`
         character_id TEXT NOT NULL,
         room_id TEXT NOT NULL,
         owner_client_id TEXT NOT NULL,
+        owner_epoch INTEGER NOT NULL DEFAULT 1,
         plan_version INTEGER NOT NULL DEFAULT 1,
         status TEXT NOT NULL,
         created_at INTEGER NOT NULL,
@@ -93,7 +95,6 @@ db.exec(`
         kind TEXT NOT NULL,
         recovery_policy TEXT NOT NULL,
         status TEXT NOT NULL,
-        job_id TEXT,
         metadata TEXT,
         started_at INTEGER,
         completed_at INTEGER,
@@ -102,6 +103,20 @@ db.exec(`
     );
     CREATE INDEX IF NOT EXISTS idx_generation_workflow_steps_status
         ON generation_workflow_steps(workflow_id, status, step_order);
+    CREATE TABLE IF NOT EXISTS generation_workflow_step_executions (
+        execution_id TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL,
+        step_key TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        completed_at INTEGER
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_generation_step_executions_attempt
+        ON generation_workflow_step_executions(workflow_id, step_key, attempt);
+    CREATE INDEX IF NOT EXISTS idx_generation_step_executions_status
+        ON generation_workflow_step_executions(workflow_id, status, updated_at DESC);
     CREATE TABLE IF NOT EXISTS generation_workflow_executions (
         workflow_id TEXT PRIMARY KEY,
         execution_kind TEXT NOT NULL,
@@ -121,6 +136,12 @@ db.exec(`DROP INDEX IF EXISTS idx_generation_jobs_pending`);
 const generationColumns = new Set(
     db.prepare(`PRAGMA table_info(generation_jobs)`).all().map(column => column.name)
 );
+const workflowColumns = new Set(
+    db.prepare(`PRAGMA table_info(generation_workflows)`).all().map(column => column.name)
+);
+if (!workflowColumns.has('owner_epoch')) {
+    db.exec(`ALTER TABLE generation_workflows ADD COLUMN owner_epoch INTEGER NOT NULL DEFAULT 1`);
+}
 if (!generationColumns.has('normalized_projection')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN normalized_projection TEXT`);
 }
@@ -156,6 +177,9 @@ if (!generationColumns.has('workflow_id')) {
 }
 if (!generationColumns.has('workflow_step_key')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN workflow_step_key TEXT`);
+}
+if (!generationColumns.has('step_execution_id')) {
+    db.exec(`ALTER TABLE generation_jobs ADD COLUMN step_execution_id TEXT`);
 }
 if (!generationColumns.has('adapter_kind')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN adapter_kind TEXT`);
@@ -209,7 +233,7 @@ const stmtCreate = db.prepare(`
     INSERT INTO generation_jobs (
         job_id, chat_id, job_type, character_id, room_id,
         is_continuation, continuation_prefix, generation_info, prompt_info, reroll_snapshot,
-        operation_context, workflow_id, workflow_step_key,
+        operation_context, workflow_id, workflow_step_key, step_execution_id,
         adapter_kind, streaming,
         dispatch_group, dispatch_max_concurrent,
         dispatch_requests_per_minute, request_spec,
@@ -217,7 +241,7 @@ const stmtCreate = db.prepare(`
     ) VALUES (
         @jobId, @chatId, @jobType, @characterId, @roomId,
         @isContinuation, @continuationPrefix, @generationInfo, @promptInfo, @rerollSnapshot,
-        @operationContext, @workflowId, @workflowStepKey,
+        @operationContext, @workflowId, @workflowStepKey, @stepExecutionId,
         @adapterKind, @streaming,
         @dispatchGroup, @dispatchMaxConcurrent,
         @dispatchRequestsPerMinute, @requestSpec,
@@ -382,9 +406,9 @@ const stmtExpiredTerminalJobs = db.prepare(`
 `);
 const stmtCreateWorkflow = db.prepare(`
     INSERT INTO generation_workflows (
-        workflow_id, character_id, room_id, owner_client_id,
+        workflow_id, character_id, room_id, owner_client_id, owner_epoch,
         plan_version, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, 1, 'active', ?, ?)
+    ) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?)
 `);
 const stmtCreateWorkflowStep = db.prepare(`
     INSERT INTO generation_workflow_steps (
@@ -412,6 +436,33 @@ const stmtListWorkflowSteps = db.prepare(`
 const stmtGetWorkflowStep = db.prepare(`
     SELECT * FROM generation_workflow_steps WHERE workflow_id = ? AND step_key = ?
 `);
+const stmtGetStepExecution = db.prepare(`
+    SELECT * FROM generation_workflow_step_executions WHERE execution_id = ?
+`);
+const stmtListStepExecutions = db.prepare(`
+    SELECT * FROM generation_workflow_step_executions
+    WHERE workflow_id = ? AND step_key = ?
+    ORDER BY attempt ASC
+`);
+const stmtCreateStepExecution = db.prepare(`
+    INSERT INTO generation_workflow_step_executions (
+        execution_id, workflow_id, step_key, attempt, status,
+        created_at, updated_at
+    )
+    SELECT ?, ?, ?, COALESCE(MAX(attempt), 0) + 1, ?, ?, ?
+    FROM generation_workflow_step_executions
+    WHERE workflow_id = ? AND step_key = ?
+`);
+const stmtUpdateStepExecution = db.prepare(`
+    UPDATE generation_workflow_step_executions
+    SET status = ?,
+        completed_at = CASE
+            WHEN ? IN ('completed', 'skipped', 'failed') THEN ?
+            ELSE NULL
+        END,
+        updated_at = ?
+    WHERE execution_id = ?
+`);
 const stmtNextWorkflowStepOrder = db.prepare(`
     SELECT COALESCE(MAX(step_order), -1) + 1 AS next_order
     FROM generation_workflow_steps WHERE workflow_id = ?
@@ -419,12 +470,12 @@ const stmtNextWorkflowStepOrder = db.prepare(`
 const stmtInsertDynamicWorkflowStep = db.prepare(`
     INSERT INTO generation_workflow_steps (
         workflow_id, step_key, step_order, kind, recovery_policy,
-        status, job_id, metadata, started_at, completed_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        status, metadata, started_at, completed_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const stmtUpdateWorkflowStep = db.prepare(`
     UPDATE generation_workflow_steps
-    SET status = ?, job_id = COALESCE(?, job_id), metadata = COALESCE(?, metadata),
+    SET status = ?, metadata = COALESCE(?, metadata),
         started_at = CASE
             WHEN ? IN ('running', 'waiting_client', 'waiting_job') THEN COALESCE(started_at, ?)
             ELSE started_at
@@ -441,8 +492,9 @@ const stmtTouchWorkflow = db.prepare(`
 `);
 const stmtClaimWorkflow = db.prepare(`
     UPDATE generation_workflows
-    SET owner_client_id = ?, updated_at = ?
-    WHERE workflow_id = ? AND status = 'active' AND owner_client_id = ?
+    SET owner_client_id = ?, owner_epoch = owner_epoch + 1, updated_at = ?
+    WHERE workflow_id = ? AND status = 'active'
+      AND owner_client_id = ? AND owner_epoch = ?
 `);
 const stmtFinishWorkflow = db.prepare(`
     UPDATE generation_workflows
@@ -465,6 +517,23 @@ const stmtListActiveWorkflowJobs = db.prepare(`
     SELECT job_id, status FROM generation_jobs
     WHERE workflow_id = ? AND status IN ('queued', 'generating')
 `);
+const stmtListActiveStepExecutionJobs = db.prepare(`
+    SELECT job_id, status FROM generation_jobs
+    WHERE workflow_id = ? AND step_execution_id = ?
+      AND status IN ('queued', 'generating')
+`);
+const stmtAcknowledgeStepExecutionJobs = db.prepare(`
+    UPDATE generation_jobs
+    SET materialized_at = COALESCE(materialized_at, ?), updated_at = ?
+    WHERE workflow_id = ? AND step_execution_id = ?
+`);
+const stmtCancelStepExecutionJobs = db.prepare(`
+    UPDATE generation_jobs
+    SET status = 'cancelled', finish_reason = 'step_cancelled', error = NULL,
+        request_spec = NULL, completed_at = ?, updated_at = ?
+    WHERE workflow_id = ? AND step_execution_id = ?
+      AND status IN ('queued', 'generating')
+`);
 const stmtAcknowledgeWorkflowJobs = db.prepare(`
     UPDATE generation_jobs
     SET materialized_at = COALESCE(materialized_at, ?)
@@ -482,6 +551,19 @@ const stmtFailActiveWorkflowSteps = db.prepare(`
     SET status = 'failed', completed_at = ?, updated_at = ?
     WHERE workflow_id = ?
       AND status NOT IN ('completed', 'skipped', 'failed')
+`);
+const stmtFailActiveStepExecutions = db.prepare(`
+    UPDATE generation_workflow_step_executions
+    SET status = 'failed', completed_at = ?, updated_at = ?
+    WHERE workflow_id = ?
+      AND status NOT IN ('completed', 'skipped', 'failed')
+`);
+const stmtDeleteCompletedStepExecutions = db.prepare(`
+    DELETE FROM generation_workflow_step_executions
+    WHERE workflow_id IN (
+        SELECT workflow_id FROM generation_workflows
+        WHERE status <> 'active' AND completed_at < ?
+    )
 `);
 const stmtDeleteCompletedWorkflowSteps = db.prepare(`
     DELETE FROM generation_workflow_steps
@@ -545,11 +627,26 @@ function rowToWorkflowStep(row) {
         kind: row.kind,
         recoveryPolicy: row.recovery_policy,
         status: row.status,
-        jobId: row.job_id || undefined,
         metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
         startedAt: row.started_at || undefined,
         completedAt: row.completed_at || undefined,
         updatedAt: row.updated_at,
+        executions: stmtListStepExecutions
+            .all(row.workflow_id, row.step_key)
+            .map(rowToStepExecution),
+    };
+}
+
+function rowToStepExecution(row) {
+    return {
+        executionId: row.execution_id,
+        workflowId: row.workflow_id,
+        stepKey: row.step_key,
+        attempt: row.attempt,
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        completedAt: row.completed_at || undefined,
     };
 }
 
@@ -560,6 +657,7 @@ function rowToWorkflow(row, includeSteps = true) {
         characterId: row.character_id,
         roomId: row.room_id,
         ownerClientId: row.owner_client_id,
+        ownerEpoch: row.owner_epoch,
         planVersion: row.plan_version,
         status: row.status,
         createdAt: row.created_at,
@@ -615,13 +713,19 @@ function createGenerationWorkflow(input) {
     return { busy: false, workflow: getGenerationWorkflow(input.workflowId) };
 }
 
-function claimGenerationWorkflow(workflowId, ownerClientId, expectedOwnerClientId) {
+function claimGenerationWorkflow(
+    workflowId,
+    ownerClientId,
+    expectedOwnerClientId,
+    expectedOwnerEpoch,
+) {
     const now = Date.now();
     const result = stmtClaimWorkflow.run(
         ownerClientId,
         now,
         workflowId,
         expectedOwnerClientId,
+        expectedOwnerEpoch,
     );
     return result.changes === 1 ? getGenerationWorkflow(workflowId) : null;
 }
@@ -646,7 +750,6 @@ function updateGenerationWorkflowStep(
                 dynamic.kind,
                 dynamic.recoveryPolicy,
                 update.status,
-                update.jobId || null,
                 update.metadata ? JSON.stringify(update.metadata) : null,
                 ['running', 'waiting_client', 'waiting_job'].includes(update.status) ? now : null,
                 terminal ? now : null,
@@ -656,7 +759,6 @@ function updateGenerationWorkflowStep(
             const metadata = update.metadata ? JSON.stringify(update.metadata) : null;
             stmtUpdateWorkflowStep.run(
                 update.status,
-                update.jobId || null,
                 metadata,
                 update.status,
                 now,
@@ -707,8 +809,35 @@ function cancelGenerationWorkflow(workflowId, terminalStatus = 'cancelled') {
         stmtCancelWorkflowJobs.run(finishReason, now, now, workflowId);
         stmtCancelWorkflowExecutions.run(finishReason, now, now, workflowId);
         stmtFailActiveWorkflowSteps.run(now, now, workflowId);
+        stmtFailActiveStepExecutions.run(now, now, workflowId);
     })();
     return { changed: true, jobs };
+}
+
+function cancelGenerationStepExecution(workflowId, executionId) {
+    const workflow = stmtGetWorkflow.get(workflowId);
+    const execution = stmtGetStepExecution.get(executionId);
+    if (
+        !workflow
+        || workflow.status !== 'active'
+        || !execution
+        || execution.workflow_id !== workflowId
+    ) return { changed: false, jobs: [] };
+    if (['completed', 'skipped', 'failed'].includes(execution.status)) {
+        return { changed: false, jobs: [] };
+    }
+    const jobs = stmtListActiveStepExecutionJobs.all(workflowId, executionId).map(row => ({
+        jobId: row.job_id,
+        status: row.status,
+    }));
+    const now = Date.now();
+    db.transaction(() => {
+        stmtAcknowledgeStepExecutionJobs.run(now, now, workflowId, executionId);
+        stmtCancelStepExecutionJobs.run(now, now, workflowId, executionId);
+        stmtUpdateStepExecution.run('failed', 'failed', now, now, executionId);
+        updateGenerationWorkflowStep(workflowId, execution.step_key, { status: 'failed' });
+    })();
+    return { changed: true, jobs, stepKey: execution.step_key };
 }
 
 function rowToWorkflowExecution(row, includeRecipe = false) {
@@ -766,6 +895,41 @@ function listGenerationWorkflowJobs(workflowId) {
     return stmtListWorkflowJobs.all(workflowId).map(row => rowToJob(row, false));
 }
 
+function ensureGenerationStepExecution(input, status) {
+    if (!input.workflowId) return undefined;
+    const existing = stmtGetStepExecution.get(input.stepExecutionId);
+    if (existing) {
+        if (
+            existing.workflow_id !== input.workflowId
+            || existing.step_key !== input.workflowStepKey
+        ) {
+            const error = new Error('Step execution belongs to a different workflow step');
+            error.httpStatus = 409;
+            throw error;
+        }
+        stmtUpdateStepExecution.run(
+            status,
+            status,
+            Date.now(),
+            Date.now(),
+            input.stepExecutionId,
+        );
+        return rowToStepExecution(stmtGetStepExecution.get(input.stepExecutionId));
+    }
+    const now = Date.now();
+    stmtCreateStepExecution.run(
+        input.stepExecutionId,
+        input.workflowId,
+        input.workflowStepKey,
+        status,
+        now,
+        now,
+        input.workflowId,
+        input.workflowStepKey,
+    );
+    return rowToStepExecution(stmtGetStepExecution.get(input.stepExecutionId));
+}
+
 function linkGenerationJobToWorkflow(input) {
     if (!input.workflowId) return;
     const workflow = stmtGetWorkflow.get(input.workflowId);
@@ -779,10 +943,11 @@ function linkGenerationJobToWorkflow(input) {
         error.httpStatus = 409;
         throw error;
     }
+    ensureGenerationStepExecution(input, 'waiting_job');
     updateGenerationWorkflowStep(
         input.workflowId,
         input.workflowStepKey,
-        { status: 'waiting_job', jobId: input.jobId },
+        { status: 'waiting_job' },
         {
             kind: input.jobType === 'model' ? 'model.main' : `job.${input.jobType}`,
             recoveryPolicy: 'replay_output',
@@ -793,10 +958,17 @@ function linkGenerationJobToWorkflow(input) {
 function updateGenerationJobWorkflowStep(jobId, status) {
     const row = stmtGet.get(jobId);
     if (!row?.workflow_id || !row.workflow_step_key) return;
+    if (row.step_execution_id) {
+        ensureGenerationStepExecution({
+            workflowId: row.workflow_id,
+            workflowStepKey: row.workflow_step_key,
+            stepExecutionId: row.step_execution_id,
+        }, status);
+    }
     updateGenerationWorkflowStep(
         row.workflow_id,
         row.workflow_step_key,
-        { status, jobId },
+        { status },
         {
             kind: row.job_type === 'model' ? 'model.main' : `job.${row.job_type}`,
             recoveryPolicy: 'replay_output',
@@ -824,6 +996,7 @@ function rowToJob(row, includeRaw = true) {
         operationContext: row.operation_context ? JSON.parse(row.operation_context) : undefined,
         workflowId: row.workflow_id || undefined,
         workflowStepKey: row.workflow_step_key || undefined,
+        workflowStepExecutionId: row.step_execution_id || undefined,
         adapterKind: row.adapter_kind || undefined,
         streaming: row.streaming === 1,
         status: row.status,
@@ -872,51 +1045,53 @@ function createGenerationJob(input) {
         error.workflowId = activeWorkflow.workflow_id;
         throw error;
     }
-    if (input.workflowId && !input.workflowStepKey) {
-        const error = new Error('workflowStepKey is required when workflowId is set');
+    if (input.workflowId && (!input.workflowStepKey || !input.stepExecutionId)) {
+        const error = new Error('workflowStepKey and stepExecutionId are required when workflowId is set');
         error.httpStatus = 400;
         throw error;
     }
     generationJournalStore.create(input.workflowId || null, input.jobId);
     try {
-        stmtCreate.run({
-            jobId: input.jobId,
-            chatId: input.chatId || null,
-            jobType: input.jobType || 'model',
-            characterId: input.characterId || null,
-            roomId: input.roomId || null,
-            isContinuation: input.isContinuation ? 1 : 0,
-            continuationPrefix: input.continuationPrefix || null,
-            generationInfo: input.generationInfo ? JSON.stringify(input.generationInfo) : null,
-            promptInfo: input.promptInfo ? JSON.stringify(input.promptInfo) : null,
-            rerollSnapshot: input.rerollSnapshot ? JSON.stringify(input.rerollSnapshot) : null,
-            operationContext: input.operationContext ? JSON.stringify(input.operationContext) : null,
-            workflowId: input.workflowId || null,
-            workflowStepKey: input.workflowStepKey || null,
-            adapterKind: typeof input.adapterKind === 'string' ? input.adapterKind.slice(0, 64) : null,
-            streaming: input.streaming ? 1 : 0,
-            dispatchGroup: input.dispatchGroup || null,
-            dispatchMaxConcurrent: input.dispatchMaxConcurrent || null,
-            dispatchRequestsPerMinute: input.dispatchRequestsPerMinute || null,
-            requestSpec: input.requestSpec ? JSON.stringify(input.requestSpec) : null,
-            now,
-        });
-        linkGenerationJobToWorkflow(input);
-        if (input.workflowId && input.workflowStepKey) {
-            // Tool loops and application retries can issue more than one
-            // provider round for one logical workflow step. Once the next
-            // round is durably registered, earlier terminal wire responses are
-            // superseded inputs, not assistant messages waiting to materialize.
-            stmtAcknowledgeSupersededWorkflowStepJobs.run(
+        db.transaction(() => {
+            stmtCreate.run({
+                jobId: input.jobId,
+                chatId: input.chatId || null,
+                jobType: input.jobType || 'model',
+                characterId: input.characterId || null,
+                roomId: input.roomId || null,
+                isContinuation: input.isContinuation ? 1 : 0,
+                continuationPrefix: input.continuationPrefix || null,
+                generationInfo: input.generationInfo ? JSON.stringify(input.generationInfo) : null,
+                promptInfo: input.promptInfo ? JSON.stringify(input.promptInfo) : null,
+                rerollSnapshot: input.rerollSnapshot ? JSON.stringify(input.rerollSnapshot) : null,
+                operationContext: input.operationContext ? JSON.stringify(input.operationContext) : null,
+                workflowId: input.workflowId || null,
+                workflowStepKey: input.workflowStepKey || null,
+                stepExecutionId: input.stepExecutionId || null,
+                adapterKind: typeof input.adapterKind === 'string' ? input.adapterKind.slice(0, 64) : null,
+                streaming: input.streaming ? 1 : 0,
+                dispatchGroup: input.dispatchGroup || null,
+                dispatchMaxConcurrent: input.dispatchMaxConcurrent || null,
+                dispatchRequestsPerMinute: input.dispatchRequestsPerMinute || null,
+                requestSpec: input.requestSpec ? JSON.stringify(input.requestSpec) : null,
                 now,
-                now,
-                input.workflowId,
-                input.workflowStepKey,
-                input.jobId,
-            );
-        }
+            });
+            linkGenerationJobToWorkflow(input);
+            if (input.workflowId && input.workflowStepKey) {
+                // Tool loops and application retries can issue more than one
+                // provider round for one logical step execution. The aggregate
+                // step retains the latest job while the execution keeps the
+                // complete one-to-many relationship.
+                stmtAcknowledgeSupersededWorkflowStepJobs.run(
+                    now,
+                    now,
+                    input.workflowId,
+                    input.workflowStepKey,
+                    input.jobId,
+                );
+            }
+        })();
     } catch (error) {
-        stmtDeleteJob.run(input.jobId);
         generationJournalStore.remove(input.workflowId || null, input.jobId);
         throw error;
     }
@@ -1063,7 +1238,7 @@ function markGenerationMaterialized(jobId) {
             updateGenerationWorkflowStep(
                 job.workflow_id,
                 'message.materialize',
-                { status: 'completed', jobId },
+                { status: 'completed' },
                 { kind: 'message.materialize', recoveryPolicy: 'resume' },
             );
         }
@@ -1092,6 +1267,7 @@ function pruneRetainedGenerationJobs(retentionMs = GENERATION_RETENTION_MS) {
     let workflowsDeleted = 0;
     db.transaction(() => {
         stmtDeleteCompletedWorkflowExecutions.run(cutoff);
+        stmtDeleteCompletedStepExecutions.run(cutoff);
         stmtDeleteCompletedWorkflowSteps.run(cutoff);
         workflowsDeleted = stmtDeleteCompletedWorkflows.run(cutoff).changes;
     })();
@@ -1116,6 +1292,7 @@ module.exports = {
     updateGenerationWorkflowStep,
     finishGenerationWorkflow,
     cancelGenerationWorkflow,
+    cancelGenerationStepExecution,
     putGenerationWorkflowExecution,
     getGenerationWorkflowExecution,
     listQueuedGenerationWorkflowExecutions,

@@ -23,10 +23,10 @@ import {
     subscribeRecoverableTranslations,
 } from './auxiliary'
 import {
-    isRevenantGenerationLocallyOwned,
+    isRevenantGenerationLocallyObserved,
     listRecoverableGenerations,
     materializeRecoveredGeneration,
-    setRevenantGenerationLocallyOwned,
+    setRevenantGenerationLocallyObserved,
 } from './client'
 import {
     readRecoverableGenerationContent,
@@ -43,6 +43,7 @@ import {
     type RevenantTranslationCache,
 } from './translationRecovery'
 import {
+    acquireRevenantWorkflowMutationLease,
     finishRevenantWorkflow,
     claimRevenantWorkflow,
     getActiveRevenantWorkflow,
@@ -376,7 +377,7 @@ function scheduleRevenantAuxiliaryRecovery(character: character, chat: Chat): vo
             .filter(job =>
                 job.characterId === character.chaId
                 && job.roomId === chat.id
-                && !isRevenantGenerationLocallyOwned(job.jobId))
+                && !isRevenantGenerationLocallyObserved(job.jobId))
         if (dependencies.isChatBusy()) return
         jobs
             .filter(job => job.jobType !== 'translate')
@@ -411,7 +412,8 @@ export async function recoverRevenantGenerationsForChat(
     let recovered = 0
     let deferAuxiliaryRecovery = false
     try {
-        const activeWorkflow = await getActiveRevenantWorkflow(character.chaId, chat.id)
+        let activeWorkflow = await getActiveRevenantWorkflow(character.chaId, chat.id)
+        let workflowMutationOwned = !activeWorkflow
         const hypaMemoryCheckpoint = activeWorkflow?.steps
             .find(step => step.key === 'memory.hypav3' && step.status === 'completed')
             ?.metadata?.hypaMemory
@@ -430,14 +432,19 @@ export async function recoverRevenantGenerationsForChat(
         const currentChatMainJobs = mainJobs.filter(job =>
             job.characterId === character.chaId
             && job.roomId === chat.id)
-        // A terminal server job cannot still be owned by a live local request
+        if (activeWorkflow && currentChatMainJobs.length > 0) {
+            const lease = await acquireRevenantWorkflowMutationLease(activeWorkflow)
+            activeWorkflow = lease.workflow
+            workflowMutationOwned = lease.acquired
+        }
+        // A terminal server job cannot still have a live local observer
         // once the global chat process is idle. Let recovery finish a previous
         // materialization failure instead of filtering it forever.
         currentChatMainJobs
             .filter(job =>
                 !isRevenantJobActive(job.status)
-                && isRevenantGenerationLocallyOwned(job.jobId))
-            .forEach(job => setRevenantGenerationLocallyOwned(job.jobId, false))
+                && isRevenantGenerationLocallyObserved(job.jobId))
+            .forEach(job => setRevenantGenerationLocallyObserved(job.jobId, false))
         if (currentChatMainJobs.length === 0) {
             const detachedSubscription = [...recoveryStreamSubscriptions.values()].find(subscription =>
                 subscription.characterId === character.chaId
@@ -481,7 +488,7 @@ export async function recoverRevenantGenerationsForChat(
         }) =>
             job.characterId === character.chaId
             && job.roomId === chat.id
-            && !isRevenantGenerationLocallyOwned(job.jobId)
+            && !isRevenantGenerationLocallyObserved(job.jobId)
 
         const jobs = mainJobs
             .filter(isDetachedJobForCurrentChat)
@@ -635,6 +642,14 @@ export async function recoverRevenantGenerationsForChat(
                         rerollSnapshot,
                     })
                 }
+                break
+            }
+            if (job.workflowId && !workflowMutationOwned) {
+                // Observation is safe without ownership, but post-processing,
+                // materialization, and step writes are not. Retry after the old
+                // browser disconnects and this client can claim a fresh epoch.
+                recoveryRetryAt.set(job.jobId, Date.now() + 5000)
+                scheduleRecoveryFallback(character, chat, options)
                 break
             }
             const activeSubscription = recoveryStreamSubscriptions.get(job.jobId)

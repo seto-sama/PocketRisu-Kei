@@ -25,6 +25,7 @@ const {
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowDependency,
+    hasRevenantWorkflowOwnerLease,
     resolveRevenantWorkflowRequestBody,
 } = generationPkg as {
     normalizeRevenantDispatchPolicy: (
@@ -41,6 +42,12 @@ const {
         jobType: string,
         workflowId?: string,
     ) => unknown
+    hasRevenantWorkflowOwnerLease: (
+        workflow: unknown,
+        clientId: string,
+        ownerEpoch: number,
+        active?: boolean,
+    ) => boolean
     resolveRevenantWorkflowRequestBody: (
         bodyBase64: string,
         dependency: unknown,
@@ -250,6 +257,23 @@ describe('revenant journal stream', () => {
 })
 
 describe('revenant workflow validation', () => {
+    it('accepts only the current workflow owner lease', () => {
+        const workflow = {
+            workflowId: 'workflow-1',
+            ownerClientId: 'client-2',
+            ownerEpoch: 2,
+            status: 'active',
+        }
+        expect(hasRevenantWorkflowOwnerLease(workflow, 'client-2', 2)).toBe(true)
+        expect(hasRevenantWorkflowOwnerLease(workflow, 'client-1', 2)).toBe(false)
+        expect(hasRevenantWorkflowOwnerLease(workflow, 'client-2', 1)).toBe(false)
+        expect(hasRevenantWorkflowOwnerLease(
+            { ...workflow, status: 'completed' },
+            'client-2',
+            2,
+        )).toBe(false)
+    })
+
     it('normalizes an ordered checkpoint plan', () => {
         expect(normalizeRevenantWorkflowPlan([
             {
@@ -298,7 +322,7 @@ describe('revenant workflow validation', () => {
 
     it('accepts only known runtime step states', () => {
         expect(normalizeRevenantWorkflowStepUpdate({ status: 'output_ready' }))
-            .toEqual({ status: 'output_ready', jobId: null, metadata: null })
+            .toEqual({ status: 'output_ready', metadata: null })
         expect(normalizeRevenantWorkflowStepUpdate({
             status: 'waiting_client',
             metadata: {
@@ -307,7 +331,6 @@ describe('revenant workflow validation', () => {
             },
         })).toEqual({
             status: 'waiting_client',
-            jobId: null,
             metadata: {
                 checkpoint: 'embedding.local',
                 embeddingModel: 'MiniLM',

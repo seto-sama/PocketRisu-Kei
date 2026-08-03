@@ -13,7 +13,9 @@ interface RevenantGenerationClientDependencies {
 let dependencies: RevenantGenerationClientDependencies | undefined
 
 const revenantGenerationJobIds = new Map<string, string>()
-const locallyOwnedRevenantGenerationJobs = new Set<string>()
+const revenantGenerationJobWorkflows = new Map<string, string>()
+const revenantWorkflowOwnerEpochs = new Map<string, number>()
+const locallyObservedRevenantGenerationJobs = new Set<string>()
 const revenantGenerationCheckpointAt = new Map<string, number>()
 const revenantGenerationCheckpointPending = new Map<string, Promise<void>>()
 const revenantGenerationMetadata = new Map<string, RevenantGenerationMetadata>()
@@ -42,6 +44,50 @@ export function getRevenantGenerationSyncClientId(): string {
     return requireDependencies().getSyncClientId()
 }
 
+export function setRevenantWorkflowOwnerLease(
+    workflowId: string,
+    ownerEpoch: number | undefined,
+): void {
+    if (ownerEpoch === undefined) revenantWorkflowOwnerEpochs.delete(workflowId)
+    else revenantWorkflowOwnerEpochs.set(workflowId, ownerEpoch)
+}
+
+export function trackRevenantGenerationWorkflow(
+    jobId: string,
+    workflowId: string | undefined,
+): void {
+    if (workflowId) revenantGenerationJobWorkflows.set(jobId, workflowId)
+    else revenantGenerationJobWorkflows.delete(jobId)
+}
+
+/** Explicit user cancellation is never fenced by a workflow owner epoch. */
+export async function createRevenantCancellationHeaders(): Promise<Record<string, string>> {
+    return {
+        'risu-auth': await createRevenantGenerationAuth(),
+        'x-sync-client-id': getRevenantGenerationSyncClientId(),
+    }
+}
+
+export async function createRevenantJobMutationHeaders(
+    jobId: string,
+    json = false,
+): Promise<Record<string, string>> {
+    const workflowId = revenantGenerationJobWorkflows.get(jobId)
+    const ownerEpoch = workflowId
+        ? revenantWorkflowOwnerEpochs.get(workflowId)
+        : undefined
+    if (workflowId && ownerEpoch === undefined) {
+        throw new Error('Workflow owner lease is not available for this generation job')
+    }
+    return {
+        ...await createRevenantCancellationHeaders(),
+        ...(json ? { 'content-type': 'application/json' } : {}),
+        ...(ownerEpoch !== undefined
+            ? { 'x-revenant-workflow-owner-epoch': String(ownerEpoch) }
+            : {}),
+    }
+}
+
 export async function reportRevenantGenerationUsage(arg: {
     jobId: string
     timestamp: number
@@ -66,17 +112,17 @@ export async function reportRevenantGenerationUsage(arg: {
     }
 }
 
-export function setRevenantGenerationLocallyOwned(jobId: string, owned: boolean): void {
-    if (owned) {
-        locallyOwnedRevenantGenerationJobs.add(jobId)
+export function setRevenantGenerationLocallyObserved(jobId: string, observed: boolean): void {
+    if (observed) {
+        locallyObservedRevenantGenerationJobs.add(jobId)
     }
     else {
-        locallyOwnedRevenantGenerationJobs.delete(jobId)
+        locallyObservedRevenantGenerationJobs.delete(jobId)
     }
 }
 
-export function isRevenantGenerationLocallyOwned(jobId: string): boolean {
-    return locallyOwnedRevenantGenerationJobs.has(jobId)
+export function isRevenantGenerationLocallyObserved(jobId: string): boolean {
+    return locallyObservedRevenantGenerationJobs.has(jobId)
 }
 
 export function registerRevenantGenerationMetadata(
@@ -103,14 +149,9 @@ export async function updateRevenantGenerationMetadata(
     revenantGenerationMetadata.set(messageChatId, metadata)
     const jobId = revenantGenerationJobIds.get(messageChatId)
     if (!jobId) return
-    const auth = await createRevenantGenerationAuth()
     const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/metadata`, {
         method: 'PUT',
-        headers: {
-            'content-type': 'application/json',
-            'risu-auth': auth,
-            'x-sync-client-id': getRevenantGenerationSyncClientId(),
-        },
+        headers: await createRevenantJobMutationHeaders(jobId, true),
         body: JSON.stringify({
             generationInfo: metadata.generationInfo,
             promptInfo: metadata.promptInfo,
@@ -134,14 +175,9 @@ export async function checkpointRevenantGeneration(
     revenantGenerationCheckpointAt.set(messageChatId, now)
     const previousWrite = revenantGenerationCheckpointPending.get(messageChatId) ?? Promise.resolve()
     const write = previousWrite.catch(() => {}).then(async () => {
-        const auth = await createRevenantGenerationAuth()
         const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/projection`, {
             method: 'PUT',
-            headers: {
-                'content-type': 'application/json',
-                'risu-auth': auth,
-                'x-sync-client-id': getRevenantGenerationSyncClientId(),
-            },
+            headers: await createRevenantJobMutationHeaders(jobId, true),
             body: JSON.stringify({ content }),
             keepalive: force,
         })
@@ -162,19 +198,16 @@ export async function checkpointRevenantGeneration(
 export async function cancelRevenantGeneration(messageChatId: string): Promise<void> {
     const jobId = revenantGenerationJobIds.get(messageChatId)
     if (!jobId) return
-    const auth = await createRevenantGenerationAuth()
     const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}`, {
         method: 'DELETE',
-        headers: {
-            'risu-auth': auth,
-            'x-sync-client-id': getRevenantGenerationSyncClientId(),
-        },
+        headers: await createRevenantCancellationHeaders(),
         keepalive: true,
     })
     if (!response.ok) {
         throw new Error(`Failed to cancel generation job: ${response.status}`)
     }
-    setRevenantGenerationLocallyOwned(jobId, false)
+    setRevenantGenerationLocallyObserved(jobId, false)
+    trackRevenantGenerationWorkflow(jobId, undefined)
 }
 
 export async function finalizeRevenantGeneration(
@@ -186,14 +219,9 @@ export async function finalizeRevenantGeneration(
     const jobId = revenantGenerationJobIds.get(messageChatId)
     if (!jobId) return
     await checkpointRevenantGeneration(messageChatId, content, true)
-    const auth = await createRevenantGenerationAuth()
     const materialized = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/materialize`, {
         method: 'POST',
-        headers: {
-            'content-type': 'application/json',
-            'risu-auth': auth,
-            'x-sync-client-id': getRevenantGenerationSyncClientId(),
-        },
+        headers: await createRevenantJobMutationHeaders(jobId, true),
         // Streaming chats are deliberately skipped by the regular save loop.
         // Submit the current chat so materialization cannot rebuild it from a
         // server copy that predates the user's just-sent message.
@@ -203,11 +231,12 @@ export async function finalizeRevenantGeneration(
         throw new Error(`Failed to materialize generation: ${materialized.status} ${await materialized.text()}`)
     }
     const result = await materialized.json() as MaterializedGeneration
-    setRevenantGenerationLocallyOwned(jobId, false)
+    setRevenantGenerationLocallyObserved(jobId, false)
     revenantGenerationJobIds.delete(messageChatId)
     revenantGenerationCheckpointAt.delete(messageChatId)
     revenantGenerationCheckpointPending.delete(messageChatId)
     revenantGenerationMetadata.delete(messageChatId)
+    trackRevenantGenerationWorkflow(jobId, undefined)
     return result
 }
 
@@ -233,7 +262,9 @@ export async function listRecoverableGenerations(): Promise<RecoverableGeneratio
     if (!Array.isArray(data?.jobs)) {
         throw new Error('Invalid recoverable generation response')
     }
-    return data.jobs
+    const jobs = data.jobs as RecoverableGenerationJob[]
+    for (const job of jobs) trackRevenantGenerationWorkflow(job.jobId, job.workflowId)
+    return jobs
 }
 
 export async function materializeRecoveredGeneration(
@@ -241,20 +272,16 @@ export async function materializeRecoveredGeneration(
     message: Message,
     chat?: Chat,
 ): Promise<MaterializedGeneration> {
-    const auth = await createRevenantGenerationAuth()
     const materialized = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/materialize`, {
         method: 'POST',
-        headers: {
-            'content-type': 'application/json',
-            'risu-auth': auth,
-            'x-sync-client-id': getRevenantGenerationSyncClientId(),
-        },
+        headers: await createRevenantJobMutationHeaders(jobId, true),
         body: JSON.stringify({ message, chat }),
     })
     if (!materialized.ok) {
         throw new Error(`Failed to materialize recovered generation: ${materialized.status} ${await materialized.text()}`)
     }
     const result = await materialized.json() as MaterializedGeneration
-    setRevenantGenerationLocallyOwned(jobId, false)
+    setRevenantGenerationLocallyObserved(jobId, false)
+    trackRevenantGenerationWorkflow(jobId, undefined)
     return result
 }

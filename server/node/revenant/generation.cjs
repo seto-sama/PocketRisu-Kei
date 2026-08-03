@@ -78,12 +78,8 @@ function normalizeRevenantWorkflowStepUpdate(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
     const status = typeof value.status === 'string' ? value.status : '';
     if (!WORKFLOW_STEP_STATUSES.has(status)) return undefined;
-    const jobId = value.jobId == null ? null
-        : typeof value.jobId === 'string' && value.jobId.length <= 128 ? value.jobId : undefined;
-    if (jobId === undefined) return undefined;
     return {
         status,
-        jobId,
         metadata: value.metadata && typeof value.metadata === 'object' && !Array.isArray(value.metadata)
             ? structuredClone(value.metadata)
             : null,
@@ -96,6 +92,16 @@ function normalizeRevenantWorkflowTerminalStatus(value) {
 
 function isValidRevenantWorkflowKey(value) {
     return typeof value === 'string' && WORKFLOW_KEY_PATTERN.test(value);
+}
+
+function hasRevenantWorkflowOwnerLease(workflow, clientId, ownerEpoch, active = true) {
+    return !!workflow
+        && (!active || workflow.status === 'active')
+        && typeof clientId === 'string'
+        && workflow.ownerClientId === clientId
+        && Number.isSafeInteger(ownerEpoch)
+        && ownerEpoch >= 1
+        && workflow.ownerEpoch === ownerEpoch;
 }
 
 function normalizeRevenantOperationContext(jobType, value) {
@@ -276,6 +282,7 @@ function normalizeRevenantHypaExecutionRecipe(value) {
 module.exports = {
     isRevenantJobActive,
     isValidRevenantWorkflowKey,
+    hasRevenantWorkflowOwnerLease,
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowTerminalStatus,

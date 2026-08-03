@@ -779,17 +779,20 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         const classification = classifyPluginProviderFetch(
             url,
             options,
-            requestContext.generationContext?.workflowDependency?.placeholder,
+            requestContext.generationRequest?.workflow?.dependency?.placeholder,
         )
         if (!classification.generation) return undefined
         return {
             ...requestContext,
-            generationContext: requestContext.generationContext ? {
-                ...requestContext.generationContext,
-                adapterKind: requestContext.generationContext.adapterKind
-                    ?? classification.adapterKind,
-                streaming: requestContext.generationContext.streaming
-                    ?? classification.streaming,
+            generationRequest: requestContext.generationRequest ? {
+                ...requestContext.generationRequest,
+                job: {
+                    ...requestContext.generationRequest.job,
+                    adapterKind: requestContext.generationRequest.job.adapterKind
+                        ?? classification.adapterKind,
+                    streaming: requestContext.generationRequest.job.streaming
+                        ?? classification.streaming,
+                },
             } : undefined,
         }
     }
@@ -819,7 +822,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return oldApis.risuFetch(url, requestContext ? {
                 ...(options ?? {}),
                 chatId: requestContext.chatId,
-                generationContext: requestContext.generationContext,
+                generationRequest: requestContext.generationRequest,
                 llmExecutionPolicy: requestContext.llmExecutionPolicy,
                 interceptor: requestContext.interceptor,
             } : options);
@@ -842,14 +845,14 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return oldApis.nativeFetch(url, requestContext ? {
                 ...(options ?? {}),
                 chatId: requestContext.chatId,
-                generationContext: requestContext.generationContext,
+                generationRequest: requestContext.generationRequest,
                 llmExecutionPolicy: requestContext.llmExecutionPolicy,
                 interceptor: requestContext.interceptor,
             } : options);
         },
         getChar: oldApis.getChar,
         setChar: oldApis.setChar,
-        addProvider: (name: string, func: (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string }>, options?: PluginV3ProviderOptions) => {
+        addProvider: (name: string, func: (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string | ReadableStream<string> }>, options?: PluginV3ProviderOptions) => {
             console.warn(`[WARN] addProvider is a powerful API that can potentially be unsafe if used incorrectly. addProvider's functionality might be limited or changed in future updates to ensure security. please use other APIs if possible.`);
             let provs = get(customProviderStore)
             provs.push(name)

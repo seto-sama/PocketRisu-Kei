@@ -37,6 +37,14 @@ function cancelActiveGenerationWork(db, restartAt = Date.now()) {
               )
         `).run(restartAt, restartAt);
         db.prepare(`
+            UPDATE generation_workflow_step_executions
+            SET status = 'failed', completed_at = ?, updated_at = ?
+            WHERE status NOT IN ('completed', 'skipped', 'failed')
+              AND workflow_id IN (
+                  SELECT workflow_id FROM generation_workflows WHERE status = 'active'
+              )
+        `).run(restartAt, restartAt);
+        db.prepare(`
             UPDATE generation_workflows
             SET status = 'cancelled', completed_at = ?, updated_at = ?
             WHERE status = 'active'

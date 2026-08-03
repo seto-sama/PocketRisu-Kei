@@ -53,11 +53,22 @@ export interface RevenantWorkflowPlanStep {
 export interface RevenantWorkflowStep extends Omit<RevenantWorkflowPlanStep, 'status'> {
     order: number
     status: RevenantWorkflowStepStatus
-    jobId?: string
     metadata?: Record<string, unknown>
     startedAt?: number
     completedAt?: number
     updatedAt: number
+    executions: RevenantWorkflowStepExecution[]
+}
+
+export interface RevenantWorkflowStepExecution {
+    executionId: string
+    workflowId: string
+    stepKey: string
+    attempt: number
+    status: RevenantWorkflowStepStatus
+    createdAt: number
+    updatedAt: number
+    completedAt?: number
 }
 
 export interface RevenantWorkflow {
@@ -65,6 +76,7 @@ export interface RevenantWorkflow {
     characterId: string
     roomId: string
     ownerClientId: string
+    ownerEpoch: number
     planVersion: number
     status: RevenantWorkflowStatus
     steps: RevenantWorkflowStep[]
@@ -124,7 +136,8 @@ export type RevenantOperationContext =
     | RevenantHypaV3SummaryOperation
     | RevenantLuaLlmOperation
 
-export interface RevenantGenerationContext {
+/** Provider work persisted with a durable generation job. */
+export interface RevenantProviderJobSpec {
     chatId: string
     jobType: ModelModeExtended
     /** Concrete client adapter that owns parsing the provider wire response. */
@@ -133,23 +146,37 @@ export interface RevenantGenerationContext {
     streaming?: boolean
     characterId?: string
     roomId?: string
-    workflowId?: string
-    workflowStepKey?: string
     isContinuation: boolean
     continuationPrefix?: string
     operationContext?: RevenantOperationContext
     dispatchPolicy?: RevenantDispatchPolicy
-    workflowDependency?: RevenantWorkflowDependency
     /** Canonical models.dev identity used by usage-cost accounting. */
     usageProviderId?: string
     usageModelId?: string
     usageServiceTier?: 'batch'
-    /** Client-only callback; omitted when the context is serialized for the server. */
+}
+
+/** Logical workflow execution that owns one or more provider jobs. */
+export interface RevenantWorkflowExecutionRef {
+    workflowId: string
+    stepKey: string
+    executionId: string
+    ownerEpoch: number
+    dependency?: RevenantWorkflowDependency
+}
+
+/** Browser-only observation hooks; never serialized as provider job state. */
+export interface RevenantGenerationLifecycle {
     onJobCreated?: (jobId: string) => void
-    /** Client-only callback fired when no durable server job could be created. */
     onJobRegistrationUnavailable?: (error?: unknown) => void
-    /** Client-only callback fired when a queued job begins its provider request. */
     onProviderStarted?: (startedAt: number) => void
+}
+
+/** Explicit boundary between durable work, workflow ownership, and observation. */
+export interface RevenantGenerationRequest {
+    job: RevenantProviderJobSpec
+    workflow?: RevenantWorkflowExecutionRef
+    lifecycle?: RevenantGenerationLifecycle
 }
 
 export interface RevenantDispatchPolicy {
@@ -181,6 +208,7 @@ export interface RecoverableGenerationJob {
     roomId?: string
     workflowId?: string
     workflowStepKey?: string
+    workflowStepExecutionId?: string
     isContinuation?: boolean
     continuationPrefix?: string
     generationInfo?: MessageGenerationInfo
@@ -210,6 +238,7 @@ export interface RecoverableAuxiliaryJob {
     roomId?: string
     workflowId?: string
     workflowStepKey?: string
+    workflowStepExecutionId?: string
     operationContext?: RevenantOperationContext
     adapterKind?: string
     streaming?: boolean

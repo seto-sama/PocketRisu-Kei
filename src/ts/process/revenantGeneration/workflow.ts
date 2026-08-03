@@ -1,6 +1,8 @@
 import {
+    createRevenantCancellationHeaders,
     createRevenantGenerationAuth,
     getRevenantGenerationSyncClientId,
+    setRevenantWorkflowOwnerLease,
 } from './client'
 import { writable } from 'svelte/store'
 import type {
@@ -28,9 +30,13 @@ function rememberWorkflow(workflow: RevenantWorkflow): RevenantWorkflow {
     const key = roomKey(workflow.characterId, workflow.roomId)
     if (workflow.status === 'active') {
         activeWorkflows.set(key, workflow)
+        setRevenantWorkflowOwnerLease(workflow.workflowId, workflow.ownerEpoch)
         publishActiveWorkflows()
     }
-    else if (activeWorkflows.delete(key)) publishActiveWorkflows()
+    else if (activeWorkflows.delete(key)) {
+        setRevenantWorkflowOwnerLease(workflow.workflowId, undefined)
+        publishActiveWorkflows()
+    }
     return workflow
 }
 
@@ -41,12 +47,18 @@ function forgetWorkflow(
 ): void {
     let changed = false
     if (characterId && roomId) {
-        changed = activeWorkflows.delete(roomKey(characterId, roomId)) || changed
+        const key = roomKey(characterId, roomId)
+        const workflow = activeWorkflows.get(key)
+        if (activeWorkflows.delete(key)) {
+            if (workflow) setRevenantWorkflowOwnerLease(workflow.workflowId, undefined)
+            changed = true
+        }
     }
     if (workflowId) {
         for (const [key, workflow] of activeWorkflows) {
             if (workflow.workflowId === workflowId) {
                 activeWorkflows.delete(key)
+                setRevenantWorkflowOwnerLease(workflow.workflowId, undefined)
                 changed = true
             }
         }
@@ -59,6 +71,25 @@ async function revenantHeaders(json = false): Promise<Record<string, string>> {
         ...(json ? { 'content-type': 'application/json' } : {}),
         'risu-auth': await createRevenantGenerationAuth(),
         'x-sync-client-id': getRevenantGenerationSyncClientId(),
+    }
+}
+
+function rememberedWorkflow(workflowId: string): RevenantWorkflow | undefined {
+    for (const workflow of activeWorkflows.values()) {
+        if (workflow.workflowId === workflowId) return workflow
+    }
+    return undefined
+}
+
+async function workflowMutationHeaders(
+    workflowId: string,
+    json = false,
+): Promise<Record<string, string>> {
+    const workflow = rememberedWorkflow(workflowId)
+    if (!workflow) throw new Error('Workflow owner lease is not available on this client')
+    return {
+        ...await revenantHeaders(json),
+        'x-revenant-workflow-owner-epoch': String(workflow.ownerEpoch),
     }
 }
 
@@ -247,6 +278,13 @@ export async function getRevenantWorkflow(workflowId: string): Promise<RevenantW
 export async function claimRevenantWorkflow(
     workflowId: string,
 ): Promise<RevenantWorkflow> {
+    const localWorkflow = rememberedWorkflow(workflowId)
+    if (
+        localWorkflow?.status === 'active'
+        && localWorkflow.ownerClientId === getRevenantGenerationSyncClientId()
+    ) {
+        return localWorkflow
+    }
     const response = await fetch(
         `/api/generation/workflows/${encodeURIComponent(workflowId)}/claim`,
         {
@@ -267,6 +305,25 @@ export async function claimRevenantWorkflow(
     return rememberWorkflow(body.workflow)
 }
 
+export async function acquireRevenantWorkflowMutationLease(
+    workflow: RevenantWorkflow,
+): Promise<{ workflow: RevenantWorkflow, acquired: boolean }> {
+    try {
+        return {
+            workflow: await claimRevenantWorkflow(workflow.workflowId),
+            acquired: true,
+        }
+    }
+    catch (error) {
+        if (!(error instanceof RevenantWorkflowOwnedError)) throw error
+        const observed = error.workflow ?? workflow
+        return {
+            workflow: rememberWorkflow(observed),
+            acquired: false,
+        }
+    }
+}
+
 export async function updateRevenantWorkflowStep(
     workflowId: string,
     stepKey: string,
@@ -277,7 +334,7 @@ export async function updateRevenantWorkflowStep(
         `/api/generation/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(stepKey)}`,
         {
             method: 'PUT',
-            headers: await revenantHeaders(true),
+            headers: await workflowMutationHeaders(workflowId, true),
             body: JSON.stringify({ status, metadata }),
         },
     )
@@ -292,7 +349,7 @@ export async function finishRevenantWorkflow(
 ): Promise<void> {
     const response = await fetch(`/api/generation/workflows/${encodeURIComponent(workflowId)}/finish`, {
         method: 'POST',
-        headers: await revenantHeaders(true),
+        headers: await workflowMutationHeaders(workflowId, true),
         body: JSON.stringify({ status }),
         keepalive: true,
     })
@@ -303,7 +360,36 @@ export async function finishRevenantWorkflow(
 }
 
 export async function cancelRevenantWorkflow(workflowId: string): Promise<void> {
-    await finishRevenantWorkflow(workflowId, 'cancelled')
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}/cancel`,
+        {
+            method: 'POST',
+            headers: await createRevenantCancellationHeaders(),
+            keepalive: true,
+        },
+    )
+    if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error || `Failed to cancel generation workflow: ${response.status}`)
+    }
+    forgetWorkflow(workflowId)
+}
+
+export async function cancelRevenantWorkflowStepExecution(
+    workflowId: string,
+    executionId: string,
+): Promise<void> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}`
+            + `/step-executions/${encodeURIComponent(executionId)}/cancel`,
+        {
+            method: 'POST',
+            headers: await createRevenantCancellationHeaders(),
+        },
+    )
+    if (!response.ok) {
+        throw new Error(`Failed to cancel workflow step execution: ${response.status}`)
+    }
 }
 
 export async function prepareRevenantHypaExecution<TRecipe>(
@@ -314,7 +400,7 @@ export async function prepareRevenantHypaExecution<TRecipe>(
         `/api/generation/workflows/${encodeURIComponent(workflowId)}/hypav3-execution`,
         {
             method: 'PUT',
-            headers: await revenantHeaders(true),
+            headers: await workflowMutationHeaders(workflowId, true),
             body: JSON.stringify(recipe),
         },
     )

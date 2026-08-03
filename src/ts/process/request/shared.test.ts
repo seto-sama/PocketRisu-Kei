@@ -1,12 +1,24 @@
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+
+const { workflowState } = vi.hoisted(() => ({
+    workflowState: { workflow: undefined as undefined | { workflowId: string, ownerEpoch: number } },
+}))
 
 // shared.ts imports getDatabase at module load; stub it so this pure-helper test
 // stays off the big database import graph (mirrors modelPresetBinding.test.ts).
 vi.mock('src/ts/storage/database.svelte', () => ({
     getDatabase: () => ({}),
 }))
+vi.mock('../revenantGeneration/workflow', () => ({
+    getLocalRevenantWorkflow: () => workflowState.workflow,
+    getRevenantWorkflowStepKey: (jobType: string) => jobType === 'model' ? 'model.main' : `job.${jobType}`,
+}))
 
-import { buildGenerationContext, collectStreamingText } from './shared'
+import { buildGenerationRequest, collectStreamingText } from './shared'
+
+afterEach(() => {
+    workflowState.workflow = undefined
+})
 
 // collectStreamingText underpins per-preset decoupled streaming: the wire stays
 // SSE, but the stream is drained to a single string. Every chunk carries the
@@ -45,13 +57,13 @@ describe('collectStreamingText', () => {
     })
 })
 
-describe('buildGenerationContext', () => {
+describe('buildGenerationRequest', () => {
     test('forwards the durable registration lifecycle callbacks', () => {
         const onJobCreated = vi.fn()
         const onJobRegistrationUnavailable = vi.fn()
         const onProviderStarted = vi.fn()
 
-        const context = buildGenerationContext({
+        const request = buildGenerationRequest({
             formated: [],
             bias: {},
             mode: 'model',
@@ -61,8 +73,37 @@ describe('buildGenerationContext', () => {
             onRevenantProviderStarted: onProviderStarted,
         })
 
-        expect(context?.onJobCreated).toBe(onJobCreated)
-        expect(context?.onJobRegistrationUnavailable).toBe(onJobRegistrationUnavailable)
-        expect(context?.onProviderStarted).toBe(onProviderStarted)
+        expect(request?.lifecycle?.onJobCreated).toBe(onJobCreated)
+        expect(request?.lifecycle?.onJobRegistrationUnavailable).toBe(onJobRegistrationUnavailable)
+        expect(request?.lifecycle?.onProviderStarted).toBe(onProviderStarted)
+        expect(request?.job).not.toHaveProperty('onJobCreated')
+        expect(request?.job).not.toHaveProperty('workflowId')
+        expect(request?.workflow).toBeUndefined()
+    })
+
+    test('reuses one step execution id across every provider round', () => {
+        workflowState.workflow = { workflowId: 'workflow-1', ownerEpoch: 3 }
+        const arg = {
+            formated: [],
+            bias: {},
+            mode: 'model' as const,
+            chatId: 'message-1',
+            currentChar: {
+                chaId: 'character-1',
+                chatPage: 0,
+                chats: [{ id: 'room-1', message: [] }],
+            },
+        } as any
+
+        const first = buildGenerationRequest(arg)
+        const second = buildGenerationRequest(arg)
+
+        expect(first?.workflow).toMatchObject({
+            workflowId: 'workflow-1',
+            stepKey: 'model.main',
+            ownerEpoch: 3,
+        })
+        expect(first?.workflow?.executionId).toBeTruthy()
+        expect(second?.workflow?.executionId).toBe(first?.workflow?.executionId)
     })
 })

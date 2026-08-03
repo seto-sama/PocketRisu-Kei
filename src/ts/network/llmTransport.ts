@@ -1,5 +1,5 @@
 import { fetchNative } from '../globalApi.svelte'
-import type { RevenantGenerationContext } from '../process/revenantGeneration/types'
+import type { RevenantGenerationRequest } from '../process/revenantGeneration/types'
 import { isLocalNetworkUrl } from './localNetwork'
 import {
     SINGLE_LLM_EXECUTION,
@@ -10,7 +10,7 @@ export interface LLMTransportFetchOptions {
     /** Body-interceptor namespace used by plugins and request logging. */
     interceptor: string
     /** Resolve at dispatch time so streaming/workflow metadata is not stale. */
-    getGenerationContext: () => RevenantGenerationContext | undefined
+    getGenerationRequest: () => RevenantGenerationRequest | undefined
     /** Resolve at dispatch time so a request cannot silently change durability. */
     getExecutionPolicy?: () => LLMExecutionPolicy
     chatId?: string
@@ -41,7 +41,7 @@ export function createLLMTransportFetch(options: LLMTransportFetchOptions): type
         const body = init?.body ?? (input instanceof Request ? await input.clone().arrayBuffer() : undefined)
         const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
         const localNetwork = isLocalNetworkUrl(url)
-        const generationContext = options.getGenerationContext()
+        const generationRequest = options.getGenerationRequest()
         const executionPolicy = options.getExecutionPolicy?.() ?? SINGLE_LLM_EXECUTION
 
         return fetchNative(url, {
@@ -49,9 +49,9 @@ export function createLLMTransportFetch(options: LLMTransportFetchOptions): type
             headers: requestHeaders(input, init),
             body: body as string | Uint8Array | ArrayBuffer | undefined,
             signal: signal ?? undefined,
-            chatId: options.chatId ?? generationContext?.chatId,
+            chatId: options.chatId ?? generationRequest?.job.chatId,
             interceptor: options.interceptor,
-            generationContext,
+            generationRequest,
             llmExecutionPolicy: executionPolicy,
             networkRoute: localNetwork ? 'local_network' : 'auto',
             requestTimeoutMs: localNetwork

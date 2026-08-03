@@ -42,6 +42,7 @@ const {
     finishGenerationJob,
     finishGenerationWorkflow,
     cancelGenerationWorkflow,
+    cancelGenerationStepExecution,
     listGenerationJobsNeedingProjection,
     pruneRetainedGenerationJobs,
     checkpointGenerationDb,
@@ -1860,6 +1861,7 @@ const {
 const generationWorkflowService = createGenerationWorkflowService({
     finishGenerationWorkflow,
     cancelGenerationWorkflow,
+    cancelGenerationStepExecution,
     generationRuntimeJobs,
     markGenerationJobDone,
     abortHypaWorkflowExecution,
@@ -2700,6 +2702,7 @@ installRevenantGenerationRoutes(app, {
     scheduleGenerationDispatch,
     scheduleHypaWorkflowExecution,
     terminateGenerationWorkflow: generationWorkflowService.terminateWorkflow,
+    cancelGenerationStepExecution: generationWorkflowService.cancelStepExecution,
     generationRuntimeJobs,
     countActiveGenerationJobs,
     maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,

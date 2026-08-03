@@ -12,7 +12,7 @@ import { getTools, callTool, encodeToolCall, decodeToolCall } from "../mcp/mcp";
 import type { MCPTool, RPCToolCallContent } from "../mcp/mcplib";
 import { getGeneralJSONSchema } from "../templates/jsonSchema";
 import { runTrigger } from "../triggers";
-import { buildGenerationContext, collectStreamingText, type ModelModeExtended } from './shared';
+import { buildGenerationRequest, collectStreamingText, type ModelModeExtended } from './shared';
 import {
     ModelPresetAdapterError,
     runToolLoop,
@@ -43,7 +43,7 @@ import {
     startStatus, appendText, endStatus, setStatusTokenCounter, addBadge,
     type RequestKind,
 } from "src/ts/status/requestStatus";
-import type { RevenantGenerationContext, RevenantOperationContext } from "../revenantGeneration/types";
+import type { RevenantOperationContext, RevenantProviderJobSpec } from "../revenantGeneration/types";
 import { reportRevenantGenerationUsage } from "../revenantGeneration/client";
 import { combineProviderStartedHandlers } from "../revenantGeneration/coordinator";
 import {
@@ -98,6 +98,8 @@ export interface RequestDataArgumentExtended extends requestDataArgument{
     mode?:ModelModeExtended
     /** Internal id shared by the wire calls of one auxiliary provider attempt. */
     revenantRequestId?:string
+    /** Stable logical step attempt shared by every provider round in this request. */
+    revenantStepExecutionId?:string
 }
 
 export type requestDataResponse = {
@@ -378,8 +380,8 @@ async function executeModelPresetRequest(
     }
     targ.mode = model
 
-    const generationContext = buildGenerationContext(targ)
-    const autoConsume = generationContext?.jobType !== 'model'
+    const generationRequest = buildGenerationRequest(targ)
+    const autoConsume = generationRequest?.job.jobType !== 'model'
         && !targ.revenantOperationContext
     const consumeCreatedJobs = async () => {
         if (!autoConsume || createdJobIds.length === 0) return
@@ -628,7 +630,7 @@ async function requestPluginPresetProvider(
     Object.defineProperty(providerArgs, pluginProviderRequestContextKey, {
         value: {
             chatId: arg.chatId,
-            generationContext: buildGenerationContext(arg),
+            generationRequest: buildGenerationRequest(arg),
             llmExecutionPolicy: resolveLLMExecutionPolicy(arg),
             interceptor: 'model_preset',
         },
@@ -688,7 +690,7 @@ async function requestPluginPresetProvider(
 function modelsDevUsageIdentity(
     preset: ModelPreset,
 ): Pick<
-    RevenantGenerationContext,
+    RevenantProviderJobSpec,
     'usageProviderId' | 'usageModelId' | 'usageServiceTier'
 > | undefined {
     const source = preset.sourceProfile
@@ -706,7 +708,7 @@ function modelsDevUsageIdentity(
 function resolveLLMExecutionPolicy(arg: RequestDataArgumentExtended): LLMExecutionPolicy {
     if (arg.llmExecutionPolicy) return arg.llmExecutionPolicy
     if (arg.previewBody) return EPHEMERAL_SERVER_LLM_EXECUTION
-    return buildGenerationContext(arg)?.workflowId
+    return buildGenerationRequest(arg)?.workflow
         ? WORKFLOW_LLM_EXECUTION
         : SINGLE_LLM_EXECUTION
 }
@@ -716,7 +718,7 @@ function makeModelTransportFetch(arg: RequestDataArgumentExtended, preset: Model
     return createLLMTransportFetch({
         interceptor: 'model_preset',
         chatId: arg.chatId,
-        getGenerationContext: () => buildGenerationContext(arg, usageIdentity),
+        getGenerationRequest: () => buildGenerationRequest(arg, usageIdentity),
         getExecutionPolicy: () => resolveLLMExecutionPolicy(arg),
     })
 }
@@ -907,6 +909,26 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             }
         }
         return requestEchoPreset(preset, abortSignal)
+    }
+    // HTTP streaming adapters expose their ReadableStream before the lazy
+    // async generator reaches fetchNative. Track the durable-registration
+    // boundary independently so the chat workflow can wait for a late job id,
+    // while preparation failures still release that wait with the real error.
+    let registrationSettled = false
+    const callerOnJobCreated = arg.onRevenantJobCreated
+    const callerOnRegistrationUnavailable = arg.onRevenantJobRegistrationUnavailable
+    arg.onRevenantJobCreated = jobId => {
+        registrationSettled = true
+        callerOnJobCreated?.(jobId)
+    }
+    arg.onRevenantJobRegistrationUnavailable = error => {
+        if (registrationSettled) return
+        registrationSettled = true
+        callerOnRegistrationUnavailable?.(error)
+    }
+    const releasePendingRegistration = (error: unknown) => {
+        if (registrationSettled) return
+        arg.onRevenantJobRegistrationUnavailable?.(error)
     }
     const kind = compiled.adapterKind
     const adapter = compiled.adapter
@@ -1155,6 +1177,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                         // AbortError. It is reflected as an aborted request
                         // status, not persisted as an application error.
                         onError: (err) => {
+                            releasePendingRegistration(err)
                             if (abortSignal?.aborted) return
                             console.error('[ModelPreset] stream error', describeModelPresetError(err))
                         },
@@ -1166,25 +1189,33 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                             if (delta.reasoningDelta) appendText(genId, { thinking: delta.reasoningDelta }, now)
                             if (delta.textDelta) appendText(genId, { response: delta.textDelta }, now)
                         }) : undefined,
-                        onFinish: reportStatus ? (outcome, lastUsage) => safeStatus(() => {
-                            // A stream that ends via abort throws inside the
-                            // generator → 'failed'; reclassify as 'aborted' so the
-                            // toast shows "Cancelled" rather than an error.
-                            const finalOutcome = outcome === 'failed' && abortSignal?.aborted ? 'aborted' : outcome
-                            // Confirmed cache hit (usageMetadata.cachedContentTokenCount
-                            // > 0) → savings badge on the status toast. Gated on the
-                            // cache context so behavior is unchanged with caching off.
-                            const cachedTokens = lastUsage?.cachedTokens ?? 0
-                            if (cache && cachedTokens > 0) {
-                                addBadge(genId, { key: 'cache', text: language.requestStatus.cacheHit.replace('{n}', cachedTokens.toLocaleString()), tone: 'success' })
+                        onFinish: (outcome, lastUsage) => {
+                            if (outcome === 'done') {
+                                releasePendingRegistration(new Error(
+                                    'The model stream completed before durable job registration.',
+                                ))
                             }
-                            endStatus(genId, finalOutcome, {
-                                now: Date.now(),
-                                usage: lastUsage?.completionTokens !== undefined
-                                    ? { responseTokens: lastUsage.completionTokens }
-                                    : undefined,
+                            if (!reportStatus) return
+                            safeStatus(() => {
+                                // A stream that ends via abort throws inside the
+                                // generator → 'failed'; reclassify as 'aborted' so the
+                                // toast shows "Cancelled" rather than an error.
+                                const finalOutcome = outcome === 'failed' && abortSignal?.aborted ? 'aborted' : outcome
+                                // Confirmed cache hit (usageMetadata.cachedContentTokenCount
+                                // > 0) → savings badge on the status toast. Gated on the
+                                // cache context so behavior is unchanged with caching off.
+                                const cachedTokens = lastUsage?.cachedTokens ?? 0
+                                if (cache && cachedTokens > 0) {
+                                    addBadge(genId, { key: 'cache', text: language.requestStatus.cacheHit.replace('{n}', cachedTokens.toLocaleString()), tone: 'success' })
+                                }
+                                endStatus(genId, finalOutcome, {
+                                    now: Date.now(),
+                                    usage: lastUsage?.completionTokens !== undefined
+                                        ? { responseTokens: lastUsage.completionTokens }
+                                        : undefined,
+                                })
                             })
-                        }) : undefined,
+                        },
                     })
                 }
             })

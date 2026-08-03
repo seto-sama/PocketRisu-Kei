@@ -30,7 +30,7 @@ import { isMobile } from 'src/ts/platform'
     import AssetInput from './AssetInput.svelte';
     import { scrollWithinContainer } from './scrollWithin';
     import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile } from 'src/ts/globalApi.svelte';
-    import { isRevenantGenerationLocallyOwned } from 'src/ts/process/revenantGeneration/client';
+    import { isRevenantGenerationLocallyObserved } from 'src/ts/process/revenantGeneration/client';
     import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenantGeneration/auxiliary';
     import type { RevenantRerollSnapshot } from 'src/ts/process/revenantGeneration/types';
     import { runTrigger } from 'src/ts/process/triggers';
@@ -236,7 +236,7 @@ import { isMobile } from 'src/ts/platform'
                         job.jobType === 'translate'
                         && job.characterId === char.chaId
                         && job.roomId === chat.id
-                        && !isRevenantGenerationLocallyOwned(job.jobId)
+                        && !isRevenantGenerationLocallyObserved(job.jobId)
                     ))
                     .catch(error => {
                         console.warn('[GenerationJob] Translation recovery list unavailable:', error)

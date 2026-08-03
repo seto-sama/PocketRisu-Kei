@@ -18,6 +18,10 @@ describe('generation database restart policy', () => {
                 workflow_id TEXT, status TEXT,
                 completed_at INTEGER, updated_at INTEGER
             );
+            CREATE TABLE generation_workflow_step_executions (
+                workflow_id TEXT, status TEXT,
+                completed_at INTEGER, updated_at INTEGER
+            );
             CREATE TABLE generation_workflow_executions (
                 workflow_id TEXT, status TEXT, recipe TEXT, error TEXT,
                 completed_at INTEGER, updated_at INTEGER
@@ -30,6 +34,8 @@ describe('generation database restart policy', () => {
             );
             INSERT INTO generation_workflows VALUES ('workflow-1', 'active', NULL, 1);
             INSERT INTO generation_workflow_steps VALUES ('workflow-1', 'waiting_job', NULL, 1);
+            INSERT INTO generation_workflow_step_executions
+                VALUES ('workflow-1', 'waiting_job', NULL, 1);
             INSERT INTO generation_workflow_executions
                 VALUES ('workflow-1', 'running', '{"secret":"recipe"}', NULL, NULL, 1);
             INSERT INTO generation_jobs
@@ -48,6 +54,8 @@ describe('generation database restart policy', () => {
         expect(db.prepare(`SELECT status, completed_at FROM generation_workflows`).get())
             .toEqual({ status: 'cancelled', completed_at: 123 })
         expect(db.prepare(`SELECT status FROM generation_workflow_steps`).get())
+            .toEqual({ status: 'failed' })
+        expect(db.prepare(`SELECT status FROM generation_workflow_step_executions`).get())
             .toEqual({ status: 'failed' })
         expect(db.prepare(`SELECT status, recipe, error FROM generation_workflow_executions`).get())
             .toEqual({ status: 'failed', recipe: '{}', error: 'server_restart' })

@@ -157,8 +157,10 @@ describe('plugin-backed ModelPreset dispatch', () => {
         expect(receivedSignal).toBeInstanceOf(AbortSignal)
         expect(received[pluginProviderRequestContextKey]).toMatchObject({
             interceptor: 'model_preset',
-            generationContext: {
-                jobType: 'otherAx',
+            generationRequest: {
+                job: {
+                    jobType: 'otherAx',
+                },
             },
         })
         const status = [...get(requestStatuses).values()][0]

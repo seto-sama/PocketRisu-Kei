@@ -2,15 +2,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
 import type { RevenantWorkflow } from './types'
 import {
+    acquireRevenantWorkflowMutationLease,
     activeRevenantWorkflows,
     cancelRevenantWorkflow,
+    claimRevenantWorkflow,
     createChatGenerationWorkflowPlan,
     createRevenantWorkflowResumeMetadata,
     getActiveRevenantWorkflow,
     getRevenantWorkflow,
     getRevenantWorkflowResumeContext,
 } from './workflow'
-import { configureRevenantGenerationClient } from './client'
+import {
+    configureRevenantGenerationClient,
+    createRevenantJobMutationHeaders,
+    trackRevenantGenerationWorkflow,
+} from './client'
 
 function workflowWithMetadata(metadata?: Record<string, unknown>): RevenantWorkflow {
     return {
@@ -18,6 +24,7 @@ function workflowWithMetadata(metadata?: Record<string, unknown>): RevenantWorkf
         characterId: 'character-1',
         roomId: 'room-1',
         ownerClientId: 'client-1',
+        ownerEpoch: 1,
         planVersion: 1,
         status: 'active',
         createdAt: 1,
@@ -30,6 +37,7 @@ function workflowWithMetadata(metadata?: Record<string, unknown>): RevenantWorkf
             order: 0,
             metadata,
             updatedAt: 1,
+            executions: [],
         }],
     }
 }
@@ -101,6 +109,20 @@ describe('revenant workflow resume checkpoint', () => {
 })
 
 describe('active workflow client state', () => {
+    it('binds workflow job mutations to the remembered owner epoch', async () => {
+        const workflow = { ...workflowWithMetadata(), ownerEpoch: 4 }
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ workflow }), { status: 200 }),
+        ))
+
+        await getActiveRevenantWorkflow('character-1', 'room-1')
+        trackRevenantGenerationWorkflow('job-1', workflow.workflowId)
+
+        const headers = await createRevenantJobMutationHeaders('job-1')
+        expect(headers['x-revenant-workflow-owner-epoch']).toBe('4')
+        expect(headers['x-sync-client-id']).toBe('client-1')
+    })
+
     it('loads a terminal workflow so another device can apply cancellation UI state', async () => {
         const workflow = { ...workflowWithMetadata(), status: 'cancelled' as const }
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
@@ -125,14 +147,17 @@ describe('active workflow client state', () => {
         expect(get(activeRevenantWorkflows)).toEqual([])
     })
 
-    it('cancels a workflow from any connected client and clears the spinner state', async () => {
-        const workflow = workflowWithMetadata()
+    it('cancels from a reconnected client without the previous owner lease', async () => {
+        const workflow = { ...workflowWithMetadata(), ownerClientId: 'client-old' }
         const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
             if (String(input).includes('/active?')) {
                 return new Response(JSON.stringify({ workflow }), { status: 200 })
             }
+            expect(String(input)).toBe('/api/generation/workflows/workflow-1/cancel')
             expect(init?.method).toBe('POST')
-            expect(JSON.parse(String(init?.body))).toEqual({ status: 'cancelled' })
+            expect(init?.body).toBeUndefined()
+            expect(new Headers(init?.headers).get('x-revenant-workflow-owner-epoch')).toBeNull()
+            expect(new Headers(init?.headers).get('x-sync-client-id')).toBe('client-1')
             return new Response(JSON.stringify({ success: true }), { status: 200 })
         })
         vi.stubGlobal('fetch', fetchMock)
@@ -141,5 +166,28 @@ describe('active workflow client state', () => {
         await cancelRevenantWorkflow('workflow-1')
 
         expect(get(activeRevenantWorkflows)).toEqual([])
+    })
+
+    it('claims a reconnected workflow once and remembers the new owner epoch', async () => {
+        const oldWorkflow = { ...workflowWithMetadata(), ownerClientId: 'client-old' }
+        const claimedWorkflow = {
+            ...oldWorkflow,
+            ownerClientId: 'client-1',
+            ownerEpoch: 2,
+        }
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: oldWorkflow }), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: claimedWorkflow }), { status: 200 }))
+        vi.stubGlobal('fetch', fetchMock)
+
+        const active = await getActiveRevenantWorkflow('character-1', 'room-1')
+        await expect(acquireRevenantWorkflowMutationLease(active!)).resolves.toEqual({
+            workflow: claimedWorkflow,
+            acquired: true,
+        })
+        await expect(claimRevenantWorkflow('workflow-1')).resolves.toEqual(claimedWorkflow)
+
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        expect(get(activeRevenantWorkflows)).toEqual([claimedWorkflow])
     })
 })

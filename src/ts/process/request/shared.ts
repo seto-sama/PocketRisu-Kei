@@ -2,7 +2,8 @@ import { v4 as uuidv4 } from 'uuid'
 import type { RequestDataArgumentExtended } from './request'
 import {
     getRevenantOperationJobType,
-    type RevenantGenerationContext,
+    type RevenantGenerationRequest,
+    type RevenantProviderJobSpec,
     type ModelModeExtended,
 } from '../revenantGeneration/types'
 import {
@@ -12,13 +13,13 @@ import {
 
 export type { ModelModeExtended } from '../revenantGeneration/types'
 
-export function buildGenerationContext(
+export function buildGenerationRequest(
     arg: RequestDataArgumentExtended,
     usageIdentity?: Pick<
-        RevenantGenerationContext,
+        RevenantProviderJobSpec,
         'usageProviderId' | 'usageModelId' | 'usageServiceTier'
     >,
-): RevenantGenerationContext | undefined {
+): RevenantGenerationRequest | undefined {
     const mode = arg.mode
     if (!mode) return undefined
     // Lua LLM()/simpleLLM() intentionally use the main model but do not create
@@ -42,27 +43,33 @@ export function buildGenerationContext(
     const roomId = activeChat?.id
     const workflow = getLocalRevenantWorkflow(characterId, roomId)
     return {
-        chatId,
-        jobType,
-        adapterKind: arg.revenantAdapterKind,
-        streaming: arg.revenantStreaming,
-        characterId,
-        roomId,
-        workflowId: workflow?.workflowId,
-        workflowStepKey: workflow
-            ? getRevenantWorkflowStepKey(jobType, arg.revenantOperationContext, chatId)
-            : undefined,
-        isContinuation: arg.continue === true,
-        continuationPrefix: arg.continue
-            ? activeChat?.message?.at(-1)?.data
-            : undefined,
-        operationContext: arg.revenantOperationContext,
-        dispatchPolicy: arg.revenantDispatchPolicy,
-        workflowDependency: arg.revenantWorkflowDependency,
-        ...usageIdentity,
-        onJobCreated: arg.onRevenantJobCreated,
-        onJobRegistrationUnavailable: arg.onRevenantJobRegistrationUnavailable,
-        onProviderStarted: arg.onRevenantProviderStarted,
+        job: {
+            chatId,
+            jobType,
+            adapterKind: arg.revenantAdapterKind,
+            streaming: arg.revenantStreaming,
+            characterId,
+            roomId,
+            isContinuation: arg.continue === true,
+            continuationPrefix: arg.continue
+                ? activeChat?.message?.at(-1)?.data
+                : undefined,
+            operationContext: arg.revenantOperationContext,
+            dispatchPolicy: arg.revenantDispatchPolicy,
+            ...usageIdentity,
+        },
+        workflow: workflow ? {
+            workflowId: workflow.workflowId,
+            stepKey: getRevenantWorkflowStepKey(jobType, arg.revenantOperationContext, chatId),
+            executionId: arg.revenantStepExecutionId ??= uuidv4(),
+            ownerEpoch: workflow.ownerEpoch,
+            dependency: arg.revenantWorkflowDependency,
+        } : undefined,
+        lifecycle: {
+            onJobCreated: arg.onRevenantJobCreated,
+            onJobRegistrationUnavailable: arg.onRevenantJobRegistrationUnavailable,
+            onProviderStarted: arg.onRevenantProviderStarted,
+        },
     }
 }
 

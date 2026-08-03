@@ -46,6 +46,7 @@ import { saveChatToServer } from "../storage/chatStorage";
 import { compileModelPreset } from "../preset/runtime/compilePreset";
 import {
     beginRevenantWorkflow,
+    cancelRevenantWorkflow,
     createChatGenerationWorkflowPlan,
     finishRevenantWorkflow,
     type RevenantWorkflowResumeContext,
@@ -170,8 +171,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const rerollSnapshot = arg.revenantResume?.context.rerollSnapshot ?? arg.rerollSnapshot
     let revenantWorkflowId:string|undefined = resumeWorkflow?.workflowId
     let revenantMainDependency:RevenantWorkflowDependency|undefined
-    let revenantMainJobCreated = !!resumeWorkflow?.steps
-        .find(step => step.key === 'model.main')?.jobId
+    let revenantMainBackend:'http'|'plugin'|'echo'|undefined
+    let revenantMainJobCreated = (resumeWorkflow?.steps
+        .find(step => step.key === 'model.main')?.executions.length ?? 0) > 0
+    let revenantMainRegistrationError:unknown
     let revenantMaterialized = false
 
     const stageTimings = {
@@ -296,7 +299,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         if(!revenantWorkflowId) return
         const workflowId = revenantWorkflowId
         try{
-            await finishRevenantWorkflow(workflowId, status)
+            if (status === 'cancelled') await cancelRevenantWorkflow(workflowId)
+            else await finishRevenantWorkflow(workflowId, status)
             revenantWorkflowId = undefined
         }
         catch(error){
@@ -382,6 +386,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             const compiledMainPreset = compileModelPreset(claimBinding.preset, {
                 jsonSchemaRequested: DBState.db.jsonSchemaEnabled,
             })
+            revenantMainBackend = compiledMainPreset.backend
             // Echo is a deterministic local test backend, not an LLM provider
             // call. HTTP and plugin-backed providers must both enter the
             // recoverable chat workflow. Plugin providers satisfy this contract
@@ -416,6 +421,18 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             alertError(message)
             doingChat.set(false)
             return false
+        }
+    }
+    else if (resumeWorkflow && claimBinding.kind === 'modelPreset') {
+        try {
+            revenantMainBackend = compileModelPreset(claimBinding.preset, {
+                jsonSchemaRequested: DBState.db.jsonSchemaEnabled,
+            }).backend
+        }
+        catch {
+            // The ordinary request path reports the actionable preset compile
+            // error. Backend knowledge is only needed to wait for a lazy HTTP
+            // stream to reach durable registration.
         }
     }
     if (outgoingMessage?.role === 'user' && !wasWorkflowStepCompleted('user.persist')) {
@@ -1900,16 +1917,26 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 revenantMainJobCreated = true
                 lifecycle.onJobCreated?.(jobId)
             },
-            onRevenantJobRegistrationUnavailable: lifecycle.onJobRegistrationUnavailable,
+            onRevenantJobRegistrationUnavailable: error => {
+                revenantMainRegistrationError = error
+                lifecycle.onJobRegistrationUnavailable?.(error)
+            },
             onRevenantProviderStarted: lifecycle.onProviderStarted,
         }, 'model', abortSignal)
     const req = await (async () => {
-        if(!revenantMainDependency) return requestMainGeneration()
+        if(!revenantWorkflowId) return requestMainGeneration()
         const mainGeneration = coordinateRevenantGeneration(
             requestMainGeneration,
             {
-                resultKeepsRegistrationOpen: result => result.type === 'streaming',
-                onProviderStarted: () => chatProcessStage.set(3),
+                // HTTP adapters return a ReadableStream before their lazy async
+                // generator reaches fetchNative. Keep registration open for
+                // that known transport. Plugin providers must register before
+                // returning so a stream-only provider still fails promptly.
+                resultKeepsRegistrationOpen: result =>
+                    result.type === 'streaming' && revenantMainBackend === 'http',
+                onProviderStarted: revenantMainDependency
+                    ? () => chatProcessStage.set(3)
+                    : undefined,
             },
         )
         // The result promise is already running. Waiting on registration first
@@ -1936,7 +1963,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     if(revenantWorkflowId && !revenantMainJobCreated){
-        const message = 'The configured chat provider completed without dispatching a durable model request. Plugin providers must issue the model request through nativeFetch or risuFetch.'
+        const message = revenantMainRegistrationError instanceof Error
+            ? revenantMainRegistrationError.message
+            : 'The configured chat provider completed without dispatching a durable model request. The provider must use the shared LLM transport; plugin providers must issue the model request through nativeFetch or risuFetch.'
         throwError(message)
         finishStreamingDisplay()
         await setWorkflowStep('model.main', 'failed')

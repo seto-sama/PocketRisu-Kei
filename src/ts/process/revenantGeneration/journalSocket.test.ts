@@ -74,6 +74,44 @@ describe('openRevenantJournalSocket', () => {
         expect(FakeWebSocket.instances[0].url).toContain('recovery=1&offset=0')
     })
 
+    it('detaches a cancelled reader without cancelling the server job', async () => {
+        const onDetached = vi.fn()
+        const onCancelRequested = vi.fn()
+        const stream = openRevenantJournalSocket({
+            jobId: 'job-detach',
+            auth: 'auth',
+            signalAction: 'cancel_job',
+            onDetached,
+            onCancelRequested,
+        })
+
+        await stream.getReader().cancel()
+
+        expect(onDetached).toHaveBeenCalledOnce()
+        expect(onCancelRequested).not.toHaveBeenCalled()
+        expect(FakeWebSocket.instances[0].closed).toBe(true)
+    })
+
+    it('turns an explicit cancellation signal into a job cancellation request', async () => {
+        const abortController = new AbortController()
+        const onDetached = vi.fn()
+        const onCancelRequested = vi.fn()
+        const stream = openRevenantJournalSocket({
+            jobId: 'job-cancel',
+            auth: 'auth',
+            signal: abortController.signal,
+            signalAction: 'cancel_job',
+            onDetached,
+            onCancelRequested,
+        })
+        const reader = stream.getReader()
+        abortController.abort()
+
+        await expect(reader.closed).rejects.toMatchObject({ name: 'AbortError' })
+        expect(onDetached).toHaveBeenCalledOnce()
+        expect(onCancelRequested).toHaveBeenCalledOnce()
+    })
+
     it('reports terminal completion even when no provider headers arrived', async () => {
         const onDone = vi.fn()
         const stream = openRevenantJournalSocket({
