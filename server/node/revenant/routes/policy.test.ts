@@ -7,7 +7,7 @@ const {
     findReusableActiveMainJob,
     hasRegisteredMainJob,
     isUnregisteredWorkflowExpired,
-} = require('./generationRoutePolicy.cjs') as {
+} = require('./policy.cjs') as {
     UNREGISTERED_WORKFLOW_TIMEOUT_MS: number
     findReusableActiveMainJob: (
         jobs: Array<Record<string, unknown>>,

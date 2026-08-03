@@ -1,7 +1,7 @@
 'use strict';
 
-const { installRevenantWorkflowRoutes } = require('./generationWorkflowRoutes.cjs');
-const { installRevenantJobRoutes } = require('./generationJobRoutes.cjs');
+const { installRevenantWorkflowRoutes } = require('./routes/workflowRoutes.cjs');
+const { installRevenantJobRoutes } = require('./routes/jobRoutes.cjs');
 
 function installRevenantGenerationRoutes(app, deps) {
     installRevenantWorkflowRoutes(app, deps);

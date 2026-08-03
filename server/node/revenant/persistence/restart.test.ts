@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
-import restartPkg from './generationRestart.cjs'
+import restartPkg from './restart.cjs'
 
 const { recoverInterruptedGenerationWork } = restartPkg as {
     recoverInterruptedGenerationWork: (db: Database.Database, now: number) => void

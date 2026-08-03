@@ -11,7 +11,7 @@ const {
     putGenerationWorkflowExecution,
     getGenerationWorkflowExecution,
     listGenerationWorkflowJobs,
-} = require('./generationDb.cjs');
+} = require('../generationDb.cjs');
 const {
     isValidRevenantWorkflowKey,
     normalizeRevenantHypaExecutionRecipe,
@@ -19,11 +19,11 @@ const {
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowTerminalStatus,
-} = require('./generation.cjs');
+} = require('../generation.cjs');
 const {
     hasRegisteredMainJob,
     isUnregisteredWorkflowExpired,
-} = require('./generationRoutePolicy.cjs');
+} = require('./policy.cjs');
 
 function installRevenantWorkflowRoutes(app, deps) {
     const {

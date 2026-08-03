@@ -3,7 +3,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
-const { recoverInterruptedGenerationWork } = require('./generationRestart.cjs');
+const { recoverInterruptedGenerationWork } = require('./restart.cjs');
 
 const saveDir = path.join(process.cwd(), 'save');
 if (!fs.existsSync(saveDir)) {

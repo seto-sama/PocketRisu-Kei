@@ -14,7 +14,7 @@ const {
     listRecoverableAuxiliaryJobs,
     markGenerationMaterialized,
     pruneRetainedGenerationJobs,
-} = require('./generationDb.cjs');
+} = require('../generationDb.cjs');
 const {
     isRevenantJobActive,
     isValidRevenantWorkflowKey,
@@ -23,9 +23,9 @@ const {
     normalizeRevenantDispatchPolicy,
     normalizeRevenantWorkflowDependency,
     normalizeRevenantOperationContext,
-} = require('./generation.cjs');
-const { createClientGenerationProjection } = require('./generationProjection.cjs');
-const { findReusableActiveMainJob } = require('./generationRoutePolicy.cjs');
+} = require('../generation.cjs');
+const { createClientGenerationProjection } = require('../generationProjection.cjs');
+const { findReusableActiveMainJob } = require('./policy.cjs');
 
 function installRevenantJobRoutes(app, deps) {
     const {
