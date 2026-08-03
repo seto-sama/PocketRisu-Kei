@@ -22,12 +22,12 @@ function createGenerationWorkers(options) {
     } = repository;
     const {
         logger,
-        proxyStreamJobs,
+        generationRuntimeJobs,
         maxActiveJobs,
-        countActiveProxyStreamJobs,
-        createProxyStreamJob,
-        runProxyStreamJob,
-        markJobDone,
+        countActiveGenerationJobs,
+        createGenerationRuntimeJob,
+        runGenerationProviderJob,
+        markGenerationJobDone,
         sanitizeGenerationTargetUrl,
         embeddingTimeoutMs = GENERATION_REQUEST_DEFAULT_TIMEOUT_MS,
         resolveWorkflowRequestBody = resolveRevenantWorkflowRequestBody,
@@ -69,7 +69,7 @@ function createGenerationWorkers(options) {
         try {
             const queued = listQueuedGenerationDispatches(1000);
             const states = new Map();
-            let globalActive = countActiveProxyStreamJobs();
+            let globalActive = countActiveGenerationJobs();
             for (const item of queued) {
                 if (globalActive >= maxActiveJobs) break;
                 let preparedRequest = item.requestSpec;
@@ -81,10 +81,10 @@ function createGenerationWorkers(options) {
                     if (execution.status !== 'completed') {
                         const message = execution.error || 'HypaV3 workflow selection failed';
                         finishGenerationJob(item.job.jobId, 'failed', 'workflow_dependency_failed', message);
-                        const failedJob = proxyStreamJobs.get(item.job.jobId);
+                        const failedJob = generationRuntimeJobs.get(item.job.jobId);
                         if (failedJob) {
                             failedJob.terminalEvent = { type: 'error', status: 502, message };
-                            markJobDone(failedJob);
+                            markGenerationJobDone(failedJob);
                         }
                         continue;
                     }
@@ -100,10 +100,10 @@ function createGenerationWorkers(options) {
                     } catch (error) {
                         const message = error instanceof Error ? error.message : String(error);
                         finishGenerationJob(item.job.jobId, 'failed', 'workflow_dependency_failed', message);
-                        const failedJob = proxyStreamJobs.get(item.job.jobId);
+                        const failedJob = generationRuntimeJobs.get(item.job.jobId);
                         if (failedJob) {
                             failedJob.terminalEvent = { type: 'error', status: 502, message };
-                            markJobDone(failedJob);
+                            markGenerationJobDone(failedJob);
                         }
                         continue;
                     }
@@ -130,23 +130,22 @@ function createGenerationWorkers(options) {
                 const claimed = claimQueuedGenerationDispatch(item.job.jobId);
                 if (!claimed) continue;
                 const request = workflowDependency ? preparedRequest : claimed.requestSpec;
-                let job = proxyStreamJobs.get(item.job.jobId);
+                let job = generationRuntimeJobs.get(item.job.jobId);
                 if (!job) {
-                    job = createProxyStreamJob({
+                    job = createGenerationRuntimeJob({
                         jobId: item.job.jobId,
                         workflowId: item.job.workflowId,
                         heartbeatSec: request.heartbeatSec,
                         timeoutMs: request.timeoutMs,
                     });
                 }
-                job.persistent = true;
                 job.waitingDispatch = false;
                 job.done = false;
                 job.terminalEvent = null;
                 job.providerStartedAt = claimed.job.dispatchedAt;
                 job.updatedAt = Date.now();
                 job.deadlineAt = Date.now() + job.timeoutMs;
-                job.runPromise = runProxyStreamJob(job, {
+                job.runPromise = runGenerationProviderJob(job, {
                     targetUrl: request.targetUrl,
                     headers: request.headers,
                     method: request.method,

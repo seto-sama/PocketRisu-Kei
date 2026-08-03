@@ -1,21 +1,33 @@
 import {
+    createRevenantCancellationHeaders,
     createRevenantGenerationAuth,
     getRevenantGenerationMetadata,
     getRevenantGenerationSyncClientId,
-    setRevenantGenerationLocallyOwned,
+    setRevenantGenerationLocallyObserved,
     trackRevenantGenerationJob,
+    trackRevenantGenerationWorkflow,
 } from './client'
 import { decodeRevenantGenerationJournal } from './journalDecoder'
 import { openRevenantJournalSocket } from './journalSocket'
 import type {
     RecoverableAuxiliaryJob,
     RecoverableGenerationJob,
-    RevenantGenerationContext,
+    RevenantGenerationRequest,
 } from './types'
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 
 const defaultGenerationHeartbeatSec = 15
+
+export class GenerationJobRegistrationError extends Error {
+    constructor(
+        readonly status: number,
+        detail: string,
+    ) {
+        super(`Failed to create generation job: ${status} ${detail}`)
+        this.name = 'GenerationJobRegistrationError'
+    }
+}
 
 export function subscribeRecoverableGeneration(
     job: RecoverableGenerationJob,
@@ -81,7 +93,7 @@ export async function fetchViaGenerationJob(url: string, arg: {
     requestTimeoutMs?: number
     onJobCreated?: (jobId: string) => void
     onProviderStarted?: (startedAt: number) => void
-    generationContext: RevenantGenerationContext
+    generationRequest: RevenantGenerationRequest
 }): Promise<Response> {
     const auth = await createRevenantGenerationAuth()
     const bodyBase64 = arg.body ? Buffer.from(arg.body).toString('base64') : ''
@@ -100,37 +112,37 @@ export async function fetchViaGenerationJob(url: string, arg: {
             bodyBase64,
             timeoutMs: arg.requestTimeoutMs,
             heartbeatSec: defaultGenerationHeartbeatSec,
-            ...arg.generationContext,
-            ...(arg.generationContext.chatId
-                ? getRevenantGenerationMetadata(arg.generationContext.chatId)
+            ...arg.generationRequest.job,
+            workflowId: arg.generationRequest.workflow?.workflowId,
+            workflowStepKey: arg.generationRequest.workflow?.stepKey,
+            workflowStepExecutionId: arg.generationRequest.workflow?.executionId,
+            workflowDependency: arg.generationRequest.workflow?.dependency,
+            workflowClientAction: arg.generationRequest.workflow?.clientAction,
+            ...(arg.generationRequest.job.chatId
+                ? getRevenantGenerationMetadata(arg.generationRequest.job.chatId)
                 : undefined),
         }),
         signal: arg.signal,
     })
 
     if (!jobRes.ok) {
-        throw new Error(`Failed to create generation job: ${jobRes.status} ${await jobRes.text()}`)
+        throw new GenerationJobRegistrationError(jobRes.status, await jobRes.text())
     }
 
     const { jobId } = await jobRes.json() as { jobId: string }
     arg.onJobCreated?.(jobId)
-    setRevenantGenerationLocallyOwned(jobId, true)
-    if (arg.generationContext.jobType === 'model' && arg.generationContext.chatId) {
-        trackRevenantGenerationJob(arg.generationContext.chatId, jobId)
+    setRevenantGenerationLocallyObserved(jobId, true)
+    trackRevenantGenerationWorkflow(jobId, arg.generationRequest.workflow?.workflowId)
+    if (arg.generationRequest.job.jobType === 'model' && arg.generationRequest.job.chatId) {
+        trackRevenantGenerationJob(arg.generationRequest.job.chatId, jobId)
     }
     return openGenerationJobResponse(jobId, auth, arg.signal, arg.onProviderStarted)
 }
 
-function deleteGenerationJob(
-    jobId: string,
-    auth: string,
-): Promise<void> {
+async function deleteGenerationJob(jobId: string): Promise<void> {
     return fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}`, {
         method: 'DELETE',
-        headers: {
-            'risu-auth': auth,
-            'x-sync-client-id': getRevenantGenerationSyncClientId(),
-        },
+        headers: await createRevenantCancellationHeaders(),
     }).then(() => {}, () => {})
 }
 
@@ -160,20 +172,23 @@ function openGenerationJobResponse(
                 }))
             },
             onFatal(error) {
-                setRevenantGenerationLocallyOwned(jobId, false)
+                setRevenantGenerationLocallyObserved(jobId, false)
                 if (settled) return
                 settled = true
                 reject(error)
             },
             onDone() {
-                setRevenantGenerationLocallyOwned(jobId, false)
+                setRevenantGenerationLocallyObserved(jobId, false)
                 if (settled) return
                 settled = true
                 reject(new Error('Generation ended before provider response headers'))
             },
-            onLocalAbort() {
-                setRevenantGenerationLocallyOwned(jobId, false)
-                void deleteGenerationJob(jobId, auth)
+            signalAction: 'cancel_job',
+            onDetached() {
+                setRevenantGenerationLocallyObserved(jobId, false)
+            },
+            onCancelRequested() {
+                void deleteGenerationJob(jobId)
             },
         })
     })

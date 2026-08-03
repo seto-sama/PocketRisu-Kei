@@ -21,7 +21,7 @@ import {
     completeRevenantTranslation,
     prepareRevenantTranslationRequest,
     recoverRevenantTranslationJobs,
-} from '../process/revenantGeneration/translationRecovery'
+} from '../process/revenant/translationRecovery'
 
 let cache={
     origin: [''],

@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify';
 import markdownit from 'markdown-it'
 import { appVer, getCurrentCharacter, getDatabase, type Database, type character, type customscript, type triggerscript } from '../storage/database.svelte';
-import { DBState, selIdState } from '../stores.svelte';
+import { CurrentTriggerIdStore, DBState, selIdState } from '../stores.svelte';
 import { aiWatermarkingLawApplies, getFileSrc } from '../globalApi.svelte';
 import { isNodeServer } from "src/ts/platform"
 import { getChatVar, setChatVar, getGlobalChatVar } from './chatVar.svelte';
@@ -1256,6 +1256,7 @@ function initMatcher(){
         },
         getDatabase: getDatabase,
         getUserName: getUserName,
+        getTriggerId: () => get(CurrentTriggerIdStore),
         getPersonaPrompt: getPersonaPrompt,
         risuChatParser: risuChatParser,
         makeArray: makeArray,

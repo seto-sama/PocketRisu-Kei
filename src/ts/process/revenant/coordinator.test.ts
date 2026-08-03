@@ -68,6 +68,21 @@ describe('coordinateRevenantGeneration', () => {
         lifecycle.onJobRegistrationUnavailable(new Error('proxy unavailable'))
         await expect(coordinated.registered).resolves.toBeUndefined()
     })
+
+    test('accepts durable registration after a streaming handle is returned', async () => {
+        let lifecycle!: Required<RevenantGenerationLifecycle>
+        const coordinated = coordinateRevenantGeneration(async nextLifecycle => {
+            lifecycle = nextLifecycle
+            return 'stream'
+        }, {
+            resultKeepsRegistrationOpen: result => result === 'stream',
+        })
+
+        await expect(coordinated.result).resolves.toBe('stream')
+        lifecycle.onJobCreated('job-late')
+
+        await expect(coordinated.registered).resolves.toBe('job-late')
+    })
 })
 
 describe('combineProviderStartedHandlers', () => {

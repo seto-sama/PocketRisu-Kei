@@ -4,6 +4,9 @@ import type {
     Message,
     MessageGenerationInfo,
     MessagePresetInfo,
+    character,
+    customscript,
+    triggerscript,
 } from '../../storage/database.svelte'
 
 export type ModelModeExtended =
@@ -53,25 +56,113 @@ export interface RevenantWorkflowPlanStep {
 export interface RevenantWorkflowStep extends Omit<RevenantWorkflowPlanStep, 'status'> {
     order: number
     status: RevenantWorkflowStepStatus
-    jobId?: string
     metadata?: Record<string, unknown>
     startedAt?: number
     completedAt?: number
     updatedAt: number
+    executions: RevenantWorkflowStepExecution[]
+}
+
+export interface RevenantWorkflowStepExecution {
+    executionId: string
+    workflowId: string
+    stepKey: string
+    attempt: number
+    status: RevenantWorkflowStepStatus
+    createdAt: number
+    updatedAt: number
+    completedAt?: number
+}
+
+export interface RevenantClientAction {
+    schemaVersion: 1
+    actionId: string
+    kind: string
+    payload: Record<string, unknown>
+}
+
+export interface RevenantClientActionClaim {
+    clientId: string
+    claimedAt: number
+    expiresAt: number
 }
 
 export interface RevenantWorkflow {
     workflowId: string
     characterId: string
     roomId: string
-    ownerClientId: string
     planVersion: number
+    context?: RevenantWorkflowContext
     status: RevenantWorkflowStatus
     steps: RevenantWorkflowStep[]
     createdAt: number
     updatedAt: number
     completedAt?: number
 }
+
+export interface RevenantPostprocessDatabaseSnapshot {
+    presetRegex: customscript[]
+    templateDefaultVariables: string
+    globalChatVariables: Record<string, string>
+    username: string
+    userIcon: string
+    personaPrompt: string
+    selectedPersona: number
+    personas: unknown[]
+    dynamicAssets: boolean
+    dynamicAssetsEditDisplay: boolean
+    igpPrompt: string
+    notification: boolean
+    ttsEnabled: boolean
+    ttsAutoSpeech: boolean
+    emotionProcesser: 'submodel' | 'embedding'
+    emotionPrompt2: string
+}
+
+export interface RevenantPostprocessRecipe {
+    schemaVersion: 1
+    messageChatId: string
+    isContinuation: boolean
+    rerollSnapshot?: RevenantRerollSnapshot
+    providerBackend: 'http' | 'plugin'
+    modelPreset: unknown
+    auxProviders?: Partial<Record<'submodel' | 'emotion' | 'otherAx', {
+        backend: 'http' | 'plugin' | 'echo'
+        modelPreset: unknown
+    }>>
+    character: character
+    chat: Chat
+    database: RevenantPostprocessDatabaseSnapshot
+    modules: unknown[]
+    moduleRegexScripts: customscript[]
+    moduleTriggers: triggerscript[]
+}
+
+export interface RevenantPostprocessMutationPatch {
+    character?: Partial<Pick<character,
+        'name' | 'desc' | 'firstMessage' | 'backgroundHTML'
+        | 'replaceGlobalNote' | 'globalLore'>>
+    database?: {
+        personaPrompt?: string
+        personas?: unknown[]
+        globalChatVariables?: Record<string, string>
+    }
+}
+
+export interface RevenantChatWorkflowContext {
+    schemaVersion: 1
+    kind: 'chat-generation'
+    resume: {
+        schemaVersion: 1
+        chatProcessIndex: number
+        messageChatId: string
+        isContinuation: boolean
+        rerollSnapshot?: RevenantRerollSnapshot
+    }
+    postprocess: RevenantPostprocessRecipe
+}
+
+export type RevenantWorkflowContext = RevenantChatWorkflowContext
 
 export interface RevenantWorkflowExecution<TResult = unknown> {
     workflowId: string
@@ -124,7 +215,8 @@ export type RevenantOperationContext =
     | RevenantHypaV3SummaryOperation
     | RevenantLuaLlmOperation
 
-export interface RevenantGenerationContext {
+/** Provider work persisted with a durable generation job. */
+export interface RevenantProviderJobSpec {
     chatId: string
     jobType: ModelModeExtended
     /** Concrete client adapter that owns parsing the provider wire response. */
@@ -133,23 +225,40 @@ export interface RevenantGenerationContext {
     streaming?: boolean
     characterId?: string
     roomId?: string
-    workflowId?: string
-    workflowStepKey?: string
     isContinuation: boolean
     continuationPrefix?: string
     operationContext?: RevenantOperationContext
     dispatchPolicy?: RevenantDispatchPolicy
-    workflowDependency?: RevenantWorkflowDependency
     /** Canonical models.dev identity used by usage-cost accounting. */
     usageProviderId?: string
     usageModelId?: string
     usageServiceTier?: 'batch'
-    /** Client-only callback; omitted when the context is serialized for the server. */
+}
+
+/** Logical workflow execution that owns one or more provider jobs. */
+export interface RevenantWorkflowExecutionRef {
+    workflowId: string
+    stepKey: string
+    executionId: string
+    dependency?: RevenantWorkflowDependency
+    clientAction?: {
+        parentStepKey: string
+        actionId: string
+    }
+}
+
+/** Browser-only observation hooks; never serialized as provider job state. */
+export interface RevenantGenerationLifecycle {
     onJobCreated?: (jobId: string) => void
-    /** Client-only callback fired when no durable server job could be created. */
     onJobRegistrationUnavailable?: (error?: unknown) => void
-    /** Client-only callback fired when a queued job begins its provider request. */
     onProviderStarted?: (startedAt: number) => void
+}
+
+/** Explicit boundary between durable work, workflow execution, and observation. */
+export interface RevenantGenerationRequest {
+    job: RevenantProviderJobSpec
+    workflow?: RevenantWorkflowExecutionRef
+    lifecycle?: RevenantGenerationLifecycle
 }
 
 export interface RevenantDispatchPolicy {
@@ -181,6 +290,7 @@ export interface RecoverableGenerationJob {
     roomId?: string
     workflowId?: string
     workflowStepKey?: string
+    workflowStepExecutionId?: string
     isContinuation?: boolean
     continuationPrefix?: string
     generationInfo?: MessageGenerationInfo
@@ -210,6 +320,7 @@ export interface RecoverableAuxiliaryJob {
     roomId?: string
     workflowId?: string
     workflowStepKey?: string
+    workflowStepExecutionId?: string
     operationContext?: RevenantOperationContext
     adapterKind?: string
     streaming?: boolean
@@ -235,11 +346,6 @@ export interface RevenantNormalizedProjection {
     source: 'server' | 'client'
     adapterKind: string
     content: string
-}
-
-export interface MaterializedGeneration {
-    message?: Message
-    chat?: Chat
 }
 
 export function createRevenantOperation(

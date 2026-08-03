@@ -9,7 +9,11 @@ vi.mock('../globalApi.svelte', () => ({
 }))
 
 import { createLLMTransportFetch } from './llmTransport'
-import type { RevenantGenerationContext } from '../process/revenantGeneration/types'
+import {
+    EPHEMERAL_DIRECT_LLM_EXECUTION,
+    WORKFLOW_LLM_EXECUTION,
+} from './transportTypes'
+import type { RevenantGenerationRequest } from '../process/revenant/types'
 
 beforeEach(() => {
     fetchNativeMock.mockReset()
@@ -17,16 +21,19 @@ beforeEach(() => {
 })
 
 describe('createLLMTransportFetch', () => {
-    test('routes provider requests through durable-first auto policy', async () => {
-        const context: RevenantGenerationContext = {
-            chatId: 'generation-1',
-            jobType: 'model',
-            isContinuation: false,
+    test('routes workflow provider requests through required durable policy', async () => {
+        const request: RevenantGenerationRequest = {
+            job: {
+                chatId: 'generation-1',
+                jobType: 'model',
+                isContinuation: false,
+            },
         }
         const fetchImpl = createLLMTransportFetch({
             interceptor: 'model_preset',
             chatId: 'generation-1',
-            getGenerationContext: () => context,
+            getGenerationRequest: () => request,
+            getExecutionPolicy: () => WORKFLOW_LLM_EXECUTION,
         })
 
         await fetchImpl('https://api.example.com/v1/chat/completions', {
@@ -42,9 +49,28 @@ describe('createLLMTransportFetch', () => {
                 body: '{"messages":[]}',
                 chatId: 'generation-1',
                 interceptor: 'model_preset',
-                generationContext: context,
-                transportStrategy: 'auto',
+                generationRequest: request,
+                llmExecutionPolicy: WORKFLOW_LLM_EXECUTION,
                 networkRoute: 'auto',
+            }),
+        )
+    })
+
+    test('only selects browser-direct transport through explicit ephemeral policy', async () => {
+        const fetchImpl = createLLMTransportFetch({
+            interceptor: 'model_preset',
+            getGenerationRequest: () => undefined,
+            getExecutionPolicy: () => EPHEMERAL_DIRECT_LLM_EXECUTION,
+        })
+
+        await fetchImpl('https://api.example.com/health', {
+            method: 'GET',
+        })
+
+        expect(fetchNativeMock).toHaveBeenCalledWith(
+            'https://api.example.com/health',
+            expect.objectContaining({
+                llmExecutionPolicy: EPHEMERAL_DIRECT_LLM_EXECUTION,
             }),
         )
     })
@@ -52,10 +78,12 @@ describe('createLLMTransportFetch', () => {
     test('applies the centralized local-network route and timeout', async () => {
         const fetchImpl = createLLMTransportFetch({
             interceptor: 'model_preset',
-            getGenerationContext: () => ({
-                chatId: 'aux-1',
-                jobType: 'otherAx',
-                isContinuation: false,
+            getGenerationRequest: () => ({
+                job: {
+                    chatId: 'aux-1',
+                    jobType: 'otherAx',
+                    isContinuation: false,
+                },
             }),
             localNetworkTimeoutMs: 123_000,
         })
@@ -78,10 +106,12 @@ describe('createLLMTransportFetch', () => {
         let chatId = 'first'
         const fetchImpl = createLLMTransportFetch({
             interceptor: 'model_preset',
-            getGenerationContext: () => ({
-                chatId,
-                jobType: 'model',
-                isContinuation: false,
+            getGenerationRequest: () => ({
+                job: {
+                    chatId,
+                    jobType: 'model',
+                    isContinuation: false,
+                },
             }),
         })
 
@@ -89,7 +119,7 @@ describe('createLLMTransportFetch', () => {
         chatId = 'second'
         await fetchImpl('https://api.example.com/v1/chat/completions', { method: 'POST', body: '{}' })
 
-        expect(fetchNativeMock.mock.calls[0][1].generationContext.chatId).toBe('first')
-        expect(fetchNativeMock.mock.calls[1][1].generationContext.chatId).toBe('second')
+        expect(fetchNativeMock.mock.calls[0][1].generationRequest.job.chatId).toBe('first')
+        expect(fetchNativeMock.mock.calls[1][1].generationRequest.job.chatId).toBe('second')
     })
 })

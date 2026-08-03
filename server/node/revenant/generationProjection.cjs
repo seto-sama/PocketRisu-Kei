@@ -17,7 +17,7 @@ const {
     'src',
     'ts',
     'process',
-    'revenantGeneration',
+    'revenant',
     'journalDecoder.ts',
 ));
 

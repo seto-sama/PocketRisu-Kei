@@ -27,6 +27,7 @@ const SERVER_TOKENIZERS = new Set([
     'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
     'novellist', 'gemma', 'cohere', 'deepseek',
 ]);
+const MAX_WORKFLOW_CONTEXT_BYTES = 8 * 1024 * 1024;
 
 function normalizeRevenantJobType(value) {
     return JOB_TYPES.has(value) ? value : 'model';
@@ -74,16 +75,57 @@ function normalizeRevenantWorkflowPlan(value) {
     return normalized;
 }
 
+function normalizeRevenantWorkflowContext(value, characterId, roomId) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    let serialized;
+    try { serialized = JSON.stringify(value); }
+    catch { return undefined; }
+    if (Buffer.byteLength(serialized) > MAX_WORKFLOW_CONTEXT_BYTES) return undefined;
+    if (
+        value.schemaVersion !== 1
+        || value.kind !== 'chat-generation'
+        || value.resume?.schemaVersion !== 1
+        || !Number.isInteger(value.resume.chatProcessIndex)
+        || typeof value.resume.messageChatId !== 'string'
+        || !value.resume.messageChatId
+        || typeof value.resume.isContinuation !== 'boolean'
+        || value.postprocess?.schemaVersion !== 1
+        || value.postprocess.messageChatId !== value.resume.messageChatId
+        || value.postprocess.isContinuation !== value.resume.isContinuation
+        || !['http', 'plugin'].includes(value.postprocess.providerBackend)
+        || !value.postprocess.modelPreset
+        || typeof value.postprocess.modelPreset !== 'object'
+        || (value.postprocess.auxProviders != null && (
+            !value.postprocess.auxProviders
+            || typeof value.postprocess.auxProviders !== 'object'
+            || Array.isArray(value.postprocess.auxProviders)
+            || Object.entries(value.postprocess.auxProviders).some(([mode, provider]) => (
+                !['submodel', 'emotion', 'otherAx'].includes(mode)
+                || provider == null
+                || typeof provider !== 'object'
+                || !['http', 'plugin', 'echo'].includes(provider.backend)
+                || !provider.modelPreset
+                || typeof provider.modelPreset !== 'object'
+            ))
+        ))
+        || value.postprocess.character?.chaId !== characterId
+        || value.postprocess.chat?.id !== roomId
+        || !Array.isArray(value.postprocess.chat?.message)
+        || !value.postprocess.database
+        || typeof value.postprocess.database !== 'object'
+        || !Array.isArray(value.postprocess.modules)
+        || !Array.isArray(value.postprocess.moduleRegexScripts)
+        || !Array.isArray(value.postprocess.moduleTriggers)
+    ) return undefined;
+    return JSON.parse(serialized);
+}
+
 function normalizeRevenantWorkflowStepUpdate(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
     const status = typeof value.status === 'string' ? value.status : '';
     if (!WORKFLOW_STEP_STATUSES.has(status)) return undefined;
-    const jobId = value.jobId == null ? null
-        : typeof value.jobId === 'string' && value.jobId.length <= 128 ? value.jobId : undefined;
-    if (jobId === undefined) return undefined;
     return {
         status,
-        jobId,
         metadata: value.metadata && typeof value.metadata === 'object' && !Array.isArray(value.metadata)
             ? structuredClone(value.metadata)
             : null,
@@ -96,6 +138,23 @@ function normalizeRevenantWorkflowTerminalStatus(value) {
 
 function isValidRevenantWorkflowKey(value) {
     return typeof value === 'string' && WORKFLOW_KEY_PATTERN.test(value);
+}
+
+function isRevenantWorkflowClientActionJobAllowed(input) {
+    const action = input.action;
+    if (
+        !action
+        || action.actionId !== input.actionId
+        || typeof action.kind !== 'string'
+    ) return false;
+    if (action.kind === 'provider.main') {
+        return input.parentStepKey === 'model.dispatch'
+            && input.actionId === 'model.dispatch.plugin'
+            && input.jobType === 'model'
+            && input.workflowStepKey === 'model.main';
+    }
+    return input.jobType !== 'model'
+        && input.workflowStepKey === `client-action:${input.actionId}`.slice(0, 128);
 }
 
 function normalizeRevenantOperationContext(jobType, value) {
@@ -276,7 +335,9 @@ function normalizeRevenantHypaExecutionRecipe(value) {
 module.exports = {
     isRevenantJobActive,
     isValidRevenantWorkflowKey,
+    isRevenantWorkflowClientActionJobAllowed,
     normalizeRevenantWorkflowPlan,
+    normalizeRevenantWorkflowContext,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowTerminalStatus,
     normalizeRevenantJobType,

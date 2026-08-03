@@ -1,12 +1,16 @@
 import {
+    createRevenantCancellationHeaders,
     createRevenantGenerationAuth,
     getRevenantGenerationSyncClientId,
 } from './client'
 import { writable } from 'svelte/store'
 import type {
     RevenantOperationContext,
+    RevenantClientAction,
+    RevenantClientActionClaim,
     RevenantRerollSnapshot,
     RevenantWorkflow,
+    RevenantWorkflowContext,
     RevenantWorkflowExecution,
     RevenantWorkflowPlanStep,
     RevenantWorkflowStatus,
@@ -30,7 +34,9 @@ function rememberWorkflow(workflow: RevenantWorkflow): RevenantWorkflow {
         activeWorkflows.set(key, workflow)
         publishActiveWorkflows()
     }
-    else if (activeWorkflows.delete(key)) publishActiveWorkflows()
+    else if (activeWorkflows.delete(key)) {
+        publishActiveWorkflows()
+    }
     return workflow
 }
 
@@ -41,7 +47,10 @@ function forgetWorkflow(
 ): void {
     let changed = false
     if (characterId && roomId) {
-        changed = activeWorkflows.delete(roomKey(characterId, roomId)) || changed
+        const key = roomKey(characterId, roomId)
+        if (activeWorkflows.delete(key)) {
+            changed = true
+        }
     }
     if (workflowId) {
         for (const [key, workflow] of activeWorkflows) {
@@ -62,22 +71,19 @@ async function revenantHeaders(json = false): Promise<Record<string, string>> {
     }
 }
 
+async function workflowMutationHeaders(
+    _workflowId: string,
+    json = false,
+): Promise<Record<string, string>> {
+    return revenantHeaders(json)
+}
+
 export class RevenantWorkflowBusyError extends Error {
     readonly workflow?: RevenantWorkflow
 
     constructor(workflow?: RevenantWorkflow) {
         super('A generation workflow is already active for this room')
         this.name = 'RevenantWorkflowBusyError'
-        this.workflow = workflow
-    }
-}
-
-export class RevenantWorkflowOwnedError extends Error {
-    readonly workflow?: RevenantWorkflow
-
-    constructor(workflow?: RevenantWorkflow) {
-        super('The generation workflow owner is still connected')
-        this.name = 'RevenantWorkflowOwnedError'
         this.workflow = workflow
     }
 }
@@ -94,6 +100,77 @@ export function createRevenantWorkflowResumeMetadata(
     context: RevenantWorkflowResumeContext,
 ): Record<string, unknown> {
     return { ...context }
+}
+
+export function createChatGenerationWorkflowPlan(options: {
+    resumeContext: RevenantWorkflowResumeContext
+    persistUserMessage: boolean
+    hypaEnabled: boolean
+    igpEnabled: boolean
+    pluginProvider: boolean
+}): RevenantWorkflowPlanStep[] {
+    return [
+        {
+            key: 'user.persist',
+            kind: 'preprocess.user.persist',
+            recoveryPolicy: 'resume',
+            status: options.persistUserMessage ? 'pending' : 'completed',
+        },
+        {
+            key: 'trigger.start',
+            kind: 'preprocess.trigger.start',
+            recoveryPolicy: 'at_least_once',
+        },
+        {
+            key: 'memory.hypav3',
+            kind: 'preprocess.memory.hypav3',
+            recoveryPolicy: 'replay_output',
+            status: options.hypaEnabled ? 'pending' : 'skipped',
+        },
+        {
+            key: 'prompt.build',
+            kind: 'preprocess.prompt.build',
+            recoveryPolicy: 'resume',
+            metadata: createRevenantWorkflowResumeMetadata(options.resumeContext),
+        },
+        {
+            key: 'model.dispatch',
+            kind: 'model.dispatch.client',
+            recoveryPolicy: 'resume',
+            status: options.pluginProvider ? 'pending' : 'skipped',
+        },
+        {
+            key: 'model.main',
+            kind: 'model.main',
+            recoveryPolicy: 'replay_output',
+        },
+        {
+            key: 'output.transform',
+            kind: 'postprocess.output.transform',
+            recoveryPolicy: 'resume',
+        },
+        {
+            key: 'trigger.output',
+            kind: 'postprocess.trigger.output',
+            recoveryPolicy: 'at_least_once',
+        },
+        {
+            key: 'igp',
+            kind: 'postprocess.igp',
+            recoveryPolicy: 'replay_output',
+            status: options.igpEnabled ? 'pending' : 'skipped',
+        },
+        {
+            key: 'postprocess',
+            kind: 'postprocess.foreground',
+            recoveryPolicy: 'foreground_restart',
+        },
+        {
+            key: 'message.materialize',
+            kind: 'message.materialize',
+            recoveryPolicy: 'resume',
+        },
+    ]
 }
 
 export function getRevenantWorkflowResumeContext(
@@ -125,6 +202,7 @@ export async function beginRevenantWorkflow(arg: {
     characterId: string
     roomId: string
     plan: RevenantWorkflowPlanStep[]
+    context: RevenantWorkflowContext
 }): Promise<RevenantWorkflow> {
     const response = await fetch('/api/generation/workflows', {
         method: 'POST',
@@ -180,29 +258,6 @@ export async function getRevenantWorkflow(workflowId: string): Promise<RevenantW
     return rememberWorkflow(body.workflow)
 }
 
-export async function claimRevenantWorkflow(
-    workflowId: string,
-): Promise<RevenantWorkflow> {
-    const response = await fetch(
-        `/api/generation/workflows/${encodeURIComponent(workflowId)}/claim`,
-        {
-            method: 'POST',
-            headers: await revenantHeaders(),
-        },
-    )
-    const body = await response.json().catch(() => ({})) as {
-        workflow?: RevenantWorkflow
-        error?: string
-    }
-    if (response.status === 409) {
-        throw new RevenantWorkflowOwnedError(body.workflow)
-    }
-    if (!response.ok || !body.workflow) {
-        throw new Error(body.error || `Failed to claim generation workflow: ${response.status}`)
-    }
-    return rememberWorkflow(body.workflow)
-}
-
 export async function updateRevenantWorkflowStep(
     workflowId: string,
     stepKey: string,
@@ -213,12 +268,57 @@ export async function updateRevenantWorkflowStep(
         `/api/generation/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(stepKey)}`,
         {
             method: 'PUT',
-            headers: await revenantHeaders(true),
+            headers: await workflowMutationHeaders(workflowId, true),
             body: JSON.stringify({ status, metadata }),
         },
     )
     if (!response.ok) {
         throw new Error(`Failed to update generation workflow step: ${response.status}`)
+    }
+}
+
+export async function claimRevenantWorkflowClientAction(
+    workflowId: string,
+    stepKey: string,
+    actionId: string,
+): Promise<{ action: RevenantClientAction, claim: RevenantClientActionClaim } | undefined> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(stepKey)}/client-action/claim`,
+        {
+            method: 'POST',
+            headers: await revenantHeaders(true),
+            body: JSON.stringify({ actionId }),
+        },
+    )
+    if (response.status === 404 || response.status === 409) return undefined
+    const body = await response.json().catch(() => ({})) as {
+        action?: RevenantClientAction
+        claim?: RevenantClientActionClaim
+        error?: string
+    }
+    if (!response.ok || !body.action || !body.claim) {
+        throw new Error(body.error || `Failed to claim workflow client action: ${response.status}`)
+    }
+    return { action: body.action, claim: body.claim }
+}
+
+export async function resolveRevenantWorkflowClientAction(
+    workflowId: string,
+    stepKey: string,
+    actionId: string,
+    actionResponse: unknown,
+): Promise<void> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(stepKey)}/client-action/resolve`,
+        {
+            method: 'POST',
+            headers: await revenantHeaders(true),
+            body: JSON.stringify({ actionId, response: actionResponse }),
+        },
+    )
+    if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error || `Failed to resolve workflow client action: ${response.status}`)
     }
 }
 
@@ -228,7 +328,7 @@ export async function finishRevenantWorkflow(
 ): Promise<void> {
     const response = await fetch(`/api/generation/workflows/${encodeURIComponent(workflowId)}/finish`, {
         method: 'POST',
-        headers: await revenantHeaders(true),
+        headers: await workflowMutationHeaders(workflowId, true),
         body: JSON.stringify({ status }),
         keepalive: true,
     })
@@ -239,7 +339,36 @@ export async function finishRevenantWorkflow(
 }
 
 export async function cancelRevenantWorkflow(workflowId: string): Promise<void> {
-    await finishRevenantWorkflow(workflowId, 'cancelled')
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}/cancel`,
+        {
+            method: 'POST',
+            headers: await createRevenantCancellationHeaders(),
+            keepalive: true,
+        },
+    )
+    if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error || `Failed to cancel generation workflow: ${response.status}`)
+    }
+    forgetWorkflow(workflowId)
+}
+
+export async function cancelRevenantWorkflowStepExecution(
+    workflowId: string,
+    executionId: string,
+): Promise<void> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}`
+            + `/step-executions/${encodeURIComponent(executionId)}/cancel`,
+        {
+            method: 'POST',
+            headers: await createRevenantCancellationHeaders(),
+        },
+    )
+    if (!response.ok) {
+        throw new Error(`Failed to cancel workflow step execution: ${response.status}`)
+    }
 }
 
 export async function prepareRevenantHypaExecution<TRecipe>(
@@ -250,7 +379,7 @@ export async function prepareRevenantHypaExecution<TRecipe>(
         `/api/generation/workflows/${encodeURIComponent(workflowId)}/hypav3-execution`,
         {
             method: 'PUT',
-            headers: await revenantHeaders(true),
+            headers: await workflowMutationHeaders(workflowId, true),
             body: JSON.stringify(recipe),
         },
     )

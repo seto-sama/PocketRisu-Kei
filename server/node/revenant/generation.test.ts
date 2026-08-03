@@ -19,14 +19,17 @@ const { notifyRevenantJournalWaiters, streamRevenantJournal, sendRevenantJournal
     sendRevenantJournalEvent: (ws: FakeSocket, job: any, event: object) => void
 }
 const {
+    isRevenantWorkflowClientActionJobAllowed,
     normalizeRevenantDispatchPolicy,
     normalizeRevenantHypaExecutionRecipe,
     normalizeRevenantOperationContext,
+    normalizeRevenantWorkflowContext,
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowDependency,
     resolveRevenantWorkflowRequestBody,
 } = generationPkg as {
+    isRevenantWorkflowClientActionJobAllowed: (input: Record<string, unknown>) => boolean
     normalizeRevenantDispatchPolicy: (
         value: unknown,
         operation: unknown,
@@ -34,6 +37,11 @@ const {
     ) => unknown
     normalizeRevenantHypaExecutionRecipe: (value: unknown) => unknown
     normalizeRevenantOperationContext: (jobType: string, value: unknown) => any
+    normalizeRevenantWorkflowContext: (
+        value: unknown,
+        characterId: string,
+        roomId: string,
+    ) => any
     normalizeRevenantWorkflowPlan: (value: unknown) => unknown
     normalizeRevenantWorkflowStepUpdate: (value: unknown) => unknown
     normalizeRevenantWorkflowDependency: (
@@ -47,6 +55,44 @@ const {
         execution: unknown,
     ) => string
 }
+
+describe('revenant delegated provider job validation', () => {
+    it('allows a claimed API v3 main dispatch only on model.main', () => {
+        const input = {
+            parentStepKey: 'model.dispatch',
+            actionId: 'model.dispatch.plugin',
+            jobType: 'model',
+            workflowStepKey: 'model.main',
+            action: { actionId: 'model.dispatch.plugin', kind: 'provider.main' },
+        }
+        expect(isRevenantWorkflowClientActionJobAllowed(input)).toBe(true)
+        expect(isRevenantWorkflowClientActionJobAllowed({
+            ...input,
+            workflowStepKey: 'client-action:model.dispatch.plugin',
+        })).toBe(false)
+        expect(isRevenantWorkflowClientActionJobAllowed({
+            ...input,
+            parentStepKey: 'trigger.output',
+        })).toBe(false)
+    })
+
+    it('keeps ordinary client action jobs out of model.main', () => {
+        const actionId = 'trigger.0.provider.llm'
+        const input = {
+            parentStepKey: 'trigger.output',
+            actionId,
+            jobType: 'otherAx',
+            workflowStepKey: `client-action:${actionId}`,
+            action: { actionId, kind: 'provider.llm' },
+        }
+        expect(isRevenantWorkflowClientActionJobAllowed(input)).toBe(true)
+        expect(isRevenantWorkflowClientActionJobAllowed({
+            ...input,
+            jobType: 'model',
+            workflowStepKey: 'model.main',
+        })).toBe(false)
+    })
+})
 
 describe('revenant durable dispatch validation', () => {
     const operation = {
@@ -250,6 +296,64 @@ describe('revenant journal stream', () => {
 })
 
 describe('revenant workflow validation', () => {
+    const workflowContext = {
+        schemaVersion: 1,
+        kind: 'chat-generation',
+        resume: {
+            schemaVersion: 1,
+            chatProcessIndex: -1,
+            messageChatId: 'message-1',
+            isContinuation: false,
+        },
+        postprocess: {
+            schemaVersion: 1,
+            messageChatId: 'message-1',
+            isContinuation: false,
+            providerBackend: 'http',
+            modelPreset: {},
+            auxProviders: {
+                emotion: { backend: 'plugin', modelPreset: { id: 'igp-preset' } },
+            },
+            character: { chaId: 'character-1' },
+            chat: { id: 'room-1', message: [] },
+            database: {},
+            modules: [],
+            moduleRegexScripts: [],
+            moduleTriggers: [],
+        },
+    }
+
+    it('accepts a bounded chat workflow execution context', () => {
+        expect(normalizeRevenantWorkflowContext(
+            workflowContext,
+            'character-1',
+            'room-1',
+        )).toEqual(workflowContext)
+        expect(normalizeRevenantWorkflowContext(
+            { ...workflowContext, postprocess: { ...workflowContext.postprocess, providerBackend: 'echo' } },
+            'character-1',
+            'room-1',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext(
+            {
+                ...workflowContext,
+                postprocess: {
+                    ...workflowContext.postprocess,
+                    auxProviders: {
+                        emotion: { backend: 'legacy', modelPreset: {} },
+                    },
+                },
+            },
+            'character-1',
+            'room-1',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext(
+            workflowContext,
+            'different-character',
+            'room-1',
+        )).toBeUndefined()
+    })
+
     it('normalizes an ordered checkpoint plan', () => {
         expect(normalizeRevenantWorkflowPlan([
             {
@@ -298,7 +402,7 @@ describe('revenant workflow validation', () => {
 
     it('accepts only known runtime step states', () => {
         expect(normalizeRevenantWorkflowStepUpdate({ status: 'output_ready' }))
-            .toEqual({ status: 'output_ready', jobId: null, metadata: null })
+            .toEqual({ status: 'output_ready', metadata: null })
         expect(normalizeRevenantWorkflowStepUpdate({
             status: 'waiting_client',
             metadata: {
@@ -307,7 +411,6 @@ describe('revenant workflow validation', () => {
             },
         })).toEqual({
             status: 'waiting_client',
-            jobId: null,
             metadata: {
                 checkpoint: 'embedding.local',
                 embeddingModel: 'MiniLM',

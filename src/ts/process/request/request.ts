@@ -12,8 +12,9 @@ import { getTools, callTool, encodeToolCall, decodeToolCall } from "../mcp/mcp";
 import type { MCPTool, RPCToolCallContent } from "../mcp/mcplib";
 import { getGeneralJSONSchema } from "../templates/jsonSchema";
 import { runTrigger } from "../triggers";
-import { buildGenerationContext, collectStreamingText, type ModelModeExtended } from './shared';
+import { buildGenerationRequest, collectStreamingText, type ModelModeExtended } from './shared';
 import {
+    ModelPresetAdapterError,
     runToolLoop,
     type AdapterCacheContext,
     type AdapterChatMessage, type AdapterChatOptions, type AdapterCredential,
@@ -33,12 +34,22 @@ import { expandAdapterMessages, toAdapterMessage, toolResponseText } from "./mod
 import { pluginArgumentValues, pluginProviderName } from "src/ts/preset/pluginModels";
 import { createLLMTransportFetch } from "src/ts/network/llmTransport";
 import {
+    EPHEMERAL_SERVER_LLM_EXECUTION,
+    SINGLE_LLM_EXECUTION,
+    WORKFLOW_LLM_EXECUTION,
+    type LLMExecutionPolicy,
+} from "src/ts/network/transportTypes";
+import {
     startStatus, appendText, endStatus, setStatusTokenCounter, addBadge,
     type RequestKind,
 } from "src/ts/status/requestStatus";
-import type { RevenantGenerationContext, RevenantOperationContext } from "../revenantGeneration/types";
-import { reportRevenantGenerationUsage } from "../revenantGeneration/client";
-import { combineProviderStartedHandlers } from "../revenantGeneration/coordinator";
+import type { RevenantOperationContext, RevenantProviderJobSpec } from "../revenant/types";
+import { reportRevenantGenerationUsage } from "../revenant/client";
+import { combineProviderStartedHandlers } from "../revenant/coordinator";
+import {
+    consumeOnStreamCompletion,
+    consumeRevenantAuxiliaryResults,
+} from "../revenant/resultConsumption";
 import { MODELS_DEV_REGISTRY_ID } from "src/ts/preset/registry/modelsDev";
 
 export type ToolCall = {
@@ -46,7 +57,7 @@ export type ToolCall = {
     arguments: string;
 }
 
-interface requestDataArgument{
+export interface requestDataArgument{
     formated: OpenAIChat[]
     bias: {[key:number]:number}
     biasString?: [string,number][]
@@ -74,11 +85,20 @@ interface requestDataArgument{
     blockPlugins?: boolean
     /** Persisted data needed to apply an auxiliary result after a reload. */
     revenantOperationContext?:RevenantOperationContext
-    revenantDispatchPolicy?:import('../revenantGeneration/types').RevenantDispatchPolicy
-    revenantWorkflowDependency?:import('../revenantGeneration/types').RevenantWorkflowDependency
+    revenantDispatchPolicy?:import('../revenant/types').RevenantDispatchPolicy
+    revenantWorkflowDependency?:import('../revenant/types').RevenantWorkflowDependency
     onRevenantJobCreated?:(jobId:string) => void
     onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
     onRevenantProviderStarted?:(startedAt:number) => void
+    llmExecutionPolicy?:LLMExecutionPolicy
+    revenantClientAction?: {
+        workflowId: string
+        parentStepKey: string
+        actionId: string
+        executionId: string
+        /** Main plugin dispatch writes its durable provider job to model.main. */
+        jobStepKey?: string
+    }
 }
 
 export interface RequestDataArgumentExtended extends requestDataArgument{
@@ -86,6 +106,8 @@ export interface RequestDataArgumentExtended extends requestDataArgument{
     mode?:ModelModeExtended
     /** Internal id shared by the wire calls of one auxiliary provider attempt. */
     revenantRequestId?:string
+    /** Stable logical step attempt shared by every provider round in this request. */
+    revenantStepExecutionId?:string
 }
 
 export type requestDataResponse = {
@@ -330,13 +352,15 @@ export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[]){
 
 
 export async function requestChatDataMain(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
-    const targ:RequestDataArgumentExtended = arg
-    targ.mode = model
-
     const currentChat = getCurrentChat()
     const binding = resolveChatModelBinding(currentChat, model)
     if(binding.kind === 'modelPreset'){
-        return requestModelPreset(targ, applyPromptPresetParams(binding.preset, currentChat, model), abortSignal, model)
+        return executeModelPresetRequest(
+            arg,
+            applyPromptPresetParams(binding.preset, currentChat, model),
+            abortSignal,
+            model,
+        )
     }
     return {
         type: 'fail',
@@ -345,6 +369,60 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
             ? language.modelPresetBindingMainUnset
             : language.modelPresetBindingSubUnset,
     }
+}
+
+async function executeModelPresetRequest(
+    arg: requestDataArgument,
+    preset: ModelPreset,
+    abortSignal: AbortSignal | null,
+    model: ModelModeExtended,
+): Promise<requestDataResponse> {
+    const createdJobIds:string[] = []
+    const callerOnJobCreated = arg.onRevenantJobCreated
+    const targ:RequestDataArgumentExtended = {
+        ...arg,
+        onRevenantJobCreated: jobId => {
+            createdJobIds.push(jobId)
+            callerOnJobCreated?.(jobId)
+        },
+    }
+    targ.mode = model
+
+    const generationRequest = buildGenerationRequest(targ)
+    const autoConsume = generationRequest?.job.jobType !== 'model'
+        && !targ.revenantOperationContext
+        && !targ.revenantClientAction
+    const consumeCreatedJobs = async () => {
+        if (!autoConsume || createdJobIds.length === 0) return
+        try {
+            await consumeRevenantAuxiliaryResults(createdJobIds)
+        }
+        catch (error) {
+            // The retained job is pruned by Revenant if acknowledgement is
+            // temporarily unavailable. Never discard an already-decoded LLM
+            // result merely because the consume receipt failed.
+            console.error('[GenerationJob] Failed to consume auxiliary result:', error)
+        }
+    }
+
+    const response = await requestModelPreset(targ, preset, abortSignal, model)
+    if (response.type === 'streaming' && autoConsume) {
+        return {
+            ...response,
+            result: consumeOnStreamCompletion(response.result, consumeCreatedJobs),
+        }
+    }
+    await consumeCreatedJobs()
+    return response
+}
+
+export async function requestModelPresetData(
+    arg: requestDataArgument,
+    preset: ModelPreset,
+    model: ModelModeExtended,
+    abortSignal: AbortSignal | null = null,
+): Promise<requestDataResponse> {
+    return executeModelPresetRequest(arg, preset, abortSignal, model)
 }
 
 
@@ -570,7 +648,8 @@ async function requestPluginPresetProvider(
     Object.defineProperty(providerArgs, pluginProviderRequestContextKey, {
         value: {
             chatId: arg.chatId,
-            generationContext: buildGenerationContext(arg),
+            generationRequest: buildGenerationRequest(arg),
+            llmExecutionPolicy: resolveLLMExecutionPolicy(arg),
             interceptor: 'model_preset',
         },
         enumerable: false,
@@ -624,12 +703,12 @@ async function requestPluginPresetProvider(
 }
 
 // Provider adapters receive a normal Fetch implementation backed by the shared
-// LLM transport. Its default `auto` policy is durable-first and keeps route,
-// recovery, cancellation, timeout, and local-network behavior out of adapters.
+// LLM transport. Execution intent stays explicit while route, recovery,
+// cancellation, timeout, and local-network behavior stay out of adapters.
 function modelsDevUsageIdentity(
     preset: ModelPreset,
 ): Pick<
-    RevenantGenerationContext,
+    RevenantProviderJobSpec,
     'usageProviderId' | 'usageModelId' | 'usageServiceTier'
 > | undefined {
     const source = preset.sourceProfile
@@ -644,12 +723,21 @@ function modelsDevUsageIdentity(
     }
 }
 
+function resolveLLMExecutionPolicy(arg: RequestDataArgumentExtended): LLMExecutionPolicy {
+    if (arg.llmExecutionPolicy) return arg.llmExecutionPolicy
+    if (arg.previewBody) return EPHEMERAL_SERVER_LLM_EXECUTION
+    return buildGenerationRequest(arg)?.workflow
+        ? WORKFLOW_LLM_EXECUTION
+        : SINGLE_LLM_EXECUTION
+}
+
 function makeModelTransportFetch(arg: RequestDataArgumentExtended, preset: ModelPreset): typeof fetch {
     const usageIdentity = modelsDevUsageIdentity(preset)
     return createLLMTransportFetch({
         interceptor: 'model_preset',
         chatId: arg.chatId,
-        getGenerationContext: () => buildGenerationContext(arg, usageIdentity),
+        getGenerationRequest: () => buildGenerationRequest(arg, usageIdentity),
+        getExecutionPolicy: () => resolveLLMExecutionPolicy(arg),
     })
 }
 
@@ -668,6 +756,18 @@ function describeModelPresetError(err: unknown): Record<string, unknown> {
         }
     }
     return { message: String(err) }
+}
+
+export function modelPresetRequestFailurePolicy(error: unknown): {
+    noRetry?: boolean
+    failByServerError?: boolean
+} {
+    if (!(error instanceof ModelPresetAdapterError)) return {}
+    return {
+        noRetry: !error.retryable,
+        failByServerError: error.retryable
+            && (error.kind === 'server' || error.kind === 'rate-limit'),
+    }
 }
 
 // --- request-status publishing (model-preset path only) ------------------
@@ -722,13 +822,15 @@ function toRequestKind(mode: ModelModeExtended): RequestKind {
 // Per-preset streaming preference. Adapter/profile support is compiled once and
 // passed in; forceStreaming deliberately overrides the profile declaration for
 // internal callers, while the concrete adapter must still implement streaming.
-function resolvePresetStreaming(
+export function resolvePresetStreaming(
     preset: ModelPreset,
     arg: RequestDataArgumentExtended,
     profileSupportsStreaming: boolean,
 ): boolean {
     if (arg.forceStreaming) return true
     if (!profileSupportsStreaming) return false
+    const isMainChatGeneration = arg.mode === 'model' && !!arg.chatId
+    if (!isMainChatGeneration && arg.useStreaming !== true) return false
     return !!preset.useStreaming && (arg.useStreaming ?? true)
 }
 
@@ -825,6 +927,26 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             }
         }
         return requestEchoPreset(preset, abortSignal)
+    }
+    // HTTP streaming adapters expose their ReadableStream before the lazy
+    // async generator reaches fetchNative. Track the durable-registration
+    // boundary independently so the chat workflow can wait for a late job id,
+    // while preparation failures still release that wait with the real error.
+    let registrationSettled = false
+    const callerOnJobCreated = arg.onRevenantJobCreated
+    const callerOnRegistrationUnavailable = arg.onRevenantJobRegistrationUnavailable
+    arg.onRevenantJobCreated = jobId => {
+        registrationSettled = true
+        callerOnJobCreated?.(jobId)
+    }
+    arg.onRevenantJobRegistrationUnavailable = error => {
+        if (registrationSettled) return
+        registrationSettled = true
+        callerOnRegistrationUnavailable?.(error)
+    }
+    const releasePendingRegistration = (error: unknown) => {
+        if (registrationSettled) return
+        arg.onRevenantJobRegistrationUnavailable?.(error)
     }
     const kind = compiled.adapterKind
     const adapter = compiled.adapter
@@ -1073,6 +1195,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                         // AbortError. It is reflected as an aborted request
                         // status, not persisted as an application error.
                         onError: (err) => {
+                            releasePendingRegistration(err)
                             if (abortSignal?.aborted) return
                             console.error('[ModelPreset] stream error', describeModelPresetError(err))
                         },
@@ -1084,25 +1207,33 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                             if (delta.reasoningDelta) appendText(genId, { thinking: delta.reasoningDelta }, now)
                             if (delta.textDelta) appendText(genId, { response: delta.textDelta }, now)
                         }) : undefined,
-                        onFinish: reportStatus ? (outcome, lastUsage) => safeStatus(() => {
-                            // A stream that ends via abort throws inside the
-                            // generator → 'failed'; reclassify as 'aborted' so the
-                            // toast shows "Cancelled" rather than an error.
-                            const finalOutcome = outcome === 'failed' && abortSignal?.aborted ? 'aborted' : outcome
-                            // Confirmed cache hit (usageMetadata.cachedContentTokenCount
-                            // > 0) → savings badge on the status toast. Gated on the
-                            // cache context so behavior is unchanged with caching off.
-                            const cachedTokens = lastUsage?.cachedTokens ?? 0
-                            if (cache && cachedTokens > 0) {
-                                addBadge(genId, { key: 'cache', text: language.requestStatus.cacheHit.replace('{n}', cachedTokens.toLocaleString()), tone: 'success' })
+                        onFinish: (outcome, lastUsage) => {
+                            if (outcome === 'done') {
+                                releasePendingRegistration(new Error(
+                                    'The model stream completed before durable job registration.',
+                                ))
                             }
-                            endStatus(genId, finalOutcome, {
-                                now: Date.now(),
-                                usage: lastUsage?.completionTokens !== undefined
-                                    ? { responseTokens: lastUsage.completionTokens }
-                                    : undefined,
+                            if (!reportStatus) return
+                            safeStatus(() => {
+                                // A stream that ends via abort throws inside the
+                                // generator → 'failed'; reclassify as 'aborted' so the
+                                // toast shows "Cancelled" rather than an error.
+                                const finalOutcome = outcome === 'failed' && abortSignal?.aborted ? 'aborted' : outcome
+                                // Confirmed cache hit (usageMetadata.cachedContentTokenCount
+                                // > 0) → savings badge on the status toast. Gated on the
+                                // cache context so behavior is unchanged with caching off.
+                                const cachedTokens = lastUsage?.cachedTokens ?? 0
+                                if (cache && cachedTokens > 0) {
+                                    addBadge(genId, { key: 'cache', text: language.requestStatus.cacheHit.replace('{n}', cachedTokens.toLocaleString()), tone: 'success' })
+                                }
+                                endStatus(genId, finalOutcome, {
+                                    now: Date.now(),
+                                    usage: lastUsage?.completionTokens !== undefined
+                                        ? { responseTokens: lastUsage.completionTokens }
+                                        : undefined,
+                                })
                             })
-                        }) : undefined,
+                        },
                     })
                 }
             })
@@ -1172,6 +1303,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             type: 'fail',
             result: err instanceof Error ? err.message : String(err),
             model: preset.name,
+            ...modelPresetRequestFailurePolicy(err),
         }
     }
 }
@@ -1188,13 +1320,13 @@ export interface ModelPresetTestResult {
 }
 
 export async function testModelPreset(preset: ModelPreset, message: string, abortSignal: AbortSignal = null): Promise<ModelPresetTestResult> {
-    const arg: RequestDataArgumentExtended = {
+    const arg: requestDataArgument = {
         formated: [{ role: 'user', content: message }],
         bias: {},
         useStreaming: false,
     }
     const start = performance.now()
-    const res = await requestModelPreset(arg, preset, abortSignal)
+    const res = await executeModelPresetRequest(arg, preset, abortSignal, 'otherAx')
     const latencyMs = Math.round(performance.now() - start)
     // useStreaming:false + no tools guarantees a success/fail (never streaming/multiline),
     // but fall through defensively rather than asserting the union.

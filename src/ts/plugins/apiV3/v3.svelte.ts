@@ -36,6 +36,7 @@ import {
     type AfterTTSResult,
     type TTSHookFn,
 } from "src/ts/process/ttsHooks";
+import { classifyPluginProviderFetch, type PluginProviderFetchOptions } from "./providerFetchClassification";
 
 /*
     V3 API for RisuAI Plugins
@@ -760,6 +761,41 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
 
     const oldApis = getV2PluginAPIs();
     const pluginRequestContexts = new Map<string, PluginProviderRequestContext>()
+    const providerFetchContext = (
+        url: string,
+        options: PluginProviderFetchOptions | undefined,
+        signal: AbortSignal | undefined,
+    ): PluginProviderRequestContext | undefined => {
+        const contextToken = getRpcAbortSignalMetadata(signal, providerRequestContextMetadataKey)
+        // Some older API 3.0 providers do not forward addProvider's
+        // AbortSignal. Preserve the existing unambiguous single-request
+        // fallback, but never attach it to auth/cache/metadata fetches.
+        const requestContext = contextToken
+            ? pluginRequestContexts.get(contextToken)
+            : pluginRequestContexts.size === 1
+                ? pluginRequestContexts.values().next().value
+                : undefined
+        if (!requestContext) return undefined
+        const classification = classifyPluginProviderFetch(
+            url,
+            options,
+            requestContext.generationRequest?.workflow?.dependency?.placeholder,
+        )
+        if (!classification.generation) return undefined
+        return {
+            ...requestContext,
+            generationRequest: requestContext.generationRequest ? {
+                ...requestContext.generationRequest,
+                job: {
+                    ...requestContext.generationRequest.job,
+                    adapterKind: requestContext.generationRequest.job.adapterKind
+                        ?? classification.adapterKind,
+                    streaming: requestContext.generationRequest.job.streaming
+                        ?? classification.streaming,
+                },
+            } : undefined,
+        }
+    }
     return {
 
         //Old APIs from v2.1
@@ -778,7 +814,18 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                     console.warn(`Request contains potentially sensitive header '${headerName}'. handling of such headers may be changed to only work with nativeFetch.`);
                 }
             }
-            return oldApis.risuFetch(url, options);
+            const requestContext = providerFetchContext(
+                url,
+                options,
+                options?.abortSignal ?? options?.signal,
+            )
+            return oldApis.risuFetch(url, requestContext ? {
+                ...(options ?? {}),
+                chatId: requestContext.chatId,
+                generationRequest: requestContext.generationRequest,
+                llmExecutionPolicy: requestContext.llmExecutionPolicy,
+                interceptor: requestContext.interceptor,
+            } : options);
         },
         nativeFetch: (url, options) => {
             for(const blocked of urlBlacklist){
@@ -794,26 +841,18 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                     console.warn(`Request contains potentially sensitive header '${headerName}'. handling of such headers may be changed to use server-side approch with write-only api access in the future for better security.`);
                 }
             }
-            const contextToken = getRpcAbortSignalMetadata(options?.signal, providerRequestContextMetadataKey)
-            // Some older API 3.0 providers do not forward addProvider's
-            // AbortSignal into nativeFetch. The single-active-request fallback
-            // keeps those providers observable without ever guessing between
-            // concurrent generations.
-            const requestContext = contextToken
-                ? pluginRequestContexts.get(contextToken)
-                : pluginRequestContexts.size === 1
-                    ? pluginRequestContexts.values().next().value
-                    : undefined
+            const requestContext = providerFetchContext(url, options, options?.signal)
             return oldApis.nativeFetch(url, requestContext ? {
                 ...(options ?? {}),
                 chatId: requestContext.chatId,
-                generationContext: requestContext.generationContext,
+                generationRequest: requestContext.generationRequest,
+                llmExecutionPolicy: requestContext.llmExecutionPolicy,
                 interceptor: requestContext.interceptor,
             } : options);
         },
         getChar: oldApis.getChar,
         setChar: oldApis.setChar,
-        addProvider: (name: string, func: (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string }>, options?: PluginV3ProviderOptions) => {
+        addProvider: (name: string, func: (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string | ReadableStream<string> }>, options?: PluginV3ProviderOptions) => {
             console.warn(`[WARN] addProvider is a powerful API that can potentially be unsafe if used incorrectly. addProvider's functionality might be limited or changed in future updates to ensure security. please use other APIs if possible.`);
             let provs = get(customProviderStore)
             provs.push(name)

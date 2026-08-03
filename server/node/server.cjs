@@ -42,6 +42,7 @@ const {
     finishGenerationJob,
     finishGenerationWorkflow,
     cancelGenerationWorkflow,
+    cancelGenerationStepExecution,
     listGenerationJobsNeedingProjection,
     pruneRetainedGenerationJobs,
     checkpointGenerationDb,
@@ -53,6 +54,8 @@ const {
 } = require('./revenant/generationProjection.cjs');
 const { installRevenantGenerationRoutes } = require('./revenant/generationRoutes.cjs');
 const { createGenerationWorkers } = require('./revenant/generationWorkers.cjs');
+const { createRevenantMaterializer } = require('./revenant/materializer.cjs');
+const { createRevenantPostprocessWorker } = require('./revenant/postprocessWorker.cjs');
 const {
     createGenerationWorkflowService,
 } = require('./revenant/generationWorkflowService.cjs');
@@ -701,7 +704,7 @@ function shouldCompress(req, res) {
     // Original upstream server has no compression middleware at all,
     // so proxy responses were never compressed in the first place.
     const url = req.originalUrl || req.url;
-    if (url.startsWith('/proxy') || url.startsWith('/hub-proxy') || url.startsWith('/api/backup/export') || url.startsWith('/api/backup/server/download/')) {
+    if (url.startsWith('/proxy2') || url.startsWith('/hub-proxy') || url.startsWith('/api/backup/export') || url.startsWith('/api/backup/server/download/')) {
         return false;
     }
 
@@ -1575,21 +1578,19 @@ function broadcastDatabaseInvalidated(req, payload = {}) {
     );
 }
 
-// --- Proxy Stream Job constants ---
-const PROXY_STREAM_DEFAULT_TIMEOUT_MS = GENERATION_REQUEST_DEFAULT_TIMEOUT_MS;
-const PROXY_STREAM_DEFAULT_HEARTBEAT_SEC = 15;
-const PROXY_STREAM_HEARTBEAT_MIN_SEC = 5;
-const PROXY_STREAM_HEARTBEAT_MAX_SEC = 60;
-const PROXY_STREAM_GC_INTERVAL_MS = 60000;
-const PROXY_STREAM_DONE_GRACE_MS = 30000;
-const PROXY_STREAM_MAX_ACTIVE_JOBS = 64;
-const PROXY_STREAM_MAX_PENDING_EVENTS = 512;
-const PROXY_STREAM_MAX_PENDING_BYTES = 2 * 1024 * 1024;
-const PROXY_STREAM_MAX_BODY_BASE64_BYTES = 8 * 1024 * 1024;
-const proxyStreamJobs = new Map();
+// --- Generation Job constants ---
+const GENERATION_JOB_DEFAULT_TIMEOUT_MS = GENERATION_REQUEST_DEFAULT_TIMEOUT_MS;
+const GENERATION_JOB_DEFAULT_HEARTBEAT_SEC = 15;
+const GENERATION_JOB_HEARTBEAT_MIN_SEC = 5;
+const GENERATION_JOB_HEARTBEAT_MAX_SEC = 60;
+const GENERATION_JOB_GC_INTERVAL_MS = 60000;
+const GENERATION_JOB_DONE_GRACE_MS = 30000;
+const GENERATION_JOB_MAX_ACTIVE_JOBS = 64;
+const GENERATION_JOB_MAX_BODY_BASE64_BYTES = 8 * 1024 * 1024;
+const generationRuntimeJobs = new Map();
 
-function countActiveProxyStreamJobs() {
-    return Array.from(proxyStreamJobs.values())
+function countActiveGenerationJobs() {
+    return Array.from(generationRuntimeJobs.values())
         .filter(job => !job.done && !job.waitingDispatch)
         .length;
 }
@@ -1655,7 +1656,7 @@ function createTimeoutController(timeoutMs) {
     };
 }
 
-// --- Proxy Stream: auth helpers ---
+// --- Generation: auth helpers ---
 
 function normalizeAuthHeader(authHeader) {
     if (Array.isArray(authHeader)) {
@@ -1685,7 +1686,7 @@ function sanitizeGenerationTargetUrl(raw) {
     }
 }
 
-// --- Proxy Stream: request/response helpers ---
+// --- Generation: request/response helpers ---
 
 function normalizeForwardHeaders(input) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -1706,16 +1707,16 @@ function normalizeForwardHeaders(input) {
     return normalized;
 }
 
-function normalizeProxyStreamTimeoutMs(timeoutMs) {
+function normalizeGenerationJobTimeoutMs(timeoutMs) {
     return normalizeGenerationRequestTimeoutMs(timeoutMs);
 }
 
 function normalizeHeartbeatSec(heartbeatSec) {
     if (!Number.isFinite(heartbeatSec)) {
-        return PROXY_STREAM_DEFAULT_HEARTBEAT_SEC;
+        return GENERATION_JOB_DEFAULT_HEARTBEAT_SEC;
     }
     const parsed = Math.floor(heartbeatSec);
-    return Math.min(PROXY_STREAM_HEARTBEAT_MAX_SEC, Math.max(PROXY_STREAM_HEARTBEAT_MIN_SEC, parsed));
+    return Math.min(GENERATION_JOB_HEARTBEAT_MAX_SEC, Math.max(GENERATION_JOB_HEARTBEAT_MIN_SEC, parsed));
 }
 
 function hasGenerationStreamTerminalMarker(rawBuffer) {
@@ -1749,11 +1750,11 @@ function hasGenerationStreamTerminalMarker(rawBuffer) {
     return false;
 }
 
-// --- Proxy Stream: job lifecycle ---
+// --- Generation: job lifecycle ---
 
-function createProxyStreamJob(arg) {
+function createGenerationRuntimeJob(arg) {
     const jobId = arg.jobId || nodeCrypto.randomUUID();
-    const timeoutMs = normalizeProxyStreamTimeoutMs(Number(arg.timeoutMs));
+    const timeoutMs = normalizeGenerationJobTimeoutMs(Number(arg.timeoutMs));
     const heartbeatSec = normalizeHeartbeatSec(arg.heartbeatSec);
     const controller = new AbortController();
     const createdAt = Date.now();
@@ -1765,8 +1766,6 @@ function createProxyStreamJob(arg) {
         done: false,
         cleanupAt: 0,
         clients: new Set(),
-        pendingEvents: [],
-        pendingBytes: 0,
         rawBytes: 0,
         journalWaiters: [],
         providerStartedAt: null,
@@ -1779,11 +1778,11 @@ function createProxyStreamJob(arg) {
         heartbeatSec,
         timeoutMs
     };
-    proxyStreamJobs.set(jobId, job);
+    generationRuntimeJobs.set(jobId, job);
     return job;
 }
 
-function loadPersistedProxyStreamJob(jobId) {
+function loadPersistedGenerationRuntimeJob(jobId) {
     const persisted = getGenerationJob(jobId, false);
     if (!persisted) return null;
     const createdAt = persisted.createdAt || Date.now();
@@ -1795,10 +1794,8 @@ function loadPersistedProxyStreamJob(jobId) {
         updatedAt: persisted.updatedAt || createdAt,
         done: !active,
         waitingDispatch: persisted.status === 'queued',
-        cleanupAt: active ? 0 : Date.now() + PROXY_STREAM_DONE_GRACE_MS,
+        cleanupAt: active ? 0 : Date.now() + GENERATION_JOB_DONE_GRACE_MS,
         clients: new Set(),
-        pendingEvents: [],
-        pendingBytes: 0,
         rawBytes: persisted.rawBytes || 0,
         journalWaiters: [],
         providerStartedAt: persisted.dispatchedAt || null,
@@ -1818,66 +1815,43 @@ function loadPersistedProxyStreamJob(jobId) {
         abortController: new AbortController(),
         cancelUpstream: null,
         deadlineAt: Date.now(),
-        heartbeatSec: PROXY_STREAM_DEFAULT_HEARTBEAT_SEC,
-        timeoutMs: PROXY_STREAM_DEFAULT_TIMEOUT_MS,
-        persistent: true,
+        heartbeatSec: GENERATION_JOB_DEFAULT_HEARTBEAT_SEC,
+        timeoutMs: GENERATION_JOB_DEFAULT_TIMEOUT_MS,
     };
-    proxyStreamJobs.set(jobId, job);
+    generationRuntimeJobs.set(jobId, job);
     return job;
 }
 
-function pushJobEvent(job, event) {
+function notifyGenerationJob(job) {
     job.updatedAt = Date.now();
-    if (job.persistent) {
-        notifyRevenantJournalWaiters(job);
-        return;
-    }
-    const text = JSON.stringify(event);
-    if (job.clients.size === 0) {
-        job.pendingEvents.push(text);
-        job.pendingBytes += Buffer.byteLength(text);
-        while (
-            job.pendingEvents.length > PROXY_STREAM_MAX_PENDING_EVENTS
-            || job.pendingBytes > PROXY_STREAM_MAX_PENDING_BYTES
-        ) {
-            const removed = job.pendingEvents.shift();
-            if (!removed) break;
-            job.pendingBytes -= Buffer.byteLength(removed);
-        }
-        return;
-    }
-    for (const client of job.clients) {
-        if (client.readyState === client.OPEN) {
-            client.send(text);
-        }
-    }
-}
-
-function markJobDone(job) {
-    if (job.done) return;
-    job.done = true;
-    job.cleanupAt = Date.now() + PROXY_STREAM_DONE_GRACE_MS;
     notifyRevenantJournalWaiters(job);
 }
 
-function cleanupJob(jobId) {
-    const job = proxyStreamJobs.get(jobId);
+function markGenerationJobDone(job) {
+    if (job.done) return;
+    job.done = true;
+    job.cleanupAt = Date.now() + GENERATION_JOB_DONE_GRACE_MS;
+    notifyRevenantJournalWaiters(job);
+}
+
+function cleanupGenerationRuntimeJob(jobId) {
+    const job = generationRuntimeJobs.get(jobId);
     if (!job) return;
     for (const client of job.clients) {
         try { client.close(); } catch { /* ignore */ }
     }
-    proxyStreamJobs.delete(jobId);
+    generationRuntimeJobs.delete(jobId);
 }
 
 const generationWorkers = createGenerationWorkers({
     repository: generationDb,
     logger,
-    proxyStreamJobs,
-    maxActiveJobs: PROXY_STREAM_MAX_ACTIVE_JOBS,
-    countActiveProxyStreamJobs,
-    createProxyStreamJob,
-    runProxyStreamJob,
-    markJobDone,
+    generationRuntimeJobs,
+    maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,
+    countActiveGenerationJobs,
+    createGenerationRuntimeJob,
+    runGenerationProviderJob,
+    markGenerationJobDone,
     sanitizeGenerationTargetUrl,
 });
 const {
@@ -1889,17 +1863,42 @@ const {
 const generationWorkflowService = createGenerationWorkflowService({
     finishGenerationWorkflow,
     cancelGenerationWorkflow,
-    proxyStreamJobs,
-    markJobDone,
+    cancelGenerationStepExecution,
+    generationRuntimeJobs,
+    markGenerationJobDone,
     abortHypaWorkflowExecution,
 });
 
-async function runProxyStreamJob(job, arg) {
+const revenantMaterializer = createRevenantMaterializer({
+    repository: generationDb,
+    queueStorageOperation,
+    ensureChatStore,
+    getChatStorageState: () => ({ fullChatStore, saveTimers, dbCache }),
+    databaseHexKey: DB_HEX_KEY,
+    persistDbCacheWithChats,
+    kvGet,
+    normalizeJSON,
+    decodeRisuSave,
+    reassembleFullDb,
+    stripChatsFromDb,
+    kvSet,
+    encodeRisuSaveLegacy,
+    initChatStore,
+    createBackupAndRotate,
+    broadcastDatabaseInvalidated: (request, payload) =>
+        broadcastDatabaseInvalidated(request || { headers: {} }, payload),
+});
+const revenantPostprocessWorker = createRevenantPostprocessWorker({
+    repository: generationDb,
+    logger,
+});
+const scheduleRevenantPostprocess = revenantPostprocessWorker.schedule;
+
+async function runGenerationProviderJob(job, arg) {
     const targetUrl = sanitizeGenerationTargetUrl(arg.targetUrl);
     if (!targetUrl) {
-        pushJobEvent(job, { type: 'error', status: 400, message: 'Invalid target URL' });
-        if (job.persistent) finishGenerationJob(job.id, 'failed', 'invalid_target', 'Invalid target URL');
-        markJobDone(job);
+        finishGenerationJob(job.id, 'failed', 'invalid_target', 'Invalid target URL');
+        markGenerationJobDone(job);
         return;
     }
 
@@ -1907,9 +1906,7 @@ async function runProxyStreamJob(job, arg) {
     const bodyBuffer = arg.bodyBase64 ? Buffer.from(arg.bodyBase64, 'base64') : undefined;
     let completionProbe = Buffer.alloc(0);
     let providerCompleted = false;
-    const journalWriter = job.persistent
-        ? generationJournalStore.openWriter(job.workflowId, job.id)
-        : null;
+    const journalWriter = generationJournalStore.openWriter(job.workflowId, job.id);
     let journalWriteError = null;
     let journalClosed = false;
     journalWriter?.on('error', (error) => {
@@ -1917,7 +1914,7 @@ async function runProxyStreamJob(job, arg) {
         notifyRevenantJournalWaiters(job);
     });
     const closeJournal = async () => {
-        if (!journalWriter || journalClosed) return;
+        if (journalClosed) return;
         journalClosed = true;
         if (!journalWriter.destroyed) {
             await new Promise((resolve) => {
@@ -1936,23 +1933,21 @@ async function runProxyStreamJob(job, arg) {
     try {
         job.providerStartedAt ||= Date.now();
         notifyRevenantJournalWaiters(job);
-        if (job.persistent) setGenerationJobGenerating(job.id);
-        if (job.persistent) {
-            addRequestLog({
-                id: job.id,
-                timestamp: job.providerStartedAt,
-                date: new Date(job.providerStartedAt).toLocaleTimeString(),
-                url: targetUrl,
-                body: bodyBuffer?.toString('utf-8') || '',
-                header: JSON.stringify(headers, null, 2),
-                response: 'Streamed Fetch',
-                responseType: 'stream',
-                success: true,
-                chatId: arg.requestLog?.chatId,
-                clientId: arg.requestLog?.clientId,
-                platform: arg.requestLog?.platform,
-            });
-        }
+        setGenerationJobGenerating(job.id);
+        addRequestLog({
+            id: job.id,
+            timestamp: job.providerStartedAt,
+            date: new Date(job.providerStartedAt).toLocaleTimeString(),
+            url: targetUrl,
+            body: bodyBuffer?.toString('utf-8') || '',
+            header: JSON.stringify(headers, null, 2),
+            response: 'Streamed Fetch',
+            responseType: 'stream',
+            success: true,
+            chatId: arg.requestLog?.chatId,
+            clientId: arg.requestLog?.clientId,
+            platform: arg.requestLog?.platform,
+        });
         const upstreamResponse = await executeUpstreamRequest({
             url: targetUrl,
             method: arg.method,
@@ -1962,12 +1957,10 @@ async function runProxyStreamJob(job, arg) {
         });
         const filteredHeaders = upstreamResponse.headers;
 
-        if (job.persistent) {
-            setGenerationJobHeaders(job.id, upstreamResponse.status, filteredHeaders);
-        }
+        setGenerationJobHeaders(job.id, upstreamResponse.status, filteredHeaders);
         job.responseStatus = upstreamResponse.status;
         job.responseHeaders = filteredHeaders;
-        pushJobEvent(job, { type: 'upstream_headers', status: upstreamResponse.status, headers: filteredHeaders });
+        notifyGenerationJob(job);
 
         if (upstreamResponse.body) {
             const iterator = upstreamResponse.body[Symbol.asyncIterator]();
@@ -1993,34 +1986,30 @@ async function runProxyStreamJob(job, arg) {
                         if (completionProbe.length > 256 * 1024) {
                             completionProbe = completionProbe.subarray(completionProbe.length - 256 * 1024);
                         }
-                        if (job.persistent) {
-                            if (journalWriteError) throw journalWriteError;
-                            job.rawBytes += bytes.length;
-                            const writable = journalWriter.write(bytes, () => {
-                                notifyRevenantJournalWaiters(job);
+                        if (journalWriteError) throw journalWriteError;
+                        job.rawBytes += bytes.length;
+                        const writable = journalWriter.write(bytes, () => {
+                            notifyRevenantJournalWaiters(job);
+                        });
+                        if (!writable) {
+                            await new Promise((resolve, reject) => {
+                                const cleanup = () => {
+                                    journalWriter.off('drain', onDrain);
+                                    journalWriter.off('error', onError);
+                                };
+                                const onDrain = () => {
+                                    cleanup();
+                                    resolve();
+                                };
+                                const onError = (error) => {
+                                    cleanup();
+                                    reject(error);
+                                };
+                                journalWriter.once('drain', onDrain);
+                                journalWriter.once('error', onError);
                             });
-                            if (!writable) {
-                                await new Promise((resolve, reject) => {
-                                    const cleanup = () => {
-                                        journalWriter.off('drain', onDrain);
-                                        journalWriter.off('error', onError);
-                                    };
-                                    const onDrain = () => {
-                                        cleanup();
-                                        resolve();
-                                    };
-                                    const onError = (error) => {
-                                        cleanup();
-                                        reject(error);
-                                    };
-                                    journalWriter.once('drain', onDrain);
-                                    journalWriter.once('error', onError);
-                                });
-                            }
-                            pushJobEvent(job, { type: 'journal_appended' });
-                        } else {
-                            pushJobEvent(job, { type: 'chunk', dataBase64: bytes.toString('base64') });
                         }
+                        notifyGenerationJob(job);
                         if (hasGenerationStreamTerminalMarker(completionProbe)) {
                             providerCompleted = true;
                             break;
@@ -2036,121 +2025,127 @@ async function runProxyStreamJob(job, arg) {
         }
         await closeJournal();
         const cancelled = job.abortController.signal.aborted;
-        if (job.persistent) {
-            const persisted = getGenerationJob(job.id, false);
-            const cancelFinishReason = persisted?.finishReason || 'user_cancelled';
-            const rawResponse = readGenerationJobRaw(job.id);
-            let projection = persisted?.projection;
-            let terminalFailure;
-            if (!cancelled) {
-                if (upstreamResponse.status < 200 || upstreamResponse.status >= 300) {
-                    terminalFailure = {
-                        finishReason: 'upstream_http_error',
-                        message: `Provider request failed with HTTP ${upstreamResponse.status}`,
-                    };
-                } else {
-                    try {
-                        projection = await projectGenerationJournal(persisted, rawResponse);
-                        setGenerationJobProjection(job.id, projection);
-                    } catch (error) {
-                        const message = `Failed to normalize provider journal: ${error}`;
-                        setGenerationJobProjectionError(job.id, message);
-                        terminalFailure = { finishReason: 'projection_error', message };
-                    }
+        const persisted = getGenerationJob(job.id, false);
+        const cancelFinishReason = persisted?.finishReason || 'user_cancelled';
+        const rawResponse = readGenerationJobRaw(job.id);
+        let projection = persisted?.projection;
+        let terminalFailure;
+        if (!cancelled) {
+            if (upstreamResponse.status < 200 || upstreamResponse.status >= 300) {
+                terminalFailure = {
+                    finishReason: 'upstream_http_error',
+                    message: `Provider request failed with HTTP ${upstreamResponse.status}`,
+                };
+            } else {
+                try {
+                    projection = await projectGenerationJournal(persisted, rawResponse);
+                    setGenerationJobProjection(job.id, projection);
+                } catch (error) {
+                    const message = `Failed to normalize provider journal: ${error}`;
+                    setGenerationJobProjectionError(job.id, message);
+                    terminalFailure = { finishReason: 'projection_error', message };
                 }
             }
-            updateRequestLogResponseById(
+        }
+        updateRequestLogResponseById(
+            job.id,
+            rawResponse.toString('utf-8'),
+            upstreamResponse.status,
+            upstreamResponse.status >= 200 && upstreamResponse.status < 400,
+        );
+        recordGenerationUsage({
+            jobId: job.id,
+            timestamp: persisted?.createdAt,
+            chatId: persisted?.chatId,
+            targetUrl,
+            bodyBase64: arg.bodyBase64,
+            rawResponse,
+            outputText: projection?.content,
+            usageProviderId: arg.usageProviderId,
+            usageModelId: arg.usageModelId,
+            usageServiceTier: arg.usageServiceTier,
+        });
+        if (terminalFailure) {
+            finishGenerationJob(
                 job.id,
-                rawResponse.toString('utf-8'),
-                upstreamResponse.status,
-                upstreamResponse.status >= 200 && upstreamResponse.status < 400,
+                'failed',
+                terminalFailure.finishReason,
+                terminalFailure.message,
+                rawResponse.length,
             );
-            recordGenerationUsage({
-                jobId: job.id,
-                timestamp: persisted?.createdAt,
-                chatId: persisted?.chatId,
-                targetUrl,
-                bodyBase64: arg.bodyBase64,
-                rawResponse,
-                outputText: projection?.content,
-                usageProviderId: arg.usageProviderId,
-                usageModelId: arg.usageModelId,
-                usageServiceTier: arg.usageServiceTier,
-            });
-            if (terminalFailure) {
-                finishGenerationJob(
-                    job.id,
-                    'failed',
-                    terminalFailure.finishReason,
-                    terminalFailure.message,
-                    rawResponse.length,
-                );
-            } else {
-                finishGenerationJob(
-                    job.id,
-                    cancelled ? 'cancelled' : 'generated',
-                    cancelled ? cancelFinishReason : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
-                    null,
-                    rawResponse.length,
-                );
-            }
-            job.terminalEvent = terminalFailure
-                ? { type: 'error', status: 502, message: terminalFailure.message }
-                : {
-                    type: 'done',
-                    partial: cancelled,
-                    finishReason: cancelled ? cancelFinishReason : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
-                };
+        } else {
+            finishGenerationJob(
+                job.id,
+                cancelled ? 'cancelled' : 'generated',
+                cancelled ? cancelFinishReason : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
+                null,
+                rawResponse.length,
+            );
+        }
+        // A non-2xx upstream response is still a complete HTTP response. Close
+        // its journal normally so the client adapter can read the provider's
+        // error body and surface the precise message instead of a transport
+        // level "HTTP N" fallback. The job remains failed in durable storage.
+        if (terminalFailure?.finishReason === 'upstream_http_error') {
+            job.terminalEvent = {
+                type: 'done',
+                partial: false,
+                finishReason: terminalFailure.finishReason,
+            };
+        } else if (terminalFailure) {
+            job.terminalEvent = {
+                type: 'error',
+                status: 502,
+                message: terminalFailure.message,
+            };
         } else {
             job.terminalEvent = {
                 type: 'done',
                 partial: cancelled,
-                finishReason: cancelled ? 'user_cancelled' : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
+                finishReason: cancelled ? cancelFinishReason : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
             };
         }
-        if (!job.persistent) pushJobEvent(job, job.terminalEvent);
-        markJobDone(job);
-        if (job.persistent) scheduleHypaWorkflowExecution();
+        markGenerationJobDone(job);
+        scheduleHypaWorkflowExecution();
+        scheduleRevenantPostprocess();
     } catch (error) {
         job.cancelUpstream = null;
         try { await closeJournal(); } catch (persistError) {
             logger.error('[GenerationJob] Failed to close partial response journal:', persistError);
         }
         const cancelled = job.abortController.signal.aborted;
-        const message = cancelled ? 'Proxy stream job aborted' : `${error}`;
+        const message = cancelled ? 'Generation job aborted' : `${error}`;
         let cancelFinishReason = 'user_cancelled';
-        if (job.persistent) {
-            const persistedWithRaw = getGenerationJob(job.id, false);
-            const rawResponse = readGenerationJobRaw(job.id);
-            updateRequestLogResponseById(
-                job.id,
-                rawResponse.length > 0 ? rawResponse.toString('utf-8') : message,
-                persistedWithRaw?.responseStatus,
-                false,
-            );
-            recordGenerationUsage({
-                jobId: job.id,
-                timestamp: persistedWithRaw?.createdAt,
-                chatId: persistedWithRaw?.chatId,
-                targetUrl,
-                bodyBase64: arg.bodyBase64,
-                rawResponse,
-                outputText: persistedWithRaw?.projection?.content,
-                usageProviderId: arg.usageProviderId,
-                usageModelId: arg.usageModelId,
-                usageServiceTier: arg.usageServiceTier,
-            });
-            const hasPartial = rawResponse.length > 0;
-            cancelFinishReason = persistedWithRaw?.finishReason || cancelFinishReason;
-            finishGenerationJob(
-                job.id,
-                cancelled ? 'cancelled' : (hasPartial ? 'failed_partial' : 'failed'),
-                cancelled ? cancelFinishReason : 'upstream_error',
-                message,
-                rawResponse.length,
-            );
-            job.rawBytes = rawResponse.length;
-        }
+        const persistedWithRaw = getGenerationJob(job.id, false);
+        const rawResponse = readGenerationJobRaw(job.id);
+        updateRequestLogResponseById(
+            job.id,
+            rawResponse.length > 0 ? rawResponse.toString('utf-8') : message,
+            persistedWithRaw?.responseStatus,
+            false,
+        );
+        recordGenerationUsage({
+            jobId: job.id,
+            timestamp: persistedWithRaw?.createdAt,
+            chatId: persistedWithRaw?.chatId,
+            targetUrl,
+            bodyBase64: arg.bodyBase64,
+            rawResponse,
+            outputText: persistedWithRaw?.projection?.content,
+            usageProviderId: arg.usageProviderId,
+            usageModelId: arg.usageModelId,
+            usageServiceTier: arg.usageServiceTier,
+        });
+        const hasPartial = rawResponse.length > 0;
+        cancelFinishReason = persistedWithRaw?.finishReason || cancelFinishReason;
+        finishGenerationJob(
+            job.id,
+            cancelled ? 'cancelled' : (hasPartial ? 'failed_partial' : 'failed'),
+            cancelled ? cancelFinishReason : 'upstream_error',
+            message,
+            rawResponse.length,
+        );
+        job.rawBytes = rawResponse.length;
         job.terminalEvent = cancelled
             ? {
                 type: 'done',
@@ -2158,13 +2153,12 @@ async function runProxyStreamJob(job, arg) {
                 finishReason: cancelFinishReason,
             }
             : { type: 'error', status: 504, message };
-        if (!job.persistent) pushJobEvent(job, job.terminalEvent);
-        markJobDone(job);
-        if (job.persistent) scheduleHypaWorkflowExecution();
+        markGenerationJobDone(job);
+        scheduleHypaWorkflowExecution();
     }
 }
 
-// --- Proxy Stream: WebSocket setup ---
+// --- Generation: WebSocket setup ---
 
 function setupGenerationWebSocket(server) {
     const wsServer = new WebSocketServer({ noServer: true });
@@ -2201,7 +2195,7 @@ function setupGenerationWebSocket(server) {
             }
 
             const jobId = decodeURIComponent(generationJournalMatch[1]);
-            const job = proxyStreamJobs.get(jobId) || loadPersistedProxyStreamJob(jobId);
+            const job = generationRuntimeJobs.get(jobId) || loadPersistedGenerationRuntimeJob(jobId);
             if (!job) {
                 socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
                 socket.destroy();
@@ -2247,34 +2241,24 @@ function setupGenerationWebSocket(server) {
     });
 
     wsServer.on('connection', (ws, req, jobId) => {
-        const job = proxyStreamJobs.get(jobId) || loadPersistedProxyStreamJob(jobId);
+        const job = generationRuntimeJobs.get(jobId) || loadPersistedGenerationRuntimeJob(jobId);
         if (!job) {
             ws.close();
             return;
         }
 
         const reqUrl = new URL(req.url, `http://${req.headers.host}`);
-        ws.rawJournalSubscriber = reqUrl.searchParams.get('mode') === 'raw';
-        ws.journalRecoverySubscriber = ws.rawJournalSubscriber
-            && reqUrl.searchParams.get('recovery') === '1';
+        ws.journalRecoverySubscriber = reqUrl.searchParams.get('recovery') === '1';
         job.clients.add(ws);
         ws.send(JSON.stringify({ type: 'job_accepted', jobId }));
-        if (ws.rawJournalSubscriber) {
-            void streamRevenantJournal(
-                ws,
-                job,
-                Number(reqUrl.searchParams.get('offset')),
-            ).catch((error) => {
-                logger.error(`[GenerationJob] Failed to stream journal ${jobId}:`, error);
-                try { ws.close(); } catch { /* ignore */ }
-            });
-        } else {
-            for (const event of job.pendingEvents) {
-                ws.send(event);
-            }
-            job.pendingEvents = [];
-            job.pendingBytes = 0;
-        }
+        void streamRevenantJournal(
+            ws,
+            job,
+            Number(reqUrl.searchParams.get('offset')),
+        ).catch((error) => {
+            logger.error(`[GenerationJob] Failed to stream journal ${jobId}:`, error);
+            try { ws.close(); } catch { /* ignore */ }
+        });
 
         const pingTimer = setInterval(() => {
             if (ws.readyState !== ws.OPEN) return;
@@ -2283,12 +2267,9 @@ function setupGenerationWebSocket(server) {
 
         ws.on('close', () => {
             clearInterval(pingTimer);
-            const currentJob = proxyStreamJobs.get(jobId);
+            const currentJob = generationRuntimeJobs.get(jobId);
             if (!currentJob) return;
             currentJob.clients.delete(ws);
-            if (currentJob.done && currentJob.clients.size === 0 && !currentJob.persistent) {
-                cleanupJob(jobId);
-            }
         });
 
         ws.on('error', () => {
@@ -2744,35 +2725,20 @@ installRevenantGenerationRoutes(app, {
     requireSyncClientId,
     sanitizeGenerationTargetUrl,
     normalizeForwardHeaders,
-    createProxyStreamJob,
-    runProxyStreamJob,
+    createGenerationRuntimeJob,
+    runGenerationProviderJob,
     scheduleGenerationDispatch,
     scheduleHypaWorkflowExecution,
+    scheduleRevenantPostprocess,
     terminateGenerationWorkflow: generationWorkflowService.terminateWorkflow,
-    proxyStreamJobs,
-    countActiveProxyStreamJobs,
-    maxActiveJobs: PROXY_STREAM_MAX_ACTIVE_JOBS,
-    maxBodyBase64Bytes: PROXY_STREAM_MAX_BODY_BASE64_BYTES,
+    cancelGenerationStepExecution: generationWorkflowService.cancelStepExecution,
+    generationRuntimeJobs,
+    countActiveGenerationJobs,
+    maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,
+    maxBodyBase64Bytes: GENERATION_JOB_MAX_BODY_BASE64_BYTES,
     randomUUID: () => nodeCrypto.randomUUID(),
     addRequestLog,
-    queueStorageOperation,
-    isSyncClientConnected: clientId => (syncClients.get(clientId)?.size ?? 0) > 0,
-    chatStorage: {
-        ensureChatStore,
-        getState: () => ({ fullChatStore, saveTimers, dbCache }),
-        databaseHexKey: DB_HEX_KEY,
-        persistDbCacheWithChats,
-        kvGet,
-        normalizeJSON,
-        decodeRisuSave,
-        reassembleFullDb,
-        stripChatsFromDb,
-        kvSet,
-        encodeRisuSaveLegacy,
-        initChatStore,
-        createBackupAndRotate,
-        broadcastDatabaseInvalidated,
-    },
+    materializeGeneration: revenantMaterializer.materialize,
 });
 
 // app.get('/api/password', async(req, res)=> {
@@ -6253,7 +6219,7 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
         console.log(`[Server] Received ${sig}, flushing pending data...`);
         stopTunnel();
         const generationRuns = [];
-        for (const job of proxyStreamJobs.values()) {
+        for (const job of generationRuntimeJobs.values()) {
             if (job.done) continue;
             job.abortController.abort();
             if (job.runPromise) generationRuns.push(job.runPromise);
@@ -6273,24 +6239,25 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
     catch (error) { logger.error('[GenerationJob] Initial retention cleanup failed:', error); }
     scheduleGenerationDispatch();
     scheduleHypaWorkflowExecution();
+    scheduleRevenantPostprocess();
 
-    // Proxy stream job garbage collection
+    // In-memory generation runtime garbage collection
     setInterval(() => {
         const now = Date.now();
-        for (const [jobId, job] of proxyStreamJobs.entries()) {
+        for (const [jobId, job] of generationRuntimeJobs.entries()) {
             if (!job.done && !job.waitingDispatch && now >= job.deadlineAt && !job.abortController.signal.aborted) {
                 job.abortController.abort();
             }
             if (job.done && job.clients.size === 0 && job.cleanupAt > 0 && now >= job.cleanupAt) {
-                cleanupJob(jobId);
+                cleanupGenerationRuntimeJob(jobId);
                 continue;
             }
             if (!job.done && !job.waitingDispatch
-                && now - job.updatedAt > Math.max(PROXY_STREAM_DEFAULT_TIMEOUT_MS, job.timeoutMs * 2)) {
-                cleanupJob(jobId);
+                && now - job.updatedAt > Math.max(GENERATION_JOB_DEFAULT_TIMEOUT_MS, job.timeoutMs * 2)) {
+                cleanupGenerationRuntimeJob(jobId);
             }
         }
-    }, PROXY_STREAM_GC_INTERVAL_MS);
+    }, GENERATION_JOB_GC_INTERVAL_MS);
 
     await startServer();
 

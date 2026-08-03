@@ -2,7 +2,6 @@ import { tick } from 'svelte'
 import { createSubscriber } from 'svelte/reactivity'
 import { safeStructuredClone } from '../../polyfill'
 import {
-    normalizeChat,
     type Chat,
     type Message,
     type character,
@@ -11,10 +10,7 @@ import { DBState, ReloadChatPointer, selIdState } from '../../stores.svelte'
 import { saveChatToServer } from '../../storage/chatStorage'
 import { abortStatusesForChat, endStatus, startStatus, type RequestKind } from '../../status/requestStatus'
 import { recoverHypaV3SummaryJobs } from '../memory/hypav3'
-import { runInlayScreen } from '../inlayScreen'
-import { processScriptFull } from '../scripts'
 import { recoverRevenantLuaJobsForChat } from '../scriptings'
-import { runTrigger } from '../triggers'
 import {
     acknowledgeRecoverableTranslation,
     hasRecoverableTranslation,
@@ -23,10 +19,9 @@ import {
     subscribeRecoverableTranslations,
 } from './auxiliary'
 import {
-    isRevenantGenerationLocallyOwned,
+    isRevenantGenerationLocallyObserved,
     listRecoverableGenerations,
-    materializeRecoveredGeneration,
-    setRevenantGenerationLocallyOwned,
+    setRevenantGenerationLocallyObserved,
 } from './client'
 import {
     readRecoverableGenerationContent,
@@ -44,15 +39,14 @@ import {
 } from './translationRecovery'
 import {
     finishRevenantWorkflow,
-    claimRevenantWorkflow,
     getActiveRevenantWorkflow,
     getRevenantWorkflow,
     getRevenantWorkflowResumeContext,
-    RevenantWorkflowOwnedError,
     type RevenantWorkflowResumeContext,
     updateRevenantWorkflowStep,
 } from './workflow'
 import { commitCancelledGenerationProjection } from './chatCancellation'
+import { serviceRevenantClientActions } from './clientActions.svelte'
 
 interface ChatRecoveryDependencies {
     isChatBusy: () => boolean
@@ -299,35 +293,25 @@ async function executePreModelWorkflowRecovery(
     character: character,
     chat: Chat,
 ): Promise<PreModelWorkflowRecoveryResult> {
-    let claimedWorkflow: RevenantWorkflow
-    try {
-        claimedWorkflow = await claimRevenantWorkflow(activeWorkflow.workflowId)
-    }
-    catch (error) {
-        if (error instanceof RevenantWorkflowOwnedError) return 'deferred'
-        console.warn('[GenerationWorkflow] Failed to claim pre-model workflow:', error)
-        return 'paused'
-    }
-
-    const resumeContext = getRevenantWorkflowResumeContext(claimedWorkflow)
+    const resumeContext = getRevenantWorkflowResumeContext(activeWorkflow)
     if (!resumeContext) {
         await updateRevenantWorkflowStep(
-            claimedWorkflow.workflowId,
+            activeWorkflow.workflowId,
             'prompt.build',
             'failed',
         ).catch(() => {})
-        await finishRevenantWorkflow(claimedWorkflow.workflowId, 'failed').catch(() => {})
+        await finishRevenantWorkflow(activeWorkflow.workflowId, 'failed').catch(() => {})
         return 'stopped'
     }
 
-    const hypaStep = claimedWorkflow.steps.find(step => step.key === 'memory.hypav3')
+    const hypaStep = activeWorkflow.steps.find(step => step.key === 'memory.hypav3')
     if (hypaStep?.status !== 'skipped') {
         try {
             // Finish or consume provider jobs that the detached page already
             // submitted. Terminal failure (especially server interruption)
             // stops here instead of issuing the paid request again.
             await recoverHypaV3SummaryJobs(character, chat, {
-                workflowId: claimedWorkflow.workflowId,
+                workflowId: activeWorkflow.workflowId,
                 rejectFailed: true,
                 force: true,
                 onJobUpdate: job => updateAuxiliaryRecoveryStatus(job, chat.id),
@@ -336,11 +320,11 @@ async function executePreModelWorkflowRecovery(
         catch (error) {
             console.warn('[GenerationWorkflow] HypaV3 recovery stopped:', error)
             await updateRevenantWorkflowStep(
-                claimedWorkflow.workflowId,
+                activeWorkflow.workflowId,
                 'memory.hypav3',
                 'failed',
             ).catch(() => {})
-            await finishRevenantWorkflow(claimedWorkflow.workflowId, 'failed').catch(() => {})
+            await finishRevenantWorkflow(activeWorkflow.workflowId, 'failed').catch(() => {})
             await restoreStoppedReroll(character, chat, resumeContext).catch(error => {
                 console.warn('[GenerationWorkflow] Failed to restore stopped reroll:', error)
             })
@@ -349,7 +333,7 @@ async function executePreModelWorkflowRecovery(
     }
 
     try {
-        const resumed = await dependencies.resumeWorkflow(claimedWorkflow, resumeContext)
+        const resumed = await dependencies.resumeWorkflow(activeWorkflow, resumeContext)
         if (resumed) return 'resumed'
         await restoreStoppedReroll(character, chat, resumeContext).catch(error => {
             console.warn('[GenerationWorkflow] Failed to restore stopped reroll:', error)
@@ -376,7 +360,7 @@ function scheduleRevenantAuxiliaryRecovery(character: character, chat: Chat): vo
             .filter(job =>
                 job.characterId === character.chaId
                 && job.roomId === chat.id
-                && !isRevenantGenerationLocallyOwned(job.jobId))
+                && !isRevenantGenerationLocallyObserved(job.jobId))
         if (dependencies.isChatBusy()) return
         jobs
             .filter(job => job.jobType !== 'translate')
@@ -411,7 +395,12 @@ export async function recoverRevenantGenerationsForChat(
     let recovered = 0
     let deferAuxiliaryRecovery = false
     try {
-        const activeWorkflow = await getActiveRevenantWorkflow(character.chaId, chat.id)
+        let activeWorkflow = await getActiveRevenantWorkflow(character.chaId, chat.id)
+        if (activeWorkflow?.steps.some(step => step.status === 'waiting_client')) {
+            await serviceRevenantClientActions(activeWorkflow, character)
+            scheduleRecoveryFallback(character, chat, options)
+            return 0
+        }
         const hypaMemoryCheckpoint = activeWorkflow?.steps
             .find(step => step.key === 'memory.hypav3' && step.status === 'completed')
             ?.metadata?.hypaMemory
@@ -430,14 +419,14 @@ export async function recoverRevenantGenerationsForChat(
         const currentChatMainJobs = mainJobs.filter(job =>
             job.characterId === character.chaId
             && job.roomId === chat.id)
-        // A terminal server job cannot still be owned by a live local request
+        // A terminal server job cannot still have a live local observer
         // once the global chat process is idle. Let recovery finish a previous
         // materialization failure instead of filtering it forever.
         currentChatMainJobs
             .filter(job =>
                 !isRevenantJobActive(job.status)
-                && isRevenantGenerationLocallyOwned(job.jobId))
-            .forEach(job => setRevenantGenerationLocallyOwned(job.jobId, false))
+                && isRevenantGenerationLocallyObserved(job.jobId))
+            .forEach(job => setRevenantGenerationLocallyObserved(job.jobId, false))
         if (currentChatMainJobs.length === 0) {
             const detachedSubscription = [...recoveryStreamSubscriptions.values()].find(subscription =>
                 subscription.characterId === character.chaId
@@ -481,7 +470,7 @@ export async function recoverRevenantGenerationsForChat(
         }) =>
             job.characterId === character.chaId
             && job.roomId === chat.id
-            && !isRevenantGenerationLocallyOwned(job.jobId)
+            && !isRevenantGenerationLocallyObserved(job.jobId)
 
         const jobs = mainJobs
             .filter(isDetachedJobForCurrentChat)
@@ -642,110 +631,12 @@ export async function recoverRevenantGenerationsForChat(
                 activeSubscription.unsubscribe()
                 recoveryStreamSubscriptions.delete(job.jobId)
             }
-            const recoveredContent = await readRecoverableGenerationContent(job)
-            const projectedContent = job.isContinuation
-                && job.continuationPrefix
-                && !recoveredContent.startsWith(job.continuationPrefix)
-                ? job.continuationPrefix + recoveredContent
-                : recoveredContent
-            if (job.workflowId) {
-                await updateRevenantWorkflowStep(job.workflowId, 'output.transform', 'running')
-            }
-            const processedContent = (await processScriptFull(
-                character,
-                projectedContent.trim(),
-                'editoutput',
-                msgIndex,
-            )).data
-            if (job.workflowId) {
-                await updateRevenantWorkflowStep(job.workflowId, 'output.transform', 'completed')
-                await updateRevenantWorkflowStep(job.workflowId, 'trigger.output', 'running')
-            }
-            // Hydration can replace the chat while output processing awaits.
-            // Apply the completed response and run Lua against the live room.
-            const terminalTarget = resolveCurrentRecoveryTarget({
-                characterId: character.chaId,
-                roomId: chat.id,
-                messageChatId,
-                isContinuation: job.isContinuation,
-                rerollTargetChatId: rerollSnapshot?.targetMessage.chatId,
-                rerollTargetIndex: rerollSnapshot?.targetIndex,
-            })
-            const recoveryCharacter = terminalTarget?.character ?? character
-            let recoveredChat = terminalTarget?.chat ?? chat
-            applyHypaMemoryCheckpoint(recoveredChat)
-            const recoveredMessage = terminalTarget?.message ?? message
-            const recoveredMessageIndex = terminalTarget?.messageIndex ?? msgIndex
-            const inlay = runInlayScreen(recoveryCharacter, processedContent)
-            Object.assign(recoveredMessage, {
-                data: inlay.text,
-                saying: recoveryCharacter.chaId,
-                time: job.completedAt || job.updatedAt || Date.now(),
-                chatId: messageChatId,
-                generationInfo: job.generationInfo ?? {
-                    generationId: messageChatId,
-                    model: 'Recovered server generation',
-                },
-                promptInfo: job.promptInfo,
-            })
-            if (inlay.promise) {
-                recoveredMessage.data = await inlay.promise
-            }
-            const transientRecoveryDisplay = recoveredMessage.recoveryDisplayData
-            const completedMessageData = recoveredMessage.data
-            delete recoveredMessage.recoveryDisplayData
-            const triggerResult = await runTrigger(recoveryCharacter, 'output', { chat: recoveredChat })
-            if (triggerResult?.chat) {
-                recoveredChat = normalizeChat(triggerResult.chat)
-                const chatIndex = recoveryCharacter.chats.findIndex(item => item?.id === chat.id)
-                if (chatIndex >= 0) recoveryCharacter.chats[chatIndex] = recoveredChat
-            }
-            if (job.workflowId) {
-                await updateRevenantWorkflowStep(job.workflowId, 'trigger.output', 'completed')
-            }
-            const finalMessage = recoveredChat.message.find(item => item?.chatId === messageChatId)
-                ?? recoveredMessage
-            if (
-                transientRecoveryDisplay !== undefined
-                && finalMessage.data === transientRecoveryDisplay
-            ) {
-                finalMessage.data = completedMessageData
-            }
-            delete finalMessage.isRecovering
-            delete finalMessage.recoveryDisplayData
-            recoveredChat.isStreaming = false
-            invalidateRecoveredMessage(recoveryCharacter, recoveredMessageIndex)
-            try {
-                const materialized = await materializeRecoveredGeneration(
-                    job.jobId,
-                    finalMessage,
-                    recoveredChat,
-                )
-                if (materialized.chat) {
-                    const canonicalChat = normalizeChat(materialized.chat)
-                    Object.assign(recoveredChat, canonicalChat)
-                    const chatIndex = recoveryCharacter.chats.findIndex(item => item?.id === chat.id)
-                    if (chatIndex >= 0) recoveryCharacter.chats[chatIndex] = recoveredChat
-                }
-                recoveryRetryAt.delete(job.jobId)
-                recovered++
-                endStatus(job.jobId, 'done', { now: Date.now() })
-                if (job.workflowId) {
-                    // The existing recovery path intentionally restores the
-                    // durable response/trigger/message boundary only. IGP and
-                    // visual foreground effects are not silently replayed.
-                    await updateRevenantWorkflowStep(job.workflowId, 'igp', 'skipped')
-                    await updateRevenantWorkflowStep(job.workflowId, 'postprocess', 'skipped')
-                    await finishRevenantWorkflow(job.workflowId, 'completed')
-                }
-            }
-            catch (error) {
-                recoveryRetryAt.set(job.jobId, Date.now() + 5000)
-                const message = error instanceof Error ? error.message : String(error)
-                console.error(`[GenerationJob] Failed to materialize recovered message: ${message}`, error)
-                scheduleRecoveryFallback(character, chat, options)
-                break
-            }
+            // Terminal chat jobs are completed by the server postprocess worker.
+            // Keep the raw preview until its database invalidation hydrates the
+            // canonical materialized chat; the browser never re-runs scripts.
+            recoveryRetryAt.set(job.jobId, Date.now() + 1000)
+            scheduleRecoveryFallback(character, chat, options)
+            break
         }
         if (!deferAuxiliaryRecovery && (jobs.length === 0 || recovered === jobs.length)) {
             scheduleRevenantAuxiliaryRecovery(character, chat)

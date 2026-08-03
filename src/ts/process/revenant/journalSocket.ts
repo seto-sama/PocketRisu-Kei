@@ -14,7 +14,9 @@ export interface RevenantJournalSocketOptions {
     onHeaders?: (status: number, headers: Record<string, string>) => void
     onDone?: () => void
     onFatal?: (error: Error) => void
-    onLocalAbort?: () => void
+    signalAction?: 'detach' | 'cancel_job'
+    onDetached?: () => void
+    onCancelRequested?: () => void
     reconnectBaseMs?: number
     maxReconnectAttempts?: number
 }
@@ -31,7 +33,7 @@ export function openRevenantJournalSocket(
     const wsBaseUrl = `${wsProtocol}//${location.host}/api/generation/jobs/${encodeURIComponent(options.jobId)}/journal/ws?risu-auth=${encodeURIComponent(options.auth)}`
     const maxReconnectAttempts = options.maxReconnectAttempts ?? 5
     const reconnectBaseMs = options.reconnectBaseMs ?? 1000
-    let cancelLocal = () => options.onLocalAbort?.()
+    let detachLocal = () => options.onDetached?.()
 
     return new ReadableStream<Uint8Array>({
         start(controller) {
@@ -41,6 +43,7 @@ export function openRevenantJournalSocket(
             let terminal = false
             let reconnectAttempts = 0
             let providerStartedReported = false
+            let upstreamStatus: number | undefined
             let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
             const closeSocket = () => {
@@ -66,10 +69,16 @@ export function openRevenantJournalSocket(
             }
             const abortLocal = () => {
                 if (disposed) return
-                options.onLocalAbort?.()
+                if (options.signalAction === 'cancel_job') options.onCancelRequested?.()
+                options.onDetached?.()
                 fail(new DOMException('Journal stream aborted', 'AbortError'))
             }
-            cancelLocal = abortLocal
+            detachLocal = () => {
+                if (disposed) return
+                disposed = true
+                closeSocket()
+                options.onDetached?.()
+            }
             const scheduleReconnect = () => {
                 if (disposed || terminal || options.signal?.aborted) return
                 if (reconnectAttempts >= maxReconnectAttempts) {
@@ -84,7 +93,7 @@ export function openRevenantJournalSocket(
                 if (disposed || terminal || options.signal?.aborted) return
                 const recovery = options.recovery ? '&recovery=1' : ''
                 const socket = new WebSocket(
-                    `${wsBaseUrl}&mode=raw${recovery}&offset=${receivedBytes}`,
+                    `${wsBaseUrl}${recovery}&offset=${receivedBytes}`,
                 )
                 ws = socket
                 socket.onmessage = event => {
@@ -103,6 +112,7 @@ export function openRevenantJournalSocket(
                             }
                             return
                         case 'upstream_headers':
+                            upstreamStatus = parsed.status
                             options.onHeaders?.(parsed.status, parsed.headers)
                             return
                         case 'chunk': {
@@ -129,6 +139,17 @@ export function openRevenantJournalSocket(
                             finish()
                             return
                         case 'error':
+                            // Older Revenant servers terminate every non-2xx
+                            // provider response as a socket error after sending
+                            // its complete body. Preserve that body as a normal
+                            // Response so the provider adapter can extract the
+                            // actual error message and classify retryability.
+                            if (parsed.status === 502
+                                && upstreamStatus !== undefined
+                                && (upstreamStatus < 200 || upstreamStatus >= 300)) {
+                                finish()
+                                return
+                            }
                             fail(new Error(formatProxyStreamErrorMessage(
                                 parsed.status,
                                 parsed.message,
@@ -154,7 +175,7 @@ export function openRevenantJournalSocket(
             connect()
         },
         cancel() {
-            cancelLocal()
+            detachLocal()
         },
     })
 }
