@@ -13,7 +13,7 @@ import { recoverHypaV3SummaryJobs } from '../memory/hypav3'
 import { recoverRevenantLuaJobsForChat } from '../scriptings'
 import {
     acknowledgeRecoverableTranslation,
-    hasRecoverableTranslation,
+    getRecoverableTranslationCacheKeyForTarget,
     isRecoverableTranslationSnapshotLoaded,
     listRecoverableAuxiliaryGenerations,
     subscribeRecoverableTranslations,
@@ -30,6 +30,7 @@ import {
 import {
     isRevenantJobActive,
     type RecoverableAuxiliaryJob,
+    type RevenantChatMessageTranslationTarget,
     type RevenantRerollSnapshot,
     type RevenantWorkflow,
 } from './types'
@@ -660,6 +661,7 @@ export interface RevenantChatTranslationRecoverySnapshot {
     pending: boolean
     cacheKey: string | null
     scope: RevenantChatTranslationRecoveryScope | null
+    target: RevenantChatMessageTranslationTarget | null
 }
 
 export interface RevenantChatTranslationRecovery {
@@ -683,86 +685,72 @@ export interface RevenantChatTranslationRecovery {
     ) => Promise<void>
 }
 
-export function createRevenantChatTranslationRecovery(options: {
-    getSource: () => string
-    getCacheKey: (source: string) => Promise<string>
-    translationCache: RevenantTranslationCache
-}): RevenantChatTranslationRecovery {
-    let cacheKey = $state<string | null>(null)
-    let cacheKeySource = $state<string | null>(null)
-    let cacheKeyReady = $state(false)
-    let scope = $state<RevenantChatTranslationRecoveryScope | null>(null)
-    let scopeReady = $state(false)
-    const source = $derived(options.getSource())
-    const currentCacheKey = $derived(
-        cacheKeySource === source ? cacheKey : null
-    )
-    const currentCacheKeyReady = $derived(
-        cacheKeySource === source && cacheKeyReady
-    )
+export interface RevenantChatTranslationRecoveryContext {
+    trackSnapshot: () => void
+}
 
+export function createRevenantChatTranslationRecoveryContext(): RevenantChatTranslationRecoveryContext {
     const trackRecoverableTranslations = createSubscriber((update) =>
         subscribeRecoverableTranslations(update)
     )
-    const snapshotReady = $derived.by(() => {
-        trackRecoverableTranslations()
-        return isRecoverableTranslationSnapshotLoaded()
-    })
-    const inspectionReady = $derived(
-        DBState.db.translatorType !== 'llm'
-        || (scopeReady && scope === null)
-        || (snapshotReady && currentCacheKeyReady)
-    )
-    const pending = $derived.by(() => {
-        trackRecoverableTranslations()
-        if (!currentCacheKey || !scope) return false
-        return hasRecoverableTranslation({ cacheKey: currentCacheKey, ...scope })
-    })
+    return { trackSnapshot: trackRecoverableTranslations }
+}
 
-    $effect(() => {
-        const translatorType = DBState.db.translatorType
+export function createRevenantChatTranslationRecovery(options: {
+    getTarget: () => RevenantChatMessageTranslationTarget | null
+    translationCache: RevenantTranslationCache
+    getContext?: () => RevenantChatTranslationRecoveryContext | undefined
+    getScope?: () => RevenantChatTranslationRecoveryScope | null | undefined
+}): RevenantChatTranslationRecovery {
+    let fallbackContext: RevenantChatTranslationRecoveryContext | undefined
+    let lastSnapshot: RevenantChatTranslationRecoverySnapshot | undefined
+
+    function currentContext(): RevenantChatTranslationRecoveryContext {
+        return options.getContext?.()
+            ?? (fallbackContext ??= createRevenantChatTranslationRecoveryContext())
+    }
+
+    function currentScope(): RevenantChatTranslationRecoveryScope | null {
+        const explicitScope = options.getScope?.()
+        if (explicitScope !== undefined) return explicitScope
         const currentCharacter = DBState.db.characters[selIdState.selId]
         const currentChat = currentCharacter?.chats[currentCharacter.chatPage]
-        const nextScope = currentCharacter?.chaId && currentChat?.id
+        return currentCharacter?.chaId && currentChat?.id
             ? {
                 characterId: currentCharacter.chaId,
                 roomId: currentChat.id,
             }
             : null
-
-        scope = nextScope
-        scopeReady = true
-        cacheKey = null
-        cacheKeySource = source
-        cacheKeyReady = false
-        if (!nextScope || translatorType !== 'llm') {
-            cacheKeyReady = true
-            return
-        }
-
-        let active = true
-        void options.getCacheKey(source).then(nextCacheKey => {
-            if (!active) return
-            cacheKey = nextCacheKey
-            cacheKeyReady = true
-        }).catch(error => {
-            console.error('[Translation] Failed to calculate revenant translation cache key:', error)
-            if (active) cacheKeyReady = true
-        })
-        void listRecoverableAuxiliaryGenerations().catch(error => {
-            console.error('[Translation] Failed to inspect pending revenant translations:', error)
-        })
-        return () => {
-            active = false
-        }
-    })
+    }
 
     function capture(): RevenantChatTranslationRecoverySnapshot {
-        return {
-            pending,
-            cacheKey: currentCacheKey,
-            scope: scope ? { ...scope } : null,
+        currentContext().trackSnapshot()
+        const scope = currentScope()
+        const target = options.getTarget()
+        const cacheKey = scope && target
+            ? getRecoverableTranslationCacheKeyForTarget({ ...scope, target })
+            : null
+        const pending = cacheKey !== null
+        if (
+            lastSnapshot
+            && lastSnapshot.pending === pending
+            && lastSnapshot.cacheKey === cacheKey
+            && lastSnapshot.scope?.characterId === scope?.characterId
+            && lastSnapshot.scope?.roomId === scope?.roomId
+            && lastSnapshot.target?.kind === target?.kind
+            && lastSnapshot.target?.messageChatId === target?.messageChatId
+            && lastSnapshot.target?.messageIndex === target?.messageIndex
+            && lastSnapshot.target?.swipeId === target?.swipeId
+        ) {
+            return lastSnapshot
         }
+        lastSnapshot = {
+            pending,
+            cacheKey,
+            scope: scope ? { ...scope } : null,
+            target: target ? { ...target } : null,
+        }
+        return lastSnapshot
     }
 
     async function shouldDisplayTranslation(
@@ -789,7 +777,12 @@ export function createRevenantChatTranslationRecovery(options: {
                 : !DBState.db.legacyTranslation
                     ? await renderOptions.parseMarkdown(renderOptions.data, 'pretranslate')
                     : await renderOptions.parseMarkdown(renderOptions.data, 'notrim'))
-        return await options.translationCache.get(translationCacheKey) !== null
+        // The caller can reuse the key for the cached translation render. It
+        // came either from the matching revenant job or from the one cache
+        // lookup auto-translate already had to perform.
+        snapshot.cacheKey = translationCacheKey
+        const cached = await options.translationCache.get(translationCacheKey) !== null
+        return cached
     }
 
     async function waitForResult(
@@ -820,10 +813,13 @@ export function createRevenantChatTranslationRecovery(options: {
 
     return {
         get pending() {
-            return pending
+            return capture().pending
         },
         get inspectionReady() {
-            return inspectionReady
+            currentContext().trackSnapshot()
+            return DBState.db.translatorType !== 'llm'
+                || currentScope() === null
+                || isRecoverableTranslationSnapshotLoaded()
         },
         capture,
         shouldDisplayTranslation,
