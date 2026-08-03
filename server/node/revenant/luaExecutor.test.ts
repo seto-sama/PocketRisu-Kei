@@ -18,6 +18,27 @@ function recipe(backend = 'http') {
 }
 
 describe('revenant headless Lua executor', () => {
+    it('uses the shared mode dispatcher for input, start, and button callbacks', async () => {
+        const code = `
+            function onInput(id) setChatVar(id, 'mode', 'input') end
+            function onStart(id) setChatVar(id, 'mode', 'start') end
+            function onButtonClick(id, value) setChatVar(id, 'mode', value) end
+        `
+        const input = await executeRevenantLua({
+            code, mode: 'input', data: '', recipe: recipe(), chat: recipe().chat,
+        })
+        const start = await executeRevenantLua({
+            code, mode: 'start', data: '', recipe: recipe(), chat: recipe().chat,
+        })
+        const button = await executeRevenantLua({
+            code, mode: 'onButtonClick', data: 'button', recipe: recipe(), chat: recipe().chat,
+        })
+
+        expect(input.chat.scriptstate).toEqual({ $mode: 'input' })
+        expect(start.chat.scriptstate).toEqual({ $mode: 'start' })
+        expect(button.chat.scriptstate).toEqual({ $mode: 'button' })
+    })
+
     it('runs editOutput and output triggers once against an isolated chat', async () => {
         const code = `
             listenEdit('editOutput', function(id, value, meta) return value .. '-edited' end)
@@ -91,8 +112,55 @@ describe('revenant headless Lua executor', () => {
             payload: {
                 backend: 'plugin',
                 modelPreset: { id: 'ax-preset' },
+                prompt: [{ role: 'user', content: 'judge' }],
+                useMultimodal: false,
+                options: {},
             },
         })
+    })
+
+    it('preserves a replayable client action when Lua pcall catches its suspension', async () => {
+        const input = recipe('plugin') as any
+        input.auxProviders = {
+            otherAx: { backend: 'plugin', modelPreset: { id: 'ax-preset' } },
+        }
+        const code = `
+            onOutput = async(function(id)
+                local result
+                local ok, err = pcall(function()
+                    result = axLLM(id, {{ role = 'user', content = 'status' }})
+                end)
+                if ok then
+                    setChatVar(id, 'result', result.result)
+                else
+                    log('caught: ' .. tostring(err))
+                end
+            end)
+        `
+
+        const waiting = await executeRevenantLua({
+            code, mode: 'output', data: '', recipe: input, chat: input.chat,
+        })
+        expect(waiting).toMatchObject({
+            status: 'waiting_client',
+            action: {
+                actionId: 'lua.provider.axllm:0',
+                kind: 'provider.axllm',
+            },
+        })
+
+        const completed = await executeRevenantLua({
+            code,
+            mode: 'output',
+            data: '',
+            recipe: input,
+            chat: input.chat,
+            responses: {
+                'lua.provider.axllm:0': { success: true, result: 'generated status' },
+            },
+        })
+        expect(completed.status).toBe('completed')
+        expect(completed.chat.scriptstate).toEqual({ $result: 'generated status' })
     })
 
     it('supports canonical character, chat, and local lorebook APIs', async () => {

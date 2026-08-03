@@ -4,6 +4,12 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { LuaFactory } = require('wasmoon');
+const {
+    WAITING_CLIENT_PREFIX,
+    parseWaitingClientError,
+    resolveReplayAction,
+    waitingClientError,
+} = require('./replayAction.cjs');
 
 require('sucrase/register/ts');
 const { wrapRevenantLua } = require(path.join(
@@ -12,8 +18,18 @@ const { wrapRevenantLua } = require(path.join(
 const { renderRevenantTemplate } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'headlessParser.ts',
 ));
+const { invokeLuaMode, registerLuaCoreApis, registerLuaEffectApis } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'luaCore.ts',
+));
+const {
+    normalizeLuaLlmPrompt,
+    normalizeLuaLlmResult,
+    parseLuaLlmOptions,
+    serializeLuaLlmResult,
+} = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'luaLlmCore.ts',
+));
 
-const WAITING_CLIENT_PREFIX = 'RISU_REVENANT_WAITING_CLIENT:';
 let factoryPromise;
 
 async function getFactory() {
@@ -28,23 +44,6 @@ async function getFactory() {
         })();
     }
     return factoryPromise;
-}
-
-function waitingClientError(action) {
-    return new Error(WAITING_CLIENT_PREFIX + Buffer.from(JSON.stringify(action)).toString('base64url'));
-}
-
-function parseWaitingClientError(error) {
-    const message = String(error?.message || error || '');
-    const offset = message.indexOf(WAITING_CLIENT_PREFIX);
-    if (offset < 0) return undefined;
-    const encoded = message.slice(offset + WAITING_CLIENT_PREFIX.length).split(/\s/)[0];
-    try { return JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')); }
-    catch { return undefined; }
-}
-
-function normalizeRole(role) {
-    return role === 'user' ? 'user' : 'char';
 }
 
 async function executeRevenantLua(options) {
@@ -63,20 +62,14 @@ async function executeRevenantLua(options) {
     const lowLevelAccess = options.lowLevelAccess ?? recipe.character?.lowLevelAccess === true;
     let stopped = false;
     let callIndex = 0;
+    let pendingClientAction;
     const accessKey = 'revenant-server';
-    const requireLowLevel = () => lowLevelAccess;
     const action = (kind, payload) => {
         const rawActionId = `${actionNamespace}.${kind}:${callIndex++}`;
-        const actionId = rawActionId.length <= 128
-            ? rawActionId
-            : `${rawActionId.slice(0, 94)}.${crypto.createHash('sha256').update(rawActionId).digest('hex').slice(0, 32)}`;
-        if (Object.prototype.hasOwnProperty.call(responses, actionId)) return responses[actionId];
-        throw waitingClientError({
-            schemaVersion: 1,
-            actionId,
-            kind,
-            payload,
-        });
+        const result = resolveReplayAction(responses, rawActionId, kind, payload);
+        if (result.available) return result.value;
+        pendingClientAction ||= result.action;
+        throw waitingClientError(result.action);
     };
     const chatVar = key => String(chat.scriptstate?.[`$${key}`] ?? 'null');
     const setChatVar = (key, value) => {
@@ -90,140 +83,88 @@ async function executeRevenantLua(options) {
     const factory = await getFactory();
     const engine = await factory.createEngine({ injectObjects: true, functionTimeout: 5000 });
     const declare = (name, fn) => engine.global.set(name, fn);
+    const effectHandlers = {};
+    const addEffect = (name, handler) => { effectHandlers[name] = handler; };
 
-    declare('getChatVar', (_id, key) => chatVar(key));
-    declare('setChatVar', (_id, key, value) => setChatVar(key, value));
-    declare('getGlobalVar', (_id, key) => String(recipe.database.globalChatVariables?.[key] ?? 'null'));
-    declare('stopChat', () => { stopped = true; });
-    declare('alertError', (_id, value) => { foregroundEffects.push({ kind: 'alert', level: 'error', message: String(value) }); });
-    declare('alertNormal', (_id, value) => { foregroundEffects.push({ kind: 'alert', level: 'normal', message: String(value) }); });
-    declare('alertInput', (_id, value) => requireLowLevel() ? action('ui.input', { message: String(value) }) : '');
-    declare('alertSelect', (_id, values) => requireLowLevel() ? action('ui.select', { options: [...values] }) : '');
-    declare('alertConfirm', (_id, value) => requireLowLevel() ? action('ui.confirm', { message: String(value) }) : false);
-    declare('getChatMain', (_id, index) => {
-        const message = chat.message.at(Number(index));
-        return JSON.stringify(message ? { role: message.role, data: message.data, time: message.time ?? 0 } : null);
-    });
-    declare('setChat', (_id, index, value) => {
-        const message = chat.message.at(Number(index));
-        if (message) message.data = String(value);
-    });
-    declare('setChatRole', (_id, index, role) => {
-        const message = chat.message.at(Number(index));
-        if (message) message.role = normalizeRole(role);
-    });
-    declare('cutChat', (_id, start, end) => { chat.message = chat.message.slice(Number(start), Number(end)); });
-    declare('removeChat', (_id, index) => { chat.message.splice(Number(index), 1); });
-    declare('addChat', (_id, role, value) => { chat.message.push({ role: normalizeRole(role), data: String(value) }); });
-    declare('insertChat', (_id, index, role, value) => {
-        chat.message.splice(Number(index), 0, { role: normalizeRole(role), data: String(value) });
-    });
-    declare('getChatLength', () => chat.message.length);
-    declare('getTokens', async (_id, value) => action(
+    registerLuaCoreApis(declare, () => ({
+        canSetVariable: () => true,
+        canMutate: () => true,
+        getChat: () => chat,
+        getCharacter: () => recipe.character,
+        getVar: chatVar,
+        setVar: setChatVar,
+        getGlobalVar: key => String(recipe.database.globalChatVariables?.[key] ?? 'null'),
+        stop: () => { stopped = true; },
+        render: value => renderRevenantTemplate(value, recipe, chat).text,
+        markCharacterMutation: (field, value) => {
+            mutations.character ||= {};
+            mutations.character[field] = value;
+        },
+    }));
+    registerLuaEffectApis(declare, () => ({
+        canUseSafeApi: () => true,
+        canUseLowLevelApi: () => lowLevelAccess,
+        invoke: (name, args) => effectHandlers[name](...args),
+    }));
+
+    addEffect('alertError', (_id, value) => { foregroundEffects.push({ kind: 'alert', level: 'error', message: String(value) }); });
+    addEffect('alertNormal', (_id, value) => { foregroundEffects.push({ kind: 'alert', level: 'normal', message: String(value) }); });
+    addEffect('alertInput', (_id, value) => action('ui.input', { message: String(value) }));
+    addEffect('alertSelect', (_id, values) => action('ui.select', { options: [...values] }));
+    addEffect('alertConfirm', (_id, value) => action('ui.confirm', { message: String(value) }));
+    addEffect('getTokens', async (_id, value) => action(
         'utility.tokenize', { text: String(value) },
     ));
-    declare('getFullChatMain', () => JSON.stringify(chat.message.map(message => ({
-        role: message.role, data: message.data, time: message.time ?? 0,
-    }))));
-    declare('setFullChatMain', (_id, value) => {
-        const messages = JSON.parse(String(value));
-        if (Array.isArray(messages)) chat.message = messages.map(message => ({
-            role: normalizeRole(message?.role), data: String(message?.data ?? ''), time: message?.time,
-        }));
-    });
-    declare('sleep', async (_id, time) => new Promise(resolve => setTimeout(resolve, Math.min(5000, Math.max(0, Number(time) || 0)))));
-    declare('cbs', value => renderRevenantTemplate(String(value), recipe, chat).text);
-    declare('logMain', value => { foregroundEffects.push({ kind: 'log', value: String(value) }); });
-    declare('reloadDisplay', () => { foregroundEffects.push({ kind: 'reload.display' }); });
-    declare('reloadChat', (_id, index) => {
+    addEffect('sleep', async (_id, time) => new Promise(resolve => setTimeout(resolve, Math.min(5000, Math.max(0, Number(time) || 0)))));
+    addEffect('logMain', value => { foregroundEffects.push({ kind: 'log', value: String(value) }); });
+    addEffect('reloadDisplay', () => { foregroundEffects.push({ kind: 'reload.display' }); });
+    addEffect('reloadChat', (_id, index) => {
         foregroundEffects.push({ kind: 'reload.chat', index: Number(index) || 0 });
     });
-    declare('similarity', async (_id, source, values) => requireLowLevel()
-        ? action('utility.similarity-list', {
+    addEffect('similarity', async (_id, source, values) => action('utility.similarity-list', {
             source: String(source),
             values: values ? [...values].map(String) : [],
-        })
-        : []);
-    declare('LLMMain', async (_id, prompt, useMultimodal, llmOptions) => {
-        if (!requireLowLevel()) return JSON.stringify({ success: false, result: 'Low-level access is disabled' });
+        }));
+    addEffect('LLMMain', async (_id, prompt, useMultimodal, llmOptions) => {
         const provider = providerFor('model');
         const result = action('provider.llm', {
             backend: provider.backend,
             modelPreset: provider.modelPreset,
-            prompt: JSON.parse(String(prompt)),
+            prompt: normalizeLuaLlmPrompt(prompt),
             useMultimodal: useMultimodal === true,
-            options: llmOptions ? JSON.parse(String(llmOptions)) : {},
+            options: parseLuaLlmOptions(llmOptions),
         });
-        return JSON.stringify(result);
+        return serializeLuaLlmResult(result);
     });
-    declare('axLLMMain', async (_id, prompt, useMultimodal, llmOptions) => {
-        if (!requireLowLevel()) return JSON.stringify({ success: false, result: 'Low-level access is disabled' });
+    addEffect('axLLMMain', async (_id, prompt, useMultimodal, llmOptions) => {
         const provider = providerFor('otherAx');
         const result = action('provider.axllm', {
             backend: provider.backend,
             modelPreset: provider.modelPreset,
-            prompt: JSON.parse(String(prompt)),
+            prompt: normalizeLuaLlmPrompt(prompt),
             useMultimodal: useMultimodal === true,
-            options: llmOptions ? JSON.parse(String(llmOptions)) : {},
+            options: parseLuaLlmOptions(llmOptions),
         });
-        return JSON.stringify(result);
+        return serializeLuaLlmResult(result);
     });
-    declare('simpleLLM', async (_id, prompt) => {
-        if (!requireLowLevel()) return { success: false, result: 'Low-level access is disabled' };
-        return action('provider.simplellm', {
+    addEffect('simpleLLM', async (_id, prompt) => {
+        return normalizeLuaLlmResult(action('provider.simplellm', {
             backend: recipe.providerBackend,
             modelPreset: recipe.modelPreset,
             prompt: String(prompt),
-        });
+        }));
     });
-    declare('request', async (_id, url) => requireLowLevel()
-        ? action('network.request', { url: String(url) })
-        : JSON.stringify({ status: 403, data: 'Low-level access is disabled' }));
-    declare('generateImage', async (_id, prompt, negativePrompt = '') => requireLowLevel()
-        ? action('image.generate', { prompt: String(prompt), negativePrompt: String(negativePrompt) })
-        : '');
-    declare('getCharacterImageMain', async () => action('asset.character-image', {}));
-    declare('getPersonaImageMain', async () => action('asset.persona-image', {}));
-    declare('getName', () => recipe.character.name ?? '');
-    declare('setName', (_id, name) => {
-        recipe.character.name = String(name);
-        mutations.character ||= {};
-        mutations.character.name = recipe.character.name;
-    });
-    declare('getDescription', () => recipe.character.desc ?? '');
-    declare('setDescription', (_id, value) => {
-        recipe.character.desc = String(value);
-        mutations.character ||= {};
-        mutations.character.desc = recipe.character.desc;
-    });
-    declare('getPersonaName', () => recipe.database.username ?? 'User');
-    declare('getPersonaDescription', () => renderRevenantTemplate(
+    addEffect('request', async (_id, url) => action('network.request', { url: String(url) }));
+    addEffect('generateImage', async (_id, prompt, negativePrompt = '') => (
+        action('image.generate', { prompt: String(prompt), negativePrompt: String(negativePrompt) })
+    ));
+    addEffect('getCharacterImageMain', async () => action('asset.character-image', {}));
+    addEffect('getPersonaImageMain', async () => action('asset.persona-image', {}));
+    addEffect('getPersonaName', () => recipe.database.username ?? 'User');
+    addEffect('getPersonaDescription', () => renderRevenantTemplate(
         recipe.database.personaPrompt ?? '', recipe, chat,
     ).text);
-    declare('getCharacterFirstMessage', () => recipe.character.firstMessage ?? '');
-    declare('setCharacterFirstMessage', (_id, value) => {
-        recipe.character.firstMessage = String(value);
-        mutations.character ||= {};
-        mutations.character.firstMessage = recipe.character.firstMessage;
-        return true;
-    });
-    declare('getCharacterLastMessage', () => (
-        chat.message.findLast(message => message?.role === 'char')?.data
-        ?? recipe.character.firstMessage
-        ?? ''
-    ));
-    declare('getUserLastMessage', () => (
-        chat.message.findLast(message => message?.role === 'user')?.data ?? ''
-    ));
-    declare('getAuthorsNote', () => chat.note ?? '');
-    declare('getBackgroundEmbedding', () => recipe.character.backgroundHTML ?? '');
-    declare('setBackgroundEmbedding', (_id, value) => {
-        recipe.character.backgroundHTML = String(value);
-        mutations.character ||= {};
-        mutations.character.backgroundHTML = recipe.character.backgroundHTML;
-        return true;
-    });
-    declare('getLoreBooksMain', (_id, search) => {
+    addEffect('getLoreBooksMain', (_id, search) => {
         const sources = [
             chat.localLore || [],
             recipe.character.globalLore || [],
@@ -237,7 +178,7 @@ async function executeRevenantLua(options) {
             }));
         return JSON.stringify(found);
     });
-    declare('upsertLocalLoreBook', (_id, name, content, options = {}) => {
+    addEffect('upsertLocalLoreBook', (_id, name, content, options = {}) => {
         chat.localLore ||= [];
         const normalized = options && typeof options === 'object' ? options : {};
         chat.localLore = chat.localLore.filter(book => book?.comment !== String(name));
@@ -254,23 +195,22 @@ async function executeRevenantLua(options) {
         });
         return true;
     });
-    declare('loadLoreBooksMain', async (_id, reserve = 0) => requireLowLevel()
-        ? action('utility.lua-load-lorebooks', { reserve: Number(reserve) || 0 })
-        : JSON.stringify([]));
-    declare('hash', async (_id, value) => crypto.createHash('sha256').update(String(value)).digest('hex'));
+    addEffect('loadLoreBooksMain', async (_id, reserve = 0) => (
+        action('utility.lua-load-lorebooks', { reserve: Number(reserve) || 0 })
+    ));
+    addEffect('hash', async (_id, value) => crypto.createHash('sha256').update(String(value)).digest('hex'));
 
     try {
         await engine.doString(wrapRevenantLua(code));
-        if (mode === 'editOutput') {
-            const listener = engine.global.get('callListenMain');
-            if (listener) data = JSON.parse(await listener(mode, accessKey, JSON.stringify(data), JSON.stringify(meta)));
-        }
-        else {
-            const callback = engine.global.get(mode === 'output' ? 'onOutput' : mode);
-            if (callback) {
-                const result = await callback(accessKey);
-                if (result === false) stopped = true;
-            }
+        const invoked = await invokeLuaMode(engine.global, mode, accessKey, data, meta);
+        data = invoked.data;
+        if (invoked.result === false) stopped = true;
+        if (pendingClientAction) {
+            return {
+                status: 'waiting_client', action: pendingClientAction,
+                data, chat, stopped, foregroundEffects,
+                ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
+            };
         }
         return {
             status: 'completed', data, chat, stopped, foregroundEffects,
