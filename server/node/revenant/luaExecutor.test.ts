@@ -116,6 +116,50 @@ describe('revenant headless Lua executor', () => {
         })
     })
 
+    it('preserves a replayable client action when Lua pcall catches its suspension', async () => {
+        const input = recipe('plugin') as any
+        input.auxProviders = {
+            otherAx: { backend: 'plugin', modelPreset: { id: 'ax-preset' } },
+        }
+        const code = `
+            onOutput = async(function(id)
+                local result
+                local ok, err = pcall(function()
+                    result = axLLM(id, {{ role = 'user', content = 'status' }})
+                end)
+                if ok then
+                    setChatVar(id, 'result', result.result)
+                else
+                    log('caught: ' .. tostring(err))
+                end
+            end)
+        `
+
+        const waiting = await executeRevenantLua({
+            code, mode: 'output', data: '', recipe: input, chat: input.chat,
+        })
+        expect(waiting).toMatchObject({
+            status: 'waiting_client',
+            action: {
+                actionId: 'lua.provider.axllm:0',
+                kind: 'provider.axllm',
+            },
+        })
+
+        const completed = await executeRevenantLua({
+            code,
+            mode: 'output',
+            data: '',
+            recipe: input,
+            chat: input.chat,
+            responses: {
+                'lua.provider.axllm:0': { success: true, result: 'generated status' },
+            },
+        })
+        expect(completed.status).toBe('completed')
+        expect(completed.chat.scriptstate).toEqual({ $result: 'generated status' })
+    })
+
     it('supports canonical character, chat, and local lorebook APIs', async () => {
         const input = recipe('http') as any
         input.character.firstMessage = 'first'

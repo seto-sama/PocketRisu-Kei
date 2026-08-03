@@ -48,4 +48,23 @@ describe('revenant output transform', () => {
         const result = runRevenantOutputTransform('Hello Bob', recipe())
         expect(result.text).toBe('Alice says: Bob')
     })
+
+    it('keeps a matched status line when a nested CBS condition is true', () => {
+        const input = recipe()
+        input.chat.scriptstate = { $status_type: '1' }
+        input.character.customscript = [{
+            type: 'editoutput',
+            comment: '',
+            in: '(?:^|\\r?\\n)(?:☆|★)\\s*\\[Date:[^\\r\\n]*\\](?=\\r?\\n|$)',
+            out: '{{#if {{equal::{{getvar::status_type}}::1}}}}\n$&\n{{/if}}',
+            ableFlag: true,
+            flag: 'g',
+        }]
+        const status = '☆ [Date: 2026-03-24 (Tue) | Time: Morning | Location: Seoul]'
+
+        const result = runRevenantOutputTransform(status, input)
+
+        expect(result.text).toBe(status)
+        expect(result.errors).toEqual([])
+    })
 })

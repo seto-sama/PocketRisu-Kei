@@ -195,6 +195,46 @@ function splitTopLevelElse(body: string): [string, string] {
     return [body, '']
 }
 
+function renderNestedBlockDirectives(input: string, state: TemplateState, depth: number): string {
+    let output = ''
+    let cursor = 0
+    while (cursor < input.length) {
+        const start = input.indexOf('{{#', cursor)
+        if (start < 0) return output + input.slice(cursor)
+        output += input.slice(cursor, start)
+
+        let nesting = 1
+        let scan = start + 3
+        let end = -1
+        while (scan < input.length) {
+            if (input.startsWith('{{', scan)) {
+                nesting++
+                scan += 2
+                continue
+            }
+            if (input.startsWith('}}', scan)) {
+                nesting--
+                scan += 2
+                if (nesting === 0) {
+                    end = scan
+                    break
+                }
+                continue
+            }
+            scan++
+        }
+        if (end < 0) return output + input.slice(start)
+
+        const directive = input.slice(start + 2, end - 2)
+        const renderedDirective = directive.includes('{{')
+            ? renderTemplate(directive, state, depth + 1)
+            : directive
+        output += `{{${renderedDirective}}}`
+        cursor = end
+    }
+    return output
+}
+
 function renderBlocks(input: string, state: TemplateState, depth: number): string {
     const tokenPattern = /{{([#/:][\s\S]*?)}}/g
     while (true) {
@@ -253,7 +293,12 @@ function renderBlocks(input: string, state: TemplateState, depth: number): strin
 
 function renderTemplate(input: string, state: TemplateState, depth = 0): string {
     if (depth > 20) return 'ERROR: Call stack limit reached'
-    let rendered = renderBlocks(input.replace(/\<(user|char|bot)\>/gi, '{{$1}}'), state, depth)
+    const normalized = renderNestedBlockDirectives(
+        input.replace(/\<(user|char|bot)\>/gi, '{{$1}}'),
+        state,
+        depth,
+    )
+    let rendered = renderBlocks(normalized, state, depth)
     const matcherArg: any = {
         chatID: state.chat.message.length - 1,
         db: state.database,

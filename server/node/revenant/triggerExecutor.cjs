@@ -100,7 +100,10 @@ async function executeRevenantOutputTriggers(options) {
     const mutations = {};
     let resend = false;
     const triggers = [
-        ...(recipe.character.triggerscript || []),
+        ...(recipe.character.triggerscript || []).map(trigger => ({
+            ...trigger,
+            lowLevelAccess: recipe.character.lowLevelAccess === true,
+        })),
         ...(recipe.moduleTriggers || []),
     ];
 

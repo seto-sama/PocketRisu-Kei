@@ -1891,6 +1891,7 @@ const revenantMaterializer = createRevenantMaterializer({
 const revenantPostprocessWorker = createRevenantPostprocessWorker({
     repository: generationDb,
     logger,
+    materializeGeneration: revenantMaterializer.materialize,
 });
 const scheduleRevenantPostprocess = revenantPostprocessWorker.schedule;
 

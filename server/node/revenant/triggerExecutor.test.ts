@@ -28,6 +28,40 @@ function recipe() {
 }
 
 describe('revenant output trigger executor', () => {
+    it('inherits character low-level access for Lua auxiliary calls', async () => {
+        const input = recipe()
+        input.auxProviders = {
+            otherAx: { backend: 'plugin', modelPreset: { id: 'ax-preset' } },
+        }
+        input.character.triggerscript = [{
+            type: 'output', conditions: [],
+            effect: [{
+                type: 'triggerlua',
+                code: `
+                    onOutput = async(function(id)
+                        axLLM(id, {{ role = 'user', content = 'status' }})
+                    end)
+                `,
+            }],
+        }] as any
+
+        const waiting = await executeRevenantOutputTriggers({
+            recipe: input, chat: input.chat, text: 'answer',
+        })
+
+        expect(waiting).toMatchObject({
+            status: 'waiting_client',
+            action: {
+                actionId: 'trigger.0.0.provider.axllm:0',
+                kind: 'provider.axllm',
+                payload: {
+                    backend: 'plugin',
+                    modelPreset: { id: 'ax-preset' },
+                },
+            },
+        })
+    })
+
     it('replays deterministic mutations around a plugin waiting_client action', async () => {
         const waiting = await executeRevenantOutputTriggers({ recipe: recipe(), chat: recipe().chat, text: 'answer' })
         expect(waiting).toMatchObject({

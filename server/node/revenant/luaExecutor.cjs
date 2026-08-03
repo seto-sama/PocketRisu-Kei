@@ -62,6 +62,7 @@ async function executeRevenantLua(options) {
     const lowLevelAccess = options.lowLevelAccess ?? recipe.character?.lowLevelAccess === true;
     let stopped = false;
     let callIndex = 0;
+    let pendingClientAction;
     const accessKey = 'revenant-server';
     const requireLowLevel = () => lowLevelAccess;
     const action = (kind, payload) => {
@@ -70,12 +71,14 @@ async function executeRevenantLua(options) {
             ? rawActionId
             : `${rawActionId.slice(0, 94)}.${crypto.createHash('sha256').update(rawActionId).digest('hex').slice(0, 32)}`;
         if (Object.prototype.hasOwnProperty.call(responses, actionId)) return responses[actionId];
-        throw waitingClientError({
+        const requestedAction = {
             schemaVersion: 1,
             actionId,
             kind,
             payload,
-        });
+        };
+        pendingClientAction ||= requestedAction;
+        throw waitingClientError(requestedAction);
     };
     const chatVar = key => String(chat.scriptstate?.[`$${key}`] ?? 'null');
     const setChatVar = (key, value) => {
@@ -211,6 +214,13 @@ async function executeRevenantLua(options) {
         const invoked = await invokeLuaMode(engine.global, mode, accessKey, data, meta);
         data = invoked.data;
         if (invoked.result === false) stopped = true;
+        if (pendingClientAction) {
+            return {
+                status: 'waiting_client', action: pendingClientAction,
+                data, chat, stopped, foregroundEffects,
+                ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
+            };
+        }
         return {
             status: 'completed', data, chat, stopped, foregroundEffects,
             ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
