@@ -120,8 +120,9 @@
         const providerGroups = listFilterableProviderGroups(activeRegistry, activeRegistryId);
         const hiddenProviderIds = resolveProviderFilterHiddenIds(
             providerGroups.map(provider => provider.id),
-            DBState.db.modelProfileHiddenProviderIds,
+            DBState.db.modelProfileVisibleProviderIds,
             DBState.db.modelProfileProviderFilterInitialized === true,
+            DBState.db.modelProfileHiddenProviderIds,
         );
         return [
             ...all.filter(e =>

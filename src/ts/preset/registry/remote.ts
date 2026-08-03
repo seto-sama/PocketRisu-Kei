@@ -4,6 +4,7 @@ import { DBState } from 'src/ts/stores.svelte'
 import type { ModelPreset, RegistryCache } from '../types'
 import { getProfileUpdateStatus, type ProfileUpdateStatus } from '../customProfiles'
 import { getOfficialRegistryId, loadSpecialRegistry } from './loader'
+import { listFilterableProviderGroups, resolveProviderFilterVisibleIds } from './providerFilter'
 import {
     buildModelsDevRegistry,
     MODELS_DEV_API_URL,
@@ -72,6 +73,21 @@ function adoptCatalog(catalog: ModelsDevCatalog, fetchedAt: number, contentHash:
     runtimeRegistry = buildModelsDevRegistry(catalog, fetchedAt)
     runtimeFetchedAt = fetchedAt
     runtimeHash = contentHash
+
+    const providerIds = listFilterableProviderGroups(runtimeRegistry, getOfficialRegistryId())
+        .map(provider => provider.id)
+    const visibleProviderIds = resolveProviderFilterVisibleIds(
+        providerIds,
+        DBState.db.modelProfileVisibleProviderIds,
+        DBState.db.modelProfileProviderFilterInitialized === true,
+        DBState.db.modelProfileHiddenProviderIds,
+    )
+    DBState.db.modelProfileVisibleProviderIds = [...visibleProviderIds].sort()
+    // The old inverse representation is no longer needed after the current
+    // catalog has supplied the IDs required to migrate it.
+    delete DBState.db.modelProfileHiddenProviderIds
+    DBState.db.modelProfileProviderFilterInitialized = true
+
     // This DB field is only a tiny reactive revision marker. The catalog itself
     // lives in the dedicated persistent KV cache above, never in the main DB.
     DBState.db.modelProfileRegistryLastFetched = Math.max(

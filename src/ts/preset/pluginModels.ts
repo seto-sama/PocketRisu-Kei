@@ -270,7 +270,7 @@ function toRegistryTokenizer(tokenizer: LLMTokenizer | undefined): RegistryToken
 }
 
 function profileId(providerName: string): string {
-    return `plugin:${encodeURIComponent(providerName)}`
+    return `plugin:${providerName}`
 }
 
 export function buildPluginRegistry(

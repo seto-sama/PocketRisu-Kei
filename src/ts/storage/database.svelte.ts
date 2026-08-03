@@ -1424,11 +1424,13 @@ export interface Database{
     // Catalog display level: retired profiles can be hidden from the browser.
     // Display-only — profiles are still downloaded.
     modelProfileVisibilityLevel?: 'all' | 'hideDeprecated'
-    // models.dev provider-group IDs hidden from the official profile browser.
-    // Echo and transient Plugin profiles intentionally ignore this filter.
+    // models.dev provider-group IDs shown in the official profile browser.
+    // This allowlist makes providers introduced by a later catalog default off.
+    modelProfileVisibleProviderIds?: string[]
+    // Legacy inverse representation, removed after catalog hydration.
     modelProfileHiddenProviderIds?: string[]
     // Distinguishes the curated first-run allowlist from an intentional
-    // user-selected empty hidden list ("show all").
+    // user-selected empty visible list ("hide all").
     modelProfileProviderFilterInitialized?: boolean
     modelPresetDefaultMaxContext?: number
     modelPresetDefaultMaxResponse?: number

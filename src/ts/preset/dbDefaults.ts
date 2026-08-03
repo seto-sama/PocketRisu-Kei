@@ -17,6 +17,8 @@ export interface ModelPresetDefaultsTarget {
     // `currentOnly` is accepted here only to migrate databases written before
     // the models.dev catalog reduced this setting to two levels.
     modelProfileVisibilityLevel?: 'all' | 'hideDeprecated' | 'currentOnly'
+    modelProfileVisibleProviderIds?: string[]
+    /** Legacy inverse filter, retained only until the next catalog hydration. */
     modelProfileHiddenProviderIds?: string[]
     modelProfileProviderFilterInitialized?: boolean
     modelPresetDefaultMaxContext?: number
@@ -219,6 +221,15 @@ export function applyModelPresetDefaults(data: ModelPresetDefaultsTarget): void 
             (id): id is string => typeof id === 'string' && id.length > 0,
         ))]
         : []
+    if (Array.isArray(data.modelProfileVisibleProviderIds)) {
+        data.modelProfileVisibleProviderIds = [...new Set(
+            data.modelProfileVisibleProviderIds.filter(
+                (id): id is string => typeof id === 'string' && id.length > 0,
+            ),
+        )]
+    } else {
+        data.modelProfileVisibleProviderIds = undefined
+    }
     if (typeof data.modelProfileProviderFilterInitialized !== 'boolean') {
         // Databases that already persisted the old hidden-ID list keep their
         // exact choice. A genuinely new database receives the curated default
