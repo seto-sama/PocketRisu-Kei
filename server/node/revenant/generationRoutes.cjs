@@ -51,9 +51,9 @@ function installRevenantGenerationRoutes(app, deps) {
     } = chatStorage;
 
     // Unlike the legacy local-network proxy jobs, revenant jobs may target an
-    // external provider and persist the raw response stream in
-    // revenant-generation.db. Provider-specific parsing and output scripts
-    // remain client-side.
+    // external provider. Metadata lives in save/revenant/revenant.db while exact
+    // provider bytes are appended to save/revenant/journals. Provider-specific
+    // parsing and output scripts remain client-side.
     app.post('/api/generation/jobs', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
@@ -105,12 +105,6 @@ function installRevenantGenerationRoutes(app, deps) {
                 ? 'Mobile'
                 : 'Desktop',
         });
-        const job = createProxyStreamJob({
-            jobId,
-            heartbeatSec: req.body?.heartbeatSec,
-            timeoutMs: req.body?.timeoutMs,
-        });
-        job.persistent = true;
         createGenerationJob({
             jobId,
             chatId: req.body?.chatId,
@@ -123,9 +117,17 @@ function installRevenantGenerationRoutes(app, deps) {
             promptInfo: req.body?.promptInfo,
             rerollSnapshot: req.body?.rerollSnapshot,
             operationContext,
+            adapterKind: req.body?.adapterKind,
+            streaming: req.body?.streaming === true,
         });
+        const job = createProxyStreamJob({
+            jobId,
+            heartbeatSec: req.body?.heartbeatSec,
+            timeoutMs: req.body?.timeoutMs,
+        });
+        job.persistent = true;
 
-        void runProxyStreamJob(job, {
+        job.runPromise = runProxyStreamJob(job, {
             targetUrl: url,
             headers: normalizeForwardHeaders(req.body?.headers),
             method,
@@ -142,6 +144,7 @@ function installRevenantGenerationRoutes(app, deps) {
                 ? 'batch'
                 : undefined,
         });
+        void job.runPromise;
 
         res.send({ jobId, heartbeatSec: job.heartbeatSec });
     });

@@ -46,6 +46,8 @@ export function buildGenerationContext(
     return {
         chatId,
         jobType,
+        adapterKind: arg.revenantAdapterKind,
+        streaming: arg.revenantStreaming,
         characterId: arg.currentChar?.chaId,
         roomId: activeChat?.id,
         isContinuation: arg.continue === true,

@@ -65,6 +65,10 @@ export type RevenantOperationContext =
 export interface RevenantGenerationContext {
     chatId: string
     jobType: ModelModeExtended
+    /** Concrete client adapter that owns parsing the provider wire response. */
+    adapterKind?: string
+    /** Whether the provider response uses its streaming wire format. */
+    streaming?: boolean
     characterId?: string
     roomId?: string
     isContinuation: boolean
@@ -100,7 +104,12 @@ export interface RecoverableGenerationJob {
     generationInfo?: MessageGenerationInfo
     promptInfo?: MessagePresetInfo
     rerollSnapshot?: RevenantRerollSnapshot
+    adapterKind?: string
+    streaming?: boolean
     status: RevenantJobStatus
+    responseStatus?: number
+    responseHeaders?: Record<string, string>
+    rawBytes?: number
     rawContent: string
     finishReason?: string
     createdAt: number
@@ -116,7 +125,12 @@ export interface RecoverableAuxiliaryJob {
     characterId?: string
     roomId?: string
     operationContext?: RevenantOperationContext
+    adapterKind?: string
+    streaming?: boolean
     status: RevenantJobStatus
+    responseStatus?: number
+    responseHeaders?: Record<string, string>
+    rawBytes?: number
     rawContent: string
     error?: string
     createdAt: number

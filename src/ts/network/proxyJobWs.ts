@@ -1,8 +1,7 @@
 export type ProxyJobWsEvent =
     | { type: 'job_accepted', jobId: string }
     | { type: 'upstream_headers', status: number, headers: Record<string, string> }
-    | { type: 'chunk', dataBase64: string }
-    | { type: 'generation_content', content: string }
+    | { type: 'chunk', offset?: number, dataBase64: string }
     | { type: 'error', status?: number, message: string }
     | { type: 'done' }
     | { type: 'ping', ts: number };
@@ -21,6 +20,21 @@ export function parseProxyJobWsEvent(raw: string): ProxyJobWsEvent | null {
 
 export function decodeProxyJobWsChunk(dataBase64: string): Uint8Array {
     return Buffer.from(dataBase64, 'base64');
+}
+
+/** Removes the replayed prefix from an offset-addressed journal chunk. */
+export function trimProxyJobWsReplay(
+    chunk: Uint8Array,
+    chunkOffset: number | undefined,
+    receivedBytes: number,
+): Uint8Array | null {
+    if (chunkOffset === undefined) return chunk
+    if (!Number.isSafeInteger(chunkOffset) || chunkOffset < 0 || chunkOffset > receivedBytes) {
+        throw new Error(`Proxy journal gap at ${receivedBytes} (chunk starts at ${chunkOffset})`)
+    }
+    const overlap = receivedBytes - chunkOffset
+    if (overlap >= chunk.length) return null
+    return overlap > 0 ? chunk.subarray(overlap) : chunk
 }
 
 export function formatProxyStreamErrorMessage(status: number | undefined, message: string): string {

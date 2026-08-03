@@ -78,6 +78,8 @@ interface requestDataArgument{
     tools?: MCPTool[]
     rememberToolUsage?: boolean
     forceStreaming?: boolean
+    revenantAdapterKind?: string
+    revenantStreaming?: boolean
     blockPlugins?: boolean
     /** Persisted data needed to apply an auxiliary result after a reload. */
     revenantOperationContext?:RevenantOperationContext
@@ -872,6 +874,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     }
     const kind = compiled.adapterKind
     const adapter = compiled.adapter
+    arg.revenantAdapterKind = kind
 
     const credential = buildModelPresetCredential(preset)
     const usageIdentity = modelsDevUsageIdentity(preset)
@@ -1054,6 +1057,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         // streaming tool_call assembly is a later stage. Status is NOT reported
         // for the tool path in v1 (it bypasses the pump); see the toast infra note.
         if (tools) {
+            arg.revenantStreaming = false
             const { result, toolsExecuted } = await runModelPresetToolLoop(
                 arg,
                 preset,
@@ -1076,6 +1080,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             && !(kind === 'anthropic-messages'
                 && preset.profileSnapshot.providerBaseId === 'anthropic'
                 && preset.claudeBatching)
+        arg.revenantStreaming = useStreaming
         const options: AdapterChatOptions = {
             messages,
             abortSignal: abortSignal ?? undefined,

@@ -2160,7 +2160,7 @@ export async function fetchNative(url: string, arg: {
     const requestSignal = timeoutSignal.signal
     try {
         // Provider LLM requests are owned by the Node server. The raw
-        // response stream is persistently checkpointed in revenant-generation.db and replayed
+        // response stream is persistently journaled on the server and replayed
         // through the same Response interface. Main requests remain recoverable
         // into chat; auxiliary requests are retained only as completed jobs.
         const revenantGenerationContext = arg.generationContext

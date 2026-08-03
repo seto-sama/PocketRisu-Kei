@@ -1817,7 +1817,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 currentChar.reloadKeys += 1
             }
         } catch (error) {
-            // revenant-generation.db still owns the raw response and leaves it pending
+            // the revenant journal still owns the raw response and leaves it pending
             // for recovery. Do not discard the visible response merely because
             // final compatible-save materialization failed.
             console.error('[GenerationJob] Failed to finalize revenant generation:', error)

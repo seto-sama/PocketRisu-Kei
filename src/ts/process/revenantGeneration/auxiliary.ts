@@ -10,6 +10,7 @@ import {
     type RevenantOperationContext,
     type RecoverableAuxiliaryJob,
 } from './types'
+import { readRecoverableGenerationContent } from './stream'
 
 let auxiliaryGenerationListCache: {
     at: number
@@ -201,11 +202,18 @@ export async function waitForRecoverableAuxiliaryGeneration(
 export async function resolveRecoverableAuxiliaryGeneration(
     job: RecoverableAuxiliaryJob,
 ): Promise<RecoverableAuxiliaryJob> {
-    if (isRevenantJobActive(job.status)) {
-        return await waitForRecoverableAuxiliaryGeneration(job.jobId)
+    const resolved = isRevenantJobActive(job.status)
+        ? await waitForRecoverableAuxiliaryGeneration(job.jobId)
+        : job
+    if (!resolved.rawContent && (resolved.rawBytes ?? 0) > 0) {
+        resolved.rawContent = await readRecoverableGenerationContent(resolved)
+        await updateRecoverableAuxiliaryGenerationResult(
+            resolved.jobId,
+            resolved.rawContent,
+        )
     }
-    updateAuxiliaryGenerationJob(job)
-    return job
+    updateAuxiliaryGenerationJob(resolved)
+    return resolved
 }
 
 export type TypedRecoverableAuxiliaryJob<T extends RevenantOperationContext> =

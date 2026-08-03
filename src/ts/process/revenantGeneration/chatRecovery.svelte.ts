@@ -27,7 +27,10 @@ import {
     materializeRecoveredGeneration,
     setRevenantGenerationLocallyOwned,
 } from './client'
-import { subscribeRecoverableGeneration } from './stream'
+import {
+    readRecoverableGenerationContent,
+    subscribeRecoverableGeneration,
+} from './stream'
 import { isRevenantJobActive } from './types'
 import {
     recoverRevenantTranslationJobs,
@@ -346,7 +349,7 @@ export async function recoverRevenantGenerationsForChat(
             }
             if (isActiveGeneration) {
                 if (!recoveryStreamSubscriptions.has(job.jobId)) {
-                    const unsubscribe = subscribeRecoverableGeneration(job.jobId, {
+                    const unsubscribe = subscribeRecoverableGeneration(job, {
                         onContent: content => {
                             const displayContent = job.isContinuation
                                 && job.continuationPrefix
@@ -404,11 +407,12 @@ export async function recoverRevenantGenerationsForChat(
                 activeSubscription.unsubscribe()
                 recoveryStreamSubscriptions.delete(job.jobId)
             }
+            const recoveredRawContent = await readRecoverableGenerationContent(job)
             const rawContent = job.isContinuation
                 && job.continuationPrefix
-                && !job.rawContent.startsWith(job.continuationPrefix)
-                ? job.continuationPrefix + job.rawContent
-                : job.rawContent
+                && !recoveredRawContent.startsWith(job.continuationPrefix)
+                ? job.continuationPrefix + recoveredRawContent
+                : recoveredRawContent
             const processedContent = (await processScriptFull(
                 character,
                 rawContent.trim(),
