@@ -7,7 +7,7 @@ const { resolveReplayAction } = require('./replayAction.cjs');
 
 require('sucrase/register/ts');
 const { renderRevenantTemplate } = require(path.join(
-    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'headlessParser.ts',
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'postprocess', 'headlessParser.ts',
 ));
 const { createTriggerV2Core } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerV2Core.ts',

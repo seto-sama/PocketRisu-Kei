@@ -24,43 +24,43 @@ import { runImageEmbedding } from "./transformers";
 import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
 import { getModelInfo, LLMFlags } from "../model/modellist";
 import { applyPromptPresetParams, resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
-import { type RevenantChatWorkflowContext, type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant/types";
+import { type RevenantChatWorkflowContext, type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant";
 import {
     cancelRevenantGeneration,
     checkpointRevenantGeneration,
     registerRevenantGenerationMetadata,
     updateRevenantGenerationMetadata,
-} from "./revenant/client";
+} from "./revenant/transport";
 import {
     configureRevenantGenerationChatRecovery,
-} from "./revenant/chatRecovery.svelte";
+} from "./revenant/recovery";
 import {
+    beginRevenantWorkflow,
+    cancelRevenantWorkflow,
+    completeChatGenerationPreModelPlan,
     coordinateRevenantGeneration,
+    createChatGenerationWorkflowPlan,
+    createRevenantWorkflowUpdateWaiter,
+    finishRevenantWorkflow,
+    getRevenantWorkflow,
+    RevenantWorkflowBusyError,
+    serviceRevenantClientActions,
     type RevenantGenerationLifecycle,
-} from "./revenant/coordinator";
+    type RevenantWorkflowResumeContext,
+    updateRevenantWorkflowStep,
+    waitForRevenantHypaExecution,
+} from "./revenant/workflow";
 import { hypaMemoryV3, type SerializableHypaV3Data } from "./memory/hypav3";
 import { getModuleAssets, getModuleRegexScripts, getModules, getModuleToggles, getModuleTriggers } from "./modules";
 import { readImage } from "../globalApi.svelte";
 import { saveChatToServer } from "../storage/chatStorage";
 import { compileModelPreset, type CompiledModelPreset } from "../preset/runtime/compilePreset";
 import {
-    beginRevenantWorkflow,
-    cancelRevenantWorkflow,
-    completeChatGenerationPreModelPlan,
-    createChatGenerationWorkflowPlan,
-    finishRevenantWorkflow,
-    getRevenantWorkflow,
-    type RevenantWorkflowResumeContext,
-    RevenantWorkflowBusyError,
-    updateRevenantWorkflowStep,
-    waitForRevenantHypaExecution,
-} from "./revenant/workflow";
-import { serviceRevenantClientActions } from './revenant/clientActions.svelte';
-import { createRevenantWorkflowUpdateWaiter } from './revenant/workflowEvents';
-import { commitCancelledGenerationProjection } from './revenant/chatCancellation';
-import { ensureGenerationMessageTarget } from './revenant/chatGenerationTarget';
+    commitCancelledGenerationProjection,
+    ensureGenerationMessageTarget,
+} from './revenant/recovery';
 
-export { recoverRevenantGenerationsForChat } from "./revenant/chatRecovery.svelte";
+export { recoverRevenantGenerationsForChat } from "./revenant/recovery";
 
 export interface OpenAIChat{
     role: 'system'|'user'|'assistant'|'function'

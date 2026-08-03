@@ -34,7 +34,7 @@ import {
     createRevenantOperation,
     isRevenantHypaV3SummaryOperation,
     type RecoverableAuxiliaryJob,
-} from "../revenant/types";
+} from "../revenant";
 import { v4 as uuidv4 } from "uuid";
 import {
     getRevenantHypaExecution,

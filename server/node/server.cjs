@@ -31,8 +31,8 @@ const {
 const { addRequestLog, installRequestLogRoutes, updateRequestLogResponseById } = require('./logs/requestLogs.cjs');
 const { installUsageRoutes, recordGenerationUsage } = require('./logs/usageDb.cjs');
 const { executeUpstreamRequest } = require('./upstreamRequest.cjs');
-const generationDb = require('./revenant/generationDb.cjs');
 const {
+    generationDb,
     getGenerationJob,
     setGenerationJobGenerating,
     setGenerationJobHeaders,
@@ -47,27 +47,19 @@ const {
     listGenerationJobsNeedingProjection,
     pruneRetainedGenerationJobs,
     checkpointGenerationDb,
-} = generationDb;
-const { generationJournalStore } = require('./revenant/generationJournal.cjs');
-const {
+    generationJournalStore,
     NORMALIZED_PROJECTION_SCHEMA_VERSION,
     projectGenerationJournal,
-} = require('./revenant/generationProjection.cjs');
-const { installRevenantGenerationRoutes } = require('./revenant/generationRoutes.cjs');
-const { createGenerationWorkers } = require('./revenant/generationWorkers.cjs');
-const { createRevenantMaterializer } = require('./revenant/materializer.cjs');
-const { createRevenantPostprocessWorker } = require('./revenant/postprocessWorker.cjs');
-const {
+    installRevenantGenerationRoutes,
+    createGenerationWorkers,
+    createRevenantMaterializer,
+    createRevenantPostprocessWorker,
     createGenerationWorkflowService,
-} = require('./revenant/generationWorkflowService.cjs');
-const {
     GENERATION_REQUEST_DEFAULT_TIMEOUT_MS,
     normalizeGenerationRequestTimeoutMs,
-} = require('./revenant/generationConfig.cjs');
-const {
     notifyRevenantJournalWaiters,
     streamRevenantJournal,
-} = require('./revenant/generationStream.cjs');
+} = require('./revenant/index.cjs');
 const {
     filterRemoteOnlyFolders,
     isChatHiddenFromRemote,

@@ -6,10 +6,10 @@ const { executeRevenantOutputTriggers } = require('./triggerExecutor.cjs');
 
 require('sucrase/register/ts');
 const { runRevenantOutputTransform } = require(path.join(
-    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'postprocess.ts',
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'postprocess', 'postprocess.ts',
 ));
 const { renderRevenantTemplate } = require(path.join(
-    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'headlessParser.ts',
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'postprocess', 'headlessParser.ts',
 ));
 
 function renderRevenantPostprocessPrompt(prompt, recipe, chat) {

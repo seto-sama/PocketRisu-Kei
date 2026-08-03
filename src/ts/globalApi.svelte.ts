@@ -37,9 +37,11 @@ import {
     getServerFetchLogs as getServerFetchLogsRequest,
     type FetchLog,
 } from "./requestLogStore";
-import { type RevenantGenerationRequest } from "./process/revenant/types";
-import { configureRevenantGenerationClient } from "./process/revenant/client";
-import { fetchViaGenerationJob } from "./process/revenant/stream";
+import { type RevenantGenerationRequest } from "./process/revenant";
+import {
+    configureRevenantGenerationClient,
+    fetchViaGenerationJob,
+} from "./process/revenant/transport";
 
 export const forageStorage = new AutoStorage()
 configureRevenantGenerationClient({

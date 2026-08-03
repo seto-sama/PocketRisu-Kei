@@ -7,7 +7,7 @@ import { safeStructuredClone } from './polyfill'
 import {
     emitRevenantWorkflowSyncReady,
     emitRevenantWorkflowUpdate,
-} from './process/revenant/workflowEvents'
+} from './process/revenant/workflow'
 
 type SyncChatTarget = {
     characterId: string

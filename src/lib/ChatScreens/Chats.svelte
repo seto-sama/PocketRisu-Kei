@@ -6,7 +6,7 @@
     import { createSimpleCharacter, DBState, ReloadChatPointer } from 'src/ts/stores.svelte';
     import { chatFoldedStateMessageIndex } from 'src/ts/globalApi.svelte';
     import { scrollWithinContainer } from './scrollWithin';
-    import { createRevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from 'src/ts/process/revenant/chatRecovery.svelte';
+    import { createRevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from 'src/ts/process/revenant/recovery';
 
     let {
         messages,

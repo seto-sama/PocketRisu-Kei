@@ -102,7 +102,7 @@ vi.mock('../../ts/storage/database.svelte', () => ({
 vi.mock('src/ts/process/modules', () => ({ getModuleAssets: () => [] }))
 vi.mock('src/ts/characters', () => ({ getCharImage: (value: string) => value }))
 vi.mock('src/ts/gui/longtouch', () => ({ longpress: () => ({ destroy() {} }) }))
-vi.mock('src/ts/process/revenant/chatRecovery.svelte', () => ({
+vi.mock('src/ts/process/revenant/recovery', () => ({
     createRevenantChatTranslationRecoveryContext: () => ({ trackSnapshot: () => {} }),
     createRevenantChatTranslationRecovery: () => ({
         pending: false,

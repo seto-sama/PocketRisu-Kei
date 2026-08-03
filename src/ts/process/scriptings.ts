@@ -26,7 +26,6 @@ import {
     resolveRecoverableAuxiliaryGenerations,
     updateRecoverableAuxiliaryGenerationProjection,
 } from "./revenant/auxiliary";
-import type { RecoverableAuxiliaryJob } from "./revenant/types";
 import { loadLoreBookV3Prompt } from './lorebook.svelte';
 import { getPersonaPrompt, getUserName, getUserIcon } from '../util';
 import { saveChatToServer } from '../storage/chatStorage';
@@ -34,9 +33,10 @@ import {
     createRevenantOperation,
     isRevenantJobActive,
     isRevenantLuaLlmOperation,
+    type RecoverableAuxiliaryJob,
     type RevenantLuaLlmOperation,
-} from './revenant/types';
-import { wrapRevenantLua } from './revenant/luaWrapper';
+} from './revenant';
+import { wrapRevenantLua } from './revenant/postprocess';
 import {
     invokeLuaMode,
     registerLuaCoreApis,
