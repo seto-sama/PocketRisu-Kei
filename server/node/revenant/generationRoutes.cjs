@@ -5,6 +5,10 @@ const {
     getGenerationWorkflow,
     getActiveGenerationWorkflow,
     claimGenerationWorkflow,
+    claimGenerationWorkflowClientAction,
+    hasGenerationWorkflowClientActionClaim,
+    resolveGenerationWorkflowClientAction,
+    consumeGenerationWorkflowClientActionJobs,
     updateGenerationWorkflowStep,
     putGenerationWorkflowExecution,
     getGenerationWorkflowExecution,
@@ -69,6 +73,7 @@ function installRevenantGenerationRoutes(app, deps) {
         runGenerationProviderJob,
         scheduleGenerationDispatch,
         scheduleHypaWorkflowExecution,
+        scheduleRevenantPostprocess = () => {},
         terminateGenerationWorkflow,
         cancelGenerationStepExecution,
         generationRuntimeJobs,
@@ -76,26 +81,9 @@ function installRevenantGenerationRoutes(app, deps) {
         maxActiveJobs,
         maxBodyBase64Bytes,
         randomUUID,
-        queueStorageOperation,
-        chatStorage,
+        materializeGeneration,
         isSyncClientConnected = () => false,
     } = deps;
-    const {
-        ensureChatStore,
-        getState: getChatStorageState,
-        databaseHexKey,
-        persistDbCacheWithChats,
-        kvGet,
-        normalizeJSON,
-        decodeRisuSave,
-        reassembleFullDb,
-        stripChatsFromDb,
-        kvSet,
-        encodeRisuSaveLegacy,
-        initChatStore,
-        createBackupAndRotate,
-        broadcastDatabaseInvalidated,
-    } = chatStorage;
 
     app.post('/api/generation/workflows', async (req, res, next) => {
         if (!await checkProxyAuth(req, res)) return;
@@ -233,6 +221,75 @@ function installRevenantGenerationRoutes(app, deps) {
         }
     });
 
+    app.post('/api/generation/workflows/:workflowId/steps/:stepKey/client-action/claim', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const stepKey = req.params.stepKey;
+        const actionId = typeof req.body?.actionId === 'string' ? req.body.actionId : '';
+        if (!isValidRevenantWorkflowKey(stepKey) || !isValidRevenantWorkflowKey(actionId)) {
+            res.status(400).send({ error: 'Invalid workflow client action' });
+            return;
+        }
+        const result = claimGenerationWorkflowClientAction(
+            req.params.workflowId,
+            stepKey,
+            actionId,
+            String(req.headers['x-sync-client-id'] || ''),
+        );
+        if (!result) {
+            res.status(404).send({ error: 'Pending workflow client action not found' });
+            return;
+        }
+        if (result.busy) {
+            res.status(409).send({ error: 'Workflow client action is already claimed', ...result });
+            return;
+        }
+        res.send(result);
+    });
+
+    app.post('/api/generation/workflows/:workflowId/steps/:stepKey/client-action/resolve', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        if (!requireSyncClientId(req, res)) return;
+        const stepKey = req.params.stepKey;
+        const actionId = typeof req.body?.actionId === 'string' ? req.body.actionId : '';
+        if (
+            !isValidRevenantWorkflowKey(stepKey)
+            || !isValidRevenantWorkflowKey(actionId)
+            || !Object.prototype.hasOwnProperty.call(req.body || {}, 'response')
+        ) {
+            res.status(400).send({ error: 'Invalid workflow client action response' });
+            return;
+        }
+        let serialized;
+        try { serialized = JSON.stringify(req.body.response); }
+        catch {
+            res.status(400).send({ error: 'Workflow client action response must be JSON serializable' });
+            return;
+        }
+        if (serialized === undefined || Buffer.byteLength(serialized) > 8 * 1024 * 1024) {
+            res.status(413).send({ error: 'Workflow client action response is too large' });
+            return;
+        }
+        const result = resolveGenerationWorkflowClientAction(
+            req.params.workflowId,
+            stepKey,
+            actionId,
+            String(req.headers['x-sync-client-id'] || ''),
+            req.body.response,
+        );
+        if (!result) {
+            res.status(404).send({ error: 'Pending workflow client action not found' });
+            return;
+        }
+        if (result.staleClaim) {
+            res.status(409).send({ error: 'Workflow client action claim is stale', ...result });
+            return;
+        }
+        consumeGenerationWorkflowClientActionJobs(req.params.workflowId, actionId);
+        scheduleRevenantPostprocess();
+        res.send({ success: true, ...result });
+    });
+
     app.post('/api/generation/workflows/:workflowId/step-executions/:executionId/cancel', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
@@ -358,7 +415,6 @@ function installRevenantGenerationRoutes(app, deps) {
             res.status(400).send({ error: 'Invalid generation workflow job link' });
             return;
         }
-        if (workflowId && !requireWorkflowOwnerLease(req, res, workflowId)) return;
         const dispatchPolicy = normalizeRevenantDispatchPolicy(
             req.body?.dispatchPolicy,
             operationContext,
@@ -381,6 +437,27 @@ function installRevenantGenerationRoutes(app, deps) {
             res.status(400).send({ error: 'Workflow dependencies are only valid for model.main' });
             return;
         }
+        const workflowClientAction = req.body?.workflowClientAction;
+        if (workflowId && workflowClientAction) {
+            if (
+                jobType === 'model'
+                || workflowDependency
+                || typeof workflowClientAction.parentStepKey !== 'string'
+                || typeof workflowClientAction.actionId !== 'string'
+                || !isValidRevenantWorkflowKey(workflowClientAction.parentStepKey)
+                || !isValidRevenantWorkflowKey(workflowClientAction.actionId)
+                || !hasGenerationWorkflowClientActionClaim(
+                    workflowId,
+                    workflowClientAction.parentStepKey,
+                    workflowClientAction.actionId,
+                    String(req.headers['x-sync-client-id'] || ''),
+                )
+            ) {
+                res.status(409).send({ error: 'Workflow client action claim is not active' });
+                return;
+            }
+        }
+        else if (workflowId && !requireWorkflowOwnerLease(req, res, workflowId)) return;
         if (!dispatchPolicy && !workflowDependency && countActiveGenerationJobs() >= maxActiveJobs) {
             res.status(429).send({ error: 'Too many active generation jobs. Retry shortly.' });
             return;
@@ -616,149 +693,16 @@ function installRevenantGenerationRoutes(app, deps) {
         }
         if (!requireJobWorkflowOwnerLease(req, res, leaseJob)) return;
         try {
-            await queueStorageOperation(async () => {
-                const job = getGenerationJob(req.params.jobId, false);
-                if (!job) {
-                    res.status(404).send({ error: 'Generation job not found' });
-                    return;
-                }
-                if (job.materializedAt) {
-                    res.send({ success: true, alreadyMaterialized: true });
-                    return;
-                }
-                if (!job.characterId || !job.roomId || !job.chatId) {
-                    res.status(400).send({ error: 'Generation job has no chat target' });
-                    return;
-                }
-                if (isRevenantJobActive(job.status)) {
-                    res.status(409).send({ error: 'Generation job is not complete' });
-                    return;
-                }
-                const earlierJob = listRecoverableGenerationJobs(200).find(candidate =>
-                    candidate.jobId !== job.jobId
-                    && candidate.characterId === job.characterId
-                    && candidate.roomId === job.roomId
-                    && candidate.createdAt < job.createdAt
-                );
-                if (earlierJob) {
-                    res.status(409).send({ error: `Earlier generation must materialize first: ${earlierJob.jobId}` });
-                    return;
-                }
-                const incoming = req.body?.message;
-                if (!incoming || typeof incoming.data !== 'string') {
-                    res.status(400).send({ error: 'Processed generation message is required' });
-                    return;
-                }
-
-                await ensureChatStore();
-                const { fullChatStore, saveTimers, dbCache } = getChatStorageState();
-                const storedChat = fullChatStore.get(job.characterId)?.get(job.roomId);
-                if (!storedChat || !Array.isArray(storedChat.message)) {
-                    res.status(404).send({ error: 'Target chat not found' });
-                    return;
-                }
-
-                // A streaming chat is not written by the client's normal save
-                // loop. Prefer the submitted current snapshot so a user
-                // message added immediately before generation is not lost when
-                // the final assistant response is materialized.
-                const submittedChat = req.body?.chat;
-                const chat = submittedChat
-                    && submittedChat.id === job.roomId
-                    && Array.isArray(submittedChat.message)
-                    ? structuredClone(submittedChat)
-                    : structuredClone(storedChat);
-                const hypaMemory = job.workflowId
-                    ? getGenerationWorkflow(job.workflowId)?.steps
-                        ?.find(step => step.key === 'memory.hypav3' && step.status === 'completed')
-                        ?.metadata?.hypaMemory
-                    : undefined;
-                if (
-                    hypaMemory
-                    && typeof hypaMemory === 'object'
-                    && Array.isArray(hypaMemory.summaries)
-                ) chat.hypaV3Data = structuredClone(hypaMemory);
-                const snapshot = job.rerollSnapshot;
-                let targetIndex = chat.message.findIndex(message => message?.chatId === job.chatId);
-                if (targetIndex < 0 && snapshot) targetIndex = snapshot.targetIndex;
-                if (targetIndex < 0 && job.isContinuation) {
-                    for (let index = chat.message.length - 1; index >= 0; index--) {
-                        if (chat.message[index]?.role === 'char') {
-                            targetIndex = index;
-                            break;
-                        }
-                    }
-                }
-
-                let materializedMessage;
-                if (snapshot) {
-                    const current = chat.message[targetIndex];
-                    const alreadyCommitted = current?.chatId === job.chatId
-                        && Array.isArray(current.swipes)
-                        && current.swipes[current.swipeId] === incoming.data;
-                    if (alreadyCommitted) {
-                        materializedMessage = current;
-                    } else {
-                        const previousSwipes = Array.isArray(snapshot.targetMessage?.swipes)
-                            ? [...snapshot.targetMessage.swipes]
-                            : [snapshot.targetMessage?.data ?? ''];
-                        materializedMessage = {
-                            ...structuredClone(snapshot.targetMessage),
-                            ...structuredClone(incoming),
-                            role: 'char',
-                            data: incoming.data,
-                            chatId: job.chatId,
-                            swipes: [...previousSwipes, incoming.data],
-                            swipeId: previousSwipes.length,
-                        };
-                        chat.message.splice(
-                            Math.max(0, targetIndex),
-                            Math.max(0, chat.message.length - Math.max(0, targetIndex)),
-                            materializedMessage,
-                            ...structuredClone(snapshot.trailingMessages || []),
-                        );
-                    }
-                } else {
-                    materializedMessage = {
-                        ...(targetIndex >= 0 ? chat.message[targetIndex] : {}),
-                        ...structuredClone(incoming),
-                        role: incoming.role === 'user' ? 'user' : 'char',
-                        data: incoming.data,
-                        chatId: job.chatId,
-                    };
-                    if (targetIndex >= 0) chat.message[targetIndex] = materializedMessage;
-                    else chat.message.push(materializedMessage);
-                }
-                chat.isStreaming = false;
-
-                if (!fullChatStore.has(job.characterId)) {
-                    fullChatStore.set(job.characterId, new Map());
-                }
-                fullChatStore.get(job.characterId).set(job.roomId, chat);
-                if (saveTimers[databaseHexKey]) {
-                    clearTimeout(saveTimers[databaseHexKey]);
-                    delete saveTimers[databaseHexKey];
-                }
-                if (dbCache[databaseHexKey]) {
-                    await persistDbCacheWithChats(databaseHexKey, 'database/database.bin');
-                } else {
-                    const raw = kvGet('database/database.bin');
-                    if (!raw) throw new Error('Compatible database is missing');
-                    const dbObj = normalizeJSON(await decodeRisuSave(raw));
-                    const fullDb = reassembleFullDb(stripChatsFromDb(dbObj));
-                    kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
-                    initChatStore(fullDb);
-                }
-                createBackupAndRotate();
-                if (!markGenerationMaterialized(req.params.jobId)) {
-                    throw new Error('Failed to mark generation materialized');
-                }
-                broadcastDatabaseInvalidated(req, {
-                    chats: [{ characterId: job.characterId, chatId: job.roomId }],
-                });
-                res.send({ success: true, message: materializedMessage, chat });
-            });
+            res.send(await materializeGeneration(req.params.jobId, {
+                message: req.body?.message,
+                chat: req.body?.chat,
+                request: req,
+            }));
         } catch (error) {
+            if (Number.isInteger(error?.status)) {
+                res.status(error.status).send({ error: error.message });
+                return;
+            }
             next(error);
         }
     });

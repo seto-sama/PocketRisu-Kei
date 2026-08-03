@@ -420,6 +420,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         isContinuation,
                         rerollSnapshot,
                         providerBackend: compiledMainPreset.backend,
+                        modelPreset: safeStructuredClone(compiledMainPreset.sourcePreset),
                         character: postprocessCharacter,
                         chat: safeStructuredClone(outgoingChat),
                         database: {

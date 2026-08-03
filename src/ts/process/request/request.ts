@@ -57,7 +57,7 @@ export type ToolCall = {
     arguments: string;
 }
 
-interface requestDataArgument{
+export interface requestDataArgument{
     formated: OpenAIChat[]
     bias: {[key:number]:number}
     biasString?: [string,number][]
@@ -91,6 +91,12 @@ interface requestDataArgument{
     onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
     onRevenantProviderStarted?:(startedAt:number) => void
     llmExecutionPolicy?:LLMExecutionPolicy
+    revenantClientAction?: {
+        workflowId: string
+        parentStepKey: string
+        actionId: string
+        executionId: string
+    }
 }
 
 export interface RequestDataArgumentExtended extends requestDataArgument{
@@ -383,6 +389,7 @@ async function executeModelPresetRequest(
     const generationRequest = buildGenerationRequest(targ)
     const autoConsume = generationRequest?.job.jobType !== 'model'
         && !targ.revenantOperationContext
+        && !targ.revenantClientAction
     const consumeCreatedJobs = async () => {
         if (!autoConsume || createdJobIds.length === 0) return
         try {
@@ -405,6 +412,15 @@ async function executeModelPresetRequest(
     }
     await consumeCreatedJobs()
     return response
+}
+
+export async function requestModelPresetData(
+    arg: requestDataArgument,
+    preset: ModelPreset,
+    model: ModelModeExtended,
+    abortSignal: AbortSignal | null = null,
+): Promise<requestDataResponse> {
+    return executeModelPresetRequest(arg, preset, abortSignal, model)
 }
 
 

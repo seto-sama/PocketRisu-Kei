@@ -277,6 +277,7 @@ describe('revenant workflow validation', () => {
             messageChatId: 'message-1',
             isContinuation: false,
             providerBackend: 'http',
+            modelPreset: {},
             character: { chaId: 'character-1' },
             chat: { id: 'room-1', message: [] },
             database: {},

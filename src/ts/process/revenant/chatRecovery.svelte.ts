@@ -54,6 +54,7 @@ import {
     updateRevenantWorkflowStep,
 } from './workflow'
 import { commitCancelledGenerationProjection } from './chatCancellation'
+import { serviceRevenantClientActions } from './clientActions.svelte'
 
 interface ChatRecoveryDependencies {
     isChatBusy: () => boolean
@@ -413,6 +414,11 @@ export async function recoverRevenantGenerationsForChat(
     let deferAuxiliaryRecovery = false
     try {
         let activeWorkflow = await getActiveRevenantWorkflow(character.chaId, chat.id)
+        if (activeWorkflow?.steps.some(step => step.status === 'waiting_client')) {
+            await serviceRevenantClientActions(activeWorkflow, character)
+            scheduleRecoveryFallback(character, chat, options)
+            return 0
+        }
         let workflowMutationOwned = !activeWorkflow
         const hypaMemoryCheckpoint = activeWorkflow?.steps
             .find(step => step.key === 'memory.hypav3' && step.status === 'completed')

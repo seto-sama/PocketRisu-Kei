@@ -93,6 +93,8 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
         || value.postprocess.messageChatId !== value.resume.messageChatId
         || value.postprocess.isContinuation !== value.resume.isContinuation
         || !['http', 'plugin'].includes(value.postprocess.providerBackend)
+        || !value.postprocess.modelPreset
+        || typeof value.postprocess.modelPreset !== 'object'
         || value.postprocess.character?.chaId !== characterId
         || value.postprocess.chat?.id !== roomId
         || !Array.isArray(value.postprocess.chat?.message)

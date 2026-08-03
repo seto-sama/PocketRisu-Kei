@@ -7,6 +7,7 @@ const { generationJournalStore } = require('./generationJournal.cjs');
 const { cancelActiveGenerationWork } = require('./generationRestart.cjs');
 
 const GENERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
+const CLIENT_ACTION_LEASE_MS = 5 * 60 * 1000;
 
 const saveDir = path.join(process.cwd(), 'save');
 if (!fs.existsSync(saveDir)) {
@@ -729,6 +730,115 @@ function claimGenerationWorkflowStep(workflowId, stepKey, expectedStatus = 'pend
     return getGenerationWorkflow(workflowId);
 }
 
+function parseStepMetadata(row) {
+    if (!row?.metadata) return {};
+    try {
+        const metadata = JSON.parse(row.metadata);
+        return metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+            ? metadata
+            : {};
+    } catch {
+        return {};
+    }
+}
+
+function claimGenerationWorkflowClientAction(
+    workflowId,
+    stepKey,
+    actionId,
+    clientId,
+    leaseMs = CLIENT_ACTION_LEASE_MS,
+) {
+    return db.transaction(() => {
+        const workflow = stmtGetWorkflow.get(workflowId);
+        const row = stmtGetWorkflowStep.get(workflowId, stepKey);
+        if (!workflow || workflow.status !== 'active' || row?.status !== 'waiting_client') return null;
+        const metadata = parseStepMetadata(row);
+        if (metadata.action?.actionId !== actionId) return null;
+        const now = Date.now();
+        const current = metadata.clientClaim;
+        if (
+            current?.clientId
+            && current.clientId !== clientId
+            && Number(current.expiresAt) > now
+        ) {
+            return { busy: true, action: metadata.action, claim: current };
+        }
+        const claim = {
+            clientId,
+            claimedAt: now,
+            expiresAt: now + Math.max(1000, Number(leaseMs) || CLIENT_ACTION_LEASE_MS),
+        };
+        metadata.clientClaim = claim;
+        stmtUpdateWorkflowStep.run(
+            'waiting_client', JSON.stringify(metadata), 'waiting_client', now,
+            'waiting_client', now, now, workflowId, stepKey,
+        );
+        stmtTouchWorkflow.run(now, workflowId);
+        return { busy: false, action: metadata.action, claim };
+    })();
+}
+
+function hasGenerationWorkflowClientActionClaim(
+    workflowId,
+    stepKey,
+    actionId,
+    clientId,
+) {
+    const workflow = stmtGetWorkflow.get(workflowId);
+    const row = stmtGetWorkflowStep.get(workflowId, stepKey);
+    if (!workflow || workflow.status !== 'active' || row?.status !== 'waiting_client') return false;
+    const metadata = parseStepMetadata(row);
+    return metadata.action?.actionId === actionId
+        && metadata.clientClaim?.clientId === clientId;
+}
+
+function resolveGenerationWorkflowClientAction(
+    workflowId,
+    stepKey,
+    actionId,
+    clientId,
+    response,
+) {
+    return db.transaction(() => {
+        const workflow = stmtGetWorkflow.get(workflowId);
+        const row = stmtGetWorkflowStep.get(workflowId, stepKey);
+        if (!workflow || workflow.status !== 'active' || !row) return null;
+        const metadata = parseStepMetadata(row);
+        if (Object.prototype.hasOwnProperty.call(metadata.responses || {}, actionId)) {
+            return { alreadyResolved: true };
+        }
+        if (row.status !== 'waiting_client' || metadata.action?.actionId !== actionId) return null;
+        const now = Date.now();
+        const claim = metadata.clientClaim;
+        if (!claim?.clientId || claim.clientId !== clientId) {
+            return { staleClaim: true, action: metadata.action, claim };
+        }
+        const responses = { ...(metadata.responses || {}), [actionId]: structuredClone(response) };
+        const nextMetadata = { schemaVersion: 1, responses };
+        stmtUpdateWorkflowStep.run(
+            'pending', JSON.stringify(nextMetadata), 'pending', now,
+            'pending', now, now, workflowId, stepKey,
+        );
+        stmtTouchWorkflow.run(now, workflowId);
+        return { alreadyResolved: false };
+    })();
+}
+
+function consumeGenerationWorkflowClientActionJobs(workflowId, actionId) {
+    const stepKey = `client-action:${actionId}`.slice(0, 128);
+    let consumed = 0;
+    for (const job of listGenerationWorkflowJobs(workflowId)) {
+        if (
+            job.workflowStepKey === stepKey
+            && !['queued', 'generating'].includes(job.status)
+            && !job.materializedAt
+            && markGenerationMaterialized(job.jobId)
+        ) consumed += 1;
+    }
+    return consumed;
+}
+
 function createGenerationWorkflow(input) {
     const now = Date.now();
     try {
@@ -1340,6 +1450,10 @@ module.exports = {
     getActiveGenerationWorkflow,
     listReadyChatWorkflowJobs,
     claimGenerationWorkflowStep,
+    claimGenerationWorkflowClientAction,
+    hasGenerationWorkflowClientActionClaim,
+    resolveGenerationWorkflowClientAction,
+    consumeGenerationWorkflowClientActionJobs,
     claimGenerationWorkflow,
     updateGenerationWorkflowStep,
     finishGenerationWorkflow,

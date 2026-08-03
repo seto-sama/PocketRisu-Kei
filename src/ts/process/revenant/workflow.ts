@@ -7,6 +7,8 @@ import {
 import { writable } from 'svelte/store'
 import type {
     RevenantOperationContext,
+    RevenantClientAction,
+    RevenantClientActionClaim,
     RevenantRerollSnapshot,
     RevenantWorkflow,
     RevenantWorkflowContext,
@@ -342,6 +344,51 @@ export async function updateRevenantWorkflowStep(
     )
     if (!response.ok) {
         throw new Error(`Failed to update generation workflow step: ${response.status}`)
+    }
+}
+
+export async function claimRevenantWorkflowClientAction(
+    workflowId: string,
+    stepKey: string,
+    actionId: string,
+): Promise<{ action: RevenantClientAction, claim: RevenantClientActionClaim } | undefined> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(stepKey)}/client-action/claim`,
+        {
+            method: 'POST',
+            headers: await revenantHeaders(true),
+            body: JSON.stringify({ actionId }),
+        },
+    )
+    if (response.status === 404 || response.status === 409) return undefined
+    const body = await response.json().catch(() => ({})) as {
+        action?: RevenantClientAction
+        claim?: RevenantClientActionClaim
+        error?: string
+    }
+    if (!response.ok || !body.action || !body.claim) {
+        throw new Error(body.error || `Failed to claim workflow client action: ${response.status}`)
+    }
+    return { action: body.action, claim: body.claim }
+}
+
+export async function resolveRevenantWorkflowClientAction(
+    workflowId: string,
+    stepKey: string,
+    actionId: string,
+    actionResponse: unknown,
+): Promise<void> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(stepKey)}/client-action/resolve`,
+        {
+            method: 'POST',
+            headers: await revenantHeaders(true),
+            body: JSON.stringify({ actionId, response: actionResponse }),
+        },
+    )
+    if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error || `Failed to resolve workflow client action: ${response.status}`)
     }
 }
 

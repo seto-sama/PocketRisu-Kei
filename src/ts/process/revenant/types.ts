@@ -74,6 +74,19 @@ export interface RevenantWorkflowStepExecution {
     completedAt?: number
 }
 
+export interface RevenantClientAction {
+    schemaVersion: 1
+    actionId: string
+    kind: string
+    payload: Record<string, unknown>
+}
+
+export interface RevenantClientActionClaim {
+    clientId: string
+    claimedAt: number
+    expiresAt: number
+}
+
 export interface RevenantWorkflow {
     workflowId: string
     characterId: string
@@ -109,6 +122,7 @@ export interface RevenantPostprocessRecipe {
     isContinuation: boolean
     rerollSnapshot?: RevenantRerollSnapshot
     providerBackend: 'http' | 'plugin'
+    modelPreset: unknown
     character: character
     chat: Chat
     database: RevenantPostprocessDatabaseSnapshot
@@ -208,8 +222,12 @@ export interface RevenantWorkflowExecutionRef {
     workflowId: string
     stepKey: string
     executionId: string
-    ownerEpoch: number
+    ownerEpoch?: number
     dependency?: RevenantWorkflowDependency
+    clientAction?: {
+        parentStepKey: string
+        actionId: string
+    }
 }
 
 /** Browser-only observation hooks; never serialized as provider job state. */

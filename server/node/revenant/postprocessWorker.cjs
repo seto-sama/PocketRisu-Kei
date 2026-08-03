@@ -1,19 +1,10 @@
 'use strict';
 
-const path = require('path');
-
-require('sucrase/register/ts');
-const { runRevenantOutputTransform } = require(path.join(
-    __dirname,
-    '..',
-    '..',
-    '..',
-    'src',
-    'ts',
-    'process',
-    'revenant',
-    'postprocess.ts',
-));
+const {
+    runRevenantOutputStage,
+    runRevenantOutputTransform,
+    runRevenantTriggerStage,
+} = require('./postprocessPipeline.cjs');
 
 function createRevenantPostprocessWorker(options) {
     const repository = options.repository || require('./generationDb.cjs');
@@ -23,7 +14,12 @@ function createRevenantPostprocessWorker(options) {
         listReadyChatWorkflowJobs,
         updateGenerationWorkflowStep,
     } = repository;
-    const { logger = console, transformOutput = runRevenantOutputTransform } = options;
+    const {
+        logger = console,
+        transformOutput = runRevenantOutputTransform,
+        runOutputStage = runRevenantOutputStage,
+        runTriggerStage = runRevenantTriggerStage,
+    } = options;
     let timer = null;
     let running = false;
     let rerun = false;
@@ -51,33 +47,71 @@ function createRevenantPostprocessWorker(options) {
             for (const job of listReadyChatWorkflowJobs(20)) {
                 const workflow = getGenerationWorkflow(job.workflowId);
                 if (workflow?.context?.kind !== 'chat-generation') continue;
-                const outputStep = workflow.steps.find(step => step.key === 'output.transform');
-                if (outputStep?.status !== 'pending') continue;
-                if (!claimGenerationWorkflowStep(workflow.workflowId, 'output.transform', 'pending')) continue;
+                let outputStep = workflow.steps.find(step => step.key === 'output.transform');
+                if (outputStep?.status === 'pending'
+                    && claimGenerationWorkflowStep(workflow.workflowId, 'output.transform', 'pending')) {
+                    try {
+                        const prefix = job.isContinuation ? job.continuationPrefix || '' : '';
+                        const result = await runOutputStage({
+                            text: `${prefix}${job.projection.content}`.trim(),
+                            recipe: workflow.context.postprocess,
+                            job,
+                            responses: outputStep.metadata?.responses,
+                            transformOutput,
+                        });
+                        updateGenerationWorkflowStep(workflow.workflowId, 'output.transform', {
+                            status: result.status === 'waiting_client' ? 'waiting_client' : 'completed',
+                            metadata: {
+                                schemaVersion: 1,
+                                ...(outputStep.metadata?.responses
+                                    ? { responses: outputStep.metadata.responses }
+                                    : {}),
+                                ...result,
+                            },
+                        });
+                    }
+                    catch (error) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        updateGenerationWorkflowStep(workflow.workflowId, 'output.transform', {
+                            status: 'failed',
+                            metadata: { schemaVersion: 1, error: message },
+                        });
+                        logger.error(`[Revenant] Output transform failed for ${workflow.workflowId}:`, error);
+                    }
+                    outputStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                        ?.find(step => step.key === 'output.transform');
+                }
+                if (outputStep?.status !== 'completed') continue;
+
+                let triggerStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                    ?.find(step => step.key === 'trigger.output');
+                if (triggerStep?.status !== 'pending'
+                    || !claimGenerationWorkflowStep(workflow.workflowId, 'trigger.output', 'pending')) continue;
                 try {
-                    const prefix = job.isContinuation ? job.continuationPrefix || '' : '';
-                    const result = await transformOutput(
-                        `${prefix}${job.projection.content}`.trim(),
-                        workflow.context.postprocess,
-                    );
-                    updateGenerationWorkflowStep(workflow.workflowId, 'output.transform', {
-                        status: 'completed',
+                    const result = await runTriggerStage({
+                        recipe: workflow.context.postprocess,
+                        text: outputStep.metadata.text,
+                        chat: outputStep.metadata.chat,
+                        responses: triggerStep.metadata?.responses,
+                    });
+                    updateGenerationWorkflowStep(workflow.workflowId, 'trigger.output', {
+                        status: result.status === 'waiting_client' ? 'waiting_client' : 'completed',
                         metadata: {
                             schemaVersion: 1,
-                            text: result.text,
-                            chat: result.chat,
-                            foregroundEffects: result.foregroundEffects,
-                            errors: result.errors,
+                            ...(triggerStep.metadata?.responses
+                                ? { responses: triggerStep.metadata.responses }
+                                : {}),
+                            ...result,
                         },
                     });
                 }
                 catch (error) {
                     const message = error instanceof Error ? error.message : String(error);
-                    updateGenerationWorkflowStep(workflow.workflowId, 'output.transform', {
+                    updateGenerationWorkflowStep(workflow.workflowId, 'trigger.output', {
                         status: 'failed',
                         metadata: { schemaVersion: 1, error: message },
                     });
-                    logger.error(`[Revenant] Output transform failed for ${workflow.workflowId}:`, error);
+                    logger.error(`[Revenant] Output trigger failed for ${workflow.workflowId}:`, error);
                 }
             }
         }

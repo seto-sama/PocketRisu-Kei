@@ -54,6 +54,7 @@ const {
 } = require('./revenant/generationProjection.cjs');
 const { installRevenantGenerationRoutes } = require('./revenant/generationRoutes.cjs');
 const { createGenerationWorkers } = require('./revenant/generationWorkers.cjs');
+const { createRevenantMaterializer } = require('./revenant/materializer.cjs');
 const {
     createGenerationWorkflowService,
 } = require('./revenant/generationWorkflowService.cjs');
@@ -1867,6 +1868,26 @@ const generationWorkflowService = createGenerationWorkflowService({
     abortHypaWorkflowExecution,
 });
 
+const revenantMaterializer = createRevenantMaterializer({
+    repository: generationDb,
+    queueStorageOperation,
+    ensureChatStore,
+    getChatStorageState: () => ({ fullChatStore, saveTimers, dbCache }),
+    databaseHexKey: DB_HEX_KEY,
+    persistDbCacheWithChats,
+    kvGet,
+    normalizeJSON,
+    decodeRisuSave,
+    reassembleFullDb,
+    stripChatsFromDb,
+    kvSet,
+    encodeRisuSaveLegacy,
+    initChatStore,
+    createBackupAndRotate,
+    broadcastDatabaseInvalidated: (request, payload) =>
+        broadcastDatabaseInvalidated(request || { headers: {} }, payload),
+});
+
 async function runGenerationProviderJob(job, arg) {
     const targetUrl = sanitizeGenerationTargetUrl(arg.targetUrl);
     if (!targetUrl) {
@@ -2709,24 +2730,8 @@ installRevenantGenerationRoutes(app, {
     maxBodyBase64Bytes: GENERATION_JOB_MAX_BODY_BASE64_BYTES,
     randomUUID: () => nodeCrypto.randomUUID(),
     addRequestLog,
-    queueStorageOperation,
+    materializeGeneration: revenantMaterializer.materialize,
     isSyncClientConnected: clientId => (syncClients.get(clientId)?.size ?? 0) > 0,
-    chatStorage: {
-        ensureChatStore,
-        getState: () => ({ fullChatStore, saveTimers, dbCache }),
-        databaseHexKey: DB_HEX_KEY,
-        persistDbCacheWithChats,
-        kvGet,
-        normalizeJSON,
-        decodeRisuSave,
-        reassembleFullDb,
-        stripChatsFromDb,
-        kvSet,
-        encodeRisuSaveLegacy,
-        initChatStore,
-        createBackupAndRotate,
-        broadcastDatabaseInvalidated,
-    },
 });
 
 // app.get('/api/password', async(req, res)=> {

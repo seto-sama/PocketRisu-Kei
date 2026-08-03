@@ -42,6 +42,7 @@ export function buildGenerationRequest(
     const characterId = arg.currentChar?.chaId
     const roomId = activeChat?.id
     const workflow = getLocalRevenantWorkflow(characterId, roomId)
+    const clientAction = arg.revenantClientAction
     return {
         job: {
             chatId,
@@ -58,7 +59,15 @@ export function buildGenerationRequest(
             dispatchPolicy: arg.revenantDispatchPolicy,
             ...usageIdentity,
         },
-        workflow: workflow ? {
+        workflow: clientAction ? {
+            workflowId: clientAction.workflowId,
+            stepKey: `client-action:${clientAction.actionId}`.slice(0, 128),
+            executionId: clientAction.executionId,
+            clientAction: {
+                parentStepKey: clientAction.parentStepKey,
+                actionId: clientAction.actionId,
+            },
+        } : workflow ? {
             workflowId: workflow.workflowId,
             stepKey: getRevenantWorkflowStepKey(jobType, arg.revenantOperationContext, chatId),
             executionId: arg.revenantStepExecutionId ??= uuidv4(),

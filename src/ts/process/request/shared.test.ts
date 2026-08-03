@@ -106,4 +106,32 @@ describe('buildGenerationRequest', () => {
         expect(first?.workflow?.executionId).toBeTruthy()
         expect(second?.workflow?.executionId).toBe(first?.workflow?.executionId)
     })
+
+    test('links a delegated client action without borrowing the workflow owner epoch', () => {
+        workflowState.workflow = { workflowId: 'workflow-1', ownerEpoch: 9 }
+        const request = buildGenerationRequest({
+            formated: [], bias: {}, mode: 'model',
+            currentChar: {
+                chaId: 'character-1', chatPage: 0,
+                chats: [{ id: 'room-1', message: [] }],
+            },
+            revenantClientAction: {
+                workflowId: 'workflow-1',
+                parentStepKey: 'trigger.output',
+                actionId: 'trigger.0.provider.llm',
+                executionId: 'action-execution-1',
+            },
+        } as any)
+
+        expect(request?.workflow).toEqual({
+            workflowId: 'workflow-1',
+            stepKey: 'client-action:trigger.0.provider.llm',
+            executionId: 'action-execution-1',
+            clientAction: {
+                parentStepKey: 'trigger.output',
+                actionId: 'trigger.0.provider.llm',
+            },
+        })
+        expect(request?.workflow).not.toHaveProperty('ownerEpoch')
+    })
 })
