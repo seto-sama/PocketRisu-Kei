@@ -2053,13 +2053,29 @@ async function runGenerationProviderJob(job, arg) {
                 rawResponse.length,
             );
         }
-        job.terminalEvent = terminalFailure
-            ? { type: 'error', status: 502, message: terminalFailure.message }
-            : {
+        // A non-2xx upstream response is still a complete HTTP response. Close
+        // its journal normally so the client adapter can read the provider's
+        // error body and surface the precise message instead of a transport
+        // level "HTTP N" fallback. The job remains failed in durable storage.
+        if (terminalFailure?.finishReason === 'upstream_http_error') {
+            job.terminalEvent = {
+                type: 'done',
+                partial: false,
+                finishReason: terminalFailure.finishReason,
+            };
+        } else if (terminalFailure) {
+            job.terminalEvent = {
+                type: 'error',
+                status: 502,
+                message: terminalFailure.message,
+            };
+        } else {
+            job.terminalEvent = {
                 type: 'done',
                 partial: cancelled,
                 finishReason: cancelled ? cancelFinishReason : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
             };
+        }
         markGenerationJobDone(job);
         scheduleHypaWorkflowExecution();
     } catch (error) {

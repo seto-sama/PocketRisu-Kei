@@ -346,6 +346,14 @@ const stmtMarkMaterialized = db.prepare(`
     SET materialized_at = ?, updated_at = ?
     WHERE job_id = ?
 `);
+const stmtAcknowledgeSupersededWorkflowStepJobs = db.prepare(`
+    UPDATE generation_jobs
+    SET materialized_at = COALESCE(materialized_at, ?), updated_at = ?
+    WHERE workflow_id = ?
+      AND workflow_step_key = ?
+      AND job_id <> ?
+      AND status NOT IN ('queued', 'generating')
+`);
 const stmtMaterializedPayloadTotal = db.prepare(`
     SELECT COALESCE(SUM(
         raw_bytes + length(CAST(COALESCE(normalized_projection, '') AS BLOB))
@@ -894,6 +902,19 @@ function createGenerationJob(input) {
             now,
         });
         linkGenerationJobToWorkflow(input);
+        if (input.workflowId && input.workflowStepKey) {
+            // Tool loops and application retries can issue more than one
+            // provider round for one logical workflow step. Once the next
+            // round is durably registered, earlier terminal wire responses are
+            // superseded inputs, not assistant messages waiting to materialize.
+            stmtAcknowledgeSupersededWorkflowStepJobs.run(
+                now,
+                now,
+                input.workflowId,
+                input.workflowStepKey,
+                input.jobId,
+            );
+        }
     } catch (error) {
         stmtDeleteJob.run(input.jobId);
         generationJournalStore.remove(input.workflowId || null, input.jobId);

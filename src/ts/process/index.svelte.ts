@@ -170,6 +170,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const rerollSnapshot = arg.revenantResume?.context.rerollSnapshot ?? arg.rerollSnapshot
     let revenantWorkflowId:string|undefined = resumeWorkflow?.workflowId
     let revenantMainDependency:RevenantWorkflowDependency|undefined
+    let revenantMainJobCreated = !!resumeWorkflow?.steps
+        .find(step => step.key === 'model.main')?.jobId
     let revenantMaterialized = false
 
     const stageTimings = {
@@ -380,7 +382,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             const compiledMainPreset = compileModelPreset(claimBinding.preset, {
                 jsonSchemaRequested: DBState.db.jsonSchemaEnabled,
             })
-            if(compiledMainPreset.backend === 'http'){
+            // Echo is a deterministic local test backend, not an LLM provider
+            // call. HTTP and plugin-backed providers must both enter the
+            // recoverable chat workflow. Plugin providers satisfy this contract
+            // by issuing their provider request through nativeFetch.
+            if(compiledMainPreset.backend !== 'echo'){
                 if(!outgoingChat.id) throw new Error('Cannot start generation because the chat has no id.')
                 const igpEnabled = !!(DBState.db.igpPrompt ?? '').trim()
                 const resumeContext:RevenantWorkflowResumeContext = {
@@ -1890,7 +1896,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
             rememberToolUsage: DBState.db.rememberToolUsage,
             revenantWorkflowDependency: revenantMainDependency,
-            onRevenantJobCreated: lifecycle.onJobCreated,
+            onRevenantJobCreated: jobId => {
+                revenantMainJobCreated = true
+                lifecycle.onJobCreated?.(jobId)
+            },
             onRevenantJobRegistrationUnavailable: lifecycle.onJobRegistrationUnavailable,
             onRevenantProviderStarted: lifecycle.onProviderStarted,
         }, 'model', abortSignal)
@@ -1909,6 +1918,31 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         await mainGeneration.registered
         return mainGeneration.result
     })()
+
+    // Read through a function so TypeScript does not treat AbortSignal.aborted
+    // as permanently false across the async Hypa wait below.
+    const generationWasAborted = () => abortSignal.aborted
+    if(generationWasAborted()){
+        finishStreamingDisplay()
+        await finishWorkflow('cancelled')
+        return false
+    }
+    if(req.type === 'fail'){
+        throwError(req.result)
+        finishStreamingDisplay()
+        await setWorkflowStep('model.main', 'failed')
+        await finishWorkflow('failed')
+        return false
+    }
+
+    if(revenantWorkflowId && !revenantMainJobCreated){
+        const message = 'The configured chat provider completed without dispatching a durable model request. Plugin providers must issue the model request through nativeFetch or risuFetch.'
+        throwError(message)
+        finishStreamingDisplay()
+        await setWorkflowStep('model.main', 'failed')
+        await finishWorkflow('failed')
+        return false
+    }
 
     if(revenantMainDependency && revenantWorkflowId){
         const remoteSelection = await waitForRevenantHypaExecution<{
@@ -1989,14 +2023,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         await finishWorkflow('cancelled')
         return false
     }
-    if(req.type === 'fail'){
-        throwError(req.result)
-        finishStreamingDisplay()
-        await setWorkflowStep('model.main', 'failed')
-        await finishWorkflow('failed')
-        return false
-    }
-    else if(req.type === 'streaming'){
+    if(req.type === 'streaming'){
         const reader = req.result.getReader()
         const generationChat = DBState.db.characters[selectedChar].chats[selectedChat]
         const msgIndex = generationChat.message.findIndex(message => message?.chatId === messageChatId)
@@ -2012,6 +2039,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         DBState.db.characters[selectedChar].reloadKeys += 1
         let lastResponseChunk:{[key:string]:string} = {}
         let streamAborted:boolean = abortSignal.aborted
+        let streamFailure:unknown
         const abortReader = () => {
             streamAborted = true
             void cancelRevenantGeneration(messageChatId).catch(error => {
@@ -2031,7 +2059,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         streamAborted = true
                         break
                     }
-                    throw error
+                    streamFailure = error
+                    break
                 }
                 if(readed.value){
                     lastResponseChunk = readed.value
@@ -2069,6 +2098,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
         if(streamAborted || abortSignal.aborted){
             await finishWorkflow('cancelled')
+            return false
+        }
+        if(streamFailure){
+            const message = streamFailure instanceof Error
+                ? streamFailure.message
+                : String(streamFailure)
+            throwError(message)
+            await setWorkflowStep('model.main', 'failed')
+            await finishWorkflow('failed')
             return false
         }
 
@@ -2182,11 +2220,20 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         const igpFormated = parseChatML(igp)
         const rq = await requestChatData({
             formated: igpFormated,
-            bias: {}
+            bias: {},
+            currentChar,
+            useStreaming: false,
         },'emotion', abortSignal)
 
-        DBState.db.characters[selectedChar].chats[selectedChat].message[DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1].data += rq
-        await setWorkflowStep('igp', 'completed')
+        if(rq.type === 'success'){
+            DBState.db.characters[selectedChar].chats[selectedChat].message[DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1].data += rq.result
+            await setWorkflowStep('igp', 'completed')
+        }
+        else{
+            const reason = rq.type === 'fail' ? rq.result : `unexpected_${rq.type}`
+            console.error('[GenerationWorkflow] IGP request failed:', reason)
+            await setWorkflowStep('igp', 'skipped', { reason })
+        }
     }
 
     stageTimings.stage3Duration = Date.now() - stageTimings.stage3Start

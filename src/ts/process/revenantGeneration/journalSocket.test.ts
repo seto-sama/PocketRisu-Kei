@@ -88,4 +88,55 @@ describe('openRevenantJournalSocket', () => {
         expect((await reader.read()).done).toBe(true)
         expect(onDone).toHaveBeenCalledOnce()
     })
+
+    it('preserves a provider error body from older servers for adapter parsing', async () => {
+        const onFatal = vi.fn()
+        let responseStatus = 0
+        const stream = openRevenantJournalSocket({
+            jobId: 'job-provider-error',
+            auth: 'auth',
+            onHeaders(status) {
+                responseStatus = status
+            },
+            onFatal,
+        })
+        const bodyPromise = new Response(stream).text()
+        const socket = FakeWebSocket.instances[0]
+        const body = JSON.stringify({
+            error: {
+                code: 400,
+                message: 'Requests ending with a model turn are not supported.',
+                status: 'INVALID_ARGUMENT',
+            },
+        })
+
+        socket.emit({ type: 'upstream_headers', status: 400, headers: {} })
+        socket.emit({
+            type: 'chunk',
+            offset: 0,
+            dataBase64: Buffer.from(body).toString('base64'),
+        })
+        socket.emit({ type: 'error', status: 502, message: 'Provider request failed with HTTP 400' })
+
+        expect(responseStatus).toBe(400)
+        expect(await bodyPromise).toBe(body)
+        expect(onFatal).not.toHaveBeenCalled()
+    })
+
+    it('still rejects a transport failure after non-2xx provider headers', async () => {
+        const onFatal = vi.fn()
+        const stream = openRevenantJournalSocket({
+            jobId: 'job-truncated-provider-error',
+            auth: 'auth',
+            onFatal,
+        })
+        const bodyPromise = new Response(stream).text()
+        const socket = FakeWebSocket.instances[0]
+
+        socket.emit({ type: 'upstream_headers', status: 400, headers: {} })
+        socket.emit({ type: 'error', status: 504, message: 'provider body interrupted' })
+
+        await expect(bodyPromise).rejects.toThrow('Cloudflare/origin timeout')
+        expect(onFatal).toHaveBeenCalledOnce()
+    })
 })

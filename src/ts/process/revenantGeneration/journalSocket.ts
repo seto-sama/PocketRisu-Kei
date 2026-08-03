@@ -41,6 +41,7 @@ export function openRevenantJournalSocket(
             let terminal = false
             let reconnectAttempts = 0
             let providerStartedReported = false
+            let upstreamStatus: number | undefined
             let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
             const closeSocket = () => {
@@ -103,6 +104,7 @@ export function openRevenantJournalSocket(
                             }
                             return
                         case 'upstream_headers':
+                            upstreamStatus = parsed.status
                             options.onHeaders?.(parsed.status, parsed.headers)
                             return
                         case 'chunk': {
@@ -129,6 +131,17 @@ export function openRevenantJournalSocket(
                             finish()
                             return
                         case 'error':
+                            // Older Revenant servers terminate every non-2xx
+                            // provider response as a socket error after sending
+                            // its complete body. Preserve that body as a normal
+                            // Response so the provider adapter can extract the
+                            // actual error message and classify retryability.
+                            if (parsed.status === 502
+                                && upstreamStatus !== undefined
+                                && (upstreamStatus < 200 || upstreamStatus >= 300)) {
+                                finish()
+                                return
+                            }
                             fail(new Error(formatProxyStreamErrorMessage(
                                 parsed.status,
                                 parsed.message,

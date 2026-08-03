@@ -1459,6 +1459,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     const result = await requestChatData({
                         formated: promptbody,
                         bias: {},
+                        currentChar: char,
                         useStreaming: false,
                         noMultiGen: true,
                     }, 'model')
@@ -1886,6 +1887,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     let result = await requestChatData({
                         formated: promptbody,
                         bias: {},
+                        currentChar: char,
                         useStreaming: effect.streaming ?? false,
                         noMultiGen: true,
                     }, effect.model)

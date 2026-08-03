@@ -1310,6 +1310,7 @@ interface GlobalFetchArgs {
     interceptor?: string;
     requestTimeoutMs?: number;
     networkRoute?: 'auto' | 'local_network';
+    llmExecutionPolicy?: import('./network/transportTypes').LLMExecutionPolicy;
 }
 
 /**
@@ -1353,6 +1354,7 @@ export async function globalFetch(url: string, arg: GlobalFetchArgs = {}): Promi
                 interceptor: arg.interceptor,
                 requestTimeoutMs: arg.requestTimeoutMs,
                 networkRoute: arg.networkRoute,
+                llmExecutionPolicy: arg.llmExecutionPolicy,
             })
             const text = await response.text()
             let data: any = text

@@ -14,6 +14,7 @@ import { getGeneralJSONSchema } from "../templates/jsonSchema";
 import { runTrigger } from "../triggers";
 import { buildGenerationContext, collectStreamingText, type ModelModeExtended } from './shared';
 import {
+    ModelPresetAdapterError,
     runToolLoop,
     type AdapterCacheContext,
     type AdapterChatMessage, type AdapterChatOptions, type AdapterCredential,
@@ -341,6 +342,31 @@ export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[]){
 
 
 export async function requestChatDataMain(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
+    const currentChat = getCurrentChat()
+    const binding = resolveChatModelBinding(currentChat, model)
+    if(binding.kind === 'modelPreset'){
+        return executeModelPresetRequest(
+            arg,
+            applyPromptPresetParams(binding.preset, currentChat, model),
+            abortSignal,
+            model,
+        )
+    }
+    return {
+        type: 'fail',
+        noRetry: true,
+        result: binding.reason === 'main-unset'
+            ? language.modelPresetBindingMainUnset
+            : language.modelPresetBindingSubUnset,
+    }
+}
+
+async function executeModelPresetRequest(
+    arg: requestDataArgument,
+    preset: ModelPreset,
+    abortSignal: AbortSignal | null,
+    model: ModelModeExtended,
+): Promise<requestDataResponse> {
     const createdJobIds:string[] = []
     const callerOnJobCreated = arg.onRevenantJobCreated
     const targ:RequestDataArgumentExtended = {
@@ -368,31 +394,15 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
         }
     }
 
-    const currentChat = getCurrentChat()
-    const binding = resolveChatModelBinding(currentChat, model)
-    if(binding.kind === 'modelPreset'){
-        const response = await requestModelPreset(
-            targ,
-            applyPromptPresetParams(binding.preset, currentChat, model),
-            abortSignal,
-            model,
-        )
-        if (response.type === 'streaming' && autoConsume) {
-            return {
-                ...response,
-                result: consumeOnStreamCompletion(response.result, consumeCreatedJobs),
-            }
+    const response = await requestModelPreset(targ, preset, abortSignal, model)
+    if (response.type === 'streaming' && autoConsume) {
+        return {
+            ...response,
+            result: consumeOnStreamCompletion(response.result, consumeCreatedJobs),
         }
-        await consumeCreatedJobs()
-        return response
     }
-    return {
-        type: 'fail',
-        noRetry: true,
-        result: binding.reason === 'main-unset'
-            ? language.modelPresetBindingMainUnset
-            : language.modelPresetBindingSubUnset,
-    }
+    await consumeCreatedJobs()
+    return response
 }
 
 
@@ -728,6 +738,18 @@ function describeModelPresetError(err: unknown): Record<string, unknown> {
     return { message: String(err) }
 }
 
+export function modelPresetRequestFailurePolicy(error: unknown): {
+    noRetry?: boolean
+    failByServerError?: boolean
+} {
+    if (!(error instanceof ModelPresetAdapterError)) return {}
+    return {
+        noRetry: !error.retryable,
+        failByServerError: error.retryable
+            && (error.kind === 'server' || error.kind === 'rate-limit'),
+    }
+}
+
 // --- request-status publishing (model-preset path only) ------------------
 //
 // Thin, harmless bridge from the preset request pipeline to the request-status
@@ -780,13 +802,15 @@ function toRequestKind(mode: ModelModeExtended): RequestKind {
 // Per-preset streaming preference. Adapter/profile support is compiled once and
 // passed in; forceStreaming deliberately overrides the profile declaration for
 // internal callers, while the concrete adapter must still implement streaming.
-function resolvePresetStreaming(
+export function resolvePresetStreaming(
     preset: ModelPreset,
     arg: RequestDataArgumentExtended,
     profileSupportsStreaming: boolean,
 ): boolean {
     if (arg.forceStreaming) return true
     if (!profileSupportsStreaming) return false
+    const isMainChatGeneration = arg.mode === 'model' && !!arg.chatId
+    if (!isMainChatGeneration && arg.useStreaming !== true) return false
     return !!preset.useStreaming && (arg.useStreaming ?? true)
 }
 
@@ -1230,6 +1254,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             type: 'fail',
             result: err instanceof Error ? err.message : String(err),
             model: preset.name,
+            ...modelPresetRequestFailurePolicy(err),
         }
     }
 }
@@ -1246,13 +1271,13 @@ export interface ModelPresetTestResult {
 }
 
 export async function testModelPreset(preset: ModelPreset, message: string, abortSignal: AbortSignal = null): Promise<ModelPresetTestResult> {
-    const arg: RequestDataArgumentExtended = {
+    const arg: requestDataArgument = {
         formated: [{ role: 'user', content: message }],
         bias: {},
         useStreaming: false,
     }
     const start = performance.now()
-    const res = await requestModelPreset(arg, preset, abortSignal)
+    const res = await executeModelPresetRequest(arg, preset, abortSignal, 'otherAx')
     const latencyMs = Math.round(performance.now() - start)
     // useStreaming:false + no tools guarantees a success/fail (never streaming/multiline),
     // but fall through defensively rather than asserting the union.

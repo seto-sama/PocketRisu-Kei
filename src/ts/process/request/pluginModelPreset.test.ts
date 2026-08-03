@@ -33,7 +33,12 @@ vi.mock('src/ts/storage/database.svelte', () => ({
 
 import { pluginProviderRequestContextKey, pluginV2 } from 'src/ts/plugins/plugins.svelte'
 import { customV3ProviderMetaStore } from 'src/ts/plugins/apiV3/v3.svelte'
-import { testModelPreset } from './request'
+import {
+    modelPresetRequestFailurePolicy,
+    resolvePresetStreaming,
+    testModelPreset,
+} from './request'
+import { ModelPresetAdapterError } from 'src/ts/preset/adapter'
 import type { ModelPreset } from 'src/ts/preset/types'
 import { LLMFlags, LLMFormat, LLMProvider, LLMTokenizer } from 'src/ts/model/types'
 import { requestStatuses, stopStatusTimer } from 'src/ts/status/requestStatus'
@@ -84,6 +89,43 @@ describe('plugin-backed ModelPreset dispatch', () => {
         delete mockDb.showRequestStatus
     })
 
+    test('defaults standalone LLM calls to a consumed non-streaming result', () => {
+        const preset = pluginPreset()
+        preset.useStreaming = true
+
+        expect(resolvePresetStreaming(preset, {
+            formated: [],
+            bias: {},
+            mode: 'otherAx',
+        }, true)).toBe(false)
+        expect(resolvePresetStreaming(preset, {
+            formated: [],
+            bias: {},
+            mode: 'otherAx',
+            useStreaming: true,
+        }, true)).toBe(true)
+        expect(resolvePresetStreaming(preset, {
+            formated: [],
+            bias: {},
+            mode: 'model',
+            chatId: 'message-1',
+        }, true)).toBe(true)
+    })
+
+    test('stops retrying invalid provider requests but retains transient retries', () => {
+        expect(modelPresetRequestFailurePolicy(
+            new ModelPresetAdapterError(
+                'invalid-request',
+                'Requests ending with a model turn are not supported.',
+                { status: 400 },
+            ),
+        )).toEqual({ noRetry: true, failByServerError: false })
+
+        expect(modelPresetRequestFailurePolicy(
+            new ModelPresetAdapterError('server', 'temporarily unavailable', { status: 503 }),
+        )).toEqual({ noRetry: false, failByServerError: true })
+    })
+
     test('calls the registered addProvider function with preset-scoped parameters', async () => {
         let received: any
         let receivedSignal: AbortSignal | undefined
@@ -110,7 +152,7 @@ describe('plugin-backed ModelPreset dispatch', () => {
             prompt_chat: [{ role: 'user', content: 'hello' }],
             max_tokens: 1234,
             temperature: 0.25,
-            mode: 'model',
+            mode: 'otherAx',
         })
         expect(receivedSignal).toBeInstanceOf(AbortSignal)
         expect(received[pluginProviderRequestContextKey]).toMatchObject({
