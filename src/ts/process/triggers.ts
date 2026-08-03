@@ -1239,7 +1239,13 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
             get message() { return chat.message },
             set message(value) { chat.message = value as Chat['message'] },
         }
-        const databaseDraft = safeStructuredClone(db)
+        // Display triggers only execute `displayAllowList`: those effects can
+        // read database-backed values, but cannot mutate persistent database,
+        // character, or chat fields. Cloning the complete database here made
+        // every rendered message pay that cost independently (and dominated
+        // long translated-chat loading), so keep the defensive draft only for
+        // mutation-capable trigger runs.
+        const databaseDraft = arg.displayMode ? db : safeStructuredClone(db)
         const v2Core = createTriggerV2Core({
             effects: trigger.effect as unknown as TriggerV2Effect[],
             render: value => risuChatParser(String(value ?? ''), { chara: char }),

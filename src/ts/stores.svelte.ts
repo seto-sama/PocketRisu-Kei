@@ -80,6 +80,9 @@ export const AdminStatsSubmenuIndex = writable(0)
 // (AccessibilityTab) and Setting/Pages/AccessibilitySettings.svelte.
 export const AccessibilitySubmenuIndex = writable(0)
 export const ReloadGUIPointer = writable(0)
+// Room switches need background/script-cache refreshes, but they must not
+// invalidate every room's parsed-message cache like a real GUI/script edit.
+export const ChatRoomReloadPointer = writable(0)
 export const ReloadChatPointer = writable({} as Record<number, number>)
 export const ScrollToMessageStore = $state({ value: -1 })
 export const OpenRealmStore = writable(false)
@@ -239,10 +242,12 @@ export function showPopupEditor(options: PopupEditorOptions) {
 //Set might be more ideal, however since Svelte doesn't support reactive Sets, using array for now
 export const hotReloading = $state<string[]>([])
 
-ReloadGUIPointer.subscribe(() => {
+const resetChatRenderState = () => {
     ReloadChatPointer.set({})
     resetScriptCache()
-})
+}
+ReloadGUIPointer.subscribe(resetChatRenderState)
+ChatRoomReloadPointer.subscribe(resetChatRenderState)
 
 $effect.root(() => {
     selectedCharID.subscribe((v) => {

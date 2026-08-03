@@ -29,6 +29,7 @@ export function createChatBodyRenderController(
     let lastStreamingDisplay: boolean | null = null
     let lastTranslationPending: boolean | null = null
     let disposed = false
+    const renderAbortController = new AbortController()
     const translationAbortControllers = new Set<AbortController>()
 
     function cancelTranslations() {
@@ -105,7 +106,10 @@ export function createChatBodyRenderController(
             || regenerate
             || cacheKey === null
             || await getLLMCache(cacheKey) === null
-        if (!needsTranslation) return await task(new AbortController().signal)
+        if (!needsTranslation) {
+            renderAbortController.signal.throwIfAborted()
+            return await task(renderAbortController.signal)
+        }
 
         if (disposed) return await task(new AbortController().signal)
         const abortController = new AbortController()
@@ -130,6 +134,7 @@ export function createChatBodyRenderController(
     function dispose() {
         if (disposed) return
         disposed = true
+        renderAbortController.abort()
         cancelTranslations()
         translationAbortControllers.clear()
         updateTranslationCanceller()
@@ -218,6 +223,7 @@ export function createChatBodyRenderController(
     return {
         beginRender,
         dispose,
+        isDisposed: () => disposed,
         isTranslationBusy,
         renderTranslation,
     }

@@ -38,6 +38,23 @@ export async function readPersistentJson<T>(storageKey: string): Promise<T | nul
     return JSON.parse(decoder.decode(data)) as T;
 }
 
+export async function readPersistentJsonBatch<T>(storageKeys: string[]): Promise<Map<string, T>> {
+    await ensureStorageReady();
+    if (storageKeys.length === 0) return new Map();
+
+    const entries = await forageStorage.getItems(storageKeys);
+    const values = new Map<string, T>();
+    for (const entry of entries) {
+        try {
+            values.set(entry.key, JSON.parse(decoder.decode(entry.value)) as T);
+        }
+        catch {
+            // Match readPersistentJson: a malformed cache entry is unusable.
+        }
+    }
+    return values;
+}
+
 export async function writePersistentJson<T>(storageKey: string, value: T): Promise<void> {
     await ensureStorageReady();
     await forageStorage.setItem(storageKey, encoder.encode(JSON.stringify(value)));

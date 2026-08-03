@@ -130,6 +130,29 @@ describe('revenant durable dispatch validation', () => {
             requestsPerMinute: 20,
         }, { kind: 'translation' }, 'workflow-1')).toBeUndefined()
     })
+
+    it('validates chat-message translation targets', () => {
+        const operation = {
+            kind: 'translation',
+            operationId: 'translation-1',
+            cacheKey: 'source text',
+            styleDecodes: [],
+            replaceExisting: false,
+            target: {
+                kind: 'chat-message',
+                messageChatId: 'message-1',
+                messageIndex: 12,
+                swipeId: 2,
+            },
+        }
+        expect(normalizeRevenantOperationContext('translate', operation)).toEqual(operation)
+        const { target: _target, ...withoutTarget } = operation
+        expect(normalizeRevenantOperationContext('translate', withoutTarget)).toBeUndefined()
+        expect(normalizeRevenantOperationContext('translate', {
+            ...operation,
+            target: { ...operation.target, swipeId: 2.5 },
+        })).toBeUndefined()
+    })
 })
 
 describe('revenant workflow-dependent main dispatch', () => {

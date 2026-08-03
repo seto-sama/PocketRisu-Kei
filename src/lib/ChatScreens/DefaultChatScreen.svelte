@@ -96,6 +96,18 @@ import { isMobile } from 'src/ts/platform'
     let currentChatReady = $derived(!!currentChatSlot && !currentChatSlot._placeholder)
     let currentChat = $derived(currentChatReady ? currentChatSlot.message : [])
     let currentChatFmIndex = $derived(currentChatReady ? (currentChatSlot.fmIndex ?? -1) : -1)
+    let loadPagesRoomKey = $state('')
+    let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter?.chatPage ?? -1}:${currentChatSlot?.id ?? ''}`)
+
+    // History depth belongs to a room. Carrying a large value (or Infinity
+    // from screenshot/search navigation) into the next room mounts its entire
+    // history in one frame and makes translated chats especially expensive.
+    $effect.pre(() => {
+        if (loadPagesRoomKey === currentChatRoomKey) return
+        loadPagesRoomKey = currentChatRoomKey
+        loadPages = getInitialChatLoadPages(DBState.db)
+    })
+
     let currentRevenantWorkflow = $derived($activeRevenantWorkflows.find(workflow =>
         workflow.characterId === currentCharacter?.chaId
         && workflow.roomId === currentChatSlot?.id))
@@ -1472,6 +1484,8 @@ import { isMobile } from 'src/ts/platform'
                 currentCharacter={currentCharacter}
                 currentUsername={currentUsername}
                 userIcon={userIcon}
+                chatRoomId={currentChatSlot?.id ?? ''}
+                roomIsStreaming={currentChatSlot?.isStreaming ?? false}
                 userIconPortrait={userIconPortrait}
                 bind:hasNewUnreadMessage={showNewMessageButton}
             />
@@ -1508,6 +1522,11 @@ import { isMobile } from 'src/ts/platform'
                     isLastMemory={false}
                     currentPage={(Number.isFinite(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) ? (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) : -1) + 2}
                     totalPages={DBState.db.characters[$selectedCharID].alternateGreetings.length + 1}
+                    renderCacheKey={`${currentChatRoomKey}:first-message`}
+                    translationRecoveryScope={currentCharacter.chaId && currentChatSlot?.id
+                        ? { characterId: currentCharacter.chaId, roomId: currentChatSlot.id }
+                        : null}
+                    translationRecoveryTarget={null}
 
                 />
                 {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0)}

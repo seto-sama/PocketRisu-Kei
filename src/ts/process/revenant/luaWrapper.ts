@@ -59,6 +59,15 @@ function listenEdit(type, func)
     error('Invalid edit listener type')
 end
 
+function hasEditListener(type)
+    local funcs = type == 'editRequest' and editRequestFuncs
+        or type == 'editDisplay' and editDisplayFuncs
+        or type == 'editInput' and editInputFuncs
+        or type == 'editOutput' and editOutputFuncs
+        or {}
+    return #funcs > 0
+end
+
 function getState(id, name)
     return json.decode(getChatVar(id, '__'..name))
 end

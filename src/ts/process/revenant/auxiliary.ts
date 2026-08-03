@@ -8,6 +8,7 @@ import {
 import {
     isRevenantJobActive,
     isRevenantTranslationOperation,
+    type RevenantChatMessageTranslationTarget,
     type RevenantOperationContext,
     type RecoverableAuxiliaryJob,
 } from './types'
@@ -22,7 +23,10 @@ let auxiliaryGenerationSnapshot: RecoverableAuxiliaryJob[] = []
 let auxiliaryGenerationSnapshotLoaded = false
 let recoverableTranslationSnapshotSignature = ''
 const recoverableTranslationListeners = new Set<() => void>()
-const recoveredTranslationIntents = new Map<string, string>()
+const recoveredTranslationIntents = new Map<string, {
+    key: string
+    target: RevenantChatMessageTranslationTarget | null
+}>()
 const consumedAuxiliaryGenerationIds = new Set<string>()
 const consumingAuxiliaryGenerations = new Map<string, Promise<void>>()
 let auxiliaryGenerationListRequestId = 0
@@ -44,6 +48,7 @@ function getTranslationJobKey(job: RecoverableAuxiliaryJob): {
     cacheKey: string
     characterId: string
     roomId: string
+    target: RevenantChatMessageTranslationTarget | null
 } | undefined {
     if (
         job.jobType !== 'translate'
@@ -55,7 +60,19 @@ function getTranslationJobKey(job: RecoverableAuxiliaryJob): {
         cacheKey: job.operationContext.cacheKey,
         characterId: job.characterId,
         roomId: job.roomId,
+        target: job.operationContext.target ?? null,
     }
+}
+
+export function revenantTranslationTargetsMatch(
+    jobTarget: RevenantChatMessageTranslationTarget | null,
+    messageTarget: RevenantChatMessageTranslationTarget,
+): boolean {
+    if (!jobTarget || jobTarget.swipeId !== messageTarget.swipeId) return false
+    if (jobTarget.messageChatId && messageTarget.messageChatId) {
+        return jobTarget.messageChatId === messageTarget.messageChatId
+    }
+    return jobTarget.messageIndex === messageTarget.messageIndex
 }
 
 function notifyRecoverableTranslationSnapshot(): void {
@@ -73,13 +90,14 @@ function notifyRecoverableTranslationSnapshot(): void {
             key.characterId,
             key.roomId,
             key.cacheKey,
+            JSON.stringify(key.target),
         ].join('\u0000'))
     }
     const nextSignature = [
         auxiliaryGenerationSnapshotLoaded ? 'loaded' : 'loading',
         ...liveSignatures.sort(),
         ...Array.from(recoveredTranslationIntents.entries())
-            .map(([jobId, key]) => `${jobId}\u0000${key}`)
+            .map(([jobId, intent]) => `${jobId}\u0000${intent.key}\u0000${JSON.stringify(intent.target)}`)
             .sort(),
     ].join('\u0001')
     if (nextSignature === recoverableTranslationSnapshotSignature) return
@@ -114,13 +132,59 @@ export function hasRecoverableTranslation(options: {
     roomId: string
 }): boolean {
     const intentKey = translationIntentKey(options)
-    if (Array.from(recoveredTranslationIntents.values()).includes(intentKey)) return true
+    if (Array.from(recoveredTranslationIntents.values()).some(intent => intent.key === intentKey)) return true
     return auxiliaryGenerationSnapshot.some(job =>
         !isRevenantGenerationLocallyObserved(job.jobId)
         && isTranslationPending(job)
         && getTranslationJobKey(job)?.cacheKey === options.cacheKey
         && job.characterId === options.characterId
         && job.roomId === options.roomId)
+}
+
+export function hasRecoverableTranslationForTarget(options: {
+    characterId: string
+    roomId: string
+    target: RevenantChatMessageTranslationTarget
+}): boolean {
+    return getRecoverableTranslationCacheKeyForTarget(options) !== null
+}
+
+export function getRecoverableTranslationCacheKeyForTarget(options: {
+    characterId: string
+    roomId: string
+    target: RevenantChatMessageTranslationTarget
+}): string | null {
+    for (const intent of recoveredTranslationIntents.values()) {
+        try {
+            const [characterId, roomId, cacheKey] = JSON.parse(intent.key) as string[]
+            if (
+                characterId === options.characterId
+                && roomId === options.roomId
+                && revenantTranslationTargetsMatch(intent.target, options.target)
+            ) {
+                return cacheKey ?? null
+            }
+        }
+        catch {
+            // Ignore malformed in-memory intents and fall through to jobs.
+        }
+    }
+    for (const job of auxiliaryGenerationSnapshot) {
+        if (
+            isRevenantGenerationLocallyObserved(job.jobId)
+            || !isTranslationPending(job)
+            || job.characterId !== options.characterId
+            || job.roomId !== options.roomId
+        ) continue
+        const jobKey = getTranslationJobKey(job)
+        if (
+            jobKey
+            && revenantTranslationTargetsMatch(jobKey.target, options.target)
+        ) {
+            return jobKey.cacheKey
+        }
+    }
+    return null
 }
 
 export function isRecoverableTranslationSnapshotLoaded(): boolean {
@@ -134,8 +198,8 @@ export function acknowledgeRecoverableTranslation(options: {
 }): void {
     const intentKey = translationIntentKey(options)
     let changed = false
-    for (const [jobId, key] of recoveredTranslationIntents) {
-        if (key !== intentKey) continue
+    for (const [jobId, intent] of recoveredTranslationIntents) {
+        if (intent.key !== intentKey) continue
         recoveredTranslationIntents.delete(jobId)
         changed = true
     }
@@ -275,7 +339,10 @@ async function consumeRecoverableAuxiliaryGenerationOnce(jobId: string): Promise
     if (preserveTranslationIntent) {
         recoveredTranslationIntents.set(
             jobId,
-            translationIntentKey(preserveTranslationIntent),
+            {
+                key: translationIntentKey(preserveTranslationIntent),
+                target: preserveTranslationIntent.target,
+            },
         )
         notifyRecoverableTranslationSnapshot()
     }

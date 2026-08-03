@@ -23,7 +23,8 @@
     import AutoresizeArea from "../UI/GUI/TextAreaResizable.svelte"
     import ChatBody from './ChatBody.svelte'
     import PopupButton from "../UI/PopupButton.svelte";
-    import { createRevenantChatTranslationRecovery } from "src/ts/process/revenant/chatRecovery.svelte";
+    import { createRevenantChatTranslationRecovery, type RevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from "src/ts/process/revenant/chatRecovery.svelte";
+    import type { RevenantChatMessageTranslationTarget } from "src/ts/process/revenant/types";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";
@@ -67,6 +68,10 @@
         isStreamingDisplay?: boolean;
         isComment?: boolean;
         disabled?: boolean | 'allBefore';
+        renderCacheKey?: string;
+        translationRecoveryContext?: RevenantChatTranslationRecoveryContext;
+        translationRecoveryScope?: RevenantChatTranslationRecoveryScope | null;
+        translationRecoveryTarget?: RevenantChatMessageTranslationTarget | null;
     }
 
     let {
@@ -93,6 +98,10 @@
         isStreamingDisplay = false,
         isComment = false,
         disabled = false,
+        renderCacheKey = '',
+        translationRecoveryContext,
+        translationRecoveryScope,
+        translationRecoveryTarget,
     }: Props = $props();
 
     let msgDisplay = $state('')
@@ -247,13 +256,34 @@
     }
 
     const revenantTranslationRecovery = createRevenantChatTranslationRecovery({
-        getSource: () => msgDisplay,
-        getCacheKey: getTranslationCacheKey,
+        getTarget: () => {
+            if (translationRecoveryTarget !== undefined) {
+                return translationRecoveryTarget
+            }
+            if (idx < 0) return null
+            const currentCharacter = DBState.db.characters[selIdState.selId]
+            const message = currentCharacter?.chats?.[currentCharacter.chatPage]?.message?.[idx]
+            if (!message) return null
+            return {
+                kind: 'chat-message',
+                messageChatId: message.chatId ?? null,
+                messageIndex: idx,
+                swipeId: message.swipeId ?? 0,
+            }
+        },
+        getScope: () => translationRecoveryScope,
         translationCache: {
             get: getLLMCache,
             store: setLLMCache,
         },
+        getContext: () => translationRecoveryContext,
     })
+    const revenantTranslationRecoverySnapshot = $derived.by(() =>
+        revenantTranslationRecovery.capture()
+    )
+    const revenantTranslationInspectionReady = $derived(
+        revenantTranslationRecovery.inspectionReady
+    )
 
     async function loadTranslationForEdit() {
         const key = await getTranslationCacheKey()
@@ -269,11 +299,11 @@
     }
 
     function isTranslationBusy() {
-        return translating || retranslate || revenantTranslationRecovery.pending
+        return translating || retranslate || revenantTranslationRecoverySnapshot.pending
     }
 
     function isTranslationControlBusy() {
-        return isTranslationBusy() || !revenantTranslationRecovery.inspectionReady
+        return isTranslationBusy() || !revenantTranslationInspectionReady
     }
 
     function updateTranslationTasks(delta:1|-1) {
@@ -352,7 +382,10 @@
 
     $effect(() => {
         const root = partialEditRoot
-        if (!root) return
+        if (
+            !root
+            || (!DBState.db.enableBlockPartialEdit && !DBState.db.enableDragPartialEdit)
+        ) return
         root.addEventListener('risu-partial-edit-translation-context', handlePartialEditTranslationContext)
         root.addEventListener('risu-partial-edit-translation-save', handlePartialEditTranslationSave)
         return () => {
@@ -570,7 +603,7 @@
         <!-- Streaming content is already propagated through the reactive message
              prop. Remounting ChatBody for every chunk resets the browser's scroll
              anchor and pulls a user who is reading history back to the bottom. -->
-        {@const chatReloadPointer = $ReloadGUIPointer + (isStreamingDisplay ? 0 : ($ReloadChatPointer[idx] ?? 0))}
+        {@const chatReloadPointer = `${$ReloadGUIPointer}|${isStreamingDisplay ? 0 : ($ReloadChatPointer[idx] ?? 0)}`}
         {@const totalLengthPointer = (idx > totalLength - 6) ? totalLength : 0}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -585,26 +618,27 @@
             style:font-size="{0.875 * (DBState.db.zoomsize / 100)}rem"
             style:line-height="{(DBState.db.lineHeight ?? 1.25) * (DBState.db.zoomsize / 100)}rem"
         >
-            {#key `${totalLengthPointer}|${chatReloadPointer}`}
-                <ChatBody
-                    {character}
-                    {firstMessage}
-                    {idx}
-                    {msgDisplay}
-                    {name}
-                    {bodyRoot}
-                    {translationRevision}
-                    {isStreamingDisplay}
-                    {revenantTranslationRecovery}
-                    modelShortName={
-                        messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
-                    }
-                    role={role ?? null}
-                    onTranslationTaskChange={updateTranslationTasks}
-                    onTranslationCancelAvailabilityChange={(cancel) => cancelTranslationRequest = cancel}
-                    bind:translated={translated}
-                    bind:retranslate={retranslate} />
-            {/key}
+            <ChatBody
+                {character}
+                {firstMessage}
+                {idx}
+                {msgDisplay}
+                {name}
+                {bodyRoot}
+                {translationRevision}
+                {isStreamingDisplay}
+                renderRevision={`${totalLengthPointer}|${chatReloadPointer}`}
+                renderCacheKey={renderCacheKey ? `${renderCacheKey}|${totalLengthPointer}|${chatReloadPointer}` : ''}
+                {revenantTranslationRecovery}
+                {revenantTranslationRecoverySnapshot}
+                modelShortName={
+                    messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
+                }
+                role={role ?? null}
+                onTranslationTaskChange={updateTranslationTasks}
+                onTranslationCancelAvailabilityChange={(cancel) => cancelTranslationRequest = cancel}
+                bind:translated={translated}
+                bind:retranslate={retranslate} />
         </span>
     {/if}
 {/snippet}
@@ -925,7 +959,7 @@
             active={translated}
             activeColor="primary"
             tone={cancelTranslationRequest ? 'destructive' : 'default'}
-            className={"button-icon-translate " + translationDisabledClasses + ((translating || revenantTranslationRecovery.pending) ? ' translating' : '')}
+            className={"button-icon-translate " + translationDisabledClasses + ((translating || revenantTranslationRecoverySnapshot.pending) ? ' translating' : '')}
             disabled={isTranslationControlBusy() && cancelTranslationRequest === null}
             aria-label={cancelTranslationRequest ? language.cancel : language.translate}
             title={cancelTranslationRequest ? language.cancel : language.translate}

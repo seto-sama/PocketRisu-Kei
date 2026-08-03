@@ -170,6 +170,16 @@ function normalizeRevenantOperationContext(jobType, value) {
                 || !Array.isArray(value.styleDecodes)
                 || !value.styleDecodes.every(item => typeof item === 'string')
                 || typeof value.replaceExisting !== 'boolean'
+                || !(
+                    value.target === null
+                    || (
+                        value.target
+                        && value.target.kind === 'chat-message'
+                        && (value.target.messageChatId === null || typeof value.target.messageChatId === 'string')
+                        && Number.isInteger(value.target.messageIndex)
+                        && Number.isInteger(value.target.swipeId)
+                    )
+                )
             ) return undefined;
             break;
         case 'hypav3-summary':

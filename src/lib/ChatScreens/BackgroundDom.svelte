@@ -2,7 +2,7 @@
     import { ParseMarkdown, risuChatParser } from "src/ts/parser/parser.svelte";
     import { type character } from "src/ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
-    import { moduleBackgroundEmbedding, ReloadGUIPointer, selIdState } from "src/ts/stores.svelte";
+    import { ChatRoomReloadPointer, moduleBackgroundEmbedding, ReloadGUIPointer, selIdState } from "src/ts/stores.svelte";
 
     let backgroundHTML = $derived(DBState.db?.characters?.[selIdState.selId]?.backgroundHTML)
     let currentChar:character = $derived(DBState.db?.characters?.[selIdState.selId])
@@ -12,7 +12,7 @@
 
 {#if backgroundHTML || $moduleBackgroundEmbedding}
     {#if selIdState.selId > -1}
-        {#key $ReloadGUIPointer}
+        {#key `${$ReloadGUIPointer}|${$ChatRoomReloadPointer}`}
             <div class="absolute top-0 left-0 w-full h-full">
                 {#await ParseMarkdown(risuChatParser((backgroundHTML || '') + '\n' + ($moduleBackgroundEmbedding || ''), {chara:currentChar}), currentChar, 'back') then md} 
                     {@html md}

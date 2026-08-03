@@ -5,7 +5,7 @@ import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
 import { setDatabase, type Chat, type Database, type Message, defaultSdDataFunc, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
-import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
+import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertConfirm, alertError, alertMd, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError } from "./alert";
 import { hasher } from "./parser/parser.svelte";
@@ -2787,7 +2787,7 @@ export function changeChatTo(IdOrIndex: string | number) {
             loadTogglesFromChat(newChat)
         }
     }
-    ReloadGUIPointer.set(Math.random())
+    ChatRoomReloadPointer.set(Math.random())
 }
 
 export function createChatCopyName(originalName: string,type:'Copy'|'Branch'): string {
