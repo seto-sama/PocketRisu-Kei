@@ -33,5 +33,6 @@ export {
     isProfileProviderVisible,
     listFilterableProviderGroups,
     resolveProviderFilterHiddenIds,
+    resolveProviderFilterVisibleIds,
     type ProviderFilterOption,
 } from './providerFilter'

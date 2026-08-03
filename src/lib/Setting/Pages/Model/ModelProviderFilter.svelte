@@ -21,8 +21,9 @@
     const providers = $derived(listFilterableProviderGroups(registry, getOfficialRegistryId()));
     const hiddenProviderIds = $derived(resolveProviderFilterHiddenIds(
         providers.map(provider => provider.id),
-        DBState.db.modelProfileHiddenProviderIds,
+        DBState.db.modelProfileVisibleProviderIds,
         DBState.db.modelProfileProviderFilterInitialized === true,
+        DBState.db.modelProfileHiddenProviderIds,
     ));
     const draftHiddenProviderSet = $derived(new Set(draftHiddenProviderIds));
     const visibleProviderCount = $derived(
@@ -39,7 +40,14 @@
 
     function writeHiddenProviderIds(next: Set<string>) {
         DBState.db.modelProfileProviderFilterInitialized = true;
-        DBState.db.modelProfileHiddenProviderIds = [...next].sort();
+        const currentProviderIds = new Set(providers.map(provider => provider.id));
+        const temporarilyMissingVisibleIds = (DBState.db.modelProfileVisibleProviderIds ?? [])
+            .filter(providerId => !currentProviderIds.has(providerId));
+        DBState.db.modelProfileVisibleProviderIds = [...new Set([
+            ...temporarilyMissingVisibleIds,
+            ...providers.filter(provider => !next.has(provider.id)).map(provider => provider.id),
+        ])].sort();
+        delete DBState.db.modelProfileHiddenProviderIds;
     }
 
     function setProviderVisible(providerId: string, visible: boolean) {

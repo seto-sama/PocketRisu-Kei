@@ -9,6 +9,7 @@ import {
     isProfileProviderVisible,
     listFilterableProviderGroups,
     resolveProviderFilterHiddenIds,
+    resolveProviderFilterVisibleIds,
 } from './providerFilter'
 
 function base(
@@ -82,7 +83,7 @@ describe('provider filter', () => {
             'another-provider',
             'new-provider',
         ]
-        const hidden = resolveProviderFilterHiddenIds(all, [], false)
+        const hidden = resolveProviderFilterHiddenIds(all, undefined, false)
 
         expect([...DEFAULT_VISIBLE_PROVIDER_IDS].sort()).toEqual([
             'anthropic',
@@ -104,9 +105,34 @@ describe('provider filter', () => {
         ]))
     })
 
-    test('preserves an initialized empty hidden list as show all', () => {
-        expect(resolveProviderFilterHiddenIds(['openai', 'other'], [], true))
+    test('migrates an initialized empty legacy hidden list as show all', () => {
+        expect(resolveProviderFilterHiddenIds(['openai', 'other'], undefined, true, []))
             .toEqual(new Set())
+    })
+
+    test('starts providers added after initialization hidden', () => {
+        expect(resolveProviderFilterHiddenIds(
+            ['openai', 'existing-provider', 'new-provider'],
+            ['openai', 'existing-provider'],
+            true,
+        )).toEqual(new Set(['new-provider']))
+    })
+
+    test('converts the legacy hidden list into a visible allowlist', () => {
+        expect(resolveProviderFilterVisibleIds(
+            ['openai', 'existing-provider'],
+            undefined,
+            true,
+            ['existing-provider'],
+        )).toEqual(new Set(['openai']))
+    })
+
+    test('retains visible providers that temporarily disappear', () => {
+        expect(resolveProviderFilterVisibleIds(
+            ['existing-provider', 'new-provider'],
+            ['existing-provider', 'removed-provider'],
+            true,
+        )).toEqual(new Set(['existing-provider', 'removed-provider']))
     })
 
     test('lists provider groups once and excludes the always-visible Echo provider', () => {
