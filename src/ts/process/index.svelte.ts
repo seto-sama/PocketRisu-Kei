@@ -21,10 +21,10 @@ import { getInlayAsset } from "./files/inlays";
 import { getGenerationModelString } from "./models/modelString";
 import { runInlayScreen } from "./inlayScreen";
 import { runImageEmbedding } from "./transformers";
-import { runLuaEditTrigger } from "./scriptings";
+import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
 import { getModelInfo, LLMFlags } from "../model/modellist";
 import { resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
-import { type RevenantWorkflow, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenantGeneration/types";
+import { type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenantGeneration/types";
 import {
     cancelRevenantGeneration,
     checkpointRevenantGeneration,
@@ -35,6 +35,10 @@ import {
 import {
     configureRevenantGenerationChatRecovery,
 } from "./revenantGeneration/chatRecovery.svelte";
+import {
+    coordinateRevenantGeneration,
+    type RevenantGenerationLifecycle,
+} from "./revenantGeneration/coordinator";
 import { hypaMemoryV3, type SerializableHypaV3Data } from "./memory/hypav3";
 import { getModuleAssets, getModuleToggles } from "./modules";
 import { readImage } from "../globalApi.svelte";
@@ -47,6 +51,7 @@ import {
     type RevenantWorkflowResumeContext,
     RevenantWorkflowBusyError,
     updateRevenantWorkflowStep,
+    waitForRevenantHypaExecution,
 } from "./revenantGeneration/workflow";
 
 export { recoverRevenantGenerationsForChat } from "./revenantGeneration/chatRecovery.svelte";
@@ -164,6 +169,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const isContinuation = arg.revenantResume?.context.continue ?? arg.continue === true
     const rerollSnapshot = arg.revenantResume?.context.rerollSnapshot ?? arg.rerollSnapshot
     let revenantWorkflowId:string|undefined = resumeWorkflow?.workflowId
+    let revenantMainDependency:RevenantWorkflowDependency|undefined
     let revenantMaterialized = false
 
     const stageTimings = {
@@ -482,6 +488,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     currentChar = nowChatroom
+    const hasEditRequestLua = hasLuaEditRequestListener(currentChar)
+    const deferredHypaMemoryPrompt = revenantWorkflowId && !hasEditRequestLua
+        ? `__RISU_REVENANT_HYPA_${v4()}__`
+        : undefined
 
     let chatAdditonalTokens = arg.chatAdditonalTokens ?? caculatedChatTokens
     let currentChat = runCurrentChatFunction(nowChatroom.chats[selectedChat])
@@ -1337,6 +1347,16 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 tokenizer,
                 {
                     workflowId: revenantWorkflowId,
+                    signal: abortSignal,
+                    deferredMemoryPrompt: deferredHypaMemoryPrompt,
+                    onRemoteSelectionRequiresClient: hasEditRequestLua
+                        ? async () => {
+                            await setWorkflowStep('prompt.build', 'waiting_client', {
+                                checkpoint: 'editRequest.lua',
+                                reason: 'lua_edit_request',
+                            })
+                        }
+                        : undefined,
                     onClientEmbeddingRequired: async embeddingModel => {
                         await setWorkflowStep('memory.hypav3', 'waiting_client', {
                             checkpoint: 'embedding.local',
@@ -1360,23 +1380,31 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
             chats = sp.chats
             currentTokens = sp.currentTokens
+            if(sp.deferredRemoteSelection && deferredHypaMemoryPrompt){
+                revenantMainDependency = {
+                    kind: 'hypav3-selection',
+                    placeholder: deferredHypaMemoryPrompt,
+                }
+            }
             currentChat.hypaV3Data = sp.memory ?? currentChat.hypaV3Data
             DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
 
             currentChat = DBState.db.characters[selectedChar].chats[selectedChat];
             console.log("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
             stageTimings.stage2Duration = Date.now() - stageTimings.stage2Start
-            chatProcessStage.set(1)
-            await setWorkflowStep('memory.hypav3', 'completed', {
-                chatSequence: chats.map(chat => {
-                    const inputIndex = hypaInputChats.findIndex(input =>
-                        input === chat || (!!chat.memo && input.memo === chat.memo))
-                    return inputIndex >= 0
-                        ? { inputIndex, inputMemo: chat.memo }
-                        : { chat: safeStructuredClone(chat) }
-                }),
-                currentTokens,
-            })
+            if(!sp.deferredRemoteSelection) chatProcessStage.set(1)
+            if(!sp.deferredRemoteSelection){
+                await setWorkflowStep('memory.hypav3', 'completed', {
+                    chatSequence: chats.map(chat => {
+                        const inputIndex = hypaInputChats.findIndex(input =>
+                            input === chat || (!!chat.memo && input.memo === chat.memo))
+                        return inputIndex >= 0
+                            ? { inputIndex, inputMemo: chat.memo }
+                            : { chat: safeStructuredClone(chat) }
+                    }),
+                    currentTokens,
+                })
+            }
         }
     }
     else{
@@ -1790,7 +1818,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    chatProcessStage.set(3)
+    if(!revenantMainDependency) chatProcessStage.set(3)
     stageTimings.stage3Start = Date.now()
     if(arg.preview){
         previewFormated = formated
@@ -1861,20 +1889,49 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         rerollSnapshot,
     })
 
-    const req = await requestChatData({
-        formated: formated,
-        biasString: biases,
-        currentChar: currentChar,
-        useStreaming: true,
-        isGroupChat: false,
-        bias: {},
-        continue: isContinuation,
-        chatId: messageChatId,
-        imageResponse: DBState.db.outputImageModal,
-        previewBody: arg.previewPrompt,
-        escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
-        rememberToolUsage: DBState.db.rememberToolUsage,
-    }, 'model', abortSignal)
+    const requestMainGeneration = (lifecycle: RevenantGenerationLifecycle = {}) =>
+        requestChatData({
+            formated: formated,
+            biasString: biases,
+            currentChar: currentChar,
+            useStreaming: true,
+            isGroupChat: false,
+            bias: {},
+            continue: isContinuation,
+            chatId: messageChatId,
+            imageResponse: DBState.db.outputImageModal,
+            previewBody: arg.previewPrompt,
+            escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
+            rememberToolUsage: DBState.db.rememberToolUsage,
+            revenantWorkflowDependency: revenantMainDependency,
+            onRevenantJobCreated: lifecycle.onJobCreated,
+            onRevenantJobRegistrationUnavailable: lifecycle.onJobRegistrationUnavailable,
+            onRevenantProviderStarted: lifecycle.onProviderStarted,
+        }, 'model', abortSignal)
+    const req = await (async () => {
+        if(!revenantMainDependency) return requestMainGeneration()
+        const mainGeneration = coordinateRevenantGeneration(
+            requestMainGeneration,
+            {
+                resultKeepsRegistrationOpen: result => result.type === 'streaming',
+                onProviderStarted: () => chatProcessStage.set(3),
+            },
+        )
+        // The result promise is already running. Waiting on registration first
+        // makes the client/server ownership boundary explicit: once a job id
+        // exists, the server can finish Hypa and dispatch main independently.
+        await mainGeneration.registered
+        return mainGeneration.result
+    })()
+
+    if(revenantMainDependency && revenantWorkflowId){
+        const remoteSelection = await waitForRevenantHypaExecution<{
+            memory: SerializableHypaV3Data
+        }>(revenantWorkflowId, abortSignal)
+        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
+        currentChat.hypaV3Data = safeStructuredClone(remoteSelection.memory)
+        DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
+    }
 
     console.log(req)
     if(req.model){

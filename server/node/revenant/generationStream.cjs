@@ -67,9 +67,17 @@ async function streamRevenantJournal(
     let offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0
         ? requestedOffset
         : 0;
+    let providerStartedSent = false;
     let headersSent = false;
 
     while (isSocketOpen(ws)) {
+        if (!providerStartedSent && job.providerStartedAt) {
+            ws.send(JSON.stringify({
+                type: 'provider_started',
+                startedAt: job.providerStartedAt,
+            }));
+            providerStartedSent = true;
+        }
         if (!headersSent && job.responseStatus != null) {
             ws.send(JSON.stringify({
                 type: 'upstream_headers',

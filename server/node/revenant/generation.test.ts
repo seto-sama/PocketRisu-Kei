@@ -24,6 +24,8 @@ const {
     normalizeRevenantOperationContext,
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowStepUpdate,
+    normalizeRevenantWorkflowDependency,
+    resolveRevenantWorkflowRequestBody,
 } = generationPkg as {
     normalizeRevenantDispatchPolicy: (
         value: unknown,
@@ -34,6 +36,16 @@ const {
     normalizeRevenantOperationContext: (jobType: string, value: unknown) => any
     normalizeRevenantWorkflowPlan: (value: unknown) => unknown
     normalizeRevenantWorkflowStepUpdate: (value: unknown) => unknown
+    normalizeRevenantWorkflowDependency: (
+        value: unknown,
+        jobType: string,
+        workflowId?: string,
+    ) => unknown
+    resolveRevenantWorkflowRequestBody: (
+        bodyBase64: string,
+        dependency: unknown,
+        execution: unknown,
+    ) => string
 }
 
 describe('revenant durable dispatch validation', () => {
@@ -71,6 +83,77 @@ describe('revenant durable dispatch validation', () => {
             maxConcurrent: 3,
             requestsPerMinute: 20,
         }, { kind: 'translation' }, 'workflow-1')).toBeUndefined()
+    })
+})
+
+describe('revenant workflow-dependent main dispatch', () => {
+    const placeholder = '__RISU_REVENANT_HYPA_123e4567-e89b__'
+    const dependency = { kind: 'hypav3-selection', placeholder }
+
+    it('accepts only workflow-linked model dependencies', () => {
+        expect(normalizeRevenantWorkflowDependency(
+            dependency,
+            'model',
+            'workflow-1',
+        )).toEqual(dependency)
+        expect(normalizeRevenantWorkflowDependency(
+            dependency,
+            'memory',
+            'workflow-1',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowDependency(
+            dependency,
+            'model',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowDependency({
+            ...dependency,
+            placeholder: '../unsafe',
+        }, 'model', 'workflow-1')).toBeUndefined()
+    })
+
+    it('replaces the deferred Hypa prompt in a JSON provider request', () => {
+        const body = Buffer.from(JSON.stringify({
+            messages: [
+                { role: 'system', content: `prefix ${placeholder} suffix` },
+                { role: 'user', content: 'hello' },
+            ],
+        })).toString('base64')
+        const resolved = resolveRevenantWorkflowRequestBody(body, dependency, {
+            kind: 'hypav3-selection',
+            status: 'completed',
+            result: {
+                chatSequence: [{
+                    chat: {
+                        role: 'system',
+                        content: 'selected memory',
+                        memo: 'supaMemory',
+                    },
+                }],
+            },
+        })
+        expect(JSON.parse(Buffer.from(resolved, 'base64').toString('utf8'))).toEqual({
+            messages: [
+                { role: 'system', content: 'prefix selected memory suffix' },
+                { role: 'user', content: 'hello' },
+            ],
+        })
+    })
+
+    it('rejects dispatch before completion or without the exact placeholder', () => {
+        const body = Buffer.from(JSON.stringify({ messages: [] })).toString('base64')
+        expect(() => resolveRevenantWorkflowRequestBody(body, dependency, {
+            kind: 'hypav3-selection',
+            status: 'running',
+        })).toThrow('not complete')
+        expect(() => resolveRevenantWorkflowRequestBody(body, dependency, {
+            kind: 'hypav3-selection',
+            status: 'completed',
+            result: {
+                chatSequence: [{
+                    chat: { content: 'memory', memo: 'supaMemory' },
+                }],
+            },
+        })).toThrow('no HypaV3 placeholder')
     })
 })
 
@@ -114,6 +197,26 @@ describe('revenant journal stream', () => {
         socket.journalRecoverySubscriber = true
         sendRevenantJournalEvent(socket, job, { type: 'error', message: 'lost' })
         expect(socket.messages[0]).toMatchObject({ type: 'done', partial: true })
+    })
+
+    it('reports provider dispatch before response headers', async () => {
+        const socket = new FakeSocket()
+        await streamRevenantJournal(socket, {
+            ...job,
+            providerStartedAt: 123,
+        }, 0, {
+            async readChunk() {
+                return { offset: 0, bytes: Buffer.alloc(0) }
+            },
+        })
+        expect(socket.messages.slice(0, 2)).toEqual([
+            { type: 'provider_started', startedAt: 123 },
+            {
+                type: 'upstream_headers',
+                status: 200,
+                headers: { 'content-type': 'text/event-stream' },
+            },
+        ])
     })
 
     it('tails bytes appended after the socket reaches EOF', async () => {

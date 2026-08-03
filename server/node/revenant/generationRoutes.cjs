@@ -6,7 +6,6 @@ const {
     getActiveGenerationWorkflow,
     claimGenerationWorkflow,
     updateGenerationWorkflowStep,
-    finishGenerationWorkflow,
     putGenerationWorkflowExecution,
     getGenerationWorkflowExecution,
     createGenerationJob,
@@ -17,13 +16,14 @@ const {
     listRecoverableGenerationJobs,
     listRecoverableAuxiliaryJobs,
     markGenerationMaterialized,
-    pruneMaterializedGenerationJobs,
+    pruneRetainedGenerationJobs,
 } = require('./generationDb.cjs');
 const {
     isRevenantJobActive,
     isValidRevenantWorkflowKey,
     normalizeRevenantJobType,
     normalizeRevenantDispatchPolicy,
+    normalizeRevenantWorkflowDependency,
     normalizeRevenantHypaExecutionRecipe,
     normalizeRevenantOperationContext,
     normalizeRevenantWorkflowPlan,
@@ -44,12 +44,12 @@ function installRevenantGenerationRoutes(app, deps) {
         runProxyStreamJob,
         scheduleGenerationDispatch,
         scheduleHypaWorkflowExecution,
+        terminateGenerationWorkflow,
         proxyStreamJobs,
         countActiveProxyStreamJobs,
         maxActiveJobs,
         maxBodyBase64Bytes,
         randomUUID,
-        addRequestLog,
         queueStorageOperation,
         chatStorage,
         isSyncClientConnected = () => false,
@@ -192,7 +192,8 @@ function installRevenantGenerationRoutes(app, deps) {
             res.status(400).send({ error: 'Invalid terminal workflow status' });
             return;
         }
-        if (!finishGenerationWorkflow(req.params.workflowId, status)) {
+        const result = await terminateGenerationWorkflow(req.params.workflowId, status);
+        if (!result.changed) {
             const existing = getGenerationWorkflow(req.params.workflowId, false);
             if (!existing) {
                 res.status(404).send({ error: 'Generation workflow not found' });
@@ -260,7 +261,6 @@ function installRevenantGenerationRoutes(app, deps) {
             return;
         }
         const jobId = randomUUID();
-        const now = Date.now();
         const jobType = normalizeRevenantJobType(req.body?.jobType);
         const operationContext = normalizeRevenantOperationContext(
             jobType,
@@ -293,7 +293,20 @@ function installRevenantGenerationRoutes(app, deps) {
             res.status(400).send({ error: 'Invalid generation dispatch policy' });
             return;
         }
-        if (!dispatchPolicy && countActiveProxyStreamJobs() >= maxActiveJobs) {
+        const workflowDependency = normalizeRevenantWorkflowDependency(
+            req.body?.workflowDependency,
+            jobType,
+            workflowId,
+        );
+        if (req.body?.workflowDependency != null && workflowDependency === undefined) {
+            res.status(400).send({ error: 'Invalid generation workflow dependency' });
+            return;
+        }
+        if (workflowDependency && workflowStepKey !== 'model.main') {
+            res.status(400).send({ error: 'Workflow dependencies are only valid for model.main' });
+            return;
+        }
+        if (!dispatchPolicy && !workflowDependency && countActiveProxyStreamJobs() >= maxActiveJobs) {
             res.status(429).send({ error: 'Too many active generation jobs. Retry shortly.' });
             return;
         }
@@ -307,7 +320,14 @@ function installRevenantGenerationRoutes(app, deps) {
         const usageServiceTier = req.body?.usageServiceTier === 'batch'
             ? 'batch'
             : undefined;
-        const requestSpec = dispatchPolicy ? {
+        const requestLog = {
+            chatId: req.body?.chatId,
+            clientId: String(req.headers['x-sync-client-id'] || '').slice(0, 6),
+            platform: /Android|iPhone|iPad|iPod|Mobile/i.test(req.headers['user-agent'] || '')
+                ? 'Mobile'
+                : 'Desktop',
+        };
+        const requestSpec = dispatchPolicy || workflowDependency ? {
             targetUrl: url,
             headers: forwardHeaders,
             method,
@@ -317,6 +337,8 @@ function installRevenantGenerationRoutes(app, deps) {
             usageProviderId,
             usageModelId,
             usageServiceTier,
+            requestLog,
+            ...(workflowDependency ? { workflowDependency } : {}),
         } : undefined;
         try {
             createGenerationJob({
@@ -335,11 +357,15 @@ function installRevenantGenerationRoutes(app, deps) {
                 workflowStepKey,
                 adapterKind: req.body?.adapterKind,
                 streaming: req.body?.streaming === true,
-                dispatchGroup: dispatchPolicy?.dispatchGroup,
-                dispatchMaxConcurrent: dispatchPolicy?.maxConcurrent,
-                dispatchRequestsPerMinute: dispatchPolicy?.requestsPerMinute,
+                dispatchGroup: dispatchPolicy?.dispatchGroup
+                    || (workflowDependency ? `${workflowId}:main` : undefined),
+                dispatchMaxConcurrent: dispatchPolicy?.maxConcurrent
+                    || (workflowDependency ? 1 : undefined),
+                dispatchRequestsPerMinute: dispatchPolicy?.requestsPerMinute
+                    || (workflowDependency ? 1000 : undefined),
                 requestSpec,
             });
+            if (workflowId) scheduleHypaWorkflowExecution();
         } catch (error) {
             if (error?.httpStatus) {
                 res.status(error.httpStatus).send({
@@ -355,22 +381,6 @@ function installRevenantGenerationRoutes(app, deps) {
             next(error);
             return;
         }
-        addRequestLog({
-            id: jobId,
-            timestamp: now,
-            date: new Date(now).toLocaleTimeString(),
-            url,
-            body: Buffer.from(bodyBase64, 'base64').toString('utf-8'),
-            header: JSON.stringify(forwardHeaders, null, 2),
-            response: 'Streamed Fetch',
-            responseType: 'stream',
-            success: true,
-            chatId: req.body?.chatId,
-            clientId: String(req.headers['x-sync-client-id'] || '').slice(0, 6),
-            platform: /Android|iPhone|iPad|iPod|Mobile/i.test(req.headers['user-agent'] || '')
-                ? 'Mobile'
-                : 'Desktop',
-        });
         const job = createProxyStreamJob({
             jobId,
             workflowId,
@@ -378,7 +388,7 @@ function installRevenantGenerationRoutes(app, deps) {
             timeoutMs: req.body?.timeoutMs,
         });
         job.persistent = true;
-        if (dispatchPolicy) {
+        if (dispatchPolicy || workflowDependency) {
             job.waitingDispatch = true;
             scheduleGenerationDispatch();
         } else {
@@ -392,6 +402,7 @@ function installRevenantGenerationRoutes(app, deps) {
                 usageProviderId,
                 usageModelId,
                 usageServiceTier,
+                requestLog,
             });
             void job.runPromise;
         }
@@ -417,11 +428,11 @@ function installRevenantGenerationRoutes(app, deps) {
         }
     });
 
-    app.post('/api/generation/jobs/prune-materialized', async (req, res, next) => {
+    app.post('/api/generation/jobs/prune-retained', async (req, res, next) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
         try {
-            res.send(pruneMaterializedGenerationJobs());
+            res.send(pruneRetainedGenerationJobs());
         } catch (error) {
             next(error);
         }
@@ -570,6 +581,16 @@ function installRevenantGenerationRoutes(app, deps) {
                     && Array.isArray(submittedChat.message)
                     ? structuredClone(submittedChat)
                     : structuredClone(storedChat);
+                const hypaMemory = job.workflowId
+                    ? getGenerationWorkflow(job.workflowId)?.steps
+                        ?.find(step => step.key === 'memory.hypav3' && step.status === 'completed')
+                        ?.metadata?.hypaMemory
+                    : undefined;
+                if (
+                    hypaMemory
+                    && typeof hypaMemory === 'object'
+                    && Array.isArray(hypaMemory.summaries)
+                ) chat.hypaV3Data = structuredClone(hypaMemory);
                 const snapshot = job.rerollSnapshot;
                 let targetIndex = chat.message.findIndex(message => message?.chatId === job.chatId);
                 if (targetIndex < 0 && snapshot) targetIndex = snapshot.targetIndex;

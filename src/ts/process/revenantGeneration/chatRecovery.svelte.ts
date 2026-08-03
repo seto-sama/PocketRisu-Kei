@@ -9,7 +9,7 @@ import {
 } from '../../storage/database.svelte'
 import { DBState, ReloadChatPointer, selIdState } from '../../stores.svelte'
 import { saveChatToServer } from '../../storage/chatStorage'
-import { endStatus, startStatus, type RequestKind } from '../../status/requestStatus'
+import { abortStatusesForChat, endStatus, startStatus, type RequestKind } from '../../status/requestStatus'
 import { recoverHypaV3SummaryJobs } from '../memory/hypav3'
 import { runInlayScreen } from '../inlayScreen'
 import { processScriptFull } from '../scripts'
@@ -32,7 +32,12 @@ import {
     readRecoverableGenerationContent,
     subscribeRecoverableGeneration,
 } from './stream'
-import { isRevenantJobActive, type RevenantWorkflow } from './types'
+import {
+    isRevenantJobActive,
+    type RecoverableAuxiliaryJob,
+    type RevenantRerollSnapshot,
+    type RevenantWorkflow,
+} from './types'
 import {
     recoverRevenantTranslationJobs,
     type RevenantTranslationCache,
@@ -41,11 +46,13 @@ import {
     finishRevenantWorkflow,
     claimRevenantWorkflow,
     getActiveRevenantWorkflow,
+    getRevenantWorkflow,
     getRevenantWorkflowResumeContext,
     RevenantWorkflowOwnedError,
     type RevenantWorkflowResumeContext,
     updateRevenantWorkflowStep,
 } from './workflow'
+import { commitCancelledGenerationProjection } from './chatCancellation'
 
 interface ChatRecoveryDependencies {
     isChatBusy: () => boolean
@@ -73,6 +80,10 @@ const recoveryStreamSubscriptions = new Map<string, {
     unsubscribe: () => void
     characterId: string
     roomId: string
+    workflowId?: string
+    messageChatId: string
+    isContinuation: boolean
+    rerollSnapshot?: RevenantRerollSnapshot
 }>()
 
 function invalidateRecoveredMessage(character: character, messageIndex: number): void {
@@ -126,13 +137,37 @@ export function configureRevenantGenerationChatRecovery(
     dependencies = nextDependencies
 }
 
-function clearStaleRecoveryDisplay(character: character, chat: Chat): void {
+export function clearRevenantRecoveryForChat(
+    character: character,
+    chat: Chat,
+    options: { preserveProjection?: boolean, cancelled?: boolean } = {},
+): void {
     let changed = false
+    if (options.cancelled) abortStatusesForChat(chat.id)
     for (const [jobId, subscription] of recoveryStreamSubscriptions) {
         if (
             subscription.characterId !== character.chaId
             || subscription.roomId !== chat.id
         ) continue
+        if (options.preserveProjection) {
+            const currentTarget = resolveCurrentRecoveryTarget({
+                characterId: character.chaId,
+                roomId: chat.id,
+                messageChatId: subscription.messageChatId,
+                isContinuation: subscription.isContinuation,
+                rerollTargetChatId: subscription.rerollSnapshot?.targetMessage.chatId,
+                rerollTargetIndex: subscription.rerollSnapshot?.targetIndex,
+            })
+            const targetMessage = currentTarget?.message
+            commitCancelledGenerationProjection(chat, {
+                messageChatId: subscription.messageChatId,
+                content: targetMessage?.recoveryDisplayData ?? '',
+                isContinuation: subscription.isContinuation,
+                targetMessage,
+                rerollSnapshot: subscription.rerollSnapshot,
+            })
+        }
+        changed = true
         subscription.unsubscribe()
         recoveryStreamSubscriptions.delete(jobId)
     }
@@ -162,7 +197,12 @@ function auxiliaryRequestKind(jobType: string): RequestKind {
     }
 }
 
-function startRecoveryStatus(jobId: string, kind: RequestKind, chatId: string): void {
+function startRecoveryStatus(
+    jobId: string,
+    kind: RequestKind,
+    chatId: string,
+    startedAt = Date.now(),
+): void {
     if (notifiedRecoveryJobs.has(jobId)) return
     notifiedRecoveryJobs.add(jobId)
     startStatus(jobId, {
@@ -170,8 +210,30 @@ function startRecoveryStatus(jobId: string, kind: RequestKind, chatId: string): 
         label: '',
         chatId,
         phase: 'connecting',
-        now: Date.now(),
+        now: startedAt,
     })
+}
+
+function updateAuxiliaryRecoveryStatus(job: RecoverableAuxiliaryJob, chatId: string): void {
+    if (job.status === 'queued') return
+    startRecoveryStatus(
+        job.jobId,
+        auxiliaryRequestKind(job.jobType),
+        chatId,
+        job.dispatchedAt ?? Date.now(),
+    )
+    if (job.status === 'generated') {
+        endStatus(job.jobId, 'done', { now: job.completedAt ?? Date.now() })
+    }
+    else if (job.status === 'cancelled') {
+        endStatus(job.jobId, 'aborted', { now: job.completedAt ?? Date.now() })
+    }
+    else if (!isRevenantJobActive(job.status)) {
+        endStatus(job.jobId, 'failed', {
+            now: job.completedAt ?? Date.now(),
+            error: job.error,
+        })
+    }
 }
 
 function runDeferredRecovery(
@@ -223,13 +285,12 @@ async function restoreStoppedReroll(
     const chatIndex = character.chats.findIndex(item => item?.id === chat.id)
     if (chatIndex < 0) return
     const currentChat = character.chats[chatIndex]
-    currentChat.message.splice(
-        snapshot.targetIndex,
-        Math.max(0, currentChat.message.length - snapshot.targetIndex),
-        safeStructuredClone(snapshot.targetMessage),
-        ...safeStructuredClone(snapshot.trailingMessages),
-    )
-    currentChat.isStreaming = false
+    commitCancelledGenerationProjection(currentChat, {
+        messageChatId: context.messageChatId,
+        content: '',
+        isContinuation: context.continue,
+        rerollSnapshot: snapshot,
+    })
     await saveChatToServer(character.chaId, chatIndex, currentChat.id, currentChat)
 }
 
@@ -269,6 +330,7 @@ async function executePreModelWorkflowRecovery(
                 workflowId: claimedWorkflow.workflowId,
                 rejectFailed: true,
                 force: true,
+                onJobUpdate: job => updateAuxiliaryRecoveryStatus(job, chat.id),
             })
         }
         catch (error) {
@@ -318,28 +380,18 @@ function scheduleRevenantAuxiliaryRecovery(character: character, chat: Chat): vo
         if (dependencies.isChatBusy()) return
         jobs
             .filter(job => job.jobType !== 'translate')
-            .forEach(job =>
-                startRecoveryStatus(
-                    job.jobId,
-                    auxiliaryRequestKind(job.jobType),
-                    chat.id,
-                ))
+            .forEach(job => updateAuxiliaryRecoveryStatus(job, chat.id))
 
         const recoveredLuaRuns = jobs.some(job => job.jobType === 'otherAx')
             ? await recoverRevenantLuaJobsForChat(character, chat)
             : 0
         if (recoveredLuaRuns > 0) character.reloadKeys += 1
-        jobs
-            .filter(job => job.jobType === 'otherAx')
-            .forEach(job => endStatus(job.jobId, 'done', { now: Date.now() }))
-
         const recoveredSummaries = jobs.some(job => job.jobType === 'memory')
-            ? await recoverHypaV3SummaryJobs(character, chat)
+            ? await recoverHypaV3SummaryJobs(character, chat, {
+                onJobUpdate: job => updateAuxiliaryRecoveryStatus(job, chat.id),
+            })
             : 0
         if (recoveredSummaries > 0) character.reloadKeys += 1
-        jobs
-            .filter(job => job.jobType === 'memory')
-            .forEach(job => endStatus(job.jobId, 'done', { now: Date.now() }))
     })().catch(error => {
         console.warn('[GenerationJob] Auxiliary chat recovery unavailable:', error)
     }).finally(() => {
@@ -360,6 +412,19 @@ export async function recoverRevenantGenerationsForChat(
     let deferAuxiliaryRecovery = false
     try {
         const activeWorkflow = await getActiveRevenantWorkflow(character.chaId, chat.id)
+        const hypaMemoryCheckpoint = activeWorkflow?.steps
+            .find(step => step.key === 'memory.hypav3' && step.status === 'completed')
+            ?.metadata?.hypaMemory
+        const applyHypaMemoryCheckpoint = (target: Chat) => {
+            if (
+                hypaMemoryCheckpoint
+                && typeof hypaMemoryCheckpoint === 'object'
+                && Array.isArray((hypaMemoryCheckpoint as { summaries?: unknown }).summaries)
+            ) {
+                target.hypaV3Data = safeStructuredClone(hypaMemoryCheckpoint) as Chat['hypaV3Data']
+            }
+        }
+        applyHypaMemoryCheckpoint(chat)
         const mainJobs = await listRecoverableGenerations()
         if (dependencies.isChatBusy()) return 0
         const currentChatMainJobs = mainJobs.filter(job =>
@@ -374,7 +439,17 @@ export async function recoverRevenantGenerationsForChat(
                 && isRevenantGenerationLocallyOwned(job.jobId))
             .forEach(job => setRevenantGenerationLocallyOwned(job.jobId, false))
         if (currentChatMainJobs.length === 0) {
-            clearStaleRecoveryDisplay(character, chat)
+            const detachedSubscription = [...recoveryStreamSubscriptions.values()].find(subscription =>
+                subscription.characterId === character.chaId
+                && subscription.roomId === chat.id)
+            const terminalWorkflow = detachedSubscription?.workflowId
+                ? await getRevenantWorkflow(detachedSubscription.workflowId).catch(() => undefined)
+                : undefined
+            const cancelled = terminalWorkflow?.status === 'cancelled'
+            clearRevenantRecoveryForChat(character, chat, {
+                preserveProjection: cancelled,
+                cancelled,
+            })
             if (activeWorkflow) {
                 const messageWasMaterialized = activeWorkflow.steps.some(step =>
                     step.key === 'message.materialize' && step.status === 'completed')
@@ -446,6 +521,25 @@ export async function recoverRevenantGenerationsForChat(
                 role: 'char',
                 data: '',
             }
+            if (job.status === 'cancelled') {
+                const recoveredContent = await readRecoverableGenerationContent(job)
+                const projectedContent = job.isContinuation
+                    && job.continuationPrefix
+                    && !recoveredContent.startsWith(job.continuationPrefix)
+                    ? job.continuationPrefix + recoveredContent
+                    : recoveredContent
+                commitCancelledGenerationProjection(chat, {
+                    messageChatId,
+                    content: projectedContent,
+                    isContinuation: job.isContinuation === true,
+                    targetMessage,
+                    rerollSnapshot,
+                })
+                endStatus(job.jobId, 'aborted', { now: job.completedAt ?? Date.now() })
+                invalidateRecoveredMessage(character, Math.max(0, msgIndex))
+                recovered++
+                continue
+            }
             const hasLiveRecoveryStream = recoveryStreamSubscriptions.has(job.jobId)
             const previousRecoveryDisplay = message.recoveryDisplayData
             const wasRecovering = message.isRecovering === true
@@ -462,13 +556,16 @@ export async function recoverRevenantGenerationsForChat(
             Object.assign(message, {
                 saying: character.chaId,
                 time: job.completedAt || job.updatedAt || Date.now(),
-                chatId: messageChatId,
                 generationInfo: job.generationInfo ?? {
                     generationId: messageChatId,
                     model: 'Recovered server generation',
                 },
                 promptInfo: job.promptInfo,
             })
+            // A continuation/reroll displays its live projection over the old
+            // message without replacing that message's durable identity. The
+            // new generation id is committed only after successful completion.
+            if (!continuationTarget && !snapshotTarget) message.chatId = messageChatId
             if (!targetMessage) chat.message.push(message)
             if (
                 !wasRecovering
@@ -514,7 +611,10 @@ export async function recoverRevenantGenerationsForChat(
                             invalidateRecoveredMessage(liveCharacter, liveMessageIndex)
                         },
                         onDone: () => {
-                            recoveryStreamSubscriptions.delete(job.jobId)
+                            // Keep the subscription context until the database
+                            // refresh classifies the workflow as completed or
+                            // cancelled. Cancellation needs it to commit the
+                            // last displayed recovery projection.
                             setTimeout(() => {
                                 runDeferredRecovery(character, chat, options)
                             })
@@ -529,6 +629,10 @@ export async function recoverRevenantGenerationsForChat(
                         unsubscribe,
                         characterId: character.chaId,
                         roomId: chat.id,
+                        workflowId: job.workflowId,
+                        messageChatId,
+                        isContinuation: job.isContinuation === true,
+                        rerollSnapshot,
                     })
                 }
                 break
@@ -557,10 +661,25 @@ export async function recoverRevenantGenerationsForChat(
                 await updateRevenantWorkflowStep(job.workflowId, 'output.transform', 'completed')
                 await updateRevenantWorkflowStep(job.workflowId, 'trigger.output', 'running')
             }
-            const inlay = runInlayScreen(character, processedContent)
-            Object.assign(message, {
+            // Hydration can replace the chat while output processing awaits.
+            // Apply the completed response and run Lua against the live room.
+            const terminalTarget = resolveCurrentRecoveryTarget({
+                characterId: character.chaId,
+                roomId: chat.id,
+                messageChatId,
+                isContinuation: job.isContinuation,
+                rerollTargetChatId: rerollSnapshot?.targetMessage.chatId,
+                rerollTargetIndex: rerollSnapshot?.targetIndex,
+            })
+            const recoveryCharacter = terminalTarget?.character ?? character
+            let recoveredChat = terminalTarget?.chat ?? chat
+            applyHypaMemoryCheckpoint(recoveredChat)
+            const recoveredMessage = terminalTarget?.message ?? message
+            const recoveredMessageIndex = terminalTarget?.messageIndex ?? msgIndex
+            const inlay = runInlayScreen(recoveryCharacter, processedContent)
+            Object.assign(recoveredMessage, {
                 data: inlay.text,
-                saying: character.chaId,
+                saying: recoveryCharacter.chaId,
                 time: job.completedAt || job.updatedAt || Date.now(),
                 chatId: messageChatId,
                 generationInfo: job.generationInfo ?? {
@@ -570,22 +689,22 @@ export async function recoverRevenantGenerationsForChat(
                 promptInfo: job.promptInfo,
             })
             if (inlay.promise) {
-                message.data = await inlay.promise
+                recoveredMessage.data = await inlay.promise
             }
-            const transientRecoveryDisplay = message.recoveryDisplayData
-            const completedMessageData = message.data
-            delete message.recoveryDisplayData
-            let recoveredChat = chat
-            const triggerResult = await runTrigger(character, 'output', { chat: recoveredChat })
+            const transientRecoveryDisplay = recoveredMessage.recoveryDisplayData
+            const completedMessageData = recoveredMessage.data
+            delete recoveredMessage.recoveryDisplayData
+            const triggerResult = await runTrigger(recoveryCharacter, 'output', { chat: recoveredChat })
             if (triggerResult?.chat) {
                 recoveredChat = normalizeChat(triggerResult.chat)
-                const chatIndex = character.chats.findIndex(item => item?.id === chat.id)
-                if (chatIndex >= 0) character.chats[chatIndex] = recoveredChat
+                const chatIndex = recoveryCharacter.chats.findIndex(item => item?.id === chat.id)
+                if (chatIndex >= 0) recoveryCharacter.chats[chatIndex] = recoveredChat
             }
             if (job.workflowId) {
                 await updateRevenantWorkflowStep(job.workflowId, 'trigger.output', 'completed')
             }
-            const finalMessage = recoveredChat.message.find(item => item?.chatId === messageChatId) ?? message
+            const finalMessage = recoveredChat.message.find(item => item?.chatId === messageChatId)
+                ?? recoveredMessage
             if (
                 transientRecoveryDisplay !== undefined
                 && finalMessage.data === transientRecoveryDisplay
@@ -595,14 +714,18 @@ export async function recoverRevenantGenerationsForChat(
             delete finalMessage.isRecovering
             delete finalMessage.recoveryDisplayData
             recoveredChat.isStreaming = false
-            invalidateRecoveredMessage(character, msgIndex)
+            invalidateRecoveredMessage(recoveryCharacter, recoveredMessageIndex)
             try {
-                const materialized = await materializeRecoveredGeneration(job.jobId, finalMessage)
+                const materialized = await materializeRecoveredGeneration(
+                    job.jobId,
+                    finalMessage,
+                    recoveredChat,
+                )
                 if (materialized.chat) {
                     const canonicalChat = normalizeChat(materialized.chat)
-                    Object.assign(chat, canonicalChat)
-                    const chatIndex = character.chats.findIndex(item => item?.id === chat.id)
-                    if (chatIndex >= 0) character.chats[chatIndex] = chat
+                    Object.assign(recoveredChat, canonicalChat)
+                    const chatIndex = recoveryCharacter.chats.findIndex(item => item?.id === chat.id)
+                    if (chatIndex >= 0) recoveryCharacter.chats[chatIndex] = recoveredChat
                 }
                 recoveryRetryAt.delete(job.jobId)
                 recovered++

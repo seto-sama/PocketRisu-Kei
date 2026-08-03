@@ -2,6 +2,7 @@ import {
     createRevenantGenerationAuth,
     getRevenantGenerationSyncClientId,
 } from './client'
+import { writable } from 'svelte/store'
 import type {
     RevenantOperationContext,
     RevenantRerollSnapshot,
@@ -13,16 +14,44 @@ import type {
 } from './types'
 
 const activeWorkflows = new Map<string, RevenantWorkflow>()
+export const activeRevenantWorkflows = writable<RevenantWorkflow[]>([])
 
 function roomKey(characterId: string, roomId: string): string {
     return `${characterId}\u0000${roomId}`
 }
 
+function publishActiveWorkflows(): void {
+    activeRevenantWorkflows.set([...activeWorkflows.values()])
+}
+
 function rememberWorkflow(workflow: RevenantWorkflow): RevenantWorkflow {
+    const key = roomKey(workflow.characterId, workflow.roomId)
     if (workflow.status === 'active') {
-        activeWorkflows.set(roomKey(workflow.characterId, workflow.roomId), workflow)
+        activeWorkflows.set(key, workflow)
+        publishActiveWorkflows()
     }
+    else if (activeWorkflows.delete(key)) publishActiveWorkflows()
     return workflow
+}
+
+function forgetWorkflow(
+    workflowId: string | undefined,
+    characterId?: string,
+    roomId?: string,
+): void {
+    let changed = false
+    if (characterId && roomId) {
+        changed = activeWorkflows.delete(roomKey(characterId, roomId)) || changed
+    }
+    if (workflowId) {
+        for (const [key, workflow] of activeWorkflows) {
+            if (workflow.workflowId === workflowId) {
+                activeWorkflows.delete(key)
+                changed = true
+            }
+        }
+    }
+    if (changed) publishActiveWorkflows()
 }
 
 async function revenantHeaders(json = false): Promise<Record<string, string>> {
@@ -133,7 +162,22 @@ export async function getActiveRevenantWorkflow(
         throw new Error(`Failed to load active generation workflow: ${response.status}`)
     }
     const body = await response.json() as { workflow?: RevenantWorkflow | null }
-    return body.workflow ? rememberWorkflow(body.workflow) : undefined
+    if (body.workflow) return rememberWorkflow(body.workflow)
+    forgetWorkflow(undefined, characterId, roomId)
+    return undefined
+}
+
+export async function getRevenantWorkflow(workflowId: string): Promise<RevenantWorkflow> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}`,
+        { headers: await revenantHeaders() },
+    )
+    if (!response.ok) {
+        throw new Error(`Failed to load generation workflow: ${response.status}`)
+    }
+    const body = await response.json() as { workflow?: RevenantWorkflow }
+    if (!body.workflow) throw new Error('Invalid generation workflow response')
+    return rememberWorkflow(body.workflow)
 }
 
 export async function claimRevenantWorkflow(
@@ -191,9 +235,11 @@ export async function finishRevenantWorkflow(
     if (!response.ok) {
         throw new Error(`Failed to finish generation workflow: ${response.status}`)
     }
-    for (const [key, workflow] of activeWorkflows) {
-        if (workflow.workflowId === workflowId) activeWorkflows.delete(key)
-    }
+    forgetWorkflow(workflowId)
+}
+
+export async function cancelRevenantWorkflow(workflowId: string): Promise<void> {
+    await finishRevenantWorkflow(workflowId, 'cancelled')
 }
 
 export async function prepareRevenantHypaExecution<TRecipe>(
@@ -220,10 +266,11 @@ export async function prepareRevenantHypaExecution<TRecipe>(
 
 export async function getRevenantHypaExecution<TResult>(
     workflowId: string,
+    signal?: AbortSignal,
 ): Promise<RevenantWorkflowExecution<TResult> | undefined> {
     const response = await fetch(
         `/api/generation/workflows/${encodeURIComponent(workflowId)}/hypav3-execution`,
-        { headers: await revenantHeaders() },
+        { headers: await revenantHeaders(), signal },
     )
     if (response.status === 404) return undefined
     const body = await response.json().catch(() => ({})) as {
@@ -238,9 +285,11 @@ export async function getRevenantHypaExecution<TResult>(
 
 export async function waitForRevenantHypaExecution<TResult>(
     workflowId: string,
+    signal?: AbortSignal,
 ): Promise<TResult> {
     while (true) {
-        const execution = await getRevenantHypaExecution<TResult>(workflowId)
+        signal?.throwIfAborted()
+        const execution = await getRevenantHypaExecution<TResult>(workflowId, signal)
         if (!execution) throw new Error('HypaV3 execution disappeared')
         if (execution.status === 'completed' && execution.result !== undefined) {
             return execution.result
@@ -248,7 +297,20 @@ export async function waitForRevenantHypaExecution<TResult>(
         if (execution.status === 'failed') {
             throw new Error(execution.error || 'Server HypaV3 execution failed')
         }
-        await new Promise(resolve => setTimeout(resolve, 500))
+        await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(done, 500)
+            const abort = () => {
+                clearTimeout(timer)
+                signal?.removeEventListener('abort', abort)
+                reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
+            }
+            function done() {
+                signal?.removeEventListener('abort', abort)
+                resolve()
+            }
+            signal?.addEventListener('abort', abort, { once: true })
+            if (signal?.aborted) abort()
+        })
     }
 }
 

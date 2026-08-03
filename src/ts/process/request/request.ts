@@ -48,6 +48,7 @@ import {
 } from "src/ts/status/requestStatus";
 import type { RevenantGenerationContext, RevenantOperationContext } from "../revenantGeneration/types";
 import { reportRevenantGenerationUsage } from "../revenantGeneration/client";
+import { combineProviderStartedHandlers } from "../revenantGeneration/coordinator";
 import { MODELS_DEV_REGISTRY_ID } from "src/ts/preset/registry/modelsDev";
 
 export type ToolCall = {
@@ -84,7 +85,10 @@ interface requestDataArgument{
     /** Persisted data needed to apply an auxiliary result after a reload. */
     revenantOperationContext?:RevenantOperationContext
     revenantDispatchPolicy?:import('../revenantGeneration/types').RevenantDispatchPolicy
+    revenantWorkflowDependency?:import('../revenantGeneration/types').RevenantWorkflowDependency
     onRevenantJobCreated?:(jobId:string) => void
+    onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
+    onRevenantProviderStarted?:(startedAt:number) => void
 }
 
 export interface RequestDataArgumentExtended extends requestDataArgument{
@@ -563,6 +567,7 @@ async function requestPluginPreset(
             chatId: arg.chatId,
             phase: 'connecting',
             now: Date.now(),
+            abortSignal: abortSignal ?? undefined,
         }))
     }
 
@@ -1091,7 +1096,23 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             structuredOutput,
         }
         if (reportStatus) {
-            safeStatus(() => startStatus(genId, { kind: statusKind, label: preset.name, chatId: arg.chatId, phase: 'connecting', now: Date.now() }))
+            const startRequestStatus = (startedAt: number) => safeStatus(() => startStatus(genId, {
+                kind: statusKind,
+                label: preset.name,
+                chatId: arg.chatId,
+                phase: 'connecting',
+                now: startedAt,
+                abortSignal: abortSignal ?? undefined,
+            }))
+            if (arg.revenantDispatchPolicy || arg.revenantWorkflowDependency) {
+                arg.onRevenantProviderStarted = combineProviderStartedHandlers(
+                    arg.onRevenantProviderStarted,
+                    startRequestStatus,
+                )
+            }
+            else {
+                startRequestStatus(Date.now())
+            }
         }
         if(useStreaming){
             const gen = adapter.stream(preset, options, credential)

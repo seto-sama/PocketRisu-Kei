@@ -86,6 +86,7 @@ export async function fetchViaProxyJobWs(url: string, arg: {
     requestTimeoutMs?: number
     revenant?: boolean
     onJobCreated?: (jobId: string) => void
+    onProviderStarted?: (startedAt: number) => void
     generationContext?: RevenantGenerationContext
 }): Promise<Response> {
     const auth = await createRevenantGenerationAuth()
@@ -127,7 +128,7 @@ export async function fetchViaProxyJobWs(url: string, arg: {
         trackRevenantGenerationJob(arg.generationContext.chatId, jobId)
     }
     return arg.revenant
-        ? openRevenantProxyJobResponse(jobId, auth, arg.signal)
+        ? openRevenantProxyJobResponse(jobId, auth, arg.signal, arg.onProviderStarted)
         : openLegacyProxyJobResponse(jobId, auth, arg.signal)
 }
 
@@ -151,6 +152,7 @@ function openRevenantProxyJobResponse(
     jobId: string,
     auth: string,
     signal?: AbortSignal,
+    onProviderStarted?: (startedAt: number) => void,
 ): Promise<Response> {
     return new Promise((resolve, reject) => {
         let settled = false
@@ -158,6 +160,7 @@ function openRevenantProxyJobResponse(
             jobId,
             auth,
             signal,
+            onProviderStarted,
             onHeaders(status, headers) {
                 if (settled) return
                 settled = true
@@ -175,6 +178,12 @@ function openRevenantProxyJobResponse(
                 if (settled) return
                 settled = true
                 reject(error)
+            },
+            onDone() {
+                setRevenantGenerationLocallyOwned(jobId, false)
+                if (settled) return
+                settled = true
+                reject(new Error('Generation ended before provider response headers'))
             },
             onLocalAbort() {
                 setRevenantGenerationLocallyOwned(jobId, false)

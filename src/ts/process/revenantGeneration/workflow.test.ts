@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { get } from 'svelte/store'
 import type { RevenantWorkflow } from './types'
 import {
+    activeRevenantWorkflows,
+    cancelRevenantWorkflow,
     createRevenantWorkflowResumeMetadata,
+    getActiveRevenantWorkflow,
+    getRevenantWorkflow,
     getRevenantWorkflowResumeContext,
 } from './workflow'
+import { configureRevenantGenerationClient } from './client'
 
 function workflowWithMetadata(metadata?: Record<string, unknown>): RevenantWorkflow {
     return {
@@ -26,6 +32,15 @@ function workflowWithMetadata(metadata?: Record<string, unknown>): RevenantWorkf
         }],
     }
 }
+
+configureRevenantGenerationClient({
+    createAuth: async () => 'auth',
+    getSyncClientId: () => 'client-1',
+})
+
+afterEach(() => {
+    vi.unstubAllGlobals()
+})
 
 describe('revenant workflow resume checkpoint', () => {
     it('round-trips the stable main message identity and invocation mode', () => {
@@ -51,5 +66,49 @@ describe('revenant workflow resume checkpoint', () => {
             chatProcessIndex: -1,
             continue: false,
         }))).toBeUndefined()
+    })
+})
+
+describe('active workflow client state', () => {
+    it('loads a terminal workflow so another device can apply cancellation UI state', async () => {
+        const workflow = { ...workflowWithMetadata(), status: 'cancelled' as const }
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ workflow }), { status: 200 }),
+        ))
+
+        await expect(getRevenantWorkflow('workflow-1')).resolves.toEqual(workflow)
+        expect(get(activeRevenantWorkflows)).toEqual([])
+    })
+
+    it('publishes a reconnected workflow and clears it when the server no longer has one', async () => {
+        const workflow = workflowWithMetadata()
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow }), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: null }), { status: 200 }))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await getActiveRevenantWorkflow('character-1', 'room-1')
+        expect(get(activeRevenantWorkflows)).toEqual([workflow])
+
+        await getActiveRevenantWorkflow('character-1', 'room-1')
+        expect(get(activeRevenantWorkflows)).toEqual([])
+    })
+
+    it('cancels a workflow from any connected client and clears the spinner state', async () => {
+        const workflow = workflowWithMetadata()
+        const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+            if (String(input).includes('/active?')) {
+                return new Response(JSON.stringify({ workflow }), { status: 200 })
+            }
+            expect(init?.method).toBe('POST')
+            expect(JSON.parse(String(init?.body))).toEqual({ status: 'cancelled' })
+            return new Response(JSON.stringify({ success: true }), { status: 200 })
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        await getActiveRevenantWorkflow('character-1', 'room-1')
+        await cancelRevenantWorkflow('workflow-1')
+
+        expect(get(activeRevenantWorkflows)).toEqual([])
     })
 })

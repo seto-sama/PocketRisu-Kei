@@ -177,9 +177,18 @@ export interface StartStatusInit {
     chatId?: string
     phase?: RequestPhase
     now: number
+    abortSignal?: AbortSignal
+}
+
+const abortBindings = new Map<string, () => void>()
+
+function clearAbortBinding(id: string): void {
+    abortBindings.get(id)?.()
+    abortBindings.delete(id)
 }
 
 export function startStatus(id: string, init: StartStatusInit): void {
+    clearAbortBinding(id)
     requestStatuses.update((m) => {
         const next = new Map(m)
         next.set(id, {
@@ -201,6 +210,17 @@ export function startStatus(id: string, init: StartStatusInit): void {
         })
         return next
     })
+    if (init.abortSignal) {
+        const signal = init.abortSignal
+        const onAbort = () => endStatus(id, 'aborted', { now: Date.now() })
+        if (signal.aborted) {
+            onAbort()
+        }
+        else {
+            signal.addEventListener('abort', onAbort, { once: true })
+            abortBindings.set(id, () => signal.removeEventListener('abort', onAbort))
+        }
+    }
     // Self-start the recompute timer; it self-stops once entries go terminal.
     startStatusTimer()
 }
@@ -287,7 +307,15 @@ export function endStatus(
             tokPerSec: 0,
         }
     })
+    clearAbortBinding(id)
     if (needFinalCount) void finalRecount(id)
+}
+
+export function abortStatusesForChat(chatId: string, now = Date.now()): void {
+    const ids = [...get(requestStatuses)]
+        .filter(([, entry]) => entry.chatId === chatId && !isTerminalPhase(entry.phase))
+        .map(([id]) => id)
+    for (const id of ids) endStatus(id, 'aborted', { now })
 }
 
 // One last native tokenization of the accumulated text after a request ends
@@ -321,6 +349,7 @@ async function finalRecount(id: string): Promise<void> {
 // Remove an entry outright (renderer calls this after the retention window for
 // terminal entries; also used to clear aborted/failed immediately if desired).
 export function clearStatus(id: string): void {
+    clearAbortBinding(id)
     requestStatuses.update((m) => {
         if (!m.has(id)) return m
         const next = new Map(m)
@@ -396,6 +425,7 @@ async function tokenizeDirty(): Promise<void> {
 function tick(): void {
     const now = Date.now()
     let changed = false
+    const abandonedIds: string[] = []
     requestStatuses.update((m) => {
         if (m.size === 0) return m
         const next = new Map<string, RequestStatusEntry>()
@@ -408,6 +438,7 @@ function tick(): void {
             // (fixed 600s for local-network requests) fires the catch path first.
             if (!isTerminalPhase(e.phase) && now - e.startedAt > STATUS_ABANDON_MS) {
                 changed = true
+                abandonedIds.push(id)
                 continue // omit from next → removed, timer can stop
             }
             const re = recomputeEntry(e, now)
@@ -416,6 +447,7 @@ function tick(): void {
         }
         return changed ? next : m
     })
+    for (const id of abandonedIds) clearAbortBinding(id)
     // Authoritative token recount (async, off the sync path).
     void tokenizeDirty()
     if (!hasLiveEntries(get(requestStatuses))) {

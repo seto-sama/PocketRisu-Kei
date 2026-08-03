@@ -72,4 +72,19 @@ describe('openRevenantJournalSocket', () => {
         openRevenantJournalSocket({ jobId: 'job-2', auth: 'auth', recovery: true })
         expect(FakeWebSocket.instances[0].url).toContain('mode=raw&recovery=1&offset=0')
     })
+
+    it('reports terminal completion even when no provider headers arrived', async () => {
+        const onDone = vi.fn()
+        const stream = openRevenantJournalSocket({
+            jobId: 'job-cancelled',
+            auth: 'auth',
+            onDone,
+        })
+        const reader = stream.getReader()
+
+        FakeWebSocket.instances[0].emit({ type: 'done' })
+
+        expect((await reader.read()).done).toBe(true)
+        expect(onDone).toHaveBeenCalledOnce()
+    })
 })

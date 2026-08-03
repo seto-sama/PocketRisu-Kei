@@ -134,11 +134,12 @@ function seededShuffle(values, seed) {
     return result;
 }
 
-async function requestJson(fetchImpl, url, headers, body) {
+async function requestJson(fetchImpl, url, headers, body, signal) {
     const response = await fetchImpl(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...headers },
         body: JSON.stringify(body),
+        signal,
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(`Embedding HTTP ${response.status}: ${JSON.stringify(data)}`);
@@ -187,7 +188,7 @@ function createRemoteEmbedder(config, deps = {}) {
                 headers = { authorization: `Bearer ${config.apiKey}` };
                 body = { input: batch, model: models[config.model] };
             }
-            const data = await requestJson(fetchImpl, url, headers, body);
+            const data = await requestJson(fetchImpl, url, headers, body, deps.signal);
             if (!Array.isArray(data.data)) throw new Error('Embedding response has no data array');
             output.push(...data.data.map(item => item.embedding));
         }
@@ -205,6 +206,7 @@ function createRemoteEmbedder(config, deps = {}) {
                 'https://api.voyageai.com/v1/contextualizedembeddings',
                 { authorization: `Bearer ${config.apiKey}` },
                 { model, inputs: batch, input_type: 'document' },
+                deps.signal,
             );
             if (!Array.isArray(data.data)) throw new Error('Contextual embedding response has no data array');
             output.push(...data.data.map(group => group.data.map(item => item.embedding)));
@@ -221,6 +223,7 @@ function createRemoteEmbedder(config, deps = {}) {
             'https://api.voyageai.com/v1/contextualizedembeddings',
             { authorization: `Bearer ${config.apiKey}` },
             { model, inputs: contents.map(value => [value]), input_type: 'query' },
+            deps.signal,
         );
         return data.data.map(group => group.data[0].embedding);
     }
@@ -232,15 +235,18 @@ function createRemoteEmbedder(config, deps = {}) {
             }
             const groups = [];
             const positions = [];
-            for (const item of chunksWithParent) {
-                let groupIndex = positions.findIndex(position => position.summaryIndex === item.summaryIndex);
-                if (groupIndex < 0) {
+            const groupBySummary = new Map();
+            for (let itemIndex = 0; itemIndex < chunksWithParent.length; itemIndex++) {
+                const item = chunksWithParent[itemIndex];
+                let groupIndex = groupBySummary.get(item.summaryIndex);
+                if (groupIndex === undefined) {
                     groupIndex = groups.length;
                     groups.push([]);
                     positions.push({ summaryIndex: item.summaryIndex, chunkIndexes: [] });
+                    groupBySummary.set(item.summaryIndex, groupIndex);
                 }
                 groups[groupIndex].push(item.content);
-                positions[groupIndex].chunkIndexes.push(chunksWithParent.indexOf(item));
+                positions[groupIndex].chunkIndexes.push(itemIndex);
             }
             const embeddedGroups = await contextualDocuments(groups);
             const flattened = new Array(chunksWithParent.length);

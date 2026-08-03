@@ -183,6 +183,7 @@ export async function listRecoverableAuxiliaryGenerations(
 
 export async function waitForRecoverableAuxiliaryGeneration(
     jobId: string,
+    onUpdate?: (job: RecoverableAuxiliaryJob) => void,
 ): Promise<RecoverableAuxiliaryJob> {
     while (true) {
         const auth = await createRevenantGenerationAuth()
@@ -194,6 +195,7 @@ export async function waitForRecoverableAuxiliaryGeneration(
         }
         const job = await response.json() as RecoverableAuxiliaryJob
         updateAuxiliaryGenerationJob(job)
+        onUpdate?.(job)
         if (!isRevenantJobActive(job.status)) return job
         await new Promise(resolve => setTimeout(resolve, 500))
     }
@@ -201,9 +203,11 @@ export async function waitForRecoverableAuxiliaryGeneration(
 
 export async function resolveRecoverableAuxiliaryGeneration(
     job: RecoverableAuxiliaryJob,
+    onUpdate?: (job: RecoverableAuxiliaryJob) => void,
 ): Promise<RecoverableAuxiliaryJob> {
+    onUpdate?.(job)
     const resolved = isRevenantJobActive(job.status)
-        ? await waitForRecoverableAuxiliaryGeneration(job.jobId)
+        ? await waitForRecoverableAuxiliaryGeneration(job.jobId, onUpdate)
         : job
     if (!resolved.projection?.content && (resolved.rawBytes ?? 0) > 0) {
         const content = await readRecoverableGenerationContent(resolved)
@@ -232,6 +236,7 @@ export async function resolveRecoverableAuxiliaryGenerations<T extends RevenantO
         force?: boolean
         matchesContext?: (context: T) => boolean
         matchesJob?: (job: TypedRecoverableAuxiliaryJob<T>) => boolean
+        onJobUpdate?: (job: RecoverableAuxiliaryJob) => void
     },
 ): Promise<TypedRecoverableAuxiliaryJob<T>[]> {
     const jobs = await listRecoverableAuxiliaryGenerations(options.force)
@@ -244,7 +249,10 @@ export async function resolveRecoverableAuxiliaryGenerations<T extends RevenantO
             && (options.matchesJob?.(typedJob) ?? true)
     })
     return await Promise.all(matching.map(async job =>
-        await resolveRecoverableAuxiliaryGeneration(job) as TypedRecoverableAuxiliaryJob<T>))
+        await resolveRecoverableAuxiliaryGeneration(
+            job,
+            options.onJobUpdate,
+        ) as TypedRecoverableAuxiliaryJob<T>))
 }
 
 export async function findRecoverableAuxiliaryGeneration(

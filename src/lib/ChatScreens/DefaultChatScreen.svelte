@@ -40,6 +40,15 @@ import { isMobile } from 'src/ts/platform'
     import { getInlayAsset } from 'src/ts/process/files/inlays';
     import { quickMenu } from 'src/ts/hotkey';
     import { loadChatDraft, scheduleSaveChatDraft, flushChatDraft, removeChatDraft } from 'src/ts/storage/chatDraft';
+    import {
+        activeRevenantWorkflows,
+        cancelRevenantWorkflow,
+        getActiveRevenantWorkflow,
+        getRevenantWorkflow,
+    } from 'src/ts/process/revenantGeneration/workflow';
+    import {
+        clearRevenantRecoveryForChat,
+    } from 'src/ts/process/revenantGeneration/chatRecovery.svelte';
 
     import Chats from './Chats.svelte';
     import PartialEditManager from './PartialEditManager.svelte';
@@ -87,6 +96,47 @@ import { isMobile } from 'src/ts/platform'
     let currentChatReady = $derived(!!currentChatSlot && !currentChatSlot._placeholder)
     let currentChat = $derived(currentChatReady ? currentChatSlot.message : [])
     let currentChatFmIndex = $derived(currentChatReady ? (currentChatSlot.fmIndex ?? -1) : -1)
+    let currentRevenantWorkflow = $derived($activeRevenantWorkflows.find(workflow =>
+        workflow.characterId === currentCharacter?.chaId
+        && workflow.roomId === currentChatSlot?.id))
+    let workflowCancelInFlight = $state(false)
+
+    // Workflow ownership is shared across the user's devices. Keep the local
+    // composer flag in sync when another device finishes or cancels the room.
+    $effect(() => {
+        const characterId = currentCharacter?.chaId
+        const roomId = currentChatSlot?.id
+        if (!characterId || !roomId) return
+        const workflow = currentRevenantWorkflow
+        const character = currentCharacter
+        const chat = currentChatSlot
+        const refresh = () => {
+            void getActiveRevenantWorkflow(characterId, roomId)
+                .then(async active => {
+                    if (
+                        !active
+                        && workflow
+                        && character?.chaId === characterId
+                        && chat?.id === roomId
+                    ) {
+                        const terminalWorkflow = await getRevenantWorkflow(workflow.workflowId)
+                            .catch(() => undefined)
+                        const cancelled = terminalWorkflow?.status === 'cancelled'
+                        clearRevenantRecoveryForChat(character, chat, {
+                            preserveProjection: cancelled,
+                            cancelled,
+                        })
+                    }
+                })
+                .catch(error => console.warn('[GenerationWorkflow] Active refresh failed:', error))
+        }
+        if (!workflow) {
+            refresh()
+            return
+        }
+        const timer = setInterval(refresh, 5000)
+        return () => clearInterval(timer)
+    })
 
     // ─── Per-chat composer draft ────────────────────────────────────────────
     // The message input is kept per chat, stored outside the chat body, so it
@@ -409,7 +459,7 @@ import { isMobile } from 'src/ts/platform'
 
     async function sendMain(continueResponse:boolean) {
         let selectedChar = $selectedCharID
-        if($doingChat){
+        if($doingChat || currentRevenantWorkflow){
             return
         }
 
@@ -581,7 +631,7 @@ import { isMobile } from 'src/ts/platform'
     }
 
     async function reroll() {
-        if($doingChat) return
+        if($doingChat || currentRevenantWorkflow) return
         const lastMsg = getLastCharMsg()
         if (!lastMsg) return
 
@@ -712,10 +762,37 @@ import { isMobile } from 'src/ts/platform'
         return generated
     }
 
-    function abortChat(){
+    async function abortChat(){
         if(abortController){
             chatAbortRequested = true
             abortController.abort()
+        }
+        const workflow = currentRevenantWorkflow
+        if(!workflow || workflowCancelInFlight) return
+        workflowCancelInFlight = true
+        const workflowBelongsToCurrentChat =
+            currentCharacter?.chaId === workflow.characterId
+            && currentChatSlot?.id === workflow.roomId
+        if (workflowBelongsToCurrentChat) {
+            // Snapshot the detached projection before the server cancellation
+            // closes the journal subscription and removes the recoverable job.
+            clearRevenantRecoveryForChat(currentCharacter, currentChatSlot, {
+                preserveProjection: true,
+                cancelled: true,
+            })
+        }
+        try{
+            await cancelRevenantWorkflow(workflow.workflowId)
+        }
+        catch(error){
+            console.error('[GenerationWorkflow] Failed to cancel workflow:', error)
+            alertError(error)
+            if (workflowBelongsToCurrentChat) {
+                void recoverRevenantGenerationsForChat(currentCharacter, currentChatSlot)
+            }
+        }
+        finally{
+            workflowCancelInFlight = false
         }
     }
 
@@ -1210,10 +1287,11 @@ import { isMobile } from 'src/ts/platform'
                     <Maximize2 />
                 </button>
 
-                {#if $doingChat || doingChatInputTranslate}
+                {#if $doingChat || doingChatInputTranslate || currentRevenantWorkflow}
                     <button
                             aria-labelledby="cancel"
-                            class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors" onclick={abortChat}
+                            disabled={workflowCancelInFlight}
+                            class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors disabled:opacity-50" onclick={abortChat}
                     >
                         <div class="loadmove chat-process-stage-{$chatProcessStage}"></div>
                     </button>

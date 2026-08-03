@@ -139,17 +139,27 @@ export interface RevenantGenerationContext {
     continuationPrefix?: string
     operationContext?: RevenantOperationContext
     dispatchPolicy?: RevenantDispatchPolicy
+    workflowDependency?: RevenantWorkflowDependency
     /** Canonical models.dev identity used by usage-cost accounting. */
     usageProviderId?: string
     usageModelId?: string
     usageServiceTier?: 'batch'
     /** Client-only callback; omitted when the context is serialized for the server. */
     onJobCreated?: (jobId: string) => void
+    /** Client-only callback fired when no durable server job could be created. */
+    onJobRegistrationUnavailable?: (error?: unknown) => void
+    /** Client-only callback fired when a queued job begins its provider request. */
+    onProviderStarted?: (startedAt: number) => void
 }
 
 export interface RevenantDispatchPolicy {
     maxConcurrent: number
     requestsPerMinute: number
+}
+
+export interface RevenantWorkflowDependency {
+    kind: 'hypav3-selection'
+    placeholder: string
 }
 
 export interface RevenantRerollSnapshot {
@@ -211,6 +221,7 @@ export interface RecoverableAuxiliaryJob {
     projectionError?: string
     projectedAt?: number
     error?: string
+    dispatchedAt?: number
     createdAt: number
     updatedAt: number
     completedAt?: number

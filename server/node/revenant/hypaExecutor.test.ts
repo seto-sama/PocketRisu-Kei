@@ -70,9 +70,10 @@ describe('server HypaV3 selection executor', () => {
                 data: body.input.map((_: string, index: number) => ({ embedding: [index, 1] })),
             }), { status: 200, headers: { 'content-type': 'application/json' } })
         })
+        const controller = new AbortController()
         const embedder = createRemoteEmbedder(
             { model: 'openai3large', apiKey: 'openai-key' },
-            { fetch: fetchMock },
+            { fetch: fetchMock, signal: controller.signal },
         )
 
         await embedder.documents([{ content: 'doc', summaryIndex: 0 }])
@@ -83,6 +84,7 @@ describe('server HypaV3 selection executor', () => {
             expect(url).toBe('https://api.openai.com/v1/embeddings')
             expect((init.headers as Record<string, string>).authorization).toBe('Bearer openai-key')
             expect(JSON.parse(String(init.body)).model).toBe('text-embedding-3-large')
+            expect(init.signal).toBe(controller.signal)
         }
     })
 })

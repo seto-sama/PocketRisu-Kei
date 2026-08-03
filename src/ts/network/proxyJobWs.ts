@@ -1,5 +1,6 @@
 export type ProxyJobWsEvent =
     | { type: 'job_accepted', jobId: string }
+    | { type: 'provider_started', startedAt: number }
     | { type: 'upstream_headers', status: number, headers: Record<string, string> }
     | { type: 'chunk', offset?: number, dataBase64: string }
     | { type: 'error', status?: number, message: string }

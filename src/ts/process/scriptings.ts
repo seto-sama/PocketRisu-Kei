@@ -1662,6 +1662,24 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
     }
 }
 
+export function hasLuaEditRequestListener(char: character|simpleCharacterArgument): boolean {
+    return char.triggerscript
+        .concat(getModuleTriggers())
+        .some(trigger => {
+            const effect = trigger?.effect?.[0]
+            if (effect?.type !== 'triggerlua') return false
+            const listenerPattern = /\blistenEdit\s*\(\s*([^,\r\n)]+)/g
+            for (const match of effect.code.matchAll(listenerPattern)) {
+                const argument = match[1].trim()
+                const literal = argument.match(/^(['"])(.*?)\1$/)
+                // A dynamic first argument cannot be proven unrelated to
+                // editRequest, so retain the browser execution boundary.
+                if (!literal || literal[2] === 'editRequest') return true
+            }
+            return false
+        })
+}
+
 export async function runLuaButtonTrigger(char:character|simpleCharacterArgument, data:string):Promise<any>{
     let runResult
     try {

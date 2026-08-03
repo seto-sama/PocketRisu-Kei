@@ -214,7 +214,7 @@ export async function finalizeRevenantGeneration(
 export async function listRecoverableGenerations(): Promise<RecoverableGenerationJob[]> {
     const auth = await createRevenantGenerationAuth()
     if (!revenantGenerationRetentionPruned) {
-        const pruned = await fetch('/api/generation/jobs/prune-materialized', {
+        const pruned = await fetch('/api/generation/jobs/prune-retained', {
             method: 'POST',
             headers: {
                 'risu-auth': auth,
@@ -239,6 +239,7 @@ export async function listRecoverableGenerations(): Promise<RecoverableGeneratio
 export async function materializeRecoveredGeneration(
     jobId: string,
     message: Message,
+    chat?: Chat,
 ): Promise<MaterializedGeneration> {
     const auth = await createRevenantGenerationAuth()
     const materialized = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/materialize`, {
@@ -248,7 +249,7 @@ export async function materializeRecoveredGeneration(
             'risu-auth': auth,
             'x-sync-client-id': getRevenantGenerationSyncClientId(),
         },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, chat }),
     })
     if (!materialized.ok) {
         throw new Error(`Failed to materialize recovered generation: ${materialized.status} ${await materialized.text()}`)

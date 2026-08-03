@@ -33,6 +33,7 @@ import { saveChatToServer } from "src/ts/storage/chatStorage";
 import {
     createRevenantOperation,
     isRevenantHypaV3SummaryOperation,
+    type RecoverableAuxiliaryJob,
 } from "../revenantGeneration/types";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -118,12 +119,18 @@ export interface HypaV3Result {
     chats: OpenAIChat[];
     error?: string;
     memory?: SerializableHypaV3Data;
+    deferredRemoteSelection?: boolean;
 }
 
 export interface HypaV3ExecutionOptions {
     /** Called before a Hypa run that may require browser-only embedding work. */
     onClientEmbeddingRequired?: (model: HypaModel) => Promise<void>;
+    /** Placeholder used to pre-register main while server-side selection runs. */
+    deferredMemoryPrompt?: string;
+    /** Called when prompt construction must wait for browser-side Lua. */
+    onRemoteSelectionRequiresClient?: () => Promise<void>;
     workflowId?: string;
+    signal?: AbortSignal;
 }
 
 interface RevenantHypaSelectionResult {
@@ -188,26 +195,31 @@ function getRemoteEmbeddingConfig(model: HypaModel): {
 
 async function executeDurableHypaBatch<T>(
     tasks: Array<(onRegistered: () => void) => Promise<T>>,
-    onAllRegistered?: () => Promise<void>,
+    onAllRegistered?: () => Promise<boolean|void>,
+    detachAfterRegistration = false,
 ): Promise<{
     results: Array<{ success: boolean; data?: T; error?: Error }>;
     successCount: number;
     failureCount: number;
     allSucceeded: boolean;
+    detached?: boolean;
 }> {
     const running: Promise<{ success: boolean; data?: T; error?: Error }>[] = [];
+    let allRegistered = true;
     // Compile and register each provider envelope in order, but do not wait for
     // its provider response. Once registered, the durable server dispatcher
     // owns concurrency/rate limiting and the next envelope can be submitted.
     for (const task of tasks) {
-        let registered = false;
+        let jobRegistered = false;
+        let registrationReleased = false;
         let releaseRegistration!: () => void;
         const registration = new Promise<void>(resolve => {
             releaseRegistration = resolve;
         });
         const markRegistered = () => {
-            if (registered) return;
-            registered = true;
+            jobRegistered = true;
+            if (registrationReleased) return;
+            registrationReleased = true;
             releaseRegistration();
         };
         const result = task(markRegistered).then(
@@ -216,11 +228,26 @@ async function executeDurableHypaBatch<T>(
                 success: false,
                 error: error instanceof Error ? error : new Error(String(error)),
             }),
-        ).finally(markRegistered);
+        ).finally(() => {
+            if (registrationReleased) return;
+            registrationReleased = true;
+            releaseRegistration();
+        });
         running.push(result);
         await registration;
+        allRegistered &&= jobRegistered;
     }
-    await onAllRegistered?.();
+    const canDetach = allRegistered && (await onAllRegistered?.()) !== false;
+    if (detachAfterRegistration && canDetach) {
+        void Promise.all(running);
+        return {
+            results: [],
+            successCount: 0,
+            failureCount: 0,
+            allSucceeded: true,
+            detached: true,
+        };
+    }
     const results = await Promise.all(running);
     const successCount = results.filter(result => result.success).length;
     const failureCount = results.length - successCount;
@@ -240,6 +267,7 @@ export interface HypaV3RecoveryOptions {
     workflowId?: string;
     rejectFailed?: boolean;
     force?: boolean;
+    onJobUpdate?: (job: RecoverableAuxiliaryJob) => void;
 }
 
 export async function recoverHypaV3SummaryJobs(
@@ -262,6 +290,7 @@ export async function recoverHypaV3SummaryJobs(
                 context.characterId === char.chaId && context.roomId === room.id,
             matchesJob: job => !options.workflowId || job.workflowId === options.workflowId,
             force: options.force,
+            onJobUpdate: options.onJobUpdate,
         });
         const consumedJobIds: string[] = [];
         let shouldPersist = false;
@@ -345,10 +374,12 @@ export async function hypaMemoryV3(
     if (options?.workflowId) {
         const existingExecution = await getRevenantHypaExecution<RevenantHypaSelectionResult>(
             options.workflowId,
+            options.signal,
         );
-        if (existingExecution && existingExecution.error !== 'server_restart') {
+        if (existingExecution) {
             const remote = await waitForRevenantHypaExecution<RevenantHypaSelectionResult>(
                 options.workflowId,
+                options.signal,
             );
             room.hypaV3Data = remote.memory;
             return {
@@ -627,7 +658,7 @@ async function hypaMemoryV3MainExp(
     const prepareRemoteSelection = async (
         batchId: string,
         operationIds: string[],
-    ): Promise<void> => {
+    ): Promise<boolean> => {
         const embeddingModel = db.hypaModel || 'MiniLM';
         const remoteEmbedding = getRemoteEmbeddingConfig(embeddingModel);
         const tokenizerSpec = tokenizer.getRevenantSpec();
@@ -640,7 +671,7 @@ async function hypaMemoryV3MainExp(
             || !remoteEmbedding
             || !tokenizerSpec.tokenizer
             || !serverTokenizers.has(tokenizerSpec.tokenizer)
-        ) return;
+        ) return false;
         try {
             await prepareRevenantHypaExecution(options.workflowId, {
                 schemaVersion: 1,
@@ -670,20 +701,44 @@ async function hypaMemoryV3MainExp(
                 randomSeed: batchId,
             });
             remoteExecutionPrepared = true;
+            if (!options.deferredMemoryPrompt) {
+                await options.onRemoteSelectionRequiresClient?.();
+            }
         }
         catch (error) {
             console.warn(`${logPrefix} Server selection unavailable; using client:`, error);
         }
+        return remoteExecutionPrepared;
     };
     const consumeRemoteSelection = async (): Promise<HypaV3Result> => {
         const remote = await waitForRevenantHypaExecution<RevenantHypaSelectionResult>(
             options.workflowId,
+            options.signal,
         );
         room.hypaV3Data = remote.memory;
         return {
             currentTokens: remote.currentTokens,
             chats: remote.chatSequence.map(item => item.chat ?? chats[item.inputIndex]),
             memory: remote.memory,
+        };
+    };
+    const deferredRemoteSelection = (): HypaV3Result => {
+        const deferredMemoryPrompt = options?.deferredMemoryPrompt;
+        if (!deferredMemoryPrompt) {
+            throw new Error('Deferred Hypa selection requires a memory placeholder');
+        }
+        return {
+            currentTokens,
+            chats: [
+                {
+                    role: 'system',
+                    content: deferredMemoryPrompt,
+                    memo: 'supaMemory',
+                },
+                ...chats.slice(startIdx),
+            ],
+            memory: toSerializableHypaV3Data(data),
+            deferredRemoteSelection: true,
         };
     };
 
@@ -741,7 +796,11 @@ async function hypaMemoryV3MainExp(
         const summarizeStartTime = performance.now();
 
         const batchResult = useDurableDispatch
-            ? await executeDurableHypaBatch<string>(summarizationTasks, prepareRemoteExecution)
+            ? await executeDurableHypaBatch<string>(
+                summarizationTasks,
+                prepareRemoteExecution,
+                !!options?.deferredMemoryPrompt,
+            )
             : await rateLimiter.executeBatch<string>(
                 summarizationTasks.map(task => () => task())
             );
@@ -759,6 +818,14 @@ async function hypaMemoryV3MainExp(
             msg: "",
             subMsg: "",
         });
+
+        if (
+            remoteExecutionPrepared
+            && 'detached' in batchResult
+            && batchResult.detached
+        ) {
+            return deferredRemoteSelection();
+        }
 
         if (remoteExecutionPrepared) {
             const failed = batchResult.results.find(result => !result.success || !result.data);
@@ -811,7 +878,10 @@ async function hypaMemoryV3MainExp(
 
     if (toSummarizeArray.length === 0 && data.summaries.length > 0) {
         await prepareRemoteSelection(uuidv4(), []);
-        if (remoteExecutionPrepared) return consumeRemoteSelection();
+        if (remoteExecutionPrepared) {
+            if (options?.deferredMemoryPrompt) return deferredRemoteSelection();
+            return consumeRemoteSelection();
+        }
     }
 
     console.log(

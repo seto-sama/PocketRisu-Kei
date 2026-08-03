@@ -165,6 +165,65 @@ function normalizeRevenantDispatchPolicy(value, operationContext, workflowId) {
     };
 }
 
+function normalizeRevenantWorkflowDependency(value, jobType, workflowId) {
+    if (value === undefined || value === null) return null;
+    if (
+        !value || typeof value !== 'object' || Array.isArray(value)
+        || jobType !== 'model'
+        || !workflowId
+        || value.kind !== 'hypav3-selection'
+        || typeof value.placeholder !== 'string'
+        || value.placeholder.length > 256
+        || !/^__RISU_REVENANT_HYPA_[A-Za-z0-9_-]+__$/.test(value.placeholder)
+    ) return undefined;
+    return {
+        kind: 'hypav3-selection',
+        placeholder: value.placeholder,
+    };
+}
+
+function resolveRevenantWorkflowRequestBody(bodyBase64, dependency, execution) {
+    if (
+        dependency?.kind !== 'hypav3-selection'
+        || execution?.kind !== 'hypav3-selection'
+        || execution?.status !== 'completed'
+        || !Array.isArray(execution.result?.chatSequence)
+    ) throw new Error('HypaV3 workflow selection is not complete');
+    const memoryPrompt = execution.result.chatSequence
+        .map(item => item?.chat)
+        .find(chat => chat?.memo === 'supaMemory')?.content;
+    if (typeof memoryPrompt !== 'string') {
+        throw new Error('HypaV3 workflow selection has no memory prompt');
+    }
+    let requestBody;
+    try {
+        requestBody = JSON.parse(Buffer.from(bodyBase64, 'base64').toString('utf8'));
+    } catch {
+        throw new Error('Dependent generation request body is not valid JSON');
+    }
+    let replacements = 0;
+    const replacePlaceholder = value => {
+        if (typeof value === 'string') {
+            if (!value.includes(dependency.placeholder)) return value;
+            replacements += value.split(dependency.placeholder).length - 1;
+            return value.replaceAll(dependency.placeholder, memoryPrompt);
+        }
+        if (Array.isArray(value)) return value.map(replacePlaceholder);
+        if (value && typeof value === 'object') {
+            return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+                key,
+                replacePlaceholder(item),
+            ]));
+        }
+        return value;
+    };
+    const resolved = replacePlaceholder(requestBody);
+    if (replacements === 0) {
+        throw new Error('Dependent generation request has no HypaV3 placeholder');
+    }
+    return Buffer.from(JSON.stringify(resolved), 'utf8').toString('base64');
+}
+
 function normalizeRevenantHypaExecutionRecipe(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
     let serialized;
@@ -223,5 +282,7 @@ module.exports = {
     normalizeRevenantJobType,
     normalizeRevenantOperationContext,
     normalizeRevenantDispatchPolicy,
+    normalizeRevenantWorkflowDependency,
+    resolveRevenantWorkflowRequestBody,
     normalizeRevenantHypaExecutionRecipe,
 };

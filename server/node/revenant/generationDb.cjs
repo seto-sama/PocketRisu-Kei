@@ -4,8 +4,9 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const { generationJournalStore } = require('./generationJournal.cjs');
+const { cancelActiveGenerationWork } = require('./generationRestart.cjs');
 
-const MATERIALIZED_RETENTION_MS = 24 * 60 * 60 * 1000;
+const GENERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 const saveDir = path.join(process.cwd(), 'save');
 if (!fs.existsSync(saveDir)) {
@@ -190,39 +191,11 @@ if (generationColumns.has('raw_response')) {
 if (generationColumns.has('processed_content')) {
     db.exec(`UPDATE generation_jobs SET processed_content = NULL WHERE processed_content IS NOT NULL`);
 }
-// A process restart cannot resume an upstream HTTP socket. Requests that were
-// durably queued but not dispatched retain request_spec and can be resumed;
-// everything else becomes an interrupted attempt without being retried.
-db.prepare(`
-    UPDATE generation_jobs
-    SET status = 'interrupted',
-        finish_reason = COALESCE(finish_reason, 'server_restart'),
-        materialized_at = CASE
-            WHEN job_type <> 'model' AND operation_context IS NULL
-                THEN COALESCE(materialized_at, ?)
-            ELSE materialized_at
-        END,
-        updated_at = ?
-    WHERE status = 'generating'
-       OR (status = 'queued' AND request_spec IS NULL)
-`).run(Date.now(), Date.now());
-db.prepare(`
-    UPDATE generation_workflow_executions
-    SET status = 'failed', recipe = '{}', error = 'server_restart',
-        completed_at = ?, updated_at = ?
-    WHERE status = 'running'
-`).run(Date.now(), Date.now());
-db.prepare(`
-    UPDATE generation_workflow_steps
-    SET status = 'waiting_client',
-        metadata = '{"checkpoint":"selection.remote","reason":"server_restart"}',
-        updated_at = ?
-    WHERE step_key = 'memory.hypav3'
-      AND workflow_id IN (
-          SELECT workflow_id FROM generation_workflow_executions
-          WHERE status = 'failed' AND error = 'server_restart'
-      )
-`).run(Date.now());
+// A browser disconnect is recoverable, but a server process restart ends the
+// workflow. Keep partial journals for retention/recovery, while ensuring no
+// queued provider request is resumed by the new process.
+const restartAt = Date.now();
+cancelActiveGenerationWork(db, restartAt);
 db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_generation_jobs_active_main_room
     ON generation_jobs(character_id, room_id)
@@ -393,24 +366,17 @@ const stmtMaterializedPayloadTotal = db.prepare(`
     FROM generation_jobs
     WHERE materialized_at IS NOT NULL
 `);
-const stmtOldestMaterialized = db.prepare(`
-    SELECT job_id, workflow_id, materialized_at,
-        raw_bytes + length(CAST(COALESCE(normalized_projection, '') AS BLOB))
-        + length(CAST(COALESCE(projection_error, '') AS BLOB))
-        + length(CAST(COALESCE(generation_info, '') AS BLOB))
-        + length(CAST(COALESCE(prompt_info, '') AS BLOB))
-        + length(CAST(COALESCE(reroll_snapshot, '') AS BLOB))
-        + length(CAST(COALESCE(operation_context, '') AS BLOB))
-        + length(CAST(COALESCE(response_headers, '') AS BLOB))
-        + length(CAST(COALESCE(continuation_prefix, '') AS BLOB))
-        + length(CAST(COALESCE(error, '') AS BLOB)) AS payload_size
-    FROM generation_jobs
-    WHERE materialized_at IS NOT NULL
-    ORDER BY materialized_at ASC, created_at ASC
-`);
 const stmtDeleteJob = db.prepare(`DELETE FROM generation_jobs WHERE job_id = ?`);
 const stmtAllJobIds = db.prepare(`SELECT job_id, workflow_id FROM generation_jobs`);
 const stmtSetRawBytes = db.prepare(`UPDATE generation_jobs SET raw_bytes = ? WHERE job_id = ?`);
+const stmtExpiredTerminalJobs = db.prepare(`
+    SELECT job_id, workflow_id
+    FROM generation_jobs
+    WHERE status NOT IN ('queued', 'generating')
+      AND completed_at IS NOT NULL
+      AND completed_at < ?
+    ORDER BY completed_at ASC, created_at ASC
+`);
 const stmtCreateWorkflow = db.prepare(`
     INSERT INTO generation_workflows (
         workflow_id, character_id, room_id, owner_client_id,
@@ -480,11 +446,39 @@ const stmtFinishWorkflow = db.prepare(`
     SET status = ?, completed_at = ?, updated_at = ?
     WHERE workflow_id = ? AND status = 'active'
 `);
-const stmtCancelWorkflowExecution = db.prepare(`
+const stmtCancelWorkflowExecutions = db.prepare(`
     UPDATE generation_workflow_executions
-    SET status = 'failed', recipe = '{}', error = 'workflow_finished',
+    SET status = 'failed', recipe = '{}', error = ?,
+        completed_at = ?, updated_at = ?
+    WHERE workflow_id = ? AND status IN ('queued', 'running')
+`);
+const stmtCancelQueuedWorkflowExecutions = db.prepare(`
+    UPDATE generation_workflow_executions
+    SET status = 'failed', recipe = '{}', error = 'workflow_completed',
         completed_at = ?, updated_at = ?
     WHERE workflow_id = ? AND status = 'queued'
+`);
+const stmtListActiveWorkflowJobs = db.prepare(`
+    SELECT job_id, status FROM generation_jobs
+    WHERE workflow_id = ? AND status IN ('queued', 'generating')
+`);
+const stmtAcknowledgeWorkflowJobs = db.prepare(`
+    UPDATE generation_jobs
+    SET materialized_at = COALESCE(materialized_at, ?)
+    WHERE workflow_id = ?
+`);
+const stmtCancelWorkflowJobs = db.prepare(`
+    UPDATE generation_jobs
+    SET status = 'cancelled', finish_reason = ?, error = NULL,
+        request_spec = NULL,
+        completed_at = ?, updated_at = ?
+    WHERE workflow_id = ? AND status IN ('queued', 'generating')
+`);
+const stmtFailActiveWorkflowSteps = db.prepare(`
+    UPDATE generation_workflow_steps
+    SET status = 'failed', completed_at = ?, updated_at = ?
+    WHERE workflow_id = ?
+      AND status NOT IN ('completed', 'skipped', 'failed')
 `);
 const stmtDeleteCompletedWorkflowSteps = db.prepare(`
     DELETE FROM generation_workflow_steps
@@ -515,11 +509,6 @@ const stmtClaimWorkflowExecution = db.prepare(`
     UPDATE generation_workflow_executions
     SET status = 'running', updated_at = ?
     WHERE workflow_id = ? AND status = 'queued'
-`);
-const stmtRequeueWorkflowExecution = db.prepare(`
-    UPDATE generation_workflow_executions
-    SET status = 'queued', updated_at = ?
-    WHERE workflow_id = ? AND status = 'running'
 `);
 const stmtFinishWorkflowExecution = db.prepare(`
     UPDATE generation_workflow_executions
@@ -682,9 +671,41 @@ function updateGenerationWorkflowStep(
 
 function finishGenerationWorkflow(workflowId, status) {
     const now = Date.now();
-    const changed = stmtFinishWorkflow.run(status, now, now, workflowId).changes === 1;
-    if (changed) stmtCancelWorkflowExecution.run(now, now, workflowId);
+    let changed = false;
+    db.transaction(() => {
+        changed = stmtFinishWorkflow.run(status, now, now, workflowId).changes === 1;
+        if (changed) stmtCancelQueuedWorkflowExecutions.run(now, now, workflowId);
+    })();
     return changed;
+}
+
+function cancelGenerationWorkflow(workflowId, terminalStatus = 'cancelled') {
+    if (!['cancelled', 'failed'].includes(terminalStatus)) {
+        throw new Error(`Invalid workflow cancellation status: ${terminalStatus}`);
+    }
+    const workflow = stmtGetWorkflow.get(workflowId);
+    if (!workflow || workflow.status !== 'active') {
+        return { changed: false, jobs: [] };
+    }
+    const jobs = stmtListActiveWorkflowJobs.all(workflowId).map(row => ({
+        jobId: row.job_id,
+        status: row.status,
+    }));
+    const now = Date.now();
+    const finishReason = terminalStatus === 'cancelled'
+        ? 'workflow_cancelled'
+        : 'workflow_failed';
+    db.transaction(() => {
+        stmtFinishWorkflow.run(terminalStatus, now, now, workflowId);
+        // A terminal workflow is intentionally discarded by the client. Mark
+        // every child output acknowledged so reconnect recovery cannot replay
+        // an already-finished child, while rows and journals remain retained.
+        stmtAcknowledgeWorkflowJobs.run(now, workflowId);
+        stmtCancelWorkflowJobs.run(finishReason, now, now, workflowId);
+        stmtCancelWorkflowExecutions.run(finishReason, now, now, workflowId);
+        stmtFailActiveWorkflowSteps.run(now, now, workflowId);
+    })();
+    return { changed: true, jobs };
 }
 
 function rowToWorkflowExecution(row, includeRecipe = false) {
@@ -724,10 +745,6 @@ function claimGenerationWorkflowExecution(workflowId) {
     const now = Date.now();
     if (stmtClaimWorkflowExecution.run(now, workflowId).changes !== 1) return null;
     return getGenerationWorkflowExecution(workflowId, true);
-}
-
-function requeueGenerationWorkflowExecution(workflowId) {
-    return stmtRequeueWorkflowExecution.run(Date.now(), workflowId).changes === 1;
 }
 
 function finishGenerationWorkflowExecution(workflowId, status, result, error) {
@@ -817,6 +834,7 @@ function rowToJob(row, includeRaw = true) {
         projectedAt: row.projected_at || undefined,
         finishReason: row.finish_reason,
         error: row.error,
+        dispatchedAt: row.dispatched_at || undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         completedAt: row.completed_at,
@@ -927,7 +945,15 @@ function claimQueuedGenerationDispatch(jobId) {
     const result = stmtClaimDispatch.run(now, now, jobId);
     if (result.changes !== 1) return undefined;
     updateGenerationJobWorkflowStep(jobId, 'waiting_job');
-    return { job: rowToJob({ ...row, status: 'generating', request_spec: null }, false), requestSpec };
+    return {
+        job: rowToJob({
+            ...row,
+            status: 'generating',
+            request_spec: null,
+            dispatched_at: now,
+        }, false),
+        requestSpec,
+    };
 }
 
 function setGenerationJobHeaders(jobId, status, headers) {
@@ -940,11 +966,22 @@ function finishGenerationJob(jobId, status, finishReason, error = null, rawBytes
     const journalBytes = Number.isSafeInteger(rawBytes) && rawBytes >= 0
         ? rawBytes
         : generationJournalStore.size(job?.workflow_id, jobId);
+    const rebuildingProjection = status === 'generated'
+        && finishReason === 'projection_rebuilt'
+        && job?.status === 'failed'
+        && job?.finish_reason === 'projection_error';
+    if (!['queued', 'generating'].includes(job?.status) && !rebuildingProjection) {
+        // Cancellation can win while the provider stream is unwinding. Preserve
+        // that terminal state, but reconcile the append-only journal length.
+        if (job) stmtSetRawBytes.run(journalBytes, jobId);
+        return false;
+    }
     stmtFinish.run(status, finishReason || null, error || null, journalBytes, now, now, now, jobId);
     updateGenerationJobWorkflowStep(
         jobId,
         status === 'generated' ? 'output_ready' : 'failed',
     );
+    return true;
 }
 
 function readGenerationJobRaw(jobId) {
@@ -1018,19 +1055,15 @@ function markGenerationMaterialized(jobId) {
     return result.changes === 1;
 }
 
-function pruneMaterializedGenerationJobs(
-    maxBytes = 100 * 1024 * 1024,
-    retentionMs = MATERIALIZED_RETENTION_MS,
-) {
-    const limit = Math.max(0, Number(maxBytes) || 0);
+function pruneRetainedGenerationJobs(retentionMs = GENERATION_RETENTION_MS) {
     const cutoff = Date.now() - Math.max(0, Number(retentionMs) || 0);
-    let total = Number(stmtMaterializedPayloadTotal.get()?.total) || 0;
     const deletedJobs = [];
     db.transaction(() => {
-        for (const row of stmtOldestMaterialized.all()) {
-            if (row.materialized_at > cutoff && total <= limit) break;
+        // Recoverable output is retained for one day even when a client never
+        // returns to materialize/consume it. After that deadline, terminal jobs
+        // and their journals are no longer useful and must not accumulate.
+        for (const row of stmtExpiredTerminalJobs.all(cutoff)) {
             stmtDeleteJob.run(row.job_id);
-            total -= Number(row.payload_size) || 0;
             deletedJobs.push({ jobId: row.job_id, workflowId: row.workflow_id });
         }
     })();
@@ -1051,7 +1084,7 @@ function pruneMaterializedGenerationJobs(
         deleted: deletedJobs.length,
         orphaned,
         workflowsDeleted,
-        bytes: Math.max(0, total),
+        bytes: Number(stmtMaterializedPayloadTotal.get()?.total) || 0,
     };
 }
 
@@ -1066,11 +1099,11 @@ module.exports = {
     claimGenerationWorkflow,
     updateGenerationWorkflowStep,
     finishGenerationWorkflow,
+    cancelGenerationWorkflow,
     putGenerationWorkflowExecution,
     getGenerationWorkflowExecution,
     listQueuedGenerationWorkflowExecutions,
     claimGenerationWorkflowExecution,
-    requeueGenerationWorkflowExecution,
     finishGenerationWorkflowExecution,
     listGenerationWorkflowJobs,
     createGenerationJob,
@@ -1090,6 +1123,6 @@ module.exports = {
     listRecoverableAuxiliaryJobs,
     listGenerationJobsNeedingProjection,
     markGenerationMaterialized,
-    pruneMaterializedGenerationJobs,
+    pruneRetainedGenerationJobs,
     checkpointGenerationDb,
 };

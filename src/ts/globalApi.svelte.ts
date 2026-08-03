@@ -2174,6 +2174,22 @@ export async function fetchNative(url: string, arg: {
             && arg.method === 'POST'
         if (useRevenantGenerationJob) {
             try {
+                let revenantJobId = ''
+                const recordProviderRequest = (startedAt: number) => {
+                    if (!revenantJobId || fetchLogId) return
+                    fetchLogId = pushFetchLog({
+                        id: revenantJobId,
+                        timestamp: startedAt,
+                        body: fetchLogBody,
+                        header: JSON.stringify(arg.headers ?? {}, null, 2),
+                        response: 'Streamed Fetch',
+                        responseType: 'stream',
+                        success: true,
+                        date: new Date(startedAt).toLocaleTimeString(),
+                        url,
+                        chatId: revenantGenerationContext.chatId,
+                    }).id
+                }
                 return withFetchLog(await fetchViaProxyJobWs(url, {
                     method: arg.method,
                     headers,
@@ -2183,26 +2199,32 @@ export async function fetchNative(url: string, arg: {
                     generationContext: revenantGenerationContext,
                     revenant: true,
                     onJobCreated: (jobId) => {
+                        revenantJobId = jobId
                         revenantGenerationContext.onJobCreated?.(jobId)
-                        fetchLogId = pushFetchLog({
-                            id: jobId,
-                            body: fetchLogBody,
-                            header: JSON.stringify(arg.headers ?? {}, null, 2),
-                            response: 'Streamed Fetch',
-                            responseType: 'stream',
-                            success: true,
-                            date: (new Date()).toLocaleTimeString(),
-                            url,
-                            chatId: revenantGenerationContext.chatId,
-                        }).id
+                        if (
+                            !revenantGenerationContext.dispatchPolicy
+                            && !revenantGenerationContext.workflowDependency
+                        ) {
+                            recordProviderRequest(Date.now())
+                        }
+                    },
+                    onProviderStarted: (startedAt) => {
+                        revenantGenerationContext.onProviderStarted?.(startedAt)
+                        recordProviderRequest(startedAt)
                     },
                 }))
             } catch (wsErr) {
+                revenantGenerationContext.onJobRegistrationUnavailable?.(wsErr)
                 if (requestSignal?.aborted) throw wsErr
                 const message = wsErr instanceof Error ? wsErr.message : String(wsErr)
-                if (!message.startsWith('Failed to create proxy stream job')) {
+                if (
+                    revenantGenerationContext.workflowDependency
+                    || !message.startsWith('Failed to create proxy stream job')
+                ) {
                     // The server may already own a live job. Starting a second
-                    // direct request would duplicate the model response.
+                    // direct request would duplicate the model response. A
+                    // dependent request also cannot fall back because its body
+                    // still contains the unresolved Hypa placeholder.
                     throw wsErr
                 }
                 console.warn('[GenerationJobWS] fallback to regular request due to setup error:', wsErr)

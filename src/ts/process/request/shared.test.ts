@@ -6,7 +6,7 @@ vi.mock('src/ts/storage/database.svelte', () => ({
     getDatabase: () => ({}),
 }))
 
-import { collectStreamingText } from './shared'
+import { buildGenerationContext, collectStreamingText } from './shared'
 
 // collectStreamingText underpins per-preset decoupled streaming: the wire stays
 // SSE, but the stream is drained to a single string. Every chunk carries the
@@ -42,5 +42,27 @@ describe('collectStreamingText', () => {
     test('returns empty string for an empty stream', async () => {
         const stream = streamOf([])
         expect(await collectStreamingText(stream)).toBe('')
+    })
+})
+
+describe('buildGenerationContext', () => {
+    test('forwards the durable registration lifecycle callbacks', () => {
+        const onJobCreated = vi.fn()
+        const onJobRegistrationUnavailable = vi.fn()
+        const onProviderStarted = vi.fn()
+
+        const context = buildGenerationContext({
+            formated: [],
+            bias: {},
+            mode: 'model',
+            chatId: 'message-1',
+            onRevenantJobCreated: onJobCreated,
+            onRevenantJobRegistrationUnavailable: onJobRegistrationUnavailable,
+            onRevenantProviderStarted: onProviderStarted,
+        })
+
+        expect(context?.onJobCreated).toBe(onJobCreated)
+        expect(context?.onJobRegistrationUnavailable).toBe(onJobRegistrationUnavailable)
+        expect(context?.onProviderStarted).toBe(onProviderStarted)
     })
 })

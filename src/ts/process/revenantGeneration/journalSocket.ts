@@ -10,7 +10,9 @@ export interface RevenantJournalSocketOptions {
     auth: string
     signal?: AbortSignal
     recovery?: boolean
+    onProviderStarted?: (startedAt: number) => void
     onHeaders?: (status: number, headers: Record<string, string>) => void
+    onDone?: () => void
     onFatal?: (error: Error) => void
     onLocalAbort?: () => void
     reconnectBaseMs?: number
@@ -38,6 +40,7 @@ export function openRevenantJournalSocket(
             let disposed = false
             let terminal = false
             let reconnectAttempts = 0
+            let providerStartedReported = false
             let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
             const closeSocket = () => {
@@ -58,6 +61,7 @@ export function openRevenantJournalSocket(
                 disposed = true
                 terminal = true
                 closeSocket()
+                options.onDone?.()
                 try { controller.close() } catch { /* already closed */ }
             }
             const abortLocal = () => {
@@ -91,6 +95,12 @@ export function openRevenantJournalSocket(
                     switch (parsed.type) {
                         case 'job_accepted':
                         case 'ping':
+                            return
+                        case 'provider_started':
+                            if (!providerStartedReported) {
+                                providerStartedReported = true
+                                options.onProviderStarted?.(parsed.startedAt)
+                            }
                             return
                         case 'upstream_headers':
                             options.onHeaders?.(parsed.status, parsed.headers)

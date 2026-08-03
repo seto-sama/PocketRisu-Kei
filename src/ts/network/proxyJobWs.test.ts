@@ -17,6 +17,13 @@ describe('parseProxyJobWsEvent', () => {
         expect(event?.type).toBe('chunk')
     })
 
+    it('parses provider dispatch events', () => {
+        expect(parseProxyJobWsEvent(JSON.stringify({
+            type: 'provider_started',
+            startedAt: 123,
+        }))).toEqual({ type: 'provider_started', startedAt: 123 })
+    })
+
     it('returns null for invalid input', () => {
         expect(parseProxyJobWsEvent('not-json')).toBeNull()
         expect(parseProxyJobWsEvent(JSON.stringify({ nope: 1 }))).toBeNull()

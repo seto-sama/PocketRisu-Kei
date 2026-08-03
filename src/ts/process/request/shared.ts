@@ -67,8 +67,11 @@ export function buildGenerationContext(
             : undefined,
         operationContext: arg.revenantOperationContext,
         dispatchPolicy: arg.revenantDispatchPolicy,
+        workflowDependency: arg.revenantWorkflowDependency,
         ...usageIdentity,
         onJobCreated: arg.onRevenantJobCreated,
+        onJobRegistrationUnavailable: arg.onRevenantJobRegistrationUnavailable,
+        onProviderStarted: arg.onRevenantProviderStarted,
     }
 }
 
