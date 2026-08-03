@@ -296,6 +296,7 @@ function installRevenantJobRoutes(app, deps) {
                 headers: forwardHeaders,
                 method,
                 bodyBase64,
+                adapterKind: req.body?.adapterKind,
                 usageProviderId,
                 usageModelId,
                 usageServiceTier,

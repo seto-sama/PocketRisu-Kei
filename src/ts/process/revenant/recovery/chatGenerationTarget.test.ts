@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Chat, Message } from '../../../storage/database.svelte'
-import { ensureGenerationMessageTarget } from './chatGenerationTarget'
+import {
+    ensureGenerationMessageTarget,
+    setGenerationMessageContent,
+} from './chatGenerationTarget'
 
 function chat(message: Message[]): Chat {
     return { message } as Chat
@@ -69,6 +72,37 @@ describe('ensureGenerationMessageTarget', () => {
         expect(current.message).toHaveLength(2)
         expect(current.message[1]).toMatchObject({
             data: '',
+            chatId: 'generation-1',
+        })
+    })
+
+    it('commits reroll content into the selected swipe', () => {
+        const original = {
+            role: 'char',
+            data: 'old answer',
+            chatId: 'assistant-1',
+            swipes: ['first answer', 'old answer'],
+            swipeId: 1,
+        } as Message
+        const current = chat([original])
+        const target = ensureGenerationMessageTarget(current, {
+            messageChatId: 'generation-1',
+            characterId: 'character-1',
+            isContinuation: false,
+            rerollSnapshot: {
+                targetMessage: original,
+                targetIndex: 0,
+                trailingMessages: [],
+            },
+        })
+
+        setGenerationMessageContent(target.message, 'new answer')
+
+        expect(current.message).toHaveLength(1)
+        expect(current.message[0]).toMatchObject({
+            data: 'new answer',
+            swipes: ['first answer', 'old answer', 'new answer'],
+            swipeId: 2,
             chatId: 'generation-1',
         })
     })

@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, setCurrentChat, type Message, normalizeChat } from "../storage/database.svelte";
+import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, tokenize, tokenizeNum } from "../tokenizer";
@@ -29,6 +29,7 @@ import {
     cancelRevenantGeneration,
     checkpointRevenantGeneration,
     registerRevenantGenerationMetadata,
+    setRevenantGenerationLocallyObserved,
     updateRevenantGenerationMetadata,
 } from "./revenant/transport";
 import {
@@ -58,6 +59,7 @@ import { compileModelPreset, type CompiledModelPreset } from "../preset/runtime/
 import {
     commitCancelledGenerationProjection,
     ensureGenerationMessageTarget,
+    setGenerationMessageContent,
 } from './revenant/recovery';
 
 export { recoverRevenantGenerationsForChat } from "./revenant/recovery";
@@ -144,6 +146,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     preview?:boolean
     previewPrompt?:boolean
     rerollSnapshot?: RevenantRerollSnapshot
+    detachSignal?: AbortSignal
+    onDetached?: () => void
+    generationTarget?: {
+        characterId: string
+        roomId: string
+    }
     revenantResume?: {
         workflow: RevenantWorkflow
         context: RevenantWorkflowResumeContext
@@ -167,7 +175,19 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let revenantMainBackend:'http'|'plugin'|'echo'|undefined
     let revenantMainJobCreated = (resumeWorkflow?.steps
         .find(step => step.key === 'model.main')?.executions.length ?? 0) > 0
+    let revenantMainJobId:string|undefined
     let revenantMainRegistrationError:unknown
+    let generationDetached = false
+
+    function finishGenerationDetachment(){
+        if(generationDetached) return
+        generationDetached = true
+        if(revenantMainJobId){
+            setRevenantGenerationLocallyObserved(revenantMainJobId, false)
+        }
+        doingChat.set(false)
+        arg.onDetached?.()
+    }
 
     const stageTimings = {
         stage1Start: 0,
@@ -302,10 +322,18 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     async function waitForServerWorkflow(workflowId:string):Promise<boolean>{
         while(true){
+            const observerSignal = arg.detachSignal
+                ? AbortSignal.any([abortSignal, arg.detachSignal])
+                : abortSignal
             const updateWaiter = createRevenantWorkflowUpdateWaiter(
                 workflowId,
-                abortSignal,
+                observerSignal,
             )
+            if(arg.detachSignal?.aborted){
+                updateWaiter.cancel()
+                finishGenerationDetachment()
+                return false
+            }
             if(abortSignal.aborted){
                 updateWaiter.cancel()
                 await cancelRevenantWorkflow(workflowId).catch(() => {})
@@ -337,7 +365,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     finishStreamingDisplay()
                     doingChat.set(false)
                     if(shouldResend){
-                        return await sendChat(chatProcessIndex, { signal: abortSignal })
+                        return await sendChat(chatProcessIndex, {
+                            signal: abortSignal,
+                            detachSignal: arg.detachSignal,
+                            onDetached: arg.onDetached,
+                            generationTarget: arg.generationTarget,
+                        })
                     }
                     return true
                 }
@@ -376,7 +409,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     let isDoing = get(doingChat)
 
-    if(isDoing){
+    // `doingChat` is a legacy process-wide activity signal. A UI submission
+    // with an explicit room target is instead guarded by that room's local
+    // foreground/workflow ownership and by the server's one-main-workflow-per-
+    // room constraint. Applying this global lock to it prevents unrelated
+    // rooms from starting their own main generation.
+    if(isDoing && !arg.generationTarget){
         if(chatProcessIndex === -1){
             return false
         }
@@ -384,17 +422,34 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     doingChat.set(true)
 
     if(!resumeWorkflow) DBState.db.statics.messages += 1
-    selectedChar = get(selectedCharID)
+    selectedChar = arg.generationTarget
+        ? DBState.db.characters.findIndex(character =>
+            character?.chaId === arg.generationTarget?.characterId)
+        : get(selectedCharID)
     const nowChatroom = DBState.db.characters[selectedChar]
+    if(!nowChatroom){
+        alertError('The generation character is no longer available.')
+        doingChat.set(false)
+        return false
+    }
     nowChatroom.lastInteraction = Date.now()
-    selectedChat = nowChatroom.chatPage
+    selectedChat = arg.generationTarget
+        ? nowChatroom.chats.findIndex(chat =>
+            chat?.id === arg.generationTarget?.roomId)
+        : nowChatroom.chatPage
+    const targetChat = nowChatroom.chats[selectedChat]
+    if(!targetChat){
+        alertError('The generation chat is no longer available.')
+        doingChat.set(false)
+        return false
+    }
     // Block send if chat is still a placeholder (hydration not complete)
-    if (nowChatroom.chats[nowChatroom.chatPage]?._placeholder) {
+    if (targetChat._placeholder) {
         alertError('Chat is still loading. Please wait a moment.')
         doingChat.set(false)
         return false
     }
-    nowChatroom.chats[nowChatroom.chatPage].message = nowChatroom.chats[nowChatroom.chatPage].message.map((v) => {
+    targetChat.message = targetChat.message.map((v) => {
         v.chatId = v.chatId ?? v4()
         return v
     })
@@ -1216,7 +1271,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat})
         if(triggerResult){
             currentChat = triggerResult.chat
-            setCurrentChat(currentChat)
+            // Generation owns the room captured at submission time. The user
+            // may switch rooms while this trigger is awaiting; setCurrentChat
+            // would then overwrite the newly selected room and make navigation
+            // appear to snap back to the generating chat.
+            DBState.db.characters[selectedChar].chats[selectedChat] = normalizeChat(currentChat)
             ms = makeMs(currentChat)
             currentTokens += triggerResult.tokens
             triggerAdditionalSysPrompt = triggerResult.additonalSysPrompt
@@ -1927,7 +1986,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         !resumeWorkflow
         && !arg.previewPrompt
         && compiledMainPreset
-        && compiledMainPreset.backend !== 'echo'
     ) {
         try {
             if(!outgoingChat.id){
@@ -2065,8 +2123,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
             rememberToolUsage: DBState.db.rememberToolUsage,
             revenantWorkflowDependency: revenantMainDependency,
+            revenantRoomId: outgoingChat.id,
+            revenantContinuationPrefix: continuationFallback,
             onRevenantJobCreated: jobId => {
                 revenantMainJobCreated = true
+                revenantMainJobId = jobId
                 lifecycle.onJobCreated?.(jobId)
             },
             onRevenantJobRegistrationUnavailable: error => {
@@ -2141,6 +2202,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return false
     }
 
+    if(arg.detachSignal?.aborted && req.type !== 'streaming'){
+        finishGenerationDetachment()
+        return false
+    }
+
     if(revenantMainDependency && revenantWorkflowId){
         const remoteSelection = await waitForRevenantHypaExecution<{
             memory: SerializableHypaV3Data
@@ -2200,6 +2266,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         initialTarget.character.reloadKeys += 1
         let lastResponseChunk:{[key:string]:string} = {}
         let streamAborted:boolean = abortSignal.aborted
+        let streamDetached:boolean = arg.detachSignal?.aborted === true
         let streamFailure:unknown
         const abortReader = () => {
             streamAborted = true
@@ -2208,9 +2275,18 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             })
             void reader.cancel().catch(() => {})
         }
+        const detachReader = () => {
+            streamDetached = true
+            if(revenantMainJobId){
+                setRevenantGenerationLocallyObserved(revenantMainJobId, false)
+            }
+            void reader.cancel().catch(() => {})
+        }
         abortSignal.addEventListener('abort', abortReader, { once: true })
+        arg.detachSignal?.addEventListener('abort', detachReader, { once: true })
+        if(streamDetached) detachReader()
         try {
-            while(streamAborted === false){
+            while(streamAborted === false && streamDetached === false){
                 let readed: ReadableStreamReadResult<{ [key: string]: string }>
                 try {
                     readed = await reader.read()
@@ -2240,7 +2316,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         break
                     }
                     if(revenantWorkflowId){
-                        liveTarget.message.data = reformatContent(prefix + result)
+                        setGenerationMessageContent(
+                            liveTarget.message,
+                            reformatContent(prefix + result),
+                        )
                     }
                     else{
                         const result2 = await processScriptFull(liveTarget.character, reformatContent(prefix + result), 'editoutput', liveTarget.index)
@@ -2249,7 +2328,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             streamFailure = new Error('Generation chat is no longer available')
                             break
                         }
-                        refreshedTarget.message.data = result2.data
+                        setGenerationMessageContent(refreshedTarget.message, result2.data)
                         emoChanged = result2.emoChanged
                     }
                     liveTarget.character.reloadKeys += 1
@@ -2261,17 +2340,34 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
         finally {
             if (result) {
-                try {
-                    await checkpointRevenantGeneration(messageChatId, rawResult || prefix + result, true)
-                } catch (error) {
-                    console.error('[GenerationJob] Failed to flush parsed response:', error)
+                const checkpoint = checkpointRevenantGeneration(
+                    messageChatId,
+                    rawResult || prefix + result,
+                    true,
+                )
+                if(streamDetached){
+                    void checkpoint.catch(error => {
+                        console.error('[GenerationJob] Failed to flush detached response:', error)
+                    })
+                }
+                else{
+                    try {
+                        await checkpoint
+                    } catch (error) {
+                        console.error('[GenerationJob] Failed to flush parsed response:', error)
+                    }
                 }
             }
             abortSignal.removeEventListener('abort', abortReader)
-            finishStreamingDisplay()
+            arg.detachSignal?.removeEventListener('abort', detachReader)
+            if(!streamDetached) finishStreamingDisplay()
             void reader.cancel().catch(() => {})
         }
 
+        if(streamDetached){
+            finishGenerationDetachment()
+            return false
+        }
         if(streamAborted || abortSignal.aborted){
             preserveFailedGenerationMessage(rawResult || undefined)
             await finishWorkflow('cancelled')
@@ -2351,16 +2447,16 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             let msg = msgs[i]
             let mess = msg[1]
             if (i === 0) rawResult = mess
-            const generationChat = DBState.db.characters[selectedChar].chats[selectedChat]
             let msgIndex = i === 0
-                ? generationChat.message.findIndex(message => message?.chatId === messageChatId)
-                : generationChat.message.length
+                ? ensureLiveGenerationTarget()?.index ?? -1
+                : DBState.db.characters[selectedChar].chats[selectedChat].message.length
             if (i === 0 && msgIndex < 0) {
                 throw new Error('Persisted generation placeholder is missing')
             }
             let result2 = await processScriptFull(nowChatroom, reformatContent(mess), 'editoutput', msgIndex)
             if(i === 0 && isContinuation){
-                let beforeChat = DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex]
+                let beforeChat = ensureLiveGenerationTarget()?.message
+                if(!beforeChat) throw new Error('Generation continuation target is missing')
                 result2 = await processScriptFull(nowChatroom, reformatContent(beforeChat.data + mess), 'editoutput', msgIndex)
             }
             result = result2.data
@@ -2368,33 +2464,41 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             result = inlayResult.text
             emoChanged = result2.emoChanged
             if(i === 0 && isContinuation){
-                DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex] = {
-                    role: 'char',
-                    data: result,
+                const committedTarget = ensureLiveGenerationTarget()
+                if(!committedTarget) throw new Error('Generation continuation target is missing')
+                Object.assign(committedTarget.message, {
+                    role: 'char' as const,
                     saying: currentChar.chaId,
                     time: Date.now(),
                     generationInfo,
                     promptInfo,
                     chatId: messageChatId,
-                }       
+                })
+                setGenerationMessageContent(committedTarget.message, result)
                 if(inlayResult.promise){
                     const p = await inlayResult.promise
-                    DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = p
+                    const refreshedTarget = ensureLiveGenerationTarget()
+                    if(!refreshedTarget) throw new Error('Generation continuation target is missing')
+                    setGenerationMessageContent(refreshedTarget.message, p)
                 }
             }
             else if(i===0){
-                DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex] = {
+                const committedTarget = ensureLiveGenerationTarget()
+                if(!committedTarget) throw new Error('Generation target is missing')
+                Object.assign(committedTarget.message, {
                     role: msg[0],
-                    data: result,
                     saying: currentChar.chaId,
                     time: Date.now(),
                     generationInfo,
                     promptInfo,
                     chatId: messageChatId,
-                }
+                })
+                setGenerationMessageContent(committedTarget.message, result)
                 if(inlayResult.promise){
                     const p = await inlayResult.promise
-                    DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = p
+                    const refreshedTarget = ensureLiveGenerationTarget()
+                    if(!refreshedTarget) throw new Error('Generation target is missing')
+                    setGenerationMessageContent(refreshedTarget.message, p)
                 }
                 mrerolls.push(result)
             }
@@ -2473,7 +2577,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         doingChat.set(false)
         await finishSuccessfulWorkflow()
         return await sendChat(chatProcessIndex, {
-            signal: abortSignal
+            signal: abortSignal,
+            detachSignal: arg.detachSignal,
+            onDetached: arg.onDetached,
+            generationTarget: arg.generationTarget,
         })
     }
 

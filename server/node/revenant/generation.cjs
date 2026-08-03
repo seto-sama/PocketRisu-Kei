@@ -92,7 +92,7 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
         || value.postprocess?.schemaVersion !== 1
         || value.postprocess.messageChatId !== value.resume.messageChatId
         || value.postprocess.isContinuation !== value.resume.isContinuation
-        || !['http', 'plugin'].includes(value.postprocess.providerBackend)
+        || !['http', 'plugin', 'echo'].includes(value.postprocess.providerBackend)
         || !value.postprocess.modelPreset
         || typeof value.postprocess.modelPreset !== 'object'
         || (value.postprocess.auxProviders != null && (

@@ -150,6 +150,7 @@ function createGenerationWorkers(options) {
                     headers: request.headers,
                     method: request.method,
                     bodyBase64: request.bodyBase64,
+                    adapterKind: claimed.job.adapterKind,
                     usageProviderId: request.usageProviderId,
                     usageModelId: request.usageModelId,
                     usageServiceTier: request.usageServiceTier,

@@ -40,7 +40,7 @@ export function buildGenerationRequest(
 
     const activeChat = arg.currentChar?.chats?.[arg.currentChar.chatPage]
     const characterId = arg.currentChar?.chaId
-    const roomId = activeChat?.id
+    const roomId = arg.revenantRoomId ?? activeChat?.id
     const workflow = getLocalRevenantWorkflow(characterId, roomId)
     const clientAction = arg.revenantClientAction
     return {
@@ -53,7 +53,8 @@ export function buildGenerationRequest(
             roomId,
             isContinuation: arg.continue === true,
             continuationPrefix: arg.continue
-                ? activeChat?.message?.at(-1)?.data
+                ? arg.revenantContinuationPrefix
+                    ?? activeChat?.message?.at(-1)?.data
                 : undefined,
             operationContext: arg.revenantOperationContext,
             dispatchPolicy: arg.revenantDispatchPolicy,
