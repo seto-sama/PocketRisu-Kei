@@ -455,7 +455,7 @@ export const pluginProviderRequestContextKey: unique symbol = Symbol('pluginProv
 
 export type PluginProviderRequestContext = {
     chatId?: string
-    generationRequest?: import('../process/revenantGeneration/types').RevenantGenerationRequest
+    generationRequest?: import('../process/revenant/types').RevenantGenerationRequest
     llmExecutionPolicy?: import('../network/transportTypes').LLMExecutionPolicy
     interceptor: string
 }

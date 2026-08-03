@@ -4,6 +4,9 @@ import type {
     Message,
     MessageGenerationInfo,
     MessagePresetInfo,
+    character,
+    customscript,
+    triggerscript,
 } from '../../storage/database.svelte'
 
 export type ModelModeExtended =
@@ -78,12 +81,56 @@ export interface RevenantWorkflow {
     ownerClientId: string
     ownerEpoch: number
     planVersion: number
+    context?: RevenantWorkflowContext
     status: RevenantWorkflowStatus
     steps: RevenantWorkflowStep[]
     createdAt: number
     updatedAt: number
     completedAt?: number
 }
+
+export interface RevenantPostprocessDatabaseSnapshot {
+    presetRegex: customscript[]
+    templateDefaultVariables: string
+    globalChatVariables: Record<string, string>
+    username: string
+    userIcon: string
+    personaPrompt: string
+    selectedPersona: number
+    personas: unknown[]
+    dynamicAssets: boolean
+    dynamicAssetsEditDisplay: boolean
+    igpPrompt: string
+}
+
+export interface RevenantPostprocessRecipe {
+    schemaVersion: 1
+    messageChatId: string
+    isContinuation: boolean
+    rerollSnapshot?: RevenantRerollSnapshot
+    providerBackend: 'http' | 'plugin'
+    character: character
+    chat: Chat
+    database: RevenantPostprocessDatabaseSnapshot
+    modules: unknown[]
+    moduleRegexScripts: customscript[]
+    moduleTriggers: triggerscript[]
+}
+
+export interface RevenantChatWorkflowContext {
+    schemaVersion: 1
+    kind: 'chat-generation'
+    resume: {
+        schemaVersion: 1
+        chatProcessIndex: number
+        messageChatId: string
+        isContinuation: boolean
+        rerollSnapshot?: RevenantRerollSnapshot
+    }
+    postprocess: RevenantPostprocessRecipe
+}
+
+export type RevenantWorkflowContext = RevenantChatWorkflowContext
 
 export interface RevenantWorkflowExecution<TResult = unknown> {
     workflowId: string

@@ -9,7 +9,7 @@ const { workflowState } = vi.hoisted(() => ({
 vi.mock('src/ts/storage/database.svelte', () => ({
     getDatabase: () => ({}),
 }))
-vi.mock('../revenantGeneration/workflow', () => ({
+vi.mock('../revenant/workflow', () => ({
     getLocalRevenantWorkflow: () => workflowState.workflow,
     getRevenantWorkflowStepKey: (jobType: string) => jobType === 'model' ? 'model.main' : `job.${jobType}`,
 }))

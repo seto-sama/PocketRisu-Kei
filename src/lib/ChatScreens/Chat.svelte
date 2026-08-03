@@ -23,7 +23,7 @@
     import AutoresizeArea from "../UI/GUI/TextAreaResizable.svelte"
     import ChatBody from './ChatBody.svelte'
     import PopupButton from "../UI/PopupButton.svelte";
-    import { createRevenantChatTranslationRecovery } from "src/ts/process/revenantGeneration/chatRecovery.svelte";
+    import { createRevenantChatTranslationRecovery } from "src/ts/process/revenant/chatRecovery.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";

@@ -78,6 +78,7 @@ db.exec(`
         owner_client_id TEXT NOT NULL,
         owner_epoch INTEGER NOT NULL DEFAULT 1,
         plan_version INTEGER NOT NULL DEFAULT 1,
+        context TEXT,
         status TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
@@ -141,6 +142,9 @@ const workflowColumns = new Set(
 );
 if (!workflowColumns.has('owner_epoch')) {
     db.exec(`ALTER TABLE generation_workflows ADD COLUMN owner_epoch INTEGER NOT NULL DEFAULT 1`);
+}
+if (!workflowColumns.has('context')) {
+    db.exec(`ALTER TABLE generation_workflows ADD COLUMN context TEXT`);
 }
 if (!generationColumns.has('normalized_projection')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN normalized_projection TEXT`);
@@ -407,8 +411,8 @@ const stmtExpiredTerminalJobs = db.prepare(`
 const stmtCreateWorkflow = db.prepare(`
     INSERT INTO generation_workflows (
         workflow_id, character_id, room_id, owner_client_id, owner_epoch,
-        plan_version, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, 1, 1, 'active', ?, ?)
+        plan_version, context, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 1, 1, ?, 'active', ?, ?)
 `);
 const stmtCreateWorkflowStep = db.prepare(`
     INSERT INTO generation_workflow_steps (
@@ -435,6 +439,30 @@ const stmtListWorkflowSteps = db.prepare(`
 `);
 const stmtGetWorkflowStep = db.prepare(`
     SELECT * FROM generation_workflow_steps WHERE workflow_id = ? AND step_key = ?
+`);
+const stmtListReadyChatWorkflowJobs = db.prepare(`
+    SELECT job_id
+    FROM generation_jobs
+    WHERE workflow_id IN (
+        SELECT workflow_id FROM generation_workflows
+        WHERE status = 'active' AND context IS NOT NULL
+    )
+      AND job_type = 'model'
+      AND workflow_step_key = 'model.main'
+      AND status = 'generated'
+      AND normalized_projection IS NOT NULL
+      AND materialized_at IS NULL
+    ORDER BY completed_at ASC, created_at ASC
+    LIMIT ?
+`);
+const stmtClaimWorkflowStep = db.prepare(`
+    UPDATE generation_workflow_steps
+    SET status = 'running', started_at = COALESCE(started_at, ?), updated_at = ?
+    WHERE workflow_id = ? AND step_key = ? AND status = ?
+      AND EXISTS (
+          SELECT 1 FROM generation_workflows
+          WHERE workflow_id = ? AND status = 'active'
+      )
 `);
 const stmtGetStepExecution = db.prepare(`
     SELECT * FROM generation_workflow_step_executions WHERE execution_id = ?
@@ -659,6 +687,7 @@ function rowToWorkflow(row, includeSteps = true) {
         ownerClientId: row.owner_client_id,
         ownerEpoch: row.owner_epoch,
         planVersion: row.plan_version,
+        context: row.context ? JSON.parse(row.context) : undefined,
         status: row.status,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -680,6 +709,26 @@ function getActiveGenerationWorkflow(characterId, roomId, includeSteps = true) {
     );
 }
 
+function listReadyChatWorkflowJobs(limit = 20) {
+    return stmtListReadyChatWorkflowJobs
+        .all(Math.max(1, Math.min(100, Number(limit) || 20)))
+        .map(row => getGenerationJob(row.job_id, false))
+        .filter(Boolean);
+}
+
+function claimGenerationWorkflowStep(workflowId, stepKey, expectedStatus = 'pending') {
+    const now = Date.now();
+    if (stmtClaimWorkflowStep.run(
+        now,
+        now,
+        workflowId,
+        stepKey,
+        expectedStatus,
+        workflowId,
+    ).changes !== 1) return null;
+    return getGenerationWorkflow(workflowId);
+}
+
 function createGenerationWorkflow(input) {
     const now = Date.now();
     try {
@@ -689,6 +738,7 @@ function createGenerationWorkflow(input) {
                 input.characterId,
                 input.roomId,
                 input.ownerClientId,
+                input.context ? JSON.stringify(input.context) : null,
                 now,
                 now,
             );
@@ -1288,6 +1338,8 @@ module.exports = {
     createGenerationWorkflow,
     getGenerationWorkflow,
     getActiveGenerationWorkflow,
+    listReadyChatWorkflowJobs,
+    claimGenerationWorkflowStep,
     claimGenerationWorkflow,
     updateGenerationWorkflowStep,
     finishGenerationWorkflow,

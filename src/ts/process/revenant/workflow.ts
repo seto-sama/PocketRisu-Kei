@@ -9,6 +9,7 @@ import type {
     RevenantOperationContext,
     RevenantRerollSnapshot,
     RevenantWorkflow,
+    RevenantWorkflowContext,
     RevenantWorkflowExecution,
     RevenantWorkflowPlanStep,
     RevenantWorkflowStatus,
@@ -220,6 +221,7 @@ export async function beginRevenantWorkflow(arg: {
     characterId: string
     roomId: string
     plan: RevenantWorkflowPlanStep[]
+    context: RevenantWorkflowContext
 }): Promise<RevenantWorkflow> {
     const response = await fetch('/api/generation/workflows', {
         method: 'POST',

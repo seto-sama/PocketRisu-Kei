@@ -12,14 +12,14 @@ interface RevenantGenerationClientDependencies {
 
 let dependencies: RevenantGenerationClientDependencies | undefined
 
-const revenantGenerationJobIds = new Map<string, string>()
-const revenantGenerationJobWorkflows = new Map<string, string>()
+const revenantJobIds = new Map<string, string>()
+const revenantJobWorkflows = new Map<string, string>()
 const revenantWorkflowOwnerEpochs = new Map<string, number>()
 const locallyObservedRevenantGenerationJobs = new Set<string>()
-const revenantGenerationCheckpointAt = new Map<string, number>()
-const revenantGenerationCheckpointPending = new Map<string, Promise<void>>()
-const revenantGenerationMetadata = new Map<string, RevenantGenerationMetadata>()
-let revenantGenerationRetentionPruned = false
+const revenantCheckpointAt = new Map<string, number>()
+const revenantCheckpointPending = new Map<string, Promise<void>>()
+const revenantMetadata = new Map<string, RevenantGenerationMetadata>()
+let revenantRetentionPruned = false
 
 export function configureRevenantGenerationClient(
     nextDependencies: RevenantGenerationClientDependencies,
@@ -56,8 +56,8 @@ export function trackRevenantGenerationWorkflow(
     jobId: string,
     workflowId: string | undefined,
 ): void {
-    if (workflowId) revenantGenerationJobWorkflows.set(jobId, workflowId)
-    else revenantGenerationJobWorkflows.delete(jobId)
+    if (workflowId) revenantJobWorkflows.set(jobId, workflowId)
+    else revenantJobWorkflows.delete(jobId)
 }
 
 /** Explicit user cancellation is never fenced by a workflow owner epoch. */
@@ -72,7 +72,7 @@ export async function createRevenantJobMutationHeaders(
     jobId: string,
     json = false,
 ): Promise<Record<string, string>> {
-    const workflowId = revenantGenerationJobWorkflows.get(jobId)
+    const workflowId = revenantJobWorkflows.get(jobId)
     const ownerEpoch = workflowId
         ? revenantWorkflowOwnerEpochs.get(workflowId)
         : undefined
@@ -129,25 +129,25 @@ export function registerRevenantGenerationMetadata(
     messageChatId: string,
     metadata: RevenantGenerationMetadata,
 ): void {
-    revenantGenerationMetadata.set(messageChatId, metadata)
+    revenantMetadata.set(messageChatId, metadata)
 }
 
 export function getRevenantGenerationMetadata(
     messageChatId: string,
 ): RevenantGenerationMetadata | undefined {
-    return revenantGenerationMetadata.get(messageChatId)
+    return revenantMetadata.get(messageChatId)
 }
 
 export function trackRevenantGenerationJob(messageChatId: string, jobId: string): void {
-    revenantGenerationJobIds.set(messageChatId, jobId)
+    revenantJobIds.set(messageChatId, jobId)
 }
 
 export async function updateRevenantGenerationMetadata(
     messageChatId: string,
     metadata: RevenantGenerationMetadata,
 ): Promise<void> {
-    revenantGenerationMetadata.set(messageChatId, metadata)
-    const jobId = revenantGenerationJobIds.get(messageChatId)
+    revenantMetadata.set(messageChatId, metadata)
+    const jobId = revenantJobIds.get(messageChatId)
     if (!jobId) return
     const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/metadata`, {
         method: 'PUT',
@@ -167,13 +167,13 @@ export async function checkpointRevenantGeneration(
     content: string,
     force = false,
 ): Promise<void> {
-    const jobId = revenantGenerationJobIds.get(messageChatId)
+    const jobId = revenantJobIds.get(messageChatId)
     if (!jobId) return
     const now = Date.now()
-    const previous = revenantGenerationCheckpointAt.get(messageChatId) ?? 0
+    const previous = revenantCheckpointAt.get(messageChatId) ?? 0
     if (!force && now - previous < 250) return
-    revenantGenerationCheckpointAt.set(messageChatId, now)
-    const previousWrite = revenantGenerationCheckpointPending.get(messageChatId) ?? Promise.resolve()
+    revenantCheckpointAt.set(messageChatId, now)
+    const previousWrite = revenantCheckpointPending.get(messageChatId) ?? Promise.resolve()
     const write = previousWrite.catch(() => {}).then(async () => {
         const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/projection`, {
             method: 'PUT',
@@ -185,18 +185,18 @@ export async function checkpointRevenantGeneration(
             throw new Error(`Failed to checkpoint generation job: ${response.status}`)
         }
     })
-    revenantGenerationCheckpointPending.set(messageChatId, write)
+    revenantCheckpointPending.set(messageChatId, write)
     try {
         await write
     } finally {
-        if (revenantGenerationCheckpointPending.get(messageChatId) === write) {
-            revenantGenerationCheckpointPending.delete(messageChatId)
+        if (revenantCheckpointPending.get(messageChatId) === write) {
+            revenantCheckpointPending.delete(messageChatId)
         }
     }
 }
 
 export async function cancelRevenantGeneration(messageChatId: string): Promise<void> {
-    const jobId = revenantGenerationJobIds.get(messageChatId)
+    const jobId = revenantJobIds.get(messageChatId)
     if (!jobId) return
     const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}`, {
         method: 'DELETE',
@@ -216,7 +216,7 @@ export async function finalizeRevenantGeneration(
     message: Message,
     chat: Chat,
 ): Promise<MaterializedGeneration | undefined> {
-    const jobId = revenantGenerationJobIds.get(messageChatId)
+    const jobId = revenantJobIds.get(messageChatId)
     if (!jobId) return
     await checkpointRevenantGeneration(messageChatId, content, true)
     const materialized = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/materialize`, {
@@ -232,17 +232,17 @@ export async function finalizeRevenantGeneration(
     }
     const result = await materialized.json() as MaterializedGeneration
     setRevenantGenerationLocallyObserved(jobId, false)
-    revenantGenerationJobIds.delete(messageChatId)
-    revenantGenerationCheckpointAt.delete(messageChatId)
-    revenantGenerationCheckpointPending.delete(messageChatId)
-    revenantGenerationMetadata.delete(messageChatId)
+    revenantJobIds.delete(messageChatId)
+    revenantCheckpointAt.delete(messageChatId)
+    revenantCheckpointPending.delete(messageChatId)
+    revenantMetadata.delete(messageChatId)
     trackRevenantGenerationWorkflow(jobId, undefined)
     return result
 }
 
 export async function listRecoverableGenerations(): Promise<RecoverableGenerationJob[]> {
     const auth = await createRevenantGenerationAuth()
-    if (!revenantGenerationRetentionPruned) {
+    if (!revenantRetentionPruned) {
         const pruned = await fetch('/api/generation/jobs/prune-retained', {
             method: 'POST',
             headers: {
@@ -250,7 +250,7 @@ export async function listRecoverableGenerations(): Promise<RecoverableGeneratio
                 'x-sync-client-id': getRevenantGenerationSyncClientId(),
             },
         })
-        if (pruned.ok) revenantGenerationRetentionPruned = true
+        if (pruned.ok) revenantRetentionPruned = true
     }
     const response = await fetch('/api/generation/jobs/recoverable?limit=200', {
         headers: { 'risu-auth': auth },

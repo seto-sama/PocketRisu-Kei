@@ -28,19 +28,19 @@ import { inlayTokenRegex } from "src/ts/util/inlayTokens";
 import {
     consumeRecoverableAuxiliaryGeneration,
     resolveRecoverableAuxiliaryGenerations,
-} from "../revenantGeneration/auxiliary";
+} from "../revenant/auxiliary";
 import { saveChatToServer } from "src/ts/storage/chatStorage";
 import {
     createRevenantOperation,
     isRevenantHypaV3SummaryOperation,
     type RecoverableAuxiliaryJob,
-} from "../revenantGeneration/types";
+} from "../revenant/types";
 import { v4 as uuidv4 } from "uuid";
 import {
     getRevenantHypaExecution,
     prepareRevenantHypaExecution,
     waitForRevenantHypaExecution,
-} from "../revenantGeneration/workflow";
+} from "../revenant/workflow";
 
 export interface HypaV3Preset {
     name: string;

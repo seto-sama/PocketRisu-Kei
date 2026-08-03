@@ -25,8 +25,8 @@ import {
     listRecoverableAuxiliaryGenerations,
     resolveRecoverableAuxiliaryGenerations,
     updateRecoverableAuxiliaryGenerationProjection,
-} from "./revenantGeneration/auxiliary";
-import type { RecoverableAuxiliaryJob } from "./revenantGeneration/types";
+} from "./revenant/auxiliary";
+import type { RecoverableAuxiliaryJob } from "./revenant/types";
 import { loadLoreBookV3Prompt } from './lorebook.svelte';
 import { getPersonaPrompt, getUserName, getUserIcon } from '../util';
 import { saveChatToServer } from '../storage/chatStorage';
@@ -35,7 +35,7 @@ import {
     isRevenantJobActive,
     isRevenantLuaLlmOperation,
     type RevenantLuaLlmOperation,
-} from './revenantGeneration/types';
+} from './revenant/types';
 let luaFactory:LuaFactory
 let ScriptingSafeIds = new Set<string>()
 let ScriptingEditDisplayIds = new Set<string>()

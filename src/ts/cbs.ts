@@ -2,13 +2,12 @@ import type { Database, character, loreBook } from './storage/database.svelte';
 import type { CbsConditions } from './parser/parser.svelte';
 import type { RisuModule } from './process/modules';
 import type { LLMModel } from './model/modellist';
-import { get } from 'svelte/store';
-import { CurrentTriggerIdStore } from './stores.svelte';
 
 export const defaultCBSRegisterArg: CBSRegisterArg = {
     registerFunction: () => { throw new Error('registerFunction not implemented') },
     getDatabase: () => { throw new Error('getDatabase not implemented') },
     getUserName: () => 'placeholder_user',
+    getTriggerId: () => null,
     getPersonaPrompt: () => 'placeholder_persona',
     risuChatParser: (text: string) => text,
     makeArray: (arr: string[]) => JSON.stringify(arr),
@@ -90,6 +89,7 @@ export type CBSRegisterArg = {
     }) => void | Promise<void>,
     getDatabase: () => Database,
     getUserName: () => string,
+    getTriggerId: () => string | null,
     getPersonaPrompt: () => string,
     risuChatParser: (text: string, arg: matcherArg) => string,
     makeArray: (arr: unknown[]) => string,
@@ -117,6 +117,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         registerFunction, 
         getDatabase, 
         getUserName, 
+        getTriggerId,
         getPersonaPrompt, 
         risuChatParser, 
         makeArray, 
@@ -181,7 +182,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     registerFunction({
         name: 'trigger_id',
         callback: (str, matcherArg, args, vars) => {
-            const currentTriggerId = get(CurrentTriggerIdStore)
+            const currentTriggerId = getTriggerId()
             return currentTriggerId ?? 'null'
         },
         alias: ['triggerid'],

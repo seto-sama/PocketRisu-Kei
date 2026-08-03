@@ -36,9 +36,9 @@ import {
     getServerFetchLogs as getServerFetchLogsRequest,
     type FetchLog,
 } from "./requestLogStore";
-import { type RevenantGenerationRequest } from "./process/revenantGeneration/types";
-import { configureRevenantGenerationClient } from "./process/revenantGeneration/client";
-import { fetchViaGenerationJob } from "./process/revenantGeneration/stream";
+import { type RevenantGenerationRequest } from "./process/revenant/types";
+import { configureRevenantGenerationClient } from "./process/revenant/client";
+import { fetchViaGenerationJob } from "./process/revenant/stream";
 
 export const forageStorage = new AutoStorage()
 configureRevenantGenerationClient({
@@ -2166,25 +2166,25 @@ export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Re
         // response stream is persistently journaled on the server and replayed
         // through the same Response interface. Main requests remain recoverable
         // into chat; auxiliary requests are retained only as completed jobs.
-        const revenantGenerationRequest = arg.generationRequest
-        const useRevenantGenerationJob = !!revenantGenerationRequest
+        const revenantRequest = arg.generationRequest
+        const useRevenantGenerationJob = !!revenantRequest
             && !!arg.interceptor
             && arg.method === 'POST'
-        if (revenantGenerationRequest && !arg.llmExecutionPolicy) {
+        if (revenantRequest && !arg.llmExecutionPolicy) {
             throw new Error('LLM generation requests require an explicit execution policy')
         }
         if (
             arg.llmExecutionPolicy?.kind === 'workflow'
             && (
-                !revenantGenerationRequest?.workflow?.workflowId
-                || !revenantGenerationRequest.workflow.stepKey
+                !revenantRequest?.workflow?.workflowId
+                || !revenantRequest.workflow.stepKey
             )
         ) {
             throw new Error('Workflow LLM execution requires an active workflow step')
         }
         const durableRequired = arg.llmExecutionPolicy?.durability === 'required'
-            || !!revenantGenerationRequest?.job.dispatchPolicy
-            || !!revenantGenerationRequest?.workflow?.dependency
+            || !!revenantRequest?.job.dispatchPolicy
+            || !!revenantRequest?.workflow?.dependency
         if (durableRequired && !useRevenantGenerationJob) {
             throw new Error('Durable LLM transport requires a POST request with generation context and interceptor')
         }
@@ -2205,7 +2205,7 @@ export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Re
                         success: true,
                         date: new Date(startedAt).toLocaleTimeString(),
                         url,
-                        chatId: revenantGenerationRequest.job.chatId,
+                        chatId: revenantRequest.job.chatId,
                     }).id
                 }
                 return withFetchLog(await fetchViaGenerationJob(url, {
@@ -2214,24 +2214,24 @@ export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Re
                     body: realBody,
                     signal: requestSignal,
                     requestTimeoutMs: arg.requestTimeoutMs,
-                    generationRequest: revenantGenerationRequest,
+                    generationRequest: revenantRequest,
                     onJobCreated: (jobId) => {
                         revenantJobId = jobId
-                        revenantGenerationRequest.lifecycle?.onJobCreated?.(jobId)
+                        revenantRequest.lifecycle?.onJobCreated?.(jobId)
                         if (
-                            !revenantGenerationRequest.job.dispatchPolicy
-                            && !revenantGenerationRequest.workflow?.dependency
+                            !revenantRequest.job.dispatchPolicy
+                            && !revenantRequest.workflow?.dependency
                         ) {
                             recordProviderRequest(Date.now())
                         }
                     },
                     onProviderStarted: (startedAt) => {
-                        revenantGenerationRequest.lifecycle?.onProviderStarted?.(startedAt)
+                        revenantRequest.lifecycle?.onProviderStarted?.(startedAt)
                         recordProviderRequest(startedAt)
                     },
                 }))
             } catch (wsErr) {
-                revenantGenerationRequest.lifecycle?.onJobRegistrationUnavailable?.(wsErr)
+                revenantRequest.lifecycle?.onJobRegistrationUnavailable?.(wsErr)
                 // Registration failures are never downgraded to an ordinary
                 // provider request: the server may already own a live job.
                 throw wsErr

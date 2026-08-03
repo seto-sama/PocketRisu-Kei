@@ -15,6 +15,7 @@ describe('generation workflow step executions', () => {
                 characterId: 'character-1',
                 roomId: 'room-1',
                 ownerClientId: 'client-1',
+                context: { schemaVersion: 1, kind: 'chat-generation' },
                 plan: [{
                     key: 'model.main',
                     kind: 'model.main',
@@ -70,6 +71,10 @@ describe('generation workflow step executions', () => {
                 { executionId: 'execution-1', attempt: 1, status: 'output_ready' },
                 { executionId: 'execution-2', attempt: 2, status: 'waiting_job' },
             ])
+            expect(result.beforeCancel.context).toEqual({
+                schemaVersion: 1,
+                kind: 'chat-generation',
+            })
             expect(result.claimed).toMatchObject({ ownerClientId: 'client-2', ownerEpoch: 2 })
             expect(result.staleClaim).toBeNull()
             expect(result.workflow).toMatchObject({ ownerClientId: 'client-2', ownerEpoch: 2 })

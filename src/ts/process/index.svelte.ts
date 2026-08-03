@@ -24,23 +24,23 @@ import { runImageEmbedding } from "./transformers";
 import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
 import { getModelInfo, LLMFlags } from "../model/modellist";
 import { resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
-import { type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenantGeneration/types";
+import { type RevenantChatWorkflowContext, type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant/types";
 import {
     cancelRevenantGeneration,
     checkpointRevenantGeneration,
     finalizeRevenantGeneration,
     registerRevenantGenerationMetadata,
     updateRevenantGenerationMetadata,
-} from "./revenantGeneration/client";
+} from "./revenant/client";
 import {
     configureRevenantGenerationChatRecovery,
-} from "./revenantGeneration/chatRecovery.svelte";
+} from "./revenant/chatRecovery.svelte";
 import {
     coordinateRevenantGeneration,
     type RevenantGenerationLifecycle,
-} from "./revenantGeneration/coordinator";
+} from "./revenant/coordinator";
 import { hypaMemoryV3, type SerializableHypaV3Data } from "./memory/hypav3";
-import { getModuleAssets, getModuleToggles } from "./modules";
+import { getModuleAssets, getModuleRegexScripts, getModules, getModuleToggles, getModuleTriggers } from "./modules";
 import { readImage } from "../globalApi.svelte";
 import { saveChatToServer } from "../storage/chatStorage";
 import { compileModelPreset } from "../preset/runtime/compilePreset";
@@ -53,9 +53,9 @@ import {
     RevenantWorkflowBusyError,
     updateRevenantWorkflowStep,
     waitForRevenantHypaExecution,
-} from "./revenantGeneration/workflow";
+} from "./revenant/workflow";
 
-export { recoverRevenantGenerationsForChat } from "./revenantGeneration/chatRecovery.svelte";
+export { recoverRevenantGenerationsForChat } from "./revenant/chatRecovery.svelte";
 
 export interface OpenAIChat{
     role: 'system'|'user'|'assistant'|'function'
@@ -401,9 +401,49 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     continue: isContinuation,
                     rerollSnapshot,
                 }
+                const postprocessCharacter = safeStructuredClone(nowChatroom)
+                postprocessCharacter.chats = [safeStructuredClone(outgoingChat)]
+                postprocessCharacter.chatPage = 0
+                const workflowContext:RevenantChatWorkflowContext = {
+                    schemaVersion: 1,
+                    kind: 'chat-generation',
+                    resume: {
+                        schemaVersion: 1,
+                        chatProcessIndex,
+                        messageChatId,
+                        isContinuation,
+                        rerollSnapshot,
+                    },
+                    postprocess: {
+                        schemaVersion: 1,
+                        messageChatId,
+                        isContinuation,
+                        rerollSnapshot,
+                        providerBackend: compiledMainPreset.backend,
+                        character: postprocessCharacter,
+                        chat: safeStructuredClone(outgoingChat),
+                        database: {
+                            presetRegex: safeStructuredClone(DBState.db.presetRegex ?? []),
+                            templateDefaultVariables: DBState.db.templateDefaultVariables ?? '',
+                            globalChatVariables: safeStructuredClone(DBState.db.globalChatVariables ?? {}),
+                            username: DBState.db.username ?? 'User',
+                            userIcon: DBState.db.userIcon ?? '',
+                            personaPrompt: DBState.db.personaPrompt ?? '',
+                            selectedPersona: DBState.db.selectedPersona ?? 0,
+                            personas: safeStructuredClone(DBState.db.personas ?? []),
+                            dynamicAssets: DBState.db.dynamicAssets ?? false,
+                            dynamicAssetsEditDisplay: DBState.db.dynamicAssetsEditDisplay ?? false,
+                            igpPrompt: DBState.db.igpPrompt ?? '',
+                        },
+                        modules: safeStructuredClone(getModules()),
+                        moduleRegexScripts: safeStructuredClone(getModuleRegexScripts()),
+                        moduleTriggers: safeStructuredClone(getModuleTriggers()),
+                    },
+                }
                 const workflow = await beginRevenantWorkflow({
                     characterId: nowChatroom.chaId,
                     roomId: outgoingChat.id,
+                    context: workflowContext,
                     plan: createChatGenerationWorkflowPlan({
                         resumeContext,
                         persistUserMessage: outgoingMessage?.role === 'user',

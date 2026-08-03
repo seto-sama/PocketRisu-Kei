@@ -5,13 +5,13 @@ import {
     type RevenantGenerationRequest,
     type RevenantProviderJobSpec,
     type ModelModeExtended,
-} from '../revenantGeneration/types'
+} from '../revenant/types'
 import {
     getLocalRevenantWorkflow,
     getRevenantWorkflowStepKey,
-} from '../revenantGeneration/workflow'
+} from '../revenant/workflow'
 
-export type { ModelModeExtended } from '../revenantGeneration/types'
+export type { ModelModeExtended } from '../revenant/types'
 
 export function buildGenerationRequest(
     arg: RequestDataArgumentExtended,

@@ -8,7 +8,7 @@
     import { getCurrentCharacter } from "src/ts/storage/database.svelte";
     import { getFileSrc } from "src/ts/globalApi.svelte";
     import { createChatBodyRenderController, translationLoadingHTML } from "./chatBodyRenderController.svelte";
-    import type { RevenantChatTranslationRecovery } from "src/ts/process/revenantGeneration/chatRecovery.svelte";
+    import type { RevenantChatTranslationRecovery } from "src/ts/process/revenant/chatRecovery.svelte";
 
     interface Props {
         character?: simpleCharacterArgument|string|null

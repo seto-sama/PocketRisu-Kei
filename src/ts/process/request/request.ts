@@ -43,13 +43,13 @@ import {
     startStatus, appendText, endStatus, setStatusTokenCounter, addBadge,
     type RequestKind,
 } from "src/ts/status/requestStatus";
-import type { RevenantOperationContext, RevenantProviderJobSpec } from "../revenantGeneration/types";
-import { reportRevenantGenerationUsage } from "../revenantGeneration/client";
-import { combineProviderStartedHandlers } from "../revenantGeneration/coordinator";
+import type { RevenantOperationContext, RevenantProviderJobSpec } from "../revenant/types";
+import { reportRevenantGenerationUsage } from "../revenant/client";
+import { combineProviderStartedHandlers } from "../revenant/coordinator";
 import {
     consumeOnStreamCompletion,
     consumeRevenantAuxiliaryResults,
-} from "../revenantGeneration/resultConsumption";
+} from "../revenant/resultConsumption";
 import { MODELS_DEV_REGISTRY_ID } from "src/ts/preset/registry/modelsDev";
 
 export type ToolCall = {
@@ -85,8 +85,8 @@ interface requestDataArgument{
     blockPlugins?: boolean
     /** Persisted data needed to apply an auxiliary result after a reload. */
     revenantOperationContext?:RevenantOperationContext
-    revenantDispatchPolicy?:import('../revenantGeneration/types').RevenantDispatchPolicy
-    revenantWorkflowDependency?:import('../revenantGeneration/types').RevenantWorkflowDependency
+    revenantDispatchPolicy?:import('../revenant/types').RevenantDispatchPolicy
+    revenantWorkflowDependency?:import('../revenant/types').RevenantWorkflowDependency
     onRevenantJobCreated?:(jobId:string) => void
     onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
     onRevenantProviderStarted?:(startedAt:number) => void

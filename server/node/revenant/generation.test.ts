@@ -22,6 +22,7 @@ const {
     normalizeRevenantDispatchPolicy,
     normalizeRevenantHypaExecutionRecipe,
     normalizeRevenantOperationContext,
+    normalizeRevenantWorkflowContext,
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowDependency,
@@ -35,6 +36,11 @@ const {
     ) => unknown
     normalizeRevenantHypaExecutionRecipe: (value: unknown) => unknown
     normalizeRevenantOperationContext: (jobType: string, value: unknown) => any
+    normalizeRevenantWorkflowContext: (
+        value: unknown,
+        characterId: string,
+        roomId: string,
+    ) => any
     normalizeRevenantWorkflowPlan: (value: unknown) => unknown
     normalizeRevenantWorkflowStepUpdate: (value: unknown) => unknown
     normalizeRevenantWorkflowDependency: (
@@ -257,6 +263,47 @@ describe('revenant journal stream', () => {
 })
 
 describe('revenant workflow validation', () => {
+    const workflowContext = {
+        schemaVersion: 1,
+        kind: 'chat-generation',
+        resume: {
+            schemaVersion: 1,
+            chatProcessIndex: -1,
+            messageChatId: 'message-1',
+            isContinuation: false,
+        },
+        postprocess: {
+            schemaVersion: 1,
+            messageChatId: 'message-1',
+            isContinuation: false,
+            providerBackend: 'http',
+            character: { chaId: 'character-1' },
+            chat: { id: 'room-1', message: [] },
+            database: {},
+            modules: [],
+            moduleRegexScripts: [],
+            moduleTriggers: [],
+        },
+    }
+
+    it('accepts a bounded chat workflow execution context', () => {
+        expect(normalizeRevenantWorkflowContext(
+            workflowContext,
+            'character-1',
+            'room-1',
+        )).toEqual(workflowContext)
+        expect(normalizeRevenantWorkflowContext(
+            { ...workflowContext, postprocess: { ...workflowContext.postprocess, providerBackend: 'echo' } },
+            'character-1',
+            'room-1',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext(
+            workflowContext,
+            'different-character',
+            'room-1',
+        )).toBeUndefined()
+    })
+
     it('accepts only the current workflow owner lease', () => {
         const workflow = {
             workflowId: 'workflow-1',

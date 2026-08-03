@@ -13,7 +13,7 @@ import {
     EPHEMERAL_DIRECT_LLM_EXECUTION,
     WORKFLOW_LLM_EXECUTION,
 } from './transportTypes'
-import type { RevenantGenerationRequest } from '../process/revenantGeneration/types'
+import type { RevenantGenerationRequest } from '../process/revenant/types'
 
 beforeEach(() => {
     fetchNativeMock.mockReset()

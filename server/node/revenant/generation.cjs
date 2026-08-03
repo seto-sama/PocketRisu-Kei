@@ -27,6 +27,7 @@ const SERVER_TOKENIZERS = new Set([
     'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
     'novellist', 'gemma', 'cohere', 'deepseek',
 ]);
+const MAX_WORKFLOW_CONTEXT_BYTES = 8 * 1024 * 1024;
 
 function normalizeRevenantJobType(value) {
     return JOB_TYPES.has(value) ? value : 'model';
@@ -72,6 +73,36 @@ function normalizeRevenantWorkflowPlan(value) {
         });
     }
     return normalized;
+}
+
+function normalizeRevenantWorkflowContext(value, characterId, roomId) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    let serialized;
+    try { serialized = JSON.stringify(value); }
+    catch { return undefined; }
+    if (Buffer.byteLength(serialized) > MAX_WORKFLOW_CONTEXT_BYTES) return undefined;
+    if (
+        value.schemaVersion !== 1
+        || value.kind !== 'chat-generation'
+        || value.resume?.schemaVersion !== 1
+        || !Number.isInteger(value.resume.chatProcessIndex)
+        || typeof value.resume.messageChatId !== 'string'
+        || !value.resume.messageChatId
+        || typeof value.resume.isContinuation !== 'boolean'
+        || value.postprocess?.schemaVersion !== 1
+        || value.postprocess.messageChatId !== value.resume.messageChatId
+        || value.postprocess.isContinuation !== value.resume.isContinuation
+        || !['http', 'plugin'].includes(value.postprocess.providerBackend)
+        || value.postprocess.character?.chaId !== characterId
+        || value.postprocess.chat?.id !== roomId
+        || !Array.isArray(value.postprocess.chat?.message)
+        || !value.postprocess.database
+        || typeof value.postprocess.database !== 'object'
+        || !Array.isArray(value.postprocess.modules)
+        || !Array.isArray(value.postprocess.moduleRegexScripts)
+        || !Array.isArray(value.postprocess.moduleTriggers)
+    ) return undefined;
+    return JSON.parse(serialized);
 }
 
 function normalizeRevenantWorkflowStepUpdate(value) {
@@ -284,6 +315,7 @@ module.exports = {
     isValidRevenantWorkflowKey,
     hasRevenantWorkflowOwnerLease,
     normalizeRevenantWorkflowPlan,
+    normalizeRevenantWorkflowContext,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowTerminalStatus,
     normalizeRevenantJobType,

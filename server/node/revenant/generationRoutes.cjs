@@ -27,6 +27,7 @@ const {
     normalizeRevenantWorkflowDependency,
     normalizeRevenantHypaExecutionRecipe,
     normalizeRevenantOperationContext,
+    normalizeRevenantWorkflowContext,
     normalizeRevenantWorkflowPlan,
     normalizeRevenantWorkflowStepUpdate,
     normalizeRevenantWorkflowTerminalStatus,
@@ -102,8 +103,9 @@ function installRevenantGenerationRoutes(app, deps) {
         const characterId = typeof req.body?.characterId === 'string' ? req.body.characterId : '';
         const roomId = typeof req.body?.roomId === 'string' ? req.body.roomId : '';
         const plan = normalizeRevenantWorkflowPlan(req.body?.plan);
-        if (!characterId || !roomId || !plan) {
-            res.status(400).send({ error: 'characterId, roomId, and a valid workflow plan are required' });
+        const context = normalizeRevenantWorkflowContext(req.body?.context, characterId, roomId);
+        if (!characterId || !roomId || !plan || !context) {
+            res.status(400).send({ error: 'characterId, roomId, plan, and workflow context are required' });
             return;
         }
         try {
@@ -113,6 +115,7 @@ function installRevenantGenerationRoutes(app, deps) {
                 roomId,
                 ownerClientId: String(req.headers['x-sync-client-id'] || ''),
                 plan,
+                context,
             });
             if (result.busy) {
                 res.status(409).send({
