@@ -173,6 +173,25 @@ export function createChatGenerationWorkflowPlan(options: {
     ]
 }
 
+const LOCAL_PRE_MODEL_STEP_KEYS = new Set([
+    'user.persist',
+    'trigger.start',
+    'memory.hypav3',
+    'prompt.build',
+])
+
+/** Marks the local-only prompt assembly boundary before the workflow is sent. */
+export function completeChatGenerationPreModelPlan(
+    plan: RevenantWorkflowPlanStep[],
+): RevenantWorkflowPlanStep[] {
+    return plan.map(step => LOCAL_PRE_MODEL_STEP_KEYS.has(step.key)
+        ? {
+            ...step,
+            status: step.status === 'skipped' ? 'skipped' : 'completed',
+        }
+        : step)
+}
+
 export function getRevenantWorkflowResumeContext(
     workflow: RevenantWorkflow,
 ): RevenantWorkflowResumeContext | undefined {

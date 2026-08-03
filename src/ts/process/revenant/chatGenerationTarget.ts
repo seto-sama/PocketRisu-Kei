@@ -1,0 +1,95 @@
+import { safeStructuredClone } from '../../polyfill'
+import type {
+    Chat,
+    Message,
+    MessageGenerationInfo,
+    MessagePresetInfo,
+} from '../../storage/database.svelte'
+import type { RevenantRerollSnapshot } from './types'
+
+export interface GenerationMessageTargetOptions {
+    messageChatId: string
+    characterId: string
+    isContinuation: boolean
+    generationInfo?: MessageGenerationInfo
+    promptInfo?: MessagePresetInfo
+    rerollSnapshot?: RevenantRerollSnapshot
+}
+
+/**
+ * Finds the transient assistant message by its stable id. A remote chat refresh
+ * can replace the entire message array while generation is in progress, so a
+ * numeric index captured before an await/stream read is never safe to reuse.
+ *
+ * When the refresh came from a device that had not seen the placeholder yet,
+ * rebuild the same transient shape instead of dropping streamed output.
+ */
+export function ensureGenerationMessageTarget(
+    chat: Chat,
+    options: GenerationMessageTargetOptions,
+): { message: Message, index: number } {
+    const existingIndex = chat.message.findIndex(message =>
+        message?.chatId === options.messageChatId)
+    if(existingIndex >= 0){
+        return { message: chat.message[existingIndex], index: existingIndex }
+    }
+
+    if(options.isContinuation){
+        for(let index = chat.message.length - 1; index >= 0; index--){
+            const message = chat.message[index]
+            if(message?.role !== 'char') continue
+            Object.assign(message, {
+                chatId: options.messageChatId,
+                generationInfo: options.generationInfo,
+                promptInfo: options.promptInfo,
+            })
+            return { message, index }
+        }
+        throw new Error('Cannot continue generation without an assistant message')
+    }
+
+    let placeholder: Message
+    let insertIndex = chat.message.length
+    if(options.rerollSnapshot){
+        const snapshot = options.rerollSnapshot
+        const target = snapshot.targetMessage
+        const previousSwipes = Array.isArray(target.swipes)
+            ? [...target.swipes]
+            : [target.data]
+        placeholder = {
+            ...safeStructuredClone(target),
+            role: 'char',
+            data: '',
+            saying: options.characterId,
+            time: Date.now(),
+            chatId: options.messageChatId,
+            generationInfo: options.generationInfo,
+            promptInfo: options.promptInfo,
+            swipes: [...previousSwipes, ''],
+            swipeId: previousSwipes.length,
+        }
+        insertIndex = Math.min(
+            Math.max(0, snapshot.targetIndex),
+            chat.message.length,
+        )
+        chat.message.splice(
+            insertIndex,
+            Math.max(0, chat.message.length - insertIndex),
+            placeholder,
+        )
+    }
+    else{
+        placeholder = {
+            role: 'char',
+            data: '',
+            saying: options.characterId,
+            time: Date.now(),
+            generationInfo: options.generationInfo,
+            promptInfo: options.promptInfo,
+            chatId: options.messageChatId,
+        }
+        chat.message.push(placeholder)
+    }
+
+    return { message: placeholder, index: insertIndex }
+}

@@ -1,7 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { clientActionRecoveryMode, mainRecoveryStatusAction } from './chatRecoveryPolicy'
+import {
+    clientActionRecoveryMode,
+    MAIN_JOB_REGISTRATION_GRACE_MS,
+    mainRecoveryStatusAction,
+    shouldWaitForMainJobRegistration,
+} from './chatRecoveryPolicy'
 
 describe('revenant chat recovery policy', () => {
+    it('waits briefly for job registration without allowing pre-model recovery', () => {
+        const createdAt = 10_000
+        expect(shouldWaitForMainJobRegistration(
+            createdAt,
+            createdAt + MAIN_JOB_REGISTRATION_GRACE_MS - 1,
+        )).toBe(true)
+        expect(shouldWaitForMainJobRegistration(
+            createdAt,
+            createdAt + MAIN_JOB_REGISTRATION_GRACE_MS,
+        )).toBe(false)
+    })
+
     it('recovers post-model client actions in the background while a main projection exists', () => {
         expect(clientActionRecoveryMode(true, 1)).toBe('background')
         expect(clientActionRecoveryMode(true, 0)).toBe('blocking')

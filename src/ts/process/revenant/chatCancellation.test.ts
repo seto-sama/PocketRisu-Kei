@@ -103,4 +103,40 @@ describe('commitCancelledGenerationProjection', () => {
 
         expect(current.message).toEqual([])
     })
+
+    it('restores the complete previous branch when a reroll fails before output', () => {
+        const original = {
+            role: 'char', data: 'old answer', chatId: 'assistant-1',
+            swipes: ['old answer'], swipeId: 0,
+        } as Message
+        const trailing = {
+            role: 'user', data: 'comment', isComment: true, chatId: 'comment-1',
+        } as Message
+        const placeholder = {
+            role: 'char', data: '', chatId: 'generation-1',
+        } as Message
+        const current = chat([
+            { role: 'user', data: 'hello', chatId: 'user-1' },
+            placeholder,
+        ])
+
+        commitCancelledGenerationProjection(current, {
+            messageChatId: 'generation-1',
+            content: '',
+            isContinuation: false,
+            targetMessage: placeholder,
+            rerollSnapshot: {
+                targetMessage: original,
+                targetIndex: 1,
+                trailingMessages: [trailing],
+            },
+        })
+
+        expect(current.message).toEqual([
+            { role: 'user', data: 'hello', chatId: 'user-1' },
+            original,
+            trailing,
+        ])
+        expect(current.isStreaming).toBe(false)
+    })
 })

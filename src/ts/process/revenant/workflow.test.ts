@@ -4,6 +4,7 @@ import type { RevenantWorkflow } from './types'
 import {
     activeRevenantWorkflows,
     cancelRevenantWorkflow,
+    completeChatGenerationPreModelPlan,
     createChatGenerationWorkflowPlan,
     createRevenantWorkflowResumeMetadata,
     getActiveRevenantWorkflow,
@@ -96,6 +97,27 @@ describe('revenant workflow resume checkpoint', () => {
         })
 
         expect(plan.find(step => step.key === 'model.dispatch')?.status).toBe('pending')
+    })
+
+    it('publishes a workflow only after local prompt preprocessing is complete', () => {
+        const plan = completeChatGenerationPreModelPlan(createChatGenerationWorkflowPlan({
+            resumeContext: {
+                version: 1,
+                chatProcessIndex: -1,
+                messageChatId: 'message-1',
+                continue: false,
+            },
+            persistUserMessage: true,
+            hypaEnabled: false,
+            igpEnabled: false,
+            pluginProvider: false,
+        }))
+
+        expect(plan.find(step => step.key === 'user.persist')?.status).toBe('completed')
+        expect(plan.find(step => step.key === 'trigger.start')?.status).toBe('completed')
+        expect(plan.find(step => step.key === 'memory.hypav3')?.status).toBe('skipped')
+        expect(plan.find(step => step.key === 'prompt.build')?.status).toBe('completed')
+        expect(plan.find(step => step.key === 'model.main')?.status).toBeUndefined()
     })
 
     it('round-trips the stable main message identity and invocation mode', () => {

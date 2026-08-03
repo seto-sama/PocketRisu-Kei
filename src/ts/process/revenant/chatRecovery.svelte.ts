@@ -49,14 +49,14 @@ import {
 } from './workflow'
 import { commitCancelledGenerationProjection } from './chatCancellation'
 import { serviceRevenantClientActions } from './clientActions.svelte'
-import { clientActionRecoveryMode, mainRecoveryStatusAction } from './chatRecoveryPolicy'
+import {
+    clientActionRecoveryMode,
+    mainRecoveryStatusAction,
+    shouldWaitForMainJobRegistration,
+} from './chatRecoveryPolicy'
 
 interface ChatRecoveryDependencies {
     isChatBusy: () => boolean
-    resumeWorkflow: (
-        workflow: RevenantWorkflow,
-        context: RevenantWorkflowResumeContext,
-    ) => Promise<boolean>
 }
 
 export interface RevenantChatRecoveryOptions {
@@ -65,7 +65,6 @@ export interface RevenantChatRecoveryOptions {
 
 let dependencies: ChatRecoveryDependencies = {
     isChatBusy: () => false,
-    resumeWorkflow: async () => false,
 }
 
 const recoveringGenerationChats = new Set<string>()
@@ -299,8 +298,6 @@ function scheduleRecoveryFallback(
     recoveryFallbackTimers.set(recoveryKey, timer)
 }
 
-type PreModelWorkflowRecoveryResult = 'resumed' | 'deferred' | 'paused' | 'stopped'
-
 async function restoreStoppedReroll(
     character: character,
     chat: Chat,
@@ -318,66 +315,6 @@ async function restoreStoppedReroll(
         rerollSnapshot: snapshot,
     })
     await saveChatToServer(character.chaId, chatIndex, currentChat.id, currentChat)
-}
-
-async function executePreModelWorkflowRecovery(
-    activeWorkflow: RevenantWorkflow,
-    character: character,
-    chat: Chat,
-): Promise<PreModelWorkflowRecoveryResult> {
-    const resumeContext = getRevenantWorkflowResumeContext(activeWorkflow)
-    if (!resumeContext) {
-        await updateRevenantWorkflowStep(
-            activeWorkflow.workflowId,
-            'prompt.build',
-            'failed',
-        ).catch(() => {})
-        await finishRevenantWorkflow(activeWorkflow.workflowId, 'failed').catch(() => {})
-        return 'stopped'
-    }
-
-    const hypaStep = activeWorkflow.steps.find(step => step.key === 'memory.hypav3')
-    if (hypaStep?.status !== 'skipped') {
-        try {
-            // Finish or consume provider jobs that the detached page already
-            // submitted. Terminal failure (especially server interruption)
-            // stops here instead of issuing the paid request again.
-            await recoverHypaV3SummaryJobs(character, chat, {
-                workflowId: activeWorkflow.workflowId,
-                rejectFailed: true,
-                force: true,
-                onJobUpdate: job => updateAuxiliaryRecoveryStatus(job, chat.id),
-            })
-        }
-        catch (error) {
-            console.warn('[GenerationWorkflow] HypaV3 recovery stopped:', error)
-            await updateRevenantWorkflowStep(
-                activeWorkflow.workflowId,
-                'memory.hypav3',
-                'failed',
-            ).catch(() => {})
-            await finishRevenantWorkflow(activeWorkflow.workflowId, 'failed').catch(() => {})
-            await restoreStoppedReroll(character, chat, resumeContext).catch(error => {
-                console.warn('[GenerationWorkflow] Failed to restore stopped reroll:', error)
-            })
-            return 'stopped'
-        }
-    }
-
-    try {
-        const resumed = await dependencies.resumeWorkflow(activeWorkflow, resumeContext)
-        if (resumed) return 'resumed'
-        await restoreStoppedReroll(character, chat, resumeContext).catch(error => {
-            console.warn('[GenerationWorkflow] Failed to restore stopped reroll:', error)
-        })
-        return 'stopped'
-    }
-    catch (error) {
-        // If the main provider job was created before this client-side failure,
-        // the ordinary main journal recovery path owns the next attempt.
-        console.warn('[GenerationWorkflow] Pre-model executor paused:', error)
-        return 'paused'
-    }
 }
 
 function scheduleRevenantAuxiliaryRecovery(character: character, chat: Chat): void {
@@ -430,7 +367,6 @@ export async function recoverRevenantGenerationsForChat(
     }
     recoveringGenerationChats.add(recoveryKey)
     let recovered = 0
-    let deferAuxiliaryRecovery = false
     try {
         let activeWorkflow = await getActiveRevenantWorkflow(character.chaId, chat.id)
         const hasWaitingClientStep = activeWorkflow?.steps.some(step =>
@@ -453,6 +389,17 @@ export async function recoverRevenantGenerationsForChat(
         const currentChatMainJobs = mainJobs.filter(job =>
             job.characterId === character.chaId
             && job.roomId === chat.id)
+        if (
+            activeWorkflow
+            && currentChatMainJobs.length === 0
+            && !hasWaitingClientStep
+            && shouldWaitForMainJobRegistration(activeWorkflow.createdAt)
+        ) {
+            // Prompt construction is deliberately local-only. Wait only for
+            // the originating page's adjacent main-job registration call.
+            scheduleRecoveryFallback(character, chat, options)
+            return 0
+        }
         // A terminal server job cannot still have a live local observer
         // once the global chat process is idle. Let recovery finish a previous
         // materialization failure instead of filtering it forever.
@@ -500,17 +447,22 @@ export async function recoverRevenantGenerationsForChat(
                     await finishRevenantWorkflow(activeWorkflow.workflowId, 'completed')
                 }
                 else {
-                    const executorResult = await executePreModelWorkflowRecovery(
-                        activeWorkflow,
-                        character,
-                        chat,
-                    )
-                    if (executorResult === 'resumed') recovered += 1
-                    if (executorResult === 'deferred' || executorResult === 'paused') {
-                        deferAuxiliaryRecovery = true
-                    }
-                    if (executorResult === 'deferred' || executorResult === 'paused') {
-                        scheduleRecoveryFallback(character, chat, options)
+                    // There is no durable provider job to recover. Never run
+                    // another device's trigger, Lua, tokenization, or prompt
+                    // assembly. Treat the abandoned submission boundary as a
+                    // failed request and restore a reroll branch if necessary.
+                    const resumeContext = getRevenantWorkflowResumeContext(activeWorkflow)
+                    await updateRevenantWorkflowStep(
+                        activeWorkflow.workflowId,
+                        'model.main',
+                        'failed',
+                        { error: 'Main generation job was not registered' },
+                    ).catch(() => {})
+                    await finishRevenantWorkflow(activeWorkflow.workflowId, 'failed').catch(() => {})
+                    if(resumeContext){
+                        await restoreStoppedReroll(character, chat, resumeContext).catch(error => {
+                            console.warn('[GenerationWorkflow] Failed to restore stopped reroll:', error)
+                        })
                     }
                 }
             }
@@ -689,7 +641,7 @@ export async function recoverRevenantGenerationsForChat(
             recoveryRetryAt.set(job.jobId, Date.now() + 1000)
             break
         }
-        if (!deferAuxiliaryRecovery && (jobs.length === 0 || recovered === jobs.length)) {
+        if (jobs.length === 0 || recovered === jobs.length) {
             scheduleRevenantAuxiliaryRecovery(character, chat)
         }
         return recovered

@@ -13,6 +13,7 @@ import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
 import { isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders } from "./storage/chatStorage";
+import { preparePatchConflictRebase } from "./storage/patchRebase";
 import { AutoStorage } from "./storage/autoStorage";
 import { ConflictError, getSyncClientId, type PersistWarning } from "./storage/nodeStorage";
 import { supportsPatchSync } from "./platform";
@@ -777,17 +778,15 @@ export async function saveDb() {
         const latestData = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
         if (latestData && latestData.length > 0) {
             const latestDb = await decodeRisuSave(latestData) as Database
-            const mergedDb = safeStructuredClone(latestDb) as Database
+            const preparedRebase = preparePatchConflictRebase(
+                latestDb,
+                exactPatch,
+            )
+            const mergedDb = preparedRebase.mergedValue as Database
+            const serverBaseline = preparedRebase.serverBaseline as Database
             const localDb = safeStructuredClone(db) as Database
 
-            if (exactPatch) {
-                // Replay the precise mutation calculated from this client's
-                // previous baseline. Unrelated fields changed by another
-                // device remain exactly as they are in the latest server DB.
-                const { applyPatch } = await import('fast-json-patch')
-                applyPatch(mergedDb, safeStructuredClone(exactPatch), true)
-            }
-            else {
+            if (!exactPatch) {
                 // Full-write conflicts do not have a JSON Patch to replay.
                 // Keep this fallback scoped to the blocks the save tracker
                 // observed instead of copying every stale root block.
@@ -834,7 +833,6 @@ export async function saveDb() {
 
             // Keep a stub-only baseline for the patch protocol, but preserve
             // already hydrated local chat bodies in the live runtime DB.
-            const mergedBaseline = safeStructuredClone(mergedDb) as Database
             const localCharacters = new Map(
                 (localDb.characters ?? []).map(character => [character.chaId, character] as const),
             )
@@ -855,7 +853,10 @@ export async function saveDb() {
             })
             if (supportsPatchSync) {
                 patcher = new RisuSavePatcher()
-                await patcher.init(mergedBaseline)
+                // The merged value contains changes that the server rejected.
+                // Keep them live and dirty, but hash from the exact server
+                // pre-image so the retry can submit them again successfully.
+                await patcher.init(serverBaseline)
             }
         }
         requeueTrackedChanges(toSave)

@@ -204,7 +204,12 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
                     }
                     else if((outScript.startsWith('@@inject') || pscript.actions.includes('inject')) && chatID !== -1){
                         const selchar = db.characters[get(selectedCharID)]
-                        selchar.chats[selchar.chatPage].message[chatID].data = data
+                        const targetMessage = selchar?.chats?.[selchar.chatPage]?.message?.[chatID]
+                        // Chat sync may replace the message array while prompt
+                        // scripts are awaiting async work. Injection is a side
+                        // effect on the live UI message, so skip it if that old
+                        // numeric position no longer exists.
+                        if(targetMessage) targetMessage.data = data
                         data = data.replace(reg, "")
                     }
                     else if(
