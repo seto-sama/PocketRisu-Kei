@@ -33,12 +33,22 @@ import { expandAdapterMessages, toAdapterMessage, toolResponseText } from "./mod
 import { pluginArgumentValues, pluginProviderName } from "src/ts/preset/pluginModels";
 import { createLLMTransportFetch } from "src/ts/network/llmTransport";
 import {
+    EPHEMERAL_SERVER_LLM_EXECUTION,
+    SINGLE_LLM_EXECUTION,
+    WORKFLOW_LLM_EXECUTION,
+    type LLMExecutionPolicy,
+} from "src/ts/network/transportTypes";
+import {
     startStatus, appendText, endStatus, setStatusTokenCounter, addBadge,
     type RequestKind,
 } from "src/ts/status/requestStatus";
 import type { RevenantGenerationContext, RevenantOperationContext } from "../revenantGeneration/types";
 import { reportRevenantGenerationUsage } from "../revenantGeneration/client";
 import { combineProviderStartedHandlers } from "../revenantGeneration/coordinator";
+import {
+    consumeOnStreamCompletion,
+    consumeRevenantAuxiliaryResults,
+} from "../revenantGeneration/resultConsumption";
 import { MODELS_DEV_REGISTRY_ID } from "src/ts/preset/registry/modelsDev";
 
 export type ToolCall = {
@@ -79,6 +89,7 @@ interface requestDataArgument{
     onRevenantJobCreated?:(jobId:string) => void
     onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
     onRevenantProviderStarted?:(startedAt:number) => void
+    llmExecutionPolicy?:LLMExecutionPolicy
 }
 
 export interface RequestDataArgumentExtended extends requestDataArgument{
@@ -330,13 +341,50 @@ export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[]){
 
 
 export async function requestChatDataMain(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
-    const targ:RequestDataArgumentExtended = arg
+    const createdJobIds:string[] = []
+    const callerOnJobCreated = arg.onRevenantJobCreated
+    const targ:RequestDataArgumentExtended = {
+        ...arg,
+        onRevenantJobCreated: jobId => {
+            createdJobIds.push(jobId)
+            callerOnJobCreated?.(jobId)
+        },
+    }
     targ.mode = model
+
+    const generationContext = buildGenerationContext(targ)
+    const autoConsume = generationContext?.jobType !== 'model'
+        && !targ.revenantOperationContext
+    const consumeCreatedJobs = async () => {
+        if (!autoConsume || createdJobIds.length === 0) return
+        try {
+            await consumeRevenantAuxiliaryResults(createdJobIds)
+        }
+        catch (error) {
+            // The retained job is pruned by Revenant if acknowledgement is
+            // temporarily unavailable. Never discard an already-decoded LLM
+            // result merely because the consume receipt failed.
+            console.error('[GenerationJob] Failed to consume auxiliary result:', error)
+        }
+    }
 
     const currentChat = getCurrentChat()
     const binding = resolveChatModelBinding(currentChat, model)
     if(binding.kind === 'modelPreset'){
-        return requestModelPreset(targ, applyPromptPresetParams(binding.preset, currentChat, model), abortSignal, model)
+        const response = await requestModelPreset(
+            targ,
+            applyPromptPresetParams(binding.preset, currentChat, model),
+            abortSignal,
+            model,
+        )
+        if (response.type === 'streaming' && autoConsume) {
+            return {
+                ...response,
+                result: consumeOnStreamCompletion(response.result, consumeCreatedJobs),
+            }
+        }
+        await consumeCreatedJobs()
+        return response
     }
     return {
         type: 'fail',
@@ -571,6 +619,7 @@ async function requestPluginPresetProvider(
         value: {
             chatId: arg.chatId,
             generationContext: buildGenerationContext(arg),
+            llmExecutionPolicy: resolveLLMExecutionPolicy(arg),
             interceptor: 'model_preset',
         },
         enumerable: false,
@@ -624,8 +673,8 @@ async function requestPluginPresetProvider(
 }
 
 // Provider adapters receive a normal Fetch implementation backed by the shared
-// LLM transport. Its default `auto` policy is durable-first and keeps route,
-// recovery, cancellation, timeout, and local-network behavior out of adapters.
+// LLM transport. Execution intent stays explicit while route, recovery,
+// cancellation, timeout, and local-network behavior stay out of adapters.
 function modelsDevUsageIdentity(
     preset: ModelPreset,
 ): Pick<
@@ -644,12 +693,21 @@ function modelsDevUsageIdentity(
     }
 }
 
+function resolveLLMExecutionPolicy(arg: RequestDataArgumentExtended): LLMExecutionPolicy {
+    if (arg.llmExecutionPolicy) return arg.llmExecutionPolicy
+    if (arg.previewBody) return EPHEMERAL_SERVER_LLM_EXECUTION
+    return buildGenerationContext(arg)?.workflowId
+        ? WORKFLOW_LLM_EXECUTION
+        : SINGLE_LLM_EXECUTION
+}
+
 function makeModelTransportFetch(arg: RequestDataArgumentExtended, preset: ModelPreset): typeof fetch {
     const usageIdentity = modelsDevUsageIdentity(preset)
     return createLLMTransportFetch({
         interceptor: 'model_preset',
         chatId: arg.chatId,
         getGenerationContext: () => buildGenerationContext(arg, usageIdentity),
+        getExecutionPolicy: () => resolveLLMExecutionPolicy(arg),
     })
 }
 

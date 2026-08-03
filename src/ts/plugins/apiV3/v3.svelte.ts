@@ -808,6 +808,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 ...(options ?? {}),
                 chatId: requestContext.chatId,
                 generationContext: requestContext.generationContext,
+                llmExecutionPolicy: requestContext.llmExecutionPolicy,
                 interceptor: requestContext.interceptor,
             } : options);
         },

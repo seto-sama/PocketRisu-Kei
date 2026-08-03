@@ -26,7 +26,10 @@ import { updateLorebooks } from "./characters";
 import { initMobileGesture } from "./hotkey";
 import { moduleUpdate } from "./process/modules";
 import { isLocalNetworkUrl } from "./network/localNetwork";
-import type { LLMTransportStrategy } from "./network/transportTypes";
+import {
+    executionPolicyToTransportStrategy,
+    type LLMTransportStrategy,
+} from "./network/transportTypes";
 import { formatResponseBody } from "./requestLogFormat";
 import {
     createFetchLogEntry,
@@ -41,7 +44,10 @@ import {
     type RevenantGenerationContext,
 } from "./process/revenantGeneration/types";
 import { configureRevenantGenerationClient } from "./process/revenantGeneration/client";
-import { fetchViaGenerationJob } from "./process/revenantGeneration/stream";
+import {
+    fetchViaGenerationJob,
+    isGenerationJobFallbackEligible,
+} from "./process/revenantGeneration/stream";
 
 export const forageStorage = new AutoStorage()
 configureRevenantGenerationClient({
@@ -2115,6 +2121,8 @@ export interface FetchNativeArgs {
     interceptor?: string
     requestTimeoutMs?: number
     networkRoute?: 'auto' | 'local_network'
+    llmExecutionPolicy?: import('./network/transportTypes').LLMExecutionPolicy
+    /** @deprecated Internal compatibility override. Prefer llmExecutionPolicy. */
     transportStrategy?: LLMTransportStrategy
 }
 
@@ -2163,7 +2171,9 @@ export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Re
     const timeoutSignal = buildTimeoutSignal(arg.signal, arg.requestTimeoutMs)
     const requestSignal = timeoutSignal.signal
     try {
-        const transportStrategy = arg.transportStrategy ?? 'auto'
+        const transportStrategy = arg.llmExecutionPolicy
+            ? executionPolicyToTransportStrategy(arg.llmExecutionPolicy)
+            : arg.transportStrategy ?? 'auto'
         // Provider LLM requests are owned by the Node server. The raw
         // response stream is persistently journaled on the server and replayed
         // through the same Response interface. Main requests remain recoverable
@@ -2177,6 +2187,15 @@ export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Re
         const useRevenantGenerationJob = !!revenantGenerationContext
             && !!arg.interceptor
             && arg.method === 'POST'
+        if (
+            arg.llmExecutionPolicy?.kind === 'workflow'
+            && (
+                !revenantGenerationContext?.workflowId
+                || !revenantGenerationContext.workflowStepKey
+            )
+        ) {
+            throw new Error('Workflow LLM execution requires an active workflow step')
+        }
         const durableRequired = transportStrategy === 'durable'
             || !!revenantGenerationContext?.dispatchPolicy
             || !!revenantGenerationContext?.workflowDependency
@@ -2232,10 +2251,9 @@ export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Re
             } catch (wsErr) {
                 revenantGenerationContext.onJobRegistrationUnavailable?.(wsErr)
                 if (requestSignal?.aborted) throw wsErr
-                const message = wsErr instanceof Error ? wsErr.message : String(wsErr)
                 if (
                     durableRequired
-                    || !message.startsWith('Failed to create generation job')
+                    || !isGenerationJobFallbackEligible(wsErr)
                 ) {
                     // The server may already own a live job. Starting a second
                     // direct request would duplicate the model response. A
@@ -2243,7 +2261,7 @@ export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Re
                     // still contains the unresolved Hypa placeholder.
                     throw wsErr
                 }
-                console.warn('[GenerationJobWS] fallback to regular request due to setup error:', wsErr)
+                console.warn('[GenerationJobWS] fallback to /proxy2 because durable endpoint is unavailable:', wsErr)
             }
         }
 

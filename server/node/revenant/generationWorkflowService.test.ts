@@ -28,7 +28,7 @@ describe('generation workflow service', () => {
             abortController: runningController,
             cancelUpstream: vi.fn(() => Promise.resolve()),
         }
-        const markJobDone = vi.fn((job: any) => { job.done = true })
+        const markGenerationJobDone = vi.fn((job: any) => { job.done = true })
         const abortHypaWorkflowExecution = vi.fn()
         const service = createGenerationWorkflowService({
             finishGenerationWorkflow: vi.fn(),
@@ -39,11 +39,11 @@ describe('generation workflow service', () => {
                     { jobId: 'running', status: 'generating' },
                 ],
             })),
-            proxyStreamJobs: new Map([
+            generationRuntimeJobs: new Map([
                 ['queued', queued],
                 ['running', running],
             ]),
-            markJobDone,
+            markGenerationJobDone,
             abortHypaWorkflowExecution,
         })
 
@@ -64,8 +64,8 @@ describe('generation workflow service', () => {
             type: 'done',
             finishReason: 'workflow_cancelled',
         })
-        expect(markJobDone).toHaveBeenCalledWith(queued)
-        expect(markJobDone).not.toHaveBeenCalledWith(running)
+        expect(markGenerationJobDone).toHaveBeenCalledWith(queued)
+        expect(markGenerationJobDone).not.toHaveBeenCalledWith(running)
 
         settleRunning()
         expect((await termination).changed).toBe(true)
@@ -77,8 +77,8 @@ describe('generation workflow service', () => {
         const service = createGenerationWorkflowService({
             finishGenerationWorkflow,
             cancelGenerationWorkflow,
-            proxyStreamJobs: new Map(),
-            markJobDone: vi.fn(),
+            generationRuntimeJobs: new Map(),
+            markGenerationJobDone: vi.fn(),
         })
 
         await expect(service.terminateWorkflow('workflow-1', 'completed')).resolves.toEqual({

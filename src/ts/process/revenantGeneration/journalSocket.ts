@@ -84,7 +84,7 @@ export function openRevenantJournalSocket(
                 if (disposed || terminal || options.signal?.aborted) return
                 const recovery = options.recovery ? '&recovery=1' : ''
                 const socket = new WebSocket(
-                    `${wsBaseUrl}&mode=raw${recovery}&offset=${receivedBytes}`,
+                    `${wsBaseUrl}${recovery}&offset=${receivedBytes}`,
                 )
                 ws = socket
                 socket.onmessage = event => {

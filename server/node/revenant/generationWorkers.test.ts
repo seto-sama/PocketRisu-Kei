@@ -20,12 +20,12 @@ function baseOptions(repository: Record<string, unknown>) {
             ...repository,
         },
         logger: { error: vi.fn() },
-        proxyStreamJobs: new Map(),
+        generationRuntimeJobs: new Map(),
         maxActiveJobs: 4,
-        countActiveProxyStreamJobs: () => 0,
-        createProxyStreamJob: vi.fn(),
-        runProxyStreamJob: vi.fn(),
-        markJobDone: vi.fn(),
+        countActiveGenerationJobs: () => 0,
+        createGenerationRuntimeJob: vi.fn(),
+        runGenerationProviderJob: vi.fn(),
+        markGenerationJobDone: vi.fn(),
         sanitizeGenerationTargetUrl: (value: string) => value,
     }
 }

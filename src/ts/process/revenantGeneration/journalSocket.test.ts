@@ -71,7 +71,7 @@ describe('openRevenantJournalSocket', () => {
 
     it('uses recovery terminal semantics only when requested', () => {
         openRevenantJournalSocket({ jobId: 'job-2', auth: 'auth', recovery: true })
-        expect(FakeWebSocket.instances[0].url).toContain('mode=raw&recovery=1&offset=0')
+        expect(FakeWebSocket.instances[0].url).toContain('recovery=1&offset=0')
     })
 
     it('reports terminal completion even when no provider headers arrived', async () => {

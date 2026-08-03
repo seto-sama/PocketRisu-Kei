@@ -716,6 +716,13 @@ export async function recoverRevenantGenerationsForChat(
             recoveredChat.isStreaming = false
             invalidateRecoveredMessage(recoveryCharacter, recoveredMessageIndex)
             try {
+                if (job.workflowId) {
+                    // Foreground-only effects are not replayed after reconnect.
+                    // Record that decision before the final materialization
+                    // boundary so materialize remains the last workflow step.
+                    await updateRevenantWorkflowStep(job.workflowId, 'igp', 'skipped')
+                    await updateRevenantWorkflowStep(job.workflowId, 'postprocess', 'skipped')
+                }
                 const materialized = await materializeRecoveredGeneration(
                     job.jobId,
                     finalMessage,
@@ -731,11 +738,6 @@ export async function recoverRevenantGenerationsForChat(
                 recovered++
                 endStatus(job.jobId, 'done', { now: Date.now() })
                 if (job.workflowId) {
-                    // The existing recovery path intentionally restores the
-                    // durable response/trigger/message boundary only. IGP and
-                    // visual foreground effects are not silently replayed.
-                    await updateRevenantWorkflowStep(job.workflowId, 'igp', 'skipped')
-                    await updateRevenantWorkflowStep(job.workflowId, 'postprocess', 'skipped')
                     await finishRevenantWorkflow(job.workflowId, 'completed')
                 }
             }

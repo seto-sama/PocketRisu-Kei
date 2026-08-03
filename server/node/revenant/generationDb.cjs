@@ -238,12 +238,7 @@ const stmtSetHeaders = db.prepare(`
 const stmtFinish = db.prepare(`
     UPDATE generation_jobs
     SET status = ?, finish_reason = ?, error = ?, raw_bytes = ?,
-        request_spec = NULL, completed_at = ?, updated_at = ?,
-        materialized_at = CASE
-            WHEN job_type <> 'model' AND operation_context IS NULL
-                THEN COALESCE(materialized_at, ?)
-            ELSE materialized_at
-        END
+        request_spec = NULL, completed_at = ?, updated_at = ?
     WHERE job_id = ?
 `);
 const stmtSetProjection = db.prepare(`
@@ -976,7 +971,7 @@ function finishGenerationJob(jobId, status, finishReason, error = null, rawBytes
         if (job) stmtSetRawBytes.run(journalBytes, jobId);
         return false;
     }
-    stmtFinish.run(status, finishReason || null, error || null, journalBytes, now, now, now, jobId);
+    stmtFinish.run(status, finishReason || null, error || null, journalBytes, now, now, jobId);
     updateGenerationJobWorkflowStep(
         jobId,
         status === 'generated' ? 'output_ready' : 'failed',

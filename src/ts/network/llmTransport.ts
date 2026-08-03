@@ -1,15 +1,19 @@
 import { fetchNative } from '../globalApi.svelte'
 import type { RevenantGenerationContext } from '../process/revenantGeneration/types'
 import { isLocalNetworkUrl } from './localNetwork'
-import type { LLMTransportStrategy } from './transportTypes'
+import {
+    SINGLE_LLM_EXECUTION,
+    type LLMExecutionPolicy,
+} from './transportTypes'
 
 export interface LLMTransportFetchOptions {
     /** Body-interceptor namespace used by plugins and request logging. */
     interceptor: string
     /** Resolve at dispatch time so streaming/workflow metadata is not stale. */
     getGenerationContext: () => RevenantGenerationContext | undefined
+    /** Resolve at dispatch time so a request cannot silently change durability. */
+    getExecutionPolicy?: () => LLMExecutionPolicy
     chatId?: string
-    strategy?: LLMTransportStrategy
     localNetworkTimeoutMs?: number
 }
 
@@ -38,6 +42,7 @@ export function createLLMTransportFetch(options: LLMTransportFetchOptions): type
         const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
         const localNetwork = isLocalNetworkUrl(url)
         const generationContext = options.getGenerationContext()
+        const executionPolicy = options.getExecutionPolicy?.() ?? SINGLE_LLM_EXECUTION
 
         return fetchNative(url, {
             method,
@@ -47,7 +52,7 @@ export function createLLMTransportFetch(options: LLMTransportFetchOptions): type
             chatId: options.chatId ?? generationContext?.chatId,
             interceptor: options.interceptor,
             generationContext,
-            transportStrategy: options.strategy ?? 'auto',
+            llmExecutionPolicy: executionPolicy,
             networkRoute: localNetwork ? 'local_network' : 'auto',
             requestTimeoutMs: localNetwork
                 ? (options.localNetworkTimeoutMs ?? 600_000)
@@ -56,4 +61,4 @@ export function createLLMTransportFetch(options: LLMTransportFetchOptions): type
     }) as typeof fetch
 }
 
-export type { LLMTransportStrategy } from './transportTypes'
+export type { LLMExecutionPolicy } from './transportTypes'

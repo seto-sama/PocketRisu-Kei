@@ -96,6 +96,70 @@ export function createRevenantWorkflowResumeMetadata(
     return { ...context }
 }
 
+export function createChatGenerationWorkflowPlan(options: {
+    resumeContext: RevenantWorkflowResumeContext
+    persistUserMessage: boolean
+    hypaEnabled: boolean
+    igpEnabled: boolean
+}): RevenantWorkflowPlanStep[] {
+    return [
+        {
+            key: 'user.persist',
+            kind: 'preprocess.user.persist',
+            recoveryPolicy: 'resume',
+            status: options.persistUserMessage ? 'pending' : 'completed',
+        },
+        {
+            key: 'trigger.start',
+            kind: 'preprocess.trigger.start',
+            recoveryPolicy: 'at_least_once',
+        },
+        {
+            key: 'memory.hypav3',
+            kind: 'preprocess.memory.hypav3',
+            recoveryPolicy: 'replay_output',
+            status: options.hypaEnabled ? 'pending' : 'skipped',
+        },
+        {
+            key: 'prompt.build',
+            kind: 'preprocess.prompt.build',
+            recoveryPolicy: 'resume',
+            metadata: createRevenantWorkflowResumeMetadata(options.resumeContext),
+        },
+        {
+            key: 'model.main',
+            kind: 'model.main',
+            recoveryPolicy: 'replay_output',
+        },
+        {
+            key: 'output.transform',
+            kind: 'postprocess.output.transform',
+            recoveryPolicy: 'resume',
+        },
+        {
+            key: 'trigger.output',
+            kind: 'postprocess.trigger.output',
+            recoveryPolicy: 'at_least_once',
+        },
+        {
+            key: 'igp',
+            kind: 'postprocess.igp',
+            recoveryPolicy: 'replay_output',
+            status: options.igpEnabled ? 'pending' : 'skipped',
+        },
+        {
+            key: 'postprocess',
+            kind: 'postprocess.foreground',
+            recoveryPolicy: 'foreground_restart',
+        },
+        {
+            key: 'message.materialize',
+            kind: 'message.materialize',
+            recoveryPolicy: 'resume',
+        },
+    ]
+}
+
 export function getRevenantWorkflowResumeContext(
     workflow: RevenantWorkflow,
 ): RevenantWorkflowResumeContext | undefined {

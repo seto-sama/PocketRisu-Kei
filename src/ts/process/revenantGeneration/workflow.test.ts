@@ -4,6 +4,7 @@ import type { RevenantWorkflow } from './types'
 import {
     activeRevenantWorkflows,
     cancelRevenantWorkflow,
+    createChatGenerationWorkflowPlan,
     createRevenantWorkflowResumeMetadata,
     getActiveRevenantWorkflow,
     getRevenantWorkflow,
@@ -43,6 +44,36 @@ afterEach(() => {
 })
 
 describe('revenant workflow resume checkpoint', () => {
+    it('orders chat generation as preprocess, durable model, postprocess, materialize', () => {
+        const plan = createChatGenerationWorkflowPlan({
+            resumeContext: {
+                version: 1,
+                chatProcessIndex: -1,
+                messageChatId: 'message-1',
+                continue: false,
+            },
+            persistUserMessage: true,
+            hypaEnabled: false,
+            igpEnabled: true,
+        })
+
+        expect(plan.map(step => step.key)).toEqual([
+            'user.persist',
+            'trigger.start',
+            'memory.hypav3',
+            'prompt.build',
+            'model.main',
+            'output.transform',
+            'trigger.output',
+            'igp',
+            'postprocess',
+            'message.materialize',
+        ])
+        expect(plan.find(step => step.key === 'memory.hypav3')?.status).toBe('skipped')
+        expect(plan.find(step => step.key === 'message.materialize')?.recoveryPolicy).toBe('resume')
+        expect(plan.at(-1)?.key).toBe('message.materialize')
+    })
+
     it('round-trips the stable main message identity and invocation mode', () => {
         const metadata = createRevenantWorkflowResumeMetadata({
             version: 1,

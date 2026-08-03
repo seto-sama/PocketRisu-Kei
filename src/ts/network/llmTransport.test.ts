@@ -9,6 +9,10 @@ vi.mock('../globalApi.svelte', () => ({
 }))
 
 import { createLLMTransportFetch } from './llmTransport'
+import {
+    EPHEMERAL_DIRECT_LLM_EXECUTION,
+    WORKFLOW_LLM_EXECUTION,
+} from './transportTypes'
 import type { RevenantGenerationContext } from '../process/revenantGeneration/types'
 
 beforeEach(() => {
@@ -17,7 +21,7 @@ beforeEach(() => {
 })
 
 describe('createLLMTransportFetch', () => {
-    test('routes provider requests through durable-first auto policy', async () => {
+    test('routes workflow provider requests through required durable policy', async () => {
         const context: RevenantGenerationContext = {
             chatId: 'generation-1',
             jobType: 'model',
@@ -27,6 +31,7 @@ describe('createLLMTransportFetch', () => {
             interceptor: 'model_preset',
             chatId: 'generation-1',
             getGenerationContext: () => context,
+            getExecutionPolicy: () => WORKFLOW_LLM_EXECUTION,
         })
 
         await fetchImpl('https://api.example.com/v1/chat/completions', {
@@ -43,8 +48,27 @@ describe('createLLMTransportFetch', () => {
                 chatId: 'generation-1',
                 interceptor: 'model_preset',
                 generationContext: context,
-                transportStrategy: 'auto',
+                llmExecutionPolicy: WORKFLOW_LLM_EXECUTION,
                 networkRoute: 'auto',
+            }),
+        )
+    })
+
+    test('only selects browser-direct transport through explicit ephemeral policy', async () => {
+        const fetchImpl = createLLMTransportFetch({
+            interceptor: 'model_preset',
+            getGenerationContext: () => undefined,
+            getExecutionPolicy: () => EPHEMERAL_DIRECT_LLM_EXECUTION,
+        })
+
+        await fetchImpl('https://api.example.com/health', {
+            method: 'GET',
+        })
+
+        expect(fetchNativeMock).toHaveBeenCalledWith(
+            'https://api.example.com/health',
+            expect.objectContaining({
+                llmExecutionPolicy: EPHEMERAL_DIRECT_LLM_EXECUTION,
             }),
         )
     })

@@ -4,8 +4,8 @@ function createGenerationWorkflowService(options) {
     const {
         finishGenerationWorkflow,
         cancelGenerationWorkflow,
-        proxyStreamJobs,
-        markJobDone,
+        generationRuntimeJobs,
+        markGenerationJobDone,
         abortHypaWorkflowExecution = () => {},
     } = options;
 
@@ -24,7 +24,7 @@ function createGenerationWorkflowService(options) {
         const hypaAbort = abortHypaWorkflowExecution(workflowId);
         if (hypaAbort && typeof hypaAbort.then === 'function') abortWaiters.push(hypaAbort);
         for (const item of result.jobs) {
-            const job = proxyStreamJobs.get(item.jobId);
+            const job = generationRuntimeJobs.get(item.jobId);
             if (!job || job.done) continue;
             job.abortController.abort();
             const upstreamAbort = job.cancelUpstream?.(job.abortController.signal.reason);
@@ -46,7 +46,7 @@ function createGenerationWorkflowService(options) {
                         status: 502,
                         message: 'Generation workflow failed',
                 };
-                markJobDone(job);
+                markGenerationJobDone(job);
             }
             else if (job.runPromise && typeof job.runPromise.then === 'function') {
                 abortWaiters.push(job.runPromise);

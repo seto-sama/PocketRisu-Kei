@@ -46,7 +46,7 @@ import { saveChatToServer } from "../storage/chatStorage";
 import { compileModelPreset } from "../preset/runtime/compilePreset";
 import {
     beginRevenantWorkflow,
-    createRevenantWorkflowResumeMetadata,
+    createChatGenerationWorkflowPlan,
     finishRevenantWorkflow,
     type RevenantWorkflowResumeContext,
     RevenantWorkflowBusyError,
@@ -302,14 +302,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    async function finishSuccessfulWorkflow():Promise<true>{
-        await setWorkflowStep('postprocess', 'completed')
-        // A failed compatible-save materialization deliberately keeps the
-        // workflow active: its provider journal can still be recovered.
-        if(revenantMaterialized) await finishWorkflow('completed')
-        return true
-    }
-
     function wasWorkflowStepCompleted(stepKey:string):boolean{
         const status = resumeWorkflow?.steps.find(step => step.key === stepKey)?.status
         return status === 'completed' || status === 'skipped'
@@ -401,18 +393,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 const workflow = await beginRevenantWorkflow({
                     characterId: nowChatroom.chaId,
                     roomId: outgoingChat.id,
-                    plan: [
-                        { key: 'user.persist', kind: 'user.persist', recoveryPolicy: 'resume', status: outgoingMessage?.role === 'user' ? 'pending' : 'completed' },
-                        { key: 'trigger.start', kind: 'trigger.start', recoveryPolicy: 'at_least_once' },
-                        { key: 'memory.hypav3', kind: 'memory.hypav3', recoveryPolicy: 'replay_output', status: hypaEnabled ? 'pending' : 'skipped' },
-                        { key: 'prompt.build', kind: 'prompt.build', recoveryPolicy: 'resume', metadata: createRevenantWorkflowResumeMetadata(resumeContext) },
-                        { key: 'model.main', kind: 'model.main', recoveryPolicy: 'replay_output' },
-                        { key: 'output.transform', kind: 'output.transform', recoveryPolicy: 'resume' },
-                        { key: 'trigger.output', kind: 'trigger.output', recoveryPolicy: 'at_least_once' },
-                        { key: 'message.materialize', kind: 'message.materialize', recoveryPolicy: 'resume' },
-                        { key: 'igp', kind: 'igp', recoveryPolicy: 'replay_output', status: igpEnabled ? 'pending' : 'skipped' },
-                        { key: 'postprocess', kind: 'postprocess', recoveryPolicy: 'foreground_restart' },
-                    ],
+                    plan: createChatGenerationWorkflowPlan({
+                        resumeContext,
+                        persistUserMessage: outgoingMessage?.role === 'user',
+                        hypaEnabled,
+                        igpEnabled,
+                    }),
                 })
                 revenantWorkflowId = workflow.workflowId
             }
@@ -1957,6 +1943,45 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let rawResult = ''
     let emoChanged = false
     let resendChat = false
+
+    async function finishSuccessfulWorkflow():Promise<true>{
+        await setWorkflowStep('postprocess', 'completed')
+        const generatedMessage = DBState.db.characters[selectedChar].chats[selectedChat].message
+            .slice()
+            .reverse()
+            .find(message => message?.chatId === messageChatId)
+            ?? (isContinuation
+                ? DBState.db.characters[selectedChar].chats[selectedChat].message
+                    .slice()
+                    .reverse()
+                    .find(message => message?.role === 'char')
+                : undefined)
+        if (generatedMessage && !revenantMaterialized) {
+            if (isContinuation) generatedMessage.chatId = messageChatId
+            await setWorkflowStep('message.materialize', 'running')
+            try {
+                const materialized = await finalizeRevenantGeneration(
+                    messageChatId,
+                    rawResult || result,
+                    generatedMessage,
+                    DBState.db.characters[selectedChar].chats[selectedChat],
+                )
+                if (materialized?.chat) {
+                    DBState.db.characters[selectedChar].chats[selectedChat] = normalizeChat(materialized.chat)
+                    currentChar.reloadKeys += 1
+                }
+                if(materialized) revenantMaterialized = true
+            } catch (error) {
+                // The journal remains the recovery source and materialize is
+                // deliberately the last workflow step. Leave the workflow
+                // active so another client can retry this exact boundary.
+                console.error('[GenerationJob] Failed to finalize revenant generation:', error)
+            }
+        }
+        if(revenantMaterialized) await finishWorkflow('completed')
+        return true
+    }
+
     await setWorkflowStep('output.transform', 'running')
     
     if(abortSignal.aborted === true){
@@ -2149,38 +2174,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     await setWorkflowStep('output.transform', 'completed')
     await setWorkflowStep('trigger.output', 'completed')
     finishStreamingDisplay()
-
-    const generatedMessage = DBState.db.characters[selectedChar].chats[selectedChat].message
-        .slice()
-        .reverse()
-        .find(message => message?.chatId === messageChatId)
-        ?? (isContinuation
-            ? DBState.db.characters[selectedChar].chats[selectedChat].message
-                .slice()
-                .reverse()
-                .find(message => message?.role === 'char')
-            : undefined)
-    if (generatedMessage) {
-        if (isContinuation) generatedMessage.chatId = messageChatId
-        try {
-            const materialized = await finalizeRevenantGeneration(
-                messageChatId,
-                rawResult || result,
-                generatedMessage,
-                DBState.db.characters[selectedChar].chats[selectedChat],
-            )
-            if (materialized?.chat) {
-                DBState.db.characters[selectedChar].chats[selectedChat] = normalizeChat(materialized.chat)
-                currentChar.reloadKeys += 1
-            }
-            if(materialized) revenantMaterialized = true
-        } catch (error) {
-            // the revenant journal still owns the raw response and leaves it pending
-            // for recovery. Do not discard the visible response merely because
-            // final compatible-save materialization failed.
-            console.error('[GenerationJob] Failed to finalize revenant generation:', error)
-        }
-    }
 
     const igp = risuChatParser(DBState.db.igpPrompt ?? "")
 

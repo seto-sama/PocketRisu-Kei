@@ -17,6 +17,26 @@ type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 
 const defaultGenerationHeartbeatSec = 15
 
+export class GenerationJobRegistrationError extends Error {
+    readonly fallbackEligible: boolean
+
+    constructor(
+        readonly status: number,
+        detail: string,
+    ) {
+        super(`Failed to create generation job: ${status} ${detail}`)
+        this.name = 'GenerationJobRegistrationError'
+        // These statuses mean the client is talking to an older server without
+        // durable generation support. Policy/auth/capacity failures must remain
+        // failures instead of bypassing Revenant through the synchronous proxy.
+        this.fallbackEligible = status === 404 || status === 405 || status === 501
+    }
+}
+
+export function isGenerationJobFallbackEligible(error: unknown): boolean {
+    return error instanceof GenerationJobRegistrationError && error.fallbackEligible
+}
+
 export function subscribeRecoverableGeneration(
     job: RecoverableGenerationJob,
     handlers: {
@@ -109,7 +129,7 @@ export async function fetchViaGenerationJob(url: string, arg: {
     })
 
     if (!jobRes.ok) {
-        throw new Error(`Failed to create generation job: ${jobRes.status} ${await jobRes.text()}`)
+        throw new GenerationJobRegistrationError(jobRes.status, await jobRes.text())
     }
 
     const { jobId } = await jobRes.json() as { jobId: string }

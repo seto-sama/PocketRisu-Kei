@@ -40,13 +40,13 @@ function installRevenantGenerationRoutes(app, deps) {
         requireSyncClientId,
         sanitizeGenerationTargetUrl,
         normalizeForwardHeaders,
-        createProxyStreamJob,
-        runProxyStreamJob,
+        createGenerationRuntimeJob,
+        runGenerationProviderJob,
         scheduleGenerationDispatch,
         scheduleHypaWorkflowExecution,
         terminateGenerationWorkflow,
-        proxyStreamJobs,
-        countActiveProxyStreamJobs,
+        generationRuntimeJobs,
+        countActiveGenerationJobs,
         maxActiveJobs,
         maxBodyBase64Bytes,
         randomUUID,
@@ -306,7 +306,7 @@ function installRevenantGenerationRoutes(app, deps) {
             res.status(400).send({ error: 'Workflow dependencies are only valid for model.main' });
             return;
         }
-        if (!dispatchPolicy && !workflowDependency && countActiveProxyStreamJobs() >= maxActiveJobs) {
+        if (!dispatchPolicy && !workflowDependency && countActiveGenerationJobs() >= maxActiveJobs) {
             res.status(429).send({ error: 'Too many active generation jobs. Retry shortly.' });
             return;
         }
@@ -381,18 +381,17 @@ function installRevenantGenerationRoutes(app, deps) {
             next(error);
             return;
         }
-        const job = createProxyStreamJob({
+        const job = createGenerationRuntimeJob({
             jobId,
             workflowId,
             heartbeatSec: req.body?.heartbeatSec,
             timeoutMs: req.body?.timeoutMs,
         });
-        job.persistent = true;
         if (dispatchPolicy || workflowDependency) {
             job.waitingDispatch = true;
             scheduleGenerationDispatch();
         } else {
-            job.runPromise = runProxyStreamJob(job, {
+            job.runPromise = runGenerationProviderJob(job, {
                 targetUrl: url,
                 headers: forwardHeaders,
                 method,
@@ -449,7 +448,7 @@ function installRevenantGenerationRoutes(app, deps) {
     app.delete('/api/generation/jobs/:jobId', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        const job = proxyStreamJobs.get(req.params.jobId);
+        const job = generationRuntimeJobs.get(req.params.jobId);
         if (job && !job.done) {
             job.abortController.abort();
             finishGenerationJob(req.params.jobId, 'cancelled', 'user_cancelled');
