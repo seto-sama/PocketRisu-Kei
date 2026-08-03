@@ -13,6 +13,7 @@ const {
     getGenerationWorkflowExecution,
     createGenerationJob,
     getGenerationJob,
+    listGenerationWorkflowJobs,
     setGenerationJobClientProjection,
     updateGenerationJobMetadata,
     finishGenerationJob,
@@ -36,6 +37,11 @@ const {
     normalizeRevenantWorkflowTerminalStatus,
 } = require('./generation.cjs');
 const { createClientGenerationProjection } = require('./generationProjection.cjs');
+const {
+    findReusableActiveMainJob,
+    hasRegisteredMainJob,
+    isUnregisteredWorkflowExpired,
+} = require('./generationRoutePolicy.cjs');
 
 function installRevenantGenerationRoutes(app, deps) {
     const {
@@ -48,6 +54,7 @@ function installRevenantGenerationRoutes(app, deps) {
         scheduleGenerationDispatch,
         scheduleHypaWorkflowExecution,
         scheduleRevenantPostprocess = () => {},
+        notifyRevenantWorkflowUpdated = () => {},
         terminateGenerationWorkflow,
         cancelGenerationStepExecution,
         generationRuntimeJobs,
@@ -69,17 +76,32 @@ function installRevenantGenerationRoutes(app, deps) {
             return;
         }
         try {
-            const result = createGenerationWorkflow({
+            const input = {
                 workflowId: randomUUID(),
                 characterId,
                 roomId,
                 plan,
                 context,
-            });
+            };
+            let result = createGenerationWorkflow(input);
             if (result.busy) {
+                const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
+                if (isUnregisteredWorkflowExpired(result.workflow, jobs)) {
+                    await terminateGenerationWorkflow(result.workflow.workflowId, 'failed');
+                    notifyRevenantWorkflowUpdated(getGenerationWorkflow(result.workflow.workflowId));
+                    result = createGenerationWorkflow({
+                        ...input,
+                        workflowId: randomUUID(),
+                    });
+                }
+            }
+            if (result.busy) {
+                const hasMainJob = hasRegisteredMainJob(
+                    listGenerationWorkflowJobs(result.workflow.workflowId),
+                );
                 res.status(409).send({
                     error: 'A generation workflow is already active for this room',
-                    workflow: result.workflow,
+                    ...(hasMainJob ? { workflow: result.workflow } : {}),
                 });
                 return;
             }
@@ -97,7 +119,24 @@ function installRevenantGenerationRoutes(app, deps) {
             res.status(400).send({ error: 'characterId and roomId are required' });
             return;
         }
-        res.send({ workflow: getActiveGenerationWorkflow(characterId, roomId) });
+        const workflow = getActiveGenerationWorkflow(characterId, roomId);
+        if (!workflow) {
+            res.send({ workflow: null });
+            return;
+        }
+        const jobs = listGenerationWorkflowJobs(workflow.workflowId);
+        if (!hasRegisteredMainJob(jobs)) {
+            if (isUnregisteredWorkflowExpired(workflow, jobs)) {
+                await terminateGenerationWorkflow(workflow.workflowId, 'failed');
+                notifyRevenantWorkflowUpdated(getGenerationWorkflow(workflow.workflowId));
+            }
+            // Prompt construction and the workflow-to-job registration gap
+            // belong only to the submitting page. Other browsers cannot
+            // observe or recover this pre-job workflow.
+            res.send({ workflow: null });
+            return;
+        }
+        res.send({ workflow });
     });
 
     app.get('/api/generation/workflows/:workflowId', async (req, res) => {
@@ -121,6 +160,7 @@ function installRevenantGenerationRoutes(app, deps) {
             return;
         }
         const result = await terminateGenerationWorkflow(req.params.workflowId, 'cancelled');
+        notifyRevenantWorkflowUpdated(getGenerationWorkflow(req.params.workflowId));
         res.send({
             success: true,
             ...(result.changed ? {} : { alreadyFinished: true }),
@@ -231,6 +271,7 @@ function installRevenantGenerationRoutes(app, deps) {
                 metadata: { schemaVersion: 1, error },
             });
             await terminateGenerationWorkflow(req.params.workflowId, 'failed');
+            notifyRevenantWorkflowUpdated(getGenerationWorkflow(req.params.workflowId));
             res.send({ success: true, ...result });
             return;
         }
@@ -266,6 +307,7 @@ function installRevenantGenerationRoutes(app, deps) {
             return;
         }
         const result = await terminateGenerationWorkflow(req.params.workflowId, status);
+        notifyRevenantWorkflowUpdated(getGenerationWorkflow(req.params.workflowId));
         if (!result.changed) {
             const existing = getGenerationWorkflow(req.params.workflowId, false);
             if (!existing) {
@@ -513,6 +555,33 @@ function installRevenantGenerationRoutes(app, deps) {
                 return;
             }
             if (error?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+                // Another browser can enter pre-model recovery in the small
+                // window between workflow creation and observing the first
+                // durable main job. Both requests represent the same logical
+                // workflow step, so attach the later observer to the existing
+                // job instead of making it fail the whole workflow (which
+                // would abort the provider request that won this race).
+                const reusableJob = workflowId
+                    ? findReusableActiveMainJob(
+                        listGenerationWorkflowJobs(workflowId),
+                        {
+                            jobType,
+                            workflowId,
+                            workflowStepKey,
+                            characterId: req.body?.characterId,
+                            roomId: req.body?.roomId,
+                        },
+                    )
+                    : undefined;
+                if (reusableJob) {
+                    const runtimeJob = generationRuntimeJobs.get(reusableJob.jobId);
+                    res.send({
+                        jobId: reusableJob.jobId,
+                        heartbeatSec: runtimeJob?.heartbeatSec,
+                        reused: true,
+                    });
+                    return;
+                }
                 res.status(409).send({ error: 'A main generation job is already active for this room' });
                 return;
             }
