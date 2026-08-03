@@ -30,6 +30,7 @@ import {
 import {
     isRevenantJobActive,
     type RecoverableAuxiliaryJob,
+    type RecoverableGenerationJob,
     type RevenantChatMessageTranslationTarget,
     type RevenantRerollSnapshot,
     type RevenantWorkflow,
@@ -48,6 +49,7 @@ import {
 } from './workflow'
 import { commitCancelledGenerationProjection } from './chatCancellation'
 import { serviceRevenantClientActions } from './clientActions.svelte'
+import { clientActionRecoveryMode, mainRecoveryStatusAction } from './chatRecoveryPolicy'
 
 interface ChatRecoveryDependencies {
     isChatBusy: () => boolean
@@ -165,6 +167,7 @@ export function clearRevenantRecoveryForChat(
         changed = true
         subscription.unsubscribe()
         recoveryStreamSubscriptions.delete(jobId)
+        endStatus(jobId, options.cancelled ? 'aborted' : 'done', { now: Date.now() })
     }
     if (chat.isStreaming) {
         chat.isStreaming = false
@@ -227,6 +230,34 @@ function updateAuxiliaryRecoveryStatus(job: RecoverableAuxiliaryJob, chatId: str
         endStatus(job.jobId, 'failed', {
             now: job.completedAt ?? Date.now(),
             error: job.error,
+        })
+    }
+}
+
+function updateMainRecoveryStatus(job: RecoverableGenerationJob, chatId: string): void {
+    const action = mainRecoveryStatusAction(
+        job.status,
+        notifiedRecoveryJobs.has(job.jobId),
+    )
+    if (action === 'start') {
+        startRecoveryStatus(job.jobId, 'main', chatId, job.createdAt)
+        return
+    }
+    // Do not resurrect a toast for a request which already completed before
+    // this page observed it. If this page did observe the live request, close
+    // that existing status as soon as the provider job becomes terminal,
+    // independently of slower Lua/postprocess work.
+    if (action === 'none') return
+    if (action === 'done') {
+        endStatus(job.jobId, 'done', { now: job.completedAt ?? Date.now() })
+    }
+    else if (action === 'aborted') {
+        endStatus(job.jobId, 'aborted', { now: job.completedAt ?? Date.now() })
+    }
+    else {
+        endStatus(job.jobId, 'failed', {
+            now: job.completedAt ?? Date.now(),
+            error: job.finishReason,
         })
     }
 }
@@ -392,16 +423,18 @@ export async function recoverRevenantGenerationsForChat(
     if (dependencies.isChatBusy() || !character?.chaId || !chat?.id || chat._placeholder) return 0
     const recoveryKey = `${character.chaId}/${chat.id}`
     if (recoveringGenerationChats.has(recoveryKey)) return 0
+    const scheduledFallback = recoveryFallbackTimers.get(recoveryKey)
+    if (scheduledFallback) {
+        clearTimeout(scheduledFallback)
+        recoveryFallbackTimers.delete(recoveryKey)
+    }
     recoveringGenerationChats.add(recoveryKey)
     let recovered = 0
     let deferAuxiliaryRecovery = false
     try {
         let activeWorkflow = await getActiveRevenantWorkflow(character.chaId, chat.id)
-        if (activeWorkflow?.steps.some(step => step.status === 'waiting_client')) {
-            await serviceRevenantClientActions(activeWorkflow, character)
-            scheduleRecoveryFallback(character, chat, options)
-            return 0
-        }
+        const hasWaitingClientStep = activeWorkflow?.steps.some(step =>
+            step.status === 'waiting_client') === true
         const hypaMemoryCheckpoint = activeWorkflow?.steps
             .find(step => step.key === 'memory.hypav3' && step.status === 'completed')
             ?.metadata?.hypaMemory
@@ -428,6 +461,24 @@ export async function recoverRevenantGenerationsForChat(
                 !isRevenantJobActive(job.status)
                 && isRevenantGenerationLocallyObserved(job.jobId))
             .forEach(job => setRevenantGenerationLocallyObserved(job.jobId, false))
+        const waitingClientRecoveryMode = clientActionRecoveryMode(
+            hasWaitingClientStep,
+            currentChatMainJobs.length,
+        )
+        if (waitingClientRecoveryMode !== 'none' && activeWorkflow) {
+            const clientActionRecovery = serviceRevenantClientActions(activeWorkflow, character)
+            if (waitingClientRecoveryMode === 'blocking') {
+                await clientActionRecovery
+                return 0
+            }
+            // A post-model Lua/client action may take much longer than the main
+            // generation. Recover it concurrently so the completed/streaming
+            // main projection below becomes visible immediately.
+            void clientActionRecovery
+                .catch(error => {
+                    console.warn('[GenerationWorkflow] Client action recovery paused:', error)
+                })
+        }
         if (currentChatMainJobs.length === 0) {
             const detachedSubscription = [...recoveryStreamSubscriptions.values()].find(subscription =>
                 subscription.characterId === character.chaId
@@ -476,7 +527,7 @@ export async function recoverRevenantGenerationsForChat(
         const jobs = mainJobs
             .filter(isDetachedJobForCurrentChat)
             .sort((a, b) => a.createdAt - b.createdAt)
-        jobs.forEach(job => startRecoveryStatus(job.jobId, 'main', chat.id))
+        jobs.forEach(job => updateMainRecoveryStatus(job, chat.id))
         for (const job of jobs) {
             const messageChatId = job.chatId
             if (Date.now() < (recoveryRetryAt.get(job.jobId) ?? 0)) break
@@ -636,7 +687,6 @@ export async function recoverRevenantGenerationsForChat(
             // Keep the raw preview until its database invalidation hydrates the
             // canonical materialized chat; the browser never re-runs scripts.
             recoveryRetryAt.set(job.jobId, Date.now() + 1000)
-            scheduleRecoveryFallback(character, chat, options)
             break
         }
         if (!deferAuxiliaryRecovery && (jobs.length === 0 || recovered === jobs.length)) {

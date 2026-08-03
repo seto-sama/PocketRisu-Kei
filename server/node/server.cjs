@@ -41,6 +41,7 @@ const {
     setGenerationJobProjectionError,
     finishGenerationJob,
     finishGenerationWorkflow,
+    getGenerationWorkflow,
     cancelGenerationWorkflow,
     cancelGenerationStepExecution,
     listGenerationJobsNeedingProjection,
@@ -1578,6 +1579,17 @@ function broadcastDatabaseInvalidated(req, payload = {}) {
     );
 }
 
+function broadcastRevenantWorkflowUpdated(workflow) {
+    if (!workflow?.workflowId || !workflow.characterId || !workflow.roomId) return;
+    broadcastSync('generation-workflow-updated', {
+        workflowId: workflow.workflowId,
+        characterId: workflow.characterId,
+        roomId: workflow.roomId,
+        status: workflow.status,
+        timestamp: Date.now(),
+    });
+}
+
 // --- Generation Job constants ---
 const GENERATION_JOB_DEFAULT_TIMEOUT_MS = GENERATION_REQUEST_DEFAULT_TIMEOUT_MS;
 const GENERATION_JOB_DEFAULT_HEARTBEAT_SEC = 15;
@@ -1832,6 +1844,10 @@ function markGenerationJobDone(job) {
     job.done = true;
     job.cleanupAt = Date.now() + GENERATION_JOB_DONE_GRACE_MS;
     notifyRevenantJournalWaiters(job);
+    const workflow = job.workflowId ? getGenerationWorkflow(job.workflowId) : undefined;
+    if (workflow && workflow.status !== 'active') {
+        broadcastRevenantWorkflowUpdated(workflow);
+    }
 }
 
 function cleanupGenerationRuntimeJob(jobId) {
@@ -1892,6 +1908,7 @@ const revenantPostprocessWorker = createRevenantPostprocessWorker({
     repository: generationDb,
     logger,
     materializeGeneration: revenantMaterializer.materialize,
+    onWorkflowUpdated: broadcastRevenantWorkflowUpdated,
 });
 const scheduleRevenantPostprocess = revenantPostprocessWorker.schedule;
 
@@ -2731,6 +2748,7 @@ installRevenantGenerationRoutes(app, {
     scheduleGenerationDispatch,
     scheduleHypaWorkflowExecution,
     scheduleRevenantPostprocess,
+    notifyRevenantWorkflowUpdated: broadcastRevenantWorkflowUpdated,
     terminateGenerationWorkflow: generationWorkflowService.terminateWorkflow,
     cancelGenerationStepExecution: generationWorkflowService.cancelStepExecution,
     generationRuntimeJobs,

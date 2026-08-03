@@ -49,6 +49,10 @@ import { isMobile } from 'src/ts/platform'
     import {
         clearRevenantRecoveryForChat,
     } from 'src/ts/process/revenant/chatRecovery.svelte';
+    import {
+        subscribeRevenantWorkflowSyncReady,
+        subscribeRevenantWorkflowUpdates,
+    } from 'src/ts/process/revenant/workflowEvents';
 
     import Chats from './Chats.svelte';
     import PartialEditManager from './PartialEditManager.svelte';
@@ -142,12 +146,15 @@ import { isMobile } from 'src/ts/platform'
                 })
                 .catch(error => console.warn('[GenerationWorkflow] Active refresh failed:', error))
         }
-        if (!workflow) {
-            refresh()
-            return
+        refresh()
+        const unsubscribeUpdates = subscribeRevenantWorkflowUpdates(event => {
+            if (event.characterId === characterId && event.roomId === roomId) refresh()
+        })
+        const unsubscribeSyncReady = subscribeRevenantWorkflowSyncReady(refresh)
+        return () => {
+            unsubscribeUpdates()
+            unsubscribeSyncReady()
         }
-        const timer = setInterval(refresh, 5000)
-        return () => clearInterval(timer)
     })
 
     // ─── Per-chat composer draft ────────────────────────────────────────────
@@ -238,9 +245,14 @@ import { isMobile } from 'src/ts/platform'
         const chatId = char?.chats?.[char.chatPage]?.id
         if (!char?.chaId || !chatId) return
         let recoveryInFlight = false
+        let recoveryRequested = false
         const recover = () => {
-            if (recoveryInFlight) return
+            if (recoveryInFlight) {
+                recoveryRequested = true
+                return
+            }
             recoveryInFlight = true
+            recoveryRequested = false
             void ensureActiveChatReady(selectedChar).then(async chat => {
                 if (!chat) return
                 const detachedTranslationJobs = await listRecoverableAuxiliaryGenerations()
@@ -296,12 +308,21 @@ import { isMobile } from 'src/ts/platform'
                 console.error('[GenerationJob] Failed to recover pending chat work:', error)
             }).finally(() => {
                 recoveryInFlight = false
+                if (recoveryRequested) recover()
             })
         }
         recover()
         const onOnline = () => recover()
+        const unsubscribeWorkflowUpdates = subscribeRevenantWorkflowUpdates(event => {
+            if (event.characterId === char.chaId && event.roomId === chatId) recover()
+        })
+        const unsubscribeSyncReady = subscribeRevenantWorkflowSyncReady(recover)
         window.addEventListener('online', onOnline)
-        return () => window.removeEventListener('online', onOnline)
+        return () => {
+            unsubscribeWorkflowUpdates()
+            unsubscribeSyncReady()
+            window.removeEventListener('online', onOnline)
+        }
     })
 
     function scrollToBottom() {

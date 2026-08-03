@@ -48,6 +48,7 @@ function installRevenantGenerationRoutes(app, deps) {
         scheduleGenerationDispatch,
         scheduleHypaWorkflowExecution,
         scheduleRevenantPostprocess = () => {},
+        notifyRevenantWorkflowUpdated = () => {},
         terminateGenerationWorkflow,
         cancelGenerationStepExecution,
         generationRuntimeJobs,
@@ -121,6 +122,7 @@ function installRevenantGenerationRoutes(app, deps) {
             return;
         }
         const result = await terminateGenerationWorkflow(req.params.workflowId, 'cancelled');
+        notifyRevenantWorkflowUpdated(getGenerationWorkflow(req.params.workflowId));
         res.send({
             success: true,
             ...(result.changed ? {} : { alreadyFinished: true }),
@@ -231,6 +233,7 @@ function installRevenantGenerationRoutes(app, deps) {
                 metadata: { schemaVersion: 1, error },
             });
             await terminateGenerationWorkflow(req.params.workflowId, 'failed');
+            notifyRevenantWorkflowUpdated(getGenerationWorkflow(req.params.workflowId));
             res.send({ success: true, ...result });
             return;
         }
@@ -266,6 +269,7 @@ function installRevenantGenerationRoutes(app, deps) {
             return;
         }
         const result = await terminateGenerationWorkflow(req.params.workflowId, status);
+        notifyRevenantWorkflowUpdated(getGenerationWorkflow(req.params.workflowId));
         if (!result.changed) {
             const existing = getGenerationWorkflow(req.params.workflowId, false);
             if (!existing) {

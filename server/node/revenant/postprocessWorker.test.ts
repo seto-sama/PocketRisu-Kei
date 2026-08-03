@@ -195,9 +195,11 @@ describe('revenant postprocess worker', () => {
             finishGenerationWorkflow: vi.fn(),
         }
         const renderPrompt = vi.fn(() => 'rendered prompt')
+        const onWorkflowUpdated = vi.fn()
         const worker = createRevenantPostprocessWorker({
             repository,
             renderPrompt,
+            onWorkflowUpdated,
             logger: { error: vi.fn() },
         })
 
@@ -221,6 +223,12 @@ describe('revenant postprocess worker', () => {
                 },
             },
         })
+        expect(onWorkflowUpdated).toHaveBeenCalledWith(expect.objectContaining({
+            workflowId: 'workflow-1',
+            steps: expect.arrayContaining([
+                expect.objectContaining({ key: 'igp', status: 'waiting_client' }),
+            ]),
+        }))
     })
 
     it('waits for a client to run completion UI effects before materializing', async () => {

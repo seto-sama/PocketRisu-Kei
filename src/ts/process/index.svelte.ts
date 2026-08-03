@@ -55,6 +55,7 @@ import {
     waitForRevenantHypaExecution,
 } from "./revenant/workflow";
 import { serviceRevenantClientActions } from './revenant/clientActions.svelte';
+import { createRevenantWorkflowUpdateWaiter } from './revenant/workflowEvents';
 
 export { recoverRevenantGenerationsForChat } from "./revenant/chatRecovery.svelte";
 
@@ -310,7 +311,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     async function waitForServerWorkflow(workflowId:string):Promise<boolean>{
         while(true){
+            const updateWaiter = createRevenantWorkflowUpdateWaiter(
+                workflowId,
+                abortSignal,
+            )
             if(abortSignal.aborted){
+                updateWaiter.cancel()
                 await cancelRevenantWorkflow(workflowId).catch(() => {})
                 revenantWorkflowId = undefined
                 finishStreamingDisplay()
@@ -320,6 +326,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             try{
                 const workflow = await getRevenantWorkflow(workflowId)
                 if(workflow.status === 'completed'){
+                    updateWaiter.cancel()
                     const canonicalChat = ['postprocess', 'igp', 'trigger.output', 'output.transform']
                         .map(key => workflow.steps.find(step => step.key === key)?.metadata?.chat)
                         .find(chat => chat && typeof chat === 'object' && Array.isArray((chat as Chat).message)) as Chat | undefined
@@ -344,6 +351,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     return true
                 }
                 if(workflow.status === 'cancelled' || workflow.status === 'failed'){
+                    updateWaiter.cancel()
                     const failedStep = workflow.steps.find(step => step.status === 'failed')
                     const error = failedStep?.metadata?.error
                     if(workflow.status === 'failed' && typeof error === 'string') throwError(error)
@@ -360,7 +368,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 if(abortSignal.aborted) continue
                 console.warn('[Revenant] Failed to observe server workflow:', error)
             }
-            await new Promise(resolve => setTimeout(resolve, 250))
+            await updateWaiter.promise
         }
     }
 

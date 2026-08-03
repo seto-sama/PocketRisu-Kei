@@ -4,6 +4,10 @@ import { convertStubsToPlaceholders, fetchChatFromServer } from './storage/chatS
 import { decodeRisuSave } from './storage/risuSave'
 import { getSyncClientId } from './storage/nodeStorage'
 import { safeStructuredClone } from './polyfill'
+import {
+    emitRevenantWorkflowSyncReady,
+    emitRevenantWorkflowUpdate,
+} from './process/revenant/workflowEvents'
 
 type SyncChatTarget = {
     characterId: string
@@ -14,6 +18,10 @@ type SyncMessage = {
     type: string
     etag?: string
     chats?: SyncChatTarget[]
+    workflowId?: string
+    characterId?: string
+    roomId?: string
+    status?: string
 }
 
 let socket: WebSocket | null = null
@@ -123,6 +131,26 @@ async function connect() {
             try {
                 message = JSON.parse(String(event.data))
             } catch {
+                return
+            }
+            if (message.type === 'sync-ready') {
+                emitRevenantWorkflowSyncReady()
+                return
+            }
+            if (message.type === 'generation-workflow-updated') {
+                if (
+                    message.workflowId
+                    && message.characterId
+                    && message.roomId
+                    && ['active', 'completed', 'cancelled', 'failed'].includes(message.status ?? '')
+                ) {
+                    emitRevenantWorkflowUpdate({
+                        workflowId: message.workflowId,
+                        characterId: message.characterId,
+                        roomId: message.roomId,
+                        status: message.status as 'active' | 'completed' | 'cancelled' | 'failed',
+                    })
+                }
                 return
             }
             if (message.type !== 'database-invalidated') return
