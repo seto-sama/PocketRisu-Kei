@@ -3,18 +3,17 @@
     import { tokenizeAccurate } from "../../ts/tokenizer";
     import { saveImage as saveAsset, type character, getCurrentCharacter } from "../../ts/storage/database.svelte";
     import { convertCharacterToModule } from "src/ts/interchangeability";
-    import { alertConfirm, notifyError, notifySuccess } from "src/ts/alert";
+    import { notifySuccess } from "src/ts/alert";
     import { DBState } from 'src/ts/stores.svelte';
-    import { CharConfigSubMenu, MobileGUI, selectedCharID, SizeStore } from "../../ts/stores.svelte";
-    import { PlusIcon, TrashIcon, DownloadIcon, HardDriveUploadIcon, ImageIcon, ImageOffIcon, ArrowUp, ArrowDown, TriangleAlertIcon, FileIcon, FileMusicIcon, FileVideoIcon, Copy } from '@lucide/svelte'
+    import { CharConfigSubMenu, MobileGUI, selectedCharID } from "../../ts/stores.svelte";
+    import { PlusIcon, TrashIcon, DownloadIcon, HardDriveUploadIcon, ArrowUp, ArrowDown, TriangleAlertIcon } from '@lucide/svelte'
     import Check from "../UI/GUI/CheckInput.svelte";
     import { addCharEmotion, addingEmotion, getCharImage, rmCharEmotion, selectCharImg, removeChar, changeCharImage } from "../../ts/characters";
     import LoreBook from "./LoreBook/LoreBookSetting.svelte";
-    import { getAuthorNoteDefaultText, selectMultipleFile, selectSingleFile } from "../../ts/util";
+    import { getAuthorNoteDefaultText, selectSingleFile } from "../../ts/util";
     import Help from "../Others/Help.svelte";
     import { exportChar } from "src/ts/characterCards";
     import { getElevenTTSVoices, getWebSpeechTTSVoices, getVOICEVOXVoices, oaiVoices, getNovelAIVoices, getTTSApiKey } from "src/ts/process/tts";
-    import { downloadFile, getFileSrc } from "src/ts/globalApi.svelte";
     import TextInput from "../UI/GUI/TextInput.svelte";
     import ShInput from "../UI/GUI/ShInput.svelte";
     import NumberInput from "../UI/GUI/NumberInput.svelte";
@@ -37,7 +36,7 @@
     import ShSwitch from "../UI/GUI/ShSwitch.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
-    import FullscreenImageViewer from "../UI/GUI/FullscreenImageViewer.svelte";
+    import AdditionalAssetsEditor from "../UI/AdditionalAssetsEditor.svelte";
 
     let pkgIncludeCharacter = $state(true)
     let pkgIncludeChats = $state(true)
@@ -96,28 +95,6 @@
     });
 
 
-    let assetFileExtensions:string[] = $state([])
-    let assetFilePath:string[] = $state([])
-    let assetImageDimensions = $state<Record<string, { width: number, height: number }>>({})
-    const previewableImageExtensions = ['png', 'webp', 'jpeg', 'jpg', 'gif', 'svg', 'avif']
-    let assetPreviewIndex = $state(-1)
-    let assetPreviewInfoOpen = $state(false)
-    let assetPreviewIndexes = $derived.by(() => {
-        const assets = (DBState.db.characters[$selectedCharID] as character).additionalAssets ?? []
-        return assets
-            .map((_, index) => index)
-            .filter((index) => previewableImageExtensions.includes(assetFileExtensions[index]) && !!assetFilePath[index])
-    })
-    let assetPreviewPosition = $derived(assetPreviewIndexes.indexOf(assetPreviewIndex))
-    let assetPreviewAsset = $derived(
-        assetPreviewIndex >= 0
-            ? (DBState.db.characters[$selectedCharID] as character).additionalAssets?.[assetPreviewIndex] ?? null
-            : null
-    )
-    let assetPreviewPath = $derived(assetPreviewIndex >= 0 ? assetFilePath[assetPreviewIndex] ?? '' : '')
-    let assetPreviewDimensions = $derived(
-        assetPreviewAsset ? assetImageDimensions[assetPreviewAsset[1]] : undefined
-    )
     let licensed = $state((DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : '')
 
     $effect.pre(() => {
@@ -126,144 +103,8 @@
 
 
     $effect.pre(() => {
-        if(DBState.db.characters[$selectedCharID].type ==='character' && DBState.db.useAdditionalAssetsPreview){
-            if((DBState.db.characters[$selectedCharID] as character).additionalAssets){
-                for(let i = 0; i < (DBState.db.characters[$selectedCharID] as character).additionalAssets.length; i++){
-                    if((DBState.db.characters[$selectedCharID] as character).additionalAssets[i].length > 2 && (DBState.db.characters[$selectedCharID] as character).additionalAssets[i][2]) {
-                        assetFileExtensions[i] = (DBState.db.characters[$selectedCharID] as character).additionalAssets[i][2]
-                    } else
-                        assetFileExtensions[i] = (DBState.db.characters[$selectedCharID] as character).additionalAssets[i][1].split('.').pop()
-                    getFileSrc((DBState.db.characters[$selectedCharID] as character).additionalAssets[i][1]).then((filePath) => {
-                        assetFilePath[i] = filePath
-                    })
-                }
-            }
-        }
-    });
-
-    $effect.pre(() => {
         licensed = (DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : ''
     });
-
-    async function addAdditionalAssets() {
-        if(DBState.db.characters[$selectedCharID].type !== 'character'){
-            return
-        }
-        const da = await selectMultipleFile(['png', 'webp', 'mp4', 'mp3', 'gif', 'jpeg', 'jpg', 'ttf', 'otf', 'css', 'webm', 'woff', 'woff2', 'svg', 'avif'])
-        if(!da){
-            return
-        }
-        DBState.db.characters[$selectedCharID].additionalAssets ??= []
-        for(const f of da){
-            const extension = f.name.split('.').pop().toLowerCase()
-            const imgp = await saveAsset(f.data, '', extension)
-            DBState.db.characters[$selectedCharID].additionalAssets.push([f.name, imgp, extension])
-        }
-        DBState.db.characters[$selectedCharID].additionalAssets = DBState.db.characters[$selectedCharID].additionalAssets
-    }
-
-    function openAssetPreview(index: number) {
-        assetPreviewIndex = index
-        assetPreviewInfoOpen = $SizeStore.w >= 768
-    }
-
-    function recordAssetImageDimensions(event: Event, assetPath: string) {
-        const image = event.currentTarget as HTMLImageElement
-        if(image.naturalWidth > 0 && image.naturalHeight > 0){
-            assetImageDimensions[assetPath] = {
-                width: image.naturalWidth,
-                height: image.naturalHeight,
-            }
-        }
-    }
-
-    function closeAssetPreview() {
-        assetPreviewIndex = -1
-    }
-
-    function buildAssetRawReference(name: string) {
-        return `{{raw::${name}}}`
-    }
-
-    async function copyAssetRawReference(name: string) {
-        try {
-            await navigator.clipboard.writeText(buildAssetRawReference(name))
-            notifySuccess(language.copied)
-        }
-        catch(error){
-            notifyError(`${error}`)
-        }
-    }
-
-    async function downloadAssetPreview() {
-        if(!assetPreviewAsset || !assetPreviewPath){
-            return
-        }
-        try {
-            const response = await fetch(assetPreviewPath)
-            if(!response.ok){
-                throw new Error(`Failed to load asset: ${response.status}`)
-            }
-            const name = assetPreviewAsset[0]
-            const extension = assetPreviewAsset[2]
-            const downloadName = extension && !name.toLowerCase().endsWith(`.${extension.toLowerCase()}`)
-                ? `${name}.${extension}`
-                : name
-            await downloadFile(downloadName, await response.arrayBuffer())
-            notifySuccess(language.successExport)
-        }
-        catch(error){
-            notifyError(`${error}`)
-        }
-    }
-
-    async function deleteAdditionalAsset(index: number, confirm = false) {
-        const char = DBState.db.characters[$selectedCharID] as character
-        const asset = char.additionalAssets?.[index]
-        if(!asset){
-            return
-        }
-        if(confirm && !(await alertConfirm(`${language.removeConfirm}${asset[0]}`))){
-            return
-        }
-
-        const currentPreviewPosition = assetPreviewIndexes.indexOf(index)
-        const neighborIndex = currentPreviewPosition >= 0
-            ? assetPreviewIndexes[currentPreviewPosition + 1] ?? assetPreviewIndexes[currentPreviewPosition - 1]
-            : undefined
-
-        char.chats[char.chatPage].fmIndex = -1
-        char.additionalAssets.splice(index, 1)
-        char.additionalAssets = char.additionalAssets
-        if(char.prebuiltAssetExclude?.includes(asset[1])){
-            char.prebuiltAssetExclude = char.prebuiltAssetExclude.filter((path) => path !== asset[1])
-        }
-        delete assetImageDimensions[asset[1]]
-        assetFileExtensions.splice(index, 1)
-        assetFilePath.splice(index, 1)
-
-        if(assetPreviewIndex === index){
-            if(neighborIndex === undefined){
-                closeAssetPreview()
-            }
-            else {
-                assetPreviewIndex = neighborIndex > index ? neighborIndex - 1 : neighborIndex
-            }
-        }
-        else if(assetPreviewIndex > index){
-            assetPreviewIndex -= 1
-        }
-    }
-
-    function goToAssetPreviewNeighbor(offset: -1 | 1) {
-        if(assetPreviewPosition < 0){
-            return
-        }
-        const nextIndex = assetPreviewIndexes[assetPreviewPosition + offset]
-        if(nextIndex !== undefined){
-            assetPreviewIndex = nextIndex
-        }
-    }
 
     $effect.pre(() => {
         if (DBState.db.characters[$selectedCharID].ttsMode === 'novelai' && (DBState.db.characters[$selectedCharID] as character).naittsConfig === undefined) {
@@ -679,83 +520,21 @@
             </SelectInput>
             {/if}
             {/if}
-            <div class="w-full max-w-full max-h-full overflow-x-hidden overflow-y-auto border border-selected rounded-md mt-2">
-                {#if (!DBState.db.characters[$selectedCharID].additionalAssets) || DBState.db.characters[$selectedCharID].additionalAssets.length === 0}
-                    <div class="min-h-20 flex items-center justify-center px-3 py-4 text-sm text-textcolor2">
-                        {language.noData}
-                    </div>
-                {:else}
-                    {#each DBState.db.characters[$selectedCharID].additionalAssets as assets, i}
-                        <div class="flex min-w-0 items-center gap-2 p-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
-                            <div class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-textcolor2">
-                                {#if assetFilePath[i] && DBState.db.useAdditionalAssetsPreview}
-                                    {#if previewableImageExtensions.includes(assetFileExtensions[i])}
-                                        <button
-                                            class="w-full h-full cursor-zoom-in"
-                                            onclick={() => openAssetPreview(i)}
-                                            title={assets[0]}
-                                            aria-label={assets[0]}
-                                        >
-                                            <img
-                                                src={assetFilePath[i]}
-                                                class="w-full h-full object-cover object-top"
-                                                alt={assets[0]}
-                                                onload={(event) => recordAssetImageDimensions(event, assets[1])}
-                                            />
-                                        </button>
-                                    {:else if ['mp4', 'webm'].includes(assetFileExtensions[i])}
-                                        <!-- svelte-ignore a11y_media_has_caption -->
-                                        <video class="w-full h-full object-cover"><source src={assetFilePath[i]} /></video>
-                                    {:else if assetFileExtensions[i] === 'mp3'}
-                                        <FileMusicIcon size={22} />
-                                    {:else}
-                                        <FileIcon size={22} />
-                                    {/if}
-                                {:else if ['mp4', 'webm'].includes(assetFileExtensions[i])}
-                                    <FileVideoIcon size={22} />
-                                {:else if assetFileExtensions[i] === 'mp3'}
-                                    <FileMusicIcon size={22} />
-                                {:else}
-                                    <FileIcon size={22} />
-                                {/if}
-                            </div>
-
-                            <div class="min-w-0 flex-1">
-                                <ShInput autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalAssets[i][0]} placeholder="..." />
-                                <span class="mt-1 block truncate text-[10px] uppercase text-textcolor2">{assetFileExtensions[i] ?? ''}</span>
-                            </div>
-
-                            <IconButtonGroup direction="vertical" size="sm">
-                                {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
-                                    <IconButton onclick={() => {
-                                        DBState.db.characters[$selectedCharID].prebuiltAssetExclude ??= []
-                                        if(DBState.db.characters[$selectedCharID].prebuiltAssetExclude.includes(assets[1])){
-                                            DBState.db.characters[$selectedCharID].prebuiltAssetExclude = DBState.db.characters[$selectedCharID].prebuiltAssetExclude.filter((e) => e !== assets[1])
-                                        }
-                                        else {
-                                            DBState.db.characters[$selectedCharID].prebuiltAssetExclude.push(assets[1])
-                                        }
-                                    }}>
-                                        {#if DBState.db.characters[$selectedCharID]?.prebuiltAssetExclude?.includes?.(assets[1])}
-                                            <ImageOffIcon />
-                                        {:else}
-                                            <ImageIcon />
-                                        {/if}
-                                    </IconButton>
-                                {/if}
-                                <IconButton tone="destructive" onclick={() => deleteAdditionalAsset(i)}>
-                                    <TrashIcon />
-                                </IconButton>
-                            </IconButtonGroup>
-                        </div>
-                    {/each}
-                {/if}
-            </div>
-            <div class="mt-2 flex justify-start">
-                <IconButton onclick={addAdditionalAssets}>
-                    <PlusIcon />
-                </IconButton>
-            </div>
+            <AdditionalAssetsEditor
+                assets={(DBState.db.characters[$selectedCharID] as character).additionalAssets ?? []}
+                onChange={(assets) => {
+                    (DBState.db.characters[$selectedCharID] as character).additionalAssets = assets
+                }}
+                onDelete={() => {
+                    const char = DBState.db.characters[$selectedCharID] as character
+                    char.chats[char.chatPage].fmIndex = -1
+                }}
+                showExclusionToggle={!!DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
+                excludedPaths={DBState.db.characters[$selectedCharID].prebuiltAssetExclude ?? []}
+                onExcludedPathsChange={(paths) => {
+                    DBState.db.characters[$selectedCharID].prebuiltAssetExclude = paths
+                }}
+            />
     {/if}
 {:else if $CharConfigSubMenu === 3}
     {#if !$MobileGUI}
@@ -1288,71 +1067,6 @@
         </div>
 
 {/if}
-
-<FullscreenImageViewer
-    open={assetPreviewIndex >= 0 && !!assetPreviewAsset && !!assetPreviewPath}
-    src={assetPreviewPath}
-    alt={assetPreviewAsset?.[0] ?? ''}
-    title={assetPreviewAsset?.[0] ?? ''}
-    position={assetPreviewPosition}
-    total={assetPreviewIndexes.length}
-    canGoPrev={assetPreviewPosition > 0}
-    canGoNext={assetPreviewPosition >= 0 && assetPreviewPosition < assetPreviewIndexes.length - 1}
-    bind:infoOpen={assetPreviewInfoOpen}
-    infoLabel={language.playground.inlayInfo}
-    downloadLabel={language.download}
-    closeLabel={language.goback}
-    onClose={closeAssetPreview}
-    onPrev={() => goToAssetPreviewNeighbor(-1)}
-    onNext={() => goToAssetPreviewNeighbor(1)}
-    onDownload={downloadAssetPreview}
->
-    {#snippet info()}
-        {#if assetPreviewAsset}
-            <div class="px-4 py-3 space-y-1.5">
-                <p class="text-textcolor text-sm font-medium break-all leading-snug" title={assetPreviewAsset[0]}>
-                    {assetPreviewAsset[0]}
-                </p>
-                {#if assetPreviewAsset[2]}
-                    <p class="text-textcolor2 text-xs uppercase font-mono">{assetPreviewAsset[2]}</p>
-                {/if}
-                {#if assetPreviewDimensions}
-                    <p class="text-textcolor2 text-xs">{assetPreviewDimensions.width} × {assetPreviewDimensions.height} px</p>
-                {/if}
-            </div>
-
-            <div class="px-4 py-4 space-y-2">
-                <h3 class="text-textcolor2 text-[11px] font-semibold uppercase tracking-wider">
-                    {language.playground.inlayActions}
-                </h3>
-                <button
-                    type="button"
-                    onclick={() => copyAssetRawReference(assetPreviewAsset[0])}
-                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc hover:bg-selected/50 text-textcolor2 hover:text-textcolor text-sm transition-colors"
-                >
-                    <Copy size={14} />
-                    {language.copy}
-                </button>
-                <button
-                    type="button"
-                    onclick={downloadAssetPreview}
-                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc hover:bg-selected/50 text-textcolor2 hover:text-textcolor text-sm transition-colors"
-                >
-                    <DownloadIcon size={12} />
-                    {language.download}
-                </button>
-                <button
-                    type="button"
-                    onclick={() => deleteAdditionalAsset(assetPreviewIndex, true)}
-                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-draculared/40 hover:bg-draculared/15 text-draculared text-sm transition-colors"
-                >
-                    <TrashIcon size={12} />
-                    {language.remove}
-                </button>
-            </div>
-        {/if}
-    {/snippet}
-</FullscreenImageViewer>
 
 <style>
 
