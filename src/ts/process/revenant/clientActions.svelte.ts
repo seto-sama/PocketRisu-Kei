@@ -8,9 +8,10 @@ import { getDatabase, type Chat, type character } from '../../storage/database.s
 import { CharEmotion, ReloadChatPointer, ReloadGUIPointer } from '../../stores.svelte'
 import { asBuffer, getUserIcon } from '../../util'
 import { processMultiCommand } from '../command'
-import { writeInlayImage } from '../files/inlays'
+import { getInlayAsset, writeInlayImage } from '../files/inlays'
 import { requestModelPresetData } from '../request/request'
 import { collectStreamingText } from '../request/shared'
+import { extractLuaLlmInlays, normalizeLuaLlmPrompt } from '../luaLlmCore'
 import { generateAIImage } from '../stableDiff'
 import { sayTTS } from '../tts'
 import { runInlayScreen } from '../inlayScreen'
@@ -35,17 +36,30 @@ function actionPayload(action: RevenantClientAction): Record<string, unknown> {
 
 function normalizedPrompt(value: unknown): OpenAIChat[] {
     if (Array.isArray(value)) {
-        return value.map(item => {
-            const source = item && typeof item === 'object' ? item as Record<string, unknown> : {}
-            const rawRole = String(source.role ?? 'assistant')
-            return {
-                role: rawRole === 'system' || rawRole === 'user' ? rawRole : 'assistant',
-                content: String(source.content ?? source.data ?? ''),
-            }
-        })
+        return normalizeLuaLlmPrompt(value)
     }
     const text = String(value ?? '')
     return parseChatML(text) || [{ role: 'user', content: text }]
+}
+
+async function attachLuaLlmMultimodals(prompt: OpenAIChat[]): Promise<void> {
+    for(const message of prompt){
+        const normalized = extractLuaLlmInlays({
+            role: message.role === 'system' || message.role === 'user' ? message.role : 'assistant',
+            content: String(message.content ?? ''),
+        })
+        message.content = normalized.content
+        const multimodals = await Promise.all(normalized.inlayIds.map(async id => {
+            const asset = await getInlayAsset(id)
+            return {
+                type: asset?.type,
+                base64: asset?.data,
+                width: asset?.width,
+                height: asset?.height,
+            }
+        }))
+        message.multimodals = multimodals.length > 0 ? multimodals : undefined
+    }
 }
 
 async function executeProviderAction(
@@ -63,6 +77,7 @@ async function executeProviderAction(
     const prompt = action.kind === 'provider.simplellm'
         ? [{ role: 'user', content: String(payload.prompt ?? '') }] satisfies OpenAIChat[]
         : normalizedPrompt(payload.prompt)
+    if(payload.useMultimodal === true) await attachLuaLlmMultimodals(prompt)
     const options = payload.options && typeof payload.options === 'object'
         ? payload.options as Record<string, unknown>
         : {}

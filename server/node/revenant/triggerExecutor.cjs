@@ -3,6 +3,7 @@
 const path = require('path');
 const crypto = require('crypto');
 const { executeRevenantLua } = require('./luaExecutor.cjs');
+const { resolveReplayAction } = require('./replayAction.cjs');
 
 require('sucrase/register/ts');
 const { renderRevenantTemplate } = require(path.join(
@@ -13,6 +14,13 @@ const { createTriggerV2Core } = require(path.join(
 ));
 const { evaluateTriggerConditions } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerConditionCore.ts',
+));
+const {
+    buildTriggerAction,
+    canExecuteTriggerAction,
+    normalizeTriggerActionResult,
+} = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerActionCore.ts',
 ));
 
 function triggerVar(chat, recipe, key) {
@@ -40,14 +48,6 @@ function passesConditions(trigger, recipe, chat) {
         render: value => renderRevenantTemplate(String(value ?? ''), recipe, chat).text,
         messages: chat.message,
     });
-}
-
-function actionResult(responses, actionId, action) {
-    const key = actionId.length <= 128
-        ? actionId
-        : `${actionId.slice(0, 94)}.${crypto.createHash('sha256').update(actionId).digest('hex').slice(0, 32)}`;
-    if (Object.prototype.hasOwnProperty.call(responses, key)) return { available: true, value: responses[key] };
-    return { available: false, action: { schemaVersion: 1, actionId: key, ...action } };
 }
 
 function deterministicInteger(seed, min, max) {
@@ -78,7 +78,7 @@ async function executeRevenantOutputTriggers(options) {
     ];
 
     const waitFor = (actionId, kind, payload) => {
-        return actionResult(responses, actionId, { kind, payload });
+        return resolveReplayAction(responses, actionId, kind, payload);
     };
     const outcome = (status, action) => ({
         status,
@@ -188,6 +188,96 @@ async function executeRevenantOutputTriggers(options) {
                     if (coreStep.stop) break;
                     continue;
                 }
+                const triggerAction = buildTriggerAction(effect, {
+                    read: v2Core.read,
+                    render,
+                    outputVar: v2Core.outputVar,
+                });
+                if (triggerAction) {
+                    if (!canExecuteTriggerAction(triggerAction, trigger.lowLevelAccess === true)) continue;
+                    const payload = triggerAction.payload;
+                    let actionValue;
+                    switch (triggerAction.kind) {
+                        case 'log':
+                            foregroundEffects.push({ kind: 'log', value: payload.value });
+                            break;
+                        case 'ui.alert':
+                            foregroundEffects.push({
+                                kind: 'alert', level: payload.level || 'normal', message: String(payload.message ?? ''),
+                            });
+                            break;
+                        case 'ui.reload-display':
+                            foregroundEffects.push({ kind: 'reload.display' });
+                            break;
+                        case 'ui.reload-chat':
+                            foregroundEffects.push({ kind: 'reload.chat', index: Number(payload.index) || 0 });
+                            break;
+                        case 'prompt.append':
+                        case 'prompt.stop':
+                            // Prompt construction is already terminal on the server.
+                            break;
+                        case 'chat.resend':
+                            resend = true;
+                            break;
+                        case 'utility.wait':
+                            await new Promise(resolve => setTimeout(resolve, Number(payload.durationMs) || 0));
+                            break;
+                        case 'trigger.run': {
+                            if (recursionDepth >= 10 && !trigger.lowLevelAccess) break;
+                            const nested = await executeRevenantOutputTriggers({
+                                recipe: { ...recipe, character, database },
+                                chat,
+                                text: options.text,
+                                responses,
+                                manualName: String(payload.target ?? ''),
+                                recursionDepth: recursionDepth + 1,
+                                actionPrefix: `${effectActionPrefix}.manual`,
+                            });
+                            chat = nested.chat;
+                            resend ||= nested.resend === true;
+                            foregroundEffects.push(...(nested.foregroundEffects || []));
+                            errors.push(...(nested.errors || []));
+                            if (nested.mutations?.character) {
+                                mutations.character = { ...(mutations.character || {}), ...nested.mutations.character };
+                                Object.assign(character, structuredClone(nested.mutations.character));
+                            }
+                            if (nested.mutations?.database) {
+                                mutations.database = { ...(mutations.database || {}), ...nested.mutations.database };
+                                Object.assign(database, structuredClone(nested.mutations.database));
+                            }
+                            if (nested.status === 'waiting_client') return outcome('waiting_client', nested.action);
+                            break;
+                        }
+                        default: {
+                            const replayKind = triggerAction.kind;
+                            let replayPayload = payload;
+                            if (replayKind === 'provider.llm') {
+                                const provider = providerFor(payload.mode === 'submodel' ? 'submodel' : 'model');
+                                replayPayload = {
+                                    backend: provider.backend,
+                                    modelPreset: provider.modelPreset,
+                                    prompt: payload.prompt,
+                                    mode: payload.mode,
+                                    options: { streaming: payload.streaming === true },
+                                };
+                            }
+                            const pending = waitFor(
+                                `${effectActionPrefix}.${replayKind}`,
+                                replayKind,
+                                replayPayload,
+                            );
+                            if (!pending.available) return outcome('waiting_client', pending.action);
+                            actionValue = pending.value;
+                        }
+                    }
+                    if (triggerAction.outputVar) {
+                        setVar(
+                            triggerAction.outputVar,
+                            normalizeTriggerActionResult(triggerAction, actionValue),
+                        );
+                    }
+                    continue;
+                }
                 // Revenant effect adapter: only delegated or legacy effects reach
                 // this switch; pure v2 execution stays in triggerV2Core.ts.
                 switch (effect.type) {
@@ -236,9 +326,6 @@ async function executeRevenantOutputTriggers(options) {
                         setVar(key, result);
                         break;
                     }
-                    case 'v2ConsoleLog':
-                        foregroundEffects.push({ kind: 'log', value: read(effect, 'source', 'sourceType') });
-                        break;
                     case 'cutchat': {
                         const start = Number(render(effect.start));
                         const end = Number(render(effect.end));
@@ -254,7 +341,6 @@ async function executeRevenantOutputTriggers(options) {
                         chat.message.push({ role: effect.role === 'user' ? 'user' : 'char', data: render(effect.value) });
                         break;
                     case 'sendAIprompt':
-                    case 'v2SendAIprompt':
                         if (trigger.lowLevelAccess) resend = true;
                         break;
                     case 'extractRegex': {
@@ -326,118 +412,9 @@ async function executeRevenantOutputTriggers(options) {
                         if (!pending.available) return outcome('waiting_client', pending.action);
                         break;
                     }
-                    case 'v2Command': {
-                        const pending = waitFor(
-                            `${effectActionPrefix}.ui.command`,
-                            'ui.command',
-                            { command: read(effect) },
-                        );
-                        if (!pending.available) return outcome('waiting_client', pending.action);
-                        break;
-                    }
-                    case 'v2ImgGen': {
-                        if (!trigger.lowLevelAccess) break;
-                        const pending = waitFor(
-                            `${effectActionPrefix}.image.generate`,
-                            'image.generate',
-                            {
-                                prompt: read(effect),
-                                negativePrompt: read(effect, 'negValue', 'negValueType'),
-                            },
-                        );
-                        if (!pending.available) return outcome('waiting_client', pending.action);
-                        setVar(outputVar(effect), pending.value || 'null');
-                        break;
-                    }
-                    case 'v2RunLLM': {
-                        if (!trigger.lowLevelAccess) break;
-                        const mode = effect.model === 'submodel' ? 'submodel' : 'model';
-                        const provider = providerFor(mode);
-                        const pending = waitFor(
-                            `${effectActionPrefix}.provider.llm`,
-                            'provider.llm',
-                            {
-                                backend: provider.backend,
-                                modelPreset: provider.modelPreset,
-                                prompt: read(effect),
-                                mode,
-                                options: { streaming: effect.streaming === true },
-                            },
-                        );
-                        if (!pending.available) return outcome('waiting_client', pending.action);
-                        setVar(
-                            outputVar(effect),
-                            pending.value?.success === false
-                                ? 'null'
-                                : pending.value?.result ?? pending.value ?? 'null',
-                        );
-                        break;
-                    }
-                    case 'v2ShowAlert':
-                        foregroundEffects.push({ kind: 'alert', level: 'normal', message: read(effect) });
-                        break;
-                    case 'v2GetAlertInput': {
-                        const message = read(effect, 'display', 'displayType');
-                        const pending = waitFor(
-                            `${effectActionPrefix}.ui.input`,
-                            'ui.input', { message },
-                        );
-                        if (!pending.available) return outcome('waiting_client', pending.action);
-                        setVar(outputVar(effect), pending.value);
-                        break;
-                    }
-                    case 'v2GetAlertSelect': {
-                        const message = read(effect, 'display', 'displayType');
-                        const values = read(effect).split('|');
-                        const pending = waitFor(
-                            `${effectActionPrefix}.ui.select`,
-                            'ui.select', { message, options: values },
-                        );
-                        if (!pending.available) return outcome('waiting_client', pending.action);
-                        setVar(outputVar(effect), pending.value);
-                        break;
-                    }
-                    case 'v2UpdateGUI':
-                        foregroundEffects.push({ kind: 'reload.display' });
-                        break;
-                    case 'v2UpdateChatAt':
-                        foregroundEffects.push({ kind: 'reload.chat', index: Number(render(effect.index)) });
-                        break;
-                    case 'v2Wait':
-                        await new Promise(resolve => setTimeout(
-                            resolve,
-                            Math.min(5000, Math.max(0, Number(read(effect)) || 0)),
-                        ));
-                        break;
-                    case 'v2CheckSimilarity': {
-                        if (!trigger.lowLevelAccess) break;
-                        const pending = waitFor(
-                            `${effectActionPrefix}.utility.similarity`,
-                            'utility.similarity',
-                            {
-                                source: read(effect, 'source', 'sourceType'),
-                                values: read(effect).split('§'),
-                            },
-                        );
-                        if (!pending.available) return outcome('waiting_client', pending.action);
-                        setVar(outputVar(effect), pending.value);
-                        break;
-                    }
-                    case 'v2Tokenize': {
-                        const pending = waitFor(
-                            `${effectActionPrefix}.utility.tokenize`,
-                            'utility.tokenize', { text: read(effect) },
-                        );
-                        if (!pending.available) return outcome('waiting_client', pending.action);
-                        setVar(outputVar(effect), pending.value);
-                        break;
-                    }
-                    case 'runtrigger':
-                    case 'v2RunTrigger': {
+                    case 'runtrigger': {
                         if (recursionDepth >= 10 && !trigger.lowLevelAccess) break;
-                        const target = effect.type === 'runtrigger'
-                            ? render(effect.value)
-                            : render(effect.target);
+                        const target = render(effect.value);
                         const nested = await executeRevenantOutputTriggers({
                             recipe: { ...recipe, character, database },
                             chat,
@@ -471,8 +448,6 @@ async function executeRevenantOutputTriggers(options) {
                         break;
                     }
                     case 'systemprompt':
-                    case 'v2SystemPrompt':
-                    case 'v2StopPromptSending':
                         // These only affect prompt construction and have no effect
                         // after a terminal model response has been produced.
                         break;

@@ -31,6 +31,79 @@ export type LuaCoreAdapter = {
 
 export type LuaApiDeclarer = (name: string, handler: (...args: any[]) => unknown) => void
 
+export const LUA_EFFECT_API_POLICIES = {
+    alertError: 'safe',
+    alertNormal: 'safe',
+    alertInput: 'safe',
+    alertSelect: 'safe',
+    alertConfirm: 'safe',
+    getTokens: 'safe',
+    sleep: 'safe',
+    reloadDisplay: 'safe',
+    reloadChat: 'safe',
+    upsertLocalLoreBook: 'safe',
+    similarity: 'lowLevel',
+    request: 'lowLevel',
+    generateImage: 'lowLevel',
+    LLMMain: 'lowLevel',
+    simpleLLM: 'lowLevel',
+    loadLoreBooksMain: 'lowLevel',
+    axLLMMain: 'lowLevel',
+    logMain: 'public',
+    getCharacterImageMain: 'public',
+    getPersonaImageMain: 'public',
+    hash: 'public',
+    getPersonaName: 'public',
+    getPersonaDescription: 'public',
+    getLoreBooksMain: 'public',
+} as const
+
+export type LuaEffectApiName = keyof typeof LUA_EFFECT_API_POLICIES
+
+export type LuaEffectAdapter = {
+    canUseSafeApi: (accessKey: string) => boolean
+    canUseLowLevelApi: (accessKey: string) => boolean
+    invoke: (name: LuaEffectApiName, args: unknown[]) => unknown
+}
+
+function deniedLuaEffectResult(name: LuaEffectApiName): unknown {
+    const message = 'Low-level access is disabled'
+    switch (name) {
+        case 'LLMMain':
+        case 'axLLMMain':
+            return JSON.stringify({ success: false, result: message })
+        case 'simpleLLM':
+            return { success: false, result: message }
+        case 'request':
+            return JSON.stringify({ status: 403, data: message })
+        case 'similarity':
+            return []
+        case 'generateImage':
+            return ''
+        case 'loadLoreBooksMain':
+            return JSON.stringify([])
+        default:
+            return undefined
+    }
+}
+
+/** Registers browser/server effect APIs through one permission boundary. */
+export function registerLuaEffectApis(
+    declare: LuaApiDeclarer,
+    getAdapter: () => LuaEffectAdapter,
+): void {
+    for (const [name, permission] of Object.entries(LUA_EFFECT_API_POLICIES) as [LuaEffectApiName, string][]) {
+        declare(name, (...args: unknown[]) => {
+            const adapter = getAdapter()
+            const accessKey = String(args[0] ?? '')
+            const allowed = permission === 'public'
+                || (permission === 'safe' && adapter.canUseSafeApi(accessKey))
+                || (permission === 'lowLevel' && adapter.canUseLowLevelApi(accessKey))
+            return allowed ? adapter.invoke(name, args) : deniedLuaEffectResult(name)
+        })
+    }
+}
+
 function normalizeRole(role: unknown): 'user' | 'char' {
     return role === 'user' ? 'user' : 'char'
 }

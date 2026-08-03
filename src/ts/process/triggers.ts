@@ -17,6 +17,11 @@ import { writeInlayImage } from "./files/inlays";
 import { runScripted } from "./scriptings";
 import { createTriggerV2Core, type TriggerV2Effect } from "./triggerV2Core";
 import { evaluateTriggerConditions, type TriggerConditionLike } from "./triggerConditionCore";
+import {
+    buildTriggerAction,
+    canExecuteTriggerAction,
+    normalizeTriggerActionResult,
+} from "./triggerActionCore";
 
 
 export interface triggerscript{
@@ -1286,6 +1291,101 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                 }
                 continue
             }
+
+            const triggerAction = buildTriggerAction(effect as unknown as TriggerV2Effect, {
+                read: v2Core.read,
+                render: value => risuChatParser(String(value ?? ''), { chara: char }),
+                outputVar: v2Core.outputVar,
+            })
+            if(triggerAction){
+                if(!canExecuteTriggerAction(triggerAction, trigger.lowLevelAccess === true)){
+                    continue
+                }
+                const payload = triggerAction.payload
+                let actionResult: unknown
+                switch(triggerAction.kind){
+                    case 'log': console.log(payload.value); break
+                    case 'prompt.append':
+                        additonalSysPrompt[payload.location as keyof additonalSysPrompt] += `${payload.value}\n\n`
+                        break
+                    case 'prompt.stop': stopSending = true; break
+                    case 'chat.resend': sendAIprompt = true; break
+                    case 'trigger.run': {
+                        if(arg.recursiveCount < 10 || trigger.lowLevelAccess){
+                            arg.recursiveCount++
+                            const result = await runTrigger(char, 'manual', {
+                                chat,
+                                recursiveCount: arg.recursiveCount,
+                                additonalSysPrompt,
+                                stopSending,
+                                manualName: String(payload.target ?? ''),
+                            })
+                            if(result){
+                                additonalSysPrompt = result.additonalSysPrompt
+                                chat = result.chat
+                                stopSending = result.stopSending
+                            }
+                        }
+                        break
+                    }
+                    case 'ui.command': await processMultiCommand(String(payload.command ?? '')); break
+                    case 'ui.alert': alertNormal(String(payload.message ?? '')); break
+                    case 'ui.input': actionResult = await alertInput(String(payload.message ?? '')); break
+                    case 'ui.select': actionResult = await alertSelect(
+                        Array.isArray(payload.options) ? payload.options.map(String) : [],
+                        String(payload.message ?? ''),
+                    ); break
+                    case 'ui.reload-display': ReloadGUIPointer.set(get(ReloadGUIPointer) + 1); break
+                    case 'ui.reload-chat': ReloadChatPointer.update(value => {
+                        const chatIndex = Number(payload.index) || 0
+                        value[chatIndex] = (value[chatIndex] ?? 0) + 1
+                        return value
+                    }); break
+                    case 'utility.wait': await sleep(Number(payload.durationMs) || 0); break
+                    case 'utility.similarity': {
+                        const processer = new HypaProcesser()
+                        await processer.addText(Array.isArray(payload.values) ? payload.values.map(String) : [])
+                        actionResult = await processer.similaritySearch(String(payload.source ?? ''))
+                        break
+                    }
+                    case 'utility.tokenize': actionResult = await tokenize(String(payload.text ?? '')); break
+                    case 'image.generate': {
+                        const generated = await generateAIImage(
+                            String(payload.prompt ?? ''), char,
+                            String(payload.negativePrompt ?? ''), 'inlay',
+                        )
+                        if(generated){
+                            const image = new Image()
+                            image.src = generated
+                            actionResult = `{{inlay::${await writeInlayImage(image)}}}`
+                        }
+                        break
+                    }
+                    case 'provider.llm': {
+                        const prompt = String(payload.prompt ?? '')
+                        const promptBody = parseChatML(prompt) || [{ role: 'user', content: prompt }]
+                        const result = await requestChatData({
+                            formated: promptBody,
+                            bias: {},
+                            currentChar: char,
+                            useStreaming: payload.streaming === true,
+                            noMultiGen: true,
+                        }, payload.mode as 'model'|'submodel')
+                        if(result.type === 'streaming'){
+                            actionResult = { success: true, result: await collectStreamingText(result.result) }
+                        }
+                        else if(result.type === 'fail' || result.type === 'multiline'){
+                            actionResult = { success: false, result: result.result }
+                        }
+                        else actionResult = { success: true, result: result.result }
+                        break
+                    }
+                }
+                if(triggerAction.outputVar){
+                    setVar(triggerAction.outputVar, normalizeTriggerActionResult(triggerAction, actionResult))
+                }
+                continue
+            }
             
             // Browser effect adapter: the shared core has already consumed every
             // environment-independent v2 effect before this dispatch.
@@ -1343,8 +1443,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     await processMultiCommand(effectValue)
                     break
                 }
-                case 'stop':
-                case 'v2StopPromptSending':{
+                case 'stop':{
                     stopSending = true
                     break
                 }
@@ -1520,136 +1619,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     break
                 }
 
-                //V2 triggers
-                case 'v2RunTrigger':{
-                    if(arg.recursiveCount < 10 || trigger.lowLevelAccess){
-                        arg.recursiveCount++
-                        const r = await runTrigger(char,'manual',{
-                            chat,
-                            recursiveCount: arg.recursiveCount,
-                            additonalSysPrompt,
-                            stopSending,
-                            manualName: effect.target
-                        })
-                        if(r){
-                            additonalSysPrompt = r.additonalSysPrompt
-                            chat = r.chat
-                            stopSending = r.stopSending
-                        }
-                    }
-                    break
-                }
-                case 'v2ConsoleLog':{
-                    const sourceValue = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                    console.log(sourceValue)
-                    break
-                }
-                case 'v2SystemPrompt':{
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    additonalSysPrompt[effect.location] += value + "\n\n"
-                    break
-                }
-                case 'v2Command':{
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    await processMultiCommand(value)
-                    break
-                }
-                case 'v2SendAIprompt':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-                    sendAIprompt = true
-                    break
-                }
-                case 'v2ImgGen':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    let negValue = effect.negValueType === 'value' ? risuChatParser(effect.negValue,{chara:char}) : getVar(risuChatParser(effect.negValue,{chara:char}))
-                    let gen = await generateAIImage(value, char, negValue, 'inlay')
-                    if(!gen){
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
-                        break
-                    }
-                    let imgHTML = new Image()
-                    imgHTML.src = gen
-                    let inlay = await writeInlayImage(imgHTML)
-                    let res = `{{inlay::${inlay}}}`
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), res)
-                    break
-
-                }
-                case 'v2CheckSimilarity':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-                    let source = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    let processer = new HypaProcesser()
-                    await processer.addText(value.split('§'))
-                    let val = await processer.similaritySearch(source)
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), val.join('§'))
-                    break
-                }
-                case 'v2RunLLM':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    let promptbody = parseChatML(value)
-                    if(!promptbody){
-                        promptbody = [{role:'user', content:value}]
-                    }
-                    let result = await requestChatData({
-                        formated: promptbody,
-                        bias: {},
-                        currentChar: char,
-                        useStreaming: effect.streaming ?? false,
-                        noMultiGen: true,
-                    }, effect.model)
-
-                    if(result.type === 'fail' || result.type === 'multiline'){
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
-                    }
-                    else if(result.type === 'streaming'){
-                        const text = await collectStreamingText(result.result)
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), text)
-                    }
-                    else{
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), result.result)
-                    }
-                    break
-                }
-                case 'v2ShowAlert':{
-                    if(arg.displayMode){
-                        return
-                    }
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    alertNormal(value)
-                    break
-                }
-                case 'v2GetAlertInput':{
-                    if(arg.displayMode){
-                        return
-                    }
-                    let value = await alertInput(
-                        effect.displayType === 'value' ? risuChatParser(effect.display,{chara:char}) : getVar(risuChatParser(effect.display,{chara:char}))
-                    )
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), value)
-                    break
-                }
-                case 'v2GetAlertSelect':{
-                    if(arg.displayMode){
-                        return
-                    }
-                    const display = effect.displayType === 'value' ? risuChatParser(effect.display,{chara:char}) : getVar(risuChatParser(effect.display,{chara:char}))
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    const options = value.split('|')
-                    let result = await alertSelect(options, display)
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), result)
-                    break
-                }
+                //V2 display/request state effects remain mode-specific below.
                 case 'v2GetDisplayState':{
                     if(!arg.displayMode){
                         return
@@ -1663,22 +1633,6 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         return
                     }
                     arg.displayData = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    break
-                }
-                case 'v2UpdateGUI':{
-                    ReloadGUIPointer.set(get(ReloadGUIPointer) + 1)
-                    break
-                }
-                case 'v2UpdateChatAt':{
-                    ReloadChatPointer.update((v) => {
-                        v[effect.index] = (v[effect.index] ?? 0) + 1
-                        return v
-                    })
-                    break
-                }
-                case 'v2Wait':{
-                    let value = effect.valueType === 'value' ? Number(risuChatParser(effect.value,{chara:char})) : Number(getVar(risuChatParser(effect.value,{chara:char})))
-                    await sleep(value * 1000)
                     break
                 }
                 case 'v2GetRequestState':{
@@ -1732,11 +1686,6 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     }
                     const json = JSON.parse(arg.displayData) as OpenAIChat[]
                     setVar(risuChatParser(effect.outputVar, {chara:char}), json.length.toString())
-                    break
-                }
-                case 'v2Tokenize':{
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), (await tokenize(value)).toString())
                     break
                 }
             }

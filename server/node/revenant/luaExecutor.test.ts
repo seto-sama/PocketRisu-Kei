@@ -112,6 +112,9 @@ describe('revenant headless Lua executor', () => {
             payload: {
                 backend: 'plugin',
                 modelPreset: { id: 'ax-preset' },
+                prompt: [{ role: 'user', content: 'judge' }],
+                useMultimodal: false,
+                options: {},
             },
         })
     })
