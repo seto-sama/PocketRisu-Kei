@@ -24,7 +24,7 @@ import {
     findRecoverableAuxiliaryGeneration,
     listRecoverableAuxiliaryGenerations,
     resolveRecoverableAuxiliaryGenerations,
-    updateRecoverableAuxiliaryGenerationResult,
+    updateRecoverableAuxiliaryGenerationProjection,
 } from "./revenantGeneration/auxiliary";
 import type { RecoverableAuxiliaryJob } from "./revenantGeneration/types";
 import { loadLoreBookV3Prompt } from './lorebook.svelte';
@@ -549,9 +549,10 @@ export async function runScripted(code:string, arg:{
                 ));
                 const replayKey = `${execution.executionKey}:${callIndex}:${requestHash}`;
                 const existing = await getLuaReplayJob(replayKey);
-                if (existing?.status === 'generated' && existing.rawContent.length > 0) {
+                const projectedContent = existing?.projection?.content ?? '';
+                if (existing?.status === 'generated' && projectedContent.length > 0) {
                     execution.completedJobIds.add(existing.jobId);
-                    return { replay: existing.rawContent };
+                    return { replay: projectedContent };
                 }
                 if (existing) {
                     // Interrupted/failed work cannot provide a reliable return
@@ -586,7 +587,7 @@ export async function runScripted(code:string, arg:{
                     && candidate.operationContext.operationId === operationContext.operationId);
                 if (!job) return false;
                 if (isRevenantJobActive(job.status)) return false;
-                await updateRecoverableAuxiliaryGenerationResult(job.jobId, result);
+                await updateRecoverableAuxiliaryGenerationProjection(job.jobId, result);
                 ScriptingEngineState.revenantLuaExecution?.completedJobIds.add(job.jobId);
                 return true;
             };

@@ -79,7 +79,7 @@ async function streamRevenantJournal(
             headersSent = true;
         }
 
-        const replay = await journalStore.readChunk(job.id, offset);
+        const replay = await journalStore.readChunk(job.workflowId, job.id, offset);
         if (replay.bytes.length > 0) {
             ws.send(JSON.stringify({
                 type: 'chunk',

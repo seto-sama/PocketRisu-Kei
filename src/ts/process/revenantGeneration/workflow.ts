@@ -1,0 +1,276 @@
+import {
+    createRevenantGenerationAuth,
+    getRevenantGenerationSyncClientId,
+} from './client'
+import type {
+    RevenantOperationContext,
+    RevenantRerollSnapshot,
+    RevenantWorkflow,
+    RevenantWorkflowExecution,
+    RevenantWorkflowPlanStep,
+    RevenantWorkflowStatus,
+    RevenantWorkflowStepStatus,
+} from './types'
+
+const activeWorkflows = new Map<string, RevenantWorkflow>()
+
+function roomKey(characterId: string, roomId: string): string {
+    return `${characterId}\u0000${roomId}`
+}
+
+function rememberWorkflow(workflow: RevenantWorkflow): RevenantWorkflow {
+    if (workflow.status === 'active') {
+        activeWorkflows.set(roomKey(workflow.characterId, workflow.roomId), workflow)
+    }
+    return workflow
+}
+
+async function revenantHeaders(json = false): Promise<Record<string, string>> {
+    return {
+        ...(json ? { 'content-type': 'application/json' } : {}),
+        'risu-auth': await createRevenantGenerationAuth(),
+        'x-sync-client-id': getRevenantGenerationSyncClientId(),
+    }
+}
+
+export class RevenantWorkflowBusyError extends Error {
+    readonly workflow?: RevenantWorkflow
+
+    constructor(workflow?: RevenantWorkflow) {
+        super('A generation workflow is already active for this room')
+        this.name = 'RevenantWorkflowBusyError'
+        this.workflow = workflow
+    }
+}
+
+export class RevenantWorkflowOwnedError extends Error {
+    readonly workflow?: RevenantWorkflow
+
+    constructor(workflow?: RevenantWorkflow) {
+        super('The generation workflow owner is still connected')
+        this.name = 'RevenantWorkflowOwnedError'
+        this.workflow = workflow
+    }
+}
+
+export interface RevenantWorkflowResumeContext {
+    version: 1
+    chatProcessIndex: number
+    messageChatId: string
+    continue: boolean
+    rerollSnapshot?: RevenantRerollSnapshot
+}
+
+export function createRevenantWorkflowResumeMetadata(
+    context: RevenantWorkflowResumeContext,
+): Record<string, unknown> {
+    return { ...context }
+}
+
+export function getRevenantWorkflowResumeContext(
+    workflow: RevenantWorkflow,
+): RevenantWorkflowResumeContext | undefined {
+    const metadata = workflow.steps.find(step => step.key === 'prompt.build')?.metadata
+    if (
+        metadata?.version !== 1
+        || !Number.isInteger(metadata.chatProcessIndex)
+        || typeof metadata.messageChatId !== 'string'
+        || !metadata.messageChatId
+        || typeof metadata.continue !== 'boolean'
+    ) return undefined
+    const rerollSnapshot = metadata.rerollSnapshot
+    if (
+        rerollSnapshot !== undefined
+        && (!rerollSnapshot || typeof rerollSnapshot !== 'object' || Array.isArray(rerollSnapshot))
+    ) return undefined
+    return {
+        version: 1,
+        chatProcessIndex: metadata.chatProcessIndex as number,
+        messageChatId: metadata.messageChatId,
+        continue: metadata.continue,
+        rerollSnapshot: rerollSnapshot as RevenantRerollSnapshot | undefined,
+    }
+}
+
+export async function beginRevenantWorkflow(arg: {
+    characterId: string
+    roomId: string
+    plan: RevenantWorkflowPlanStep[]
+}): Promise<RevenantWorkflow> {
+    const response = await fetch('/api/generation/workflows', {
+        method: 'POST',
+        headers: await revenantHeaders(true),
+        body: JSON.stringify(arg),
+    })
+    const body = await response.json().catch(() => ({})) as { workflow?: RevenantWorkflow, error?: string }
+    if (response.status === 409) {
+        if (body.workflow) rememberWorkflow(body.workflow)
+        throw new RevenantWorkflowBusyError(body.workflow)
+    }
+    if (!response.ok || !body.workflow) {
+        throw new Error(body.error || `Failed to create generation workflow: ${response.status}`)
+    }
+    return rememberWorkflow(body.workflow)
+}
+
+export function getLocalRevenantWorkflow(
+    characterId: string | undefined,
+    roomId: string | undefined,
+): RevenantWorkflow | undefined {
+    if (!characterId || !roomId) return undefined
+    return activeWorkflows.get(roomKey(characterId, roomId))
+}
+
+export async function getActiveRevenantWorkflow(
+    characterId: string,
+    roomId: string,
+): Promise<RevenantWorkflow | undefined> {
+    const query = new URLSearchParams({ characterId, roomId })
+    const response = await fetch(`/api/generation/workflows/active?${query}`, {
+        headers: await revenantHeaders(),
+    })
+    if (!response.ok) {
+        throw new Error(`Failed to load active generation workflow: ${response.status}`)
+    }
+    const body = await response.json() as { workflow?: RevenantWorkflow | null }
+    return body.workflow ? rememberWorkflow(body.workflow) : undefined
+}
+
+export async function claimRevenantWorkflow(
+    workflowId: string,
+): Promise<RevenantWorkflow> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}/claim`,
+        {
+            method: 'POST',
+            headers: await revenantHeaders(),
+        },
+    )
+    const body = await response.json().catch(() => ({})) as {
+        workflow?: RevenantWorkflow
+        error?: string
+    }
+    if (response.status === 409) {
+        throw new RevenantWorkflowOwnedError(body.workflow)
+    }
+    if (!response.ok || !body.workflow) {
+        throw new Error(body.error || `Failed to claim generation workflow: ${response.status}`)
+    }
+    return rememberWorkflow(body.workflow)
+}
+
+export async function updateRevenantWorkflowStep(
+    workflowId: string,
+    stepKey: string,
+    status: RevenantWorkflowStepStatus,
+    metadata?: Record<string, unknown>,
+): Promise<void> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(stepKey)}`,
+        {
+            method: 'PUT',
+            headers: await revenantHeaders(true),
+            body: JSON.stringify({ status, metadata }),
+        },
+    )
+    if (!response.ok) {
+        throw new Error(`Failed to update generation workflow step: ${response.status}`)
+    }
+}
+
+export async function finishRevenantWorkflow(
+    workflowId: string,
+    status: Exclude<RevenantWorkflowStatus, 'active'>,
+): Promise<void> {
+    const response = await fetch(`/api/generation/workflows/${encodeURIComponent(workflowId)}/finish`, {
+        method: 'POST',
+        headers: await revenantHeaders(true),
+        body: JSON.stringify({ status }),
+        keepalive: true,
+    })
+    if (!response.ok) {
+        throw new Error(`Failed to finish generation workflow: ${response.status}`)
+    }
+    for (const [key, workflow] of activeWorkflows) {
+        if (workflow.workflowId === workflowId) activeWorkflows.delete(key)
+    }
+}
+
+export async function prepareRevenantHypaExecution<TRecipe>(
+    workflowId: string,
+    recipe: TRecipe,
+): Promise<RevenantWorkflowExecution> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}/hypav3-execution`,
+        {
+            method: 'PUT',
+            headers: await revenantHeaders(true),
+            body: JSON.stringify(recipe),
+        },
+    )
+    const body = await response.json().catch(() => ({})) as {
+        execution?: RevenantWorkflowExecution
+        error?: string
+    }
+    if (!response.ok || !body.execution) {
+        throw new Error(body.error || `Failed to prepare HypaV3 execution: ${response.status}`)
+    }
+    return body.execution
+}
+
+export async function getRevenantHypaExecution<TResult>(
+    workflowId: string,
+): Promise<RevenantWorkflowExecution<TResult> | undefined> {
+    const response = await fetch(
+        `/api/generation/workflows/${encodeURIComponent(workflowId)}/hypav3-execution`,
+        { headers: await revenantHeaders() },
+    )
+    if (response.status === 404) return undefined
+    const body = await response.json().catch(() => ({})) as {
+        execution?: RevenantWorkflowExecution<TResult>
+        error?: string
+    }
+    if (!response.ok || !body.execution) {
+        throw new Error(body.error || `Failed to load HypaV3 execution: ${response.status}`)
+    }
+    return body.execution
+}
+
+export async function waitForRevenantHypaExecution<TResult>(
+    workflowId: string,
+): Promise<TResult> {
+    while (true) {
+        const execution = await getRevenantHypaExecution<TResult>(workflowId)
+        if (!execution) throw new Error('HypaV3 execution disappeared')
+        if (execution.status === 'completed' && execution.result !== undefined) {
+            return execution.result
+        }
+        if (execution.status === 'failed') {
+            throw new Error(execution.error || 'Server HypaV3 execution failed')
+        }
+        await new Promise(resolve => setTimeout(resolve, 500))
+    }
+}
+
+function safeStepPart(value: string): string {
+    const normalized = value.toLowerCase().replace(/[^a-z0-9._:-]+/g, '-').replace(/^-+/, '')
+    return normalized.slice(0, 80) || 'unknown'
+}
+
+export function getRevenantWorkflowStepKey(
+    jobType: string,
+    operation: RevenantOperationContext | undefined,
+    chatId: string,
+): string {
+    if (jobType === 'model') return 'model.main'
+    if (operation?.kind === 'lua-llm') {
+        return `lua.llm:${safeStepPart(operation.executionKey)}:${operation.callIndex}`.slice(0, 128)
+    }
+    if (operation?.kind === 'hypav3-summary') {
+        return `memory.hypav3:${safeStepPart(operation.operationId)}`.slice(0, 128)
+    }
+    if (operation?.kind === 'translation') {
+        return `translation:${safeStepPart(operation.operationId)}`.slice(0, 128)
+    }
+    return `${safeStepPart(jobType)}:${safeStepPart(chatId)}`.slice(0, 128)
+}

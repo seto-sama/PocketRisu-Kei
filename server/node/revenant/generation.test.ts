@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import streamPkg from './generationStream.cjs'
+import generationPkg from './generation.cjs'
 
 const { notifyRevenantJournalWaiters, streamRevenantJournal, sendRevenantJournalEvent } = streamPkg as {
     notifyRevenantJournalWaiters: (job: any) => void
@@ -7,10 +8,71 @@ const { notifyRevenantJournalWaiters, streamRevenantJournal, sendRevenantJournal
         ws: FakeSocket,
         job: any,
         offset: number,
-        store: { readChunk: (jobId: string, offset: number) => Promise<{ offset: number, bytes: Buffer }> },
+        store: {
+            readChunk: (
+                workflowId: string | null,
+                jobId: string,
+                offset: number,
+            ) => Promise<{ offset: number, bytes: Buffer }>
+        },
     ) => Promise<void>
     sendRevenantJournalEvent: (ws: FakeSocket, job: any, event: object) => void
 }
+const {
+    normalizeRevenantDispatchPolicy,
+    normalizeRevenantHypaExecutionRecipe,
+    normalizeRevenantOperationContext,
+    normalizeRevenantWorkflowPlan,
+    normalizeRevenantWorkflowStepUpdate,
+} = generationPkg as {
+    normalizeRevenantDispatchPolicy: (
+        value: unknown,
+        operation: unknown,
+        workflowId?: string,
+    ) => unknown
+    normalizeRevenantHypaExecutionRecipe: (value: unknown) => unknown
+    normalizeRevenantOperationContext: (jobType: string, value: unknown) => any
+    normalizeRevenantWorkflowPlan: (value: unknown) => unknown
+    normalizeRevenantWorkflowStepUpdate: (value: unknown) => unknown
+}
+
+describe('revenant durable dispatch validation', () => {
+    const operation = {
+        kind: 'hypav3-summary',
+        operationId: 'operation-1',
+        batchId: 'batch-1',
+        characterId: 'character-1',
+        roomId: 'room-1',
+        chatMemos: ['message-1'],
+    }
+
+    it('derives a server-owned dispatch group from a validated Hypa batch', () => {
+        const normalizedOperation = normalizeRevenantOperationContext('memory', operation)
+        expect(normalizeRevenantDispatchPolicy({
+            maxConcurrent: 3,
+            requestsPerMinute: 20,
+        }, normalizedOperation, 'workflow-1')).toEqual({
+            dispatchGroup: 'workflow-1:hypa:batch-1',
+            maxConcurrent: 3,
+            requestsPerMinute: 20,
+        })
+    })
+
+    it('rejects unsafe batches and impossible limits', () => {
+        expect(normalizeRevenantOperationContext('memory', {
+            ...operation,
+            batchId: '../unsafe',
+        })).toBeUndefined()
+        expect(normalizeRevenantDispatchPolicy({
+            maxConcurrent: 4,
+            requestsPerMinute: 3,
+        }, operation, 'workflow-1')).toBeUndefined()
+        expect(normalizeRevenantDispatchPolicy({
+            maxConcurrent: 3,
+            requestsPerMinute: 20,
+        }, { kind: 'translation' }, 'workflow-1')).toBeUndefined()
+    })
+})
 
 class FakeSocket {
     journalRecoverySubscriber = false
@@ -23,6 +85,7 @@ class FakeSocket {
 describe('revenant journal stream', () => {
     const job = {
         id: 'job-1',
+        workflowId: 'workflow-1',
         responseStatus: 200,
         responseHeaders: { 'content-type': 'text/event-stream' },
         rawBytes: 6,
@@ -34,7 +97,7 @@ describe('revenant journal stream', () => {
         const socket = new FakeSocket()
         const journal = Buffer.from('abcdef')
         await streamRevenantJournal(socket, job, 3, {
-            async readChunk(_jobId, offset) {
+            async readChunk(_workflowId, _jobId, offset) {
                 return { offset, bytes: journal.subarray(offset) }
             },
         })
@@ -63,7 +126,7 @@ describe('revenant journal stream', () => {
         }
         let journal = Buffer.alloc(0)
         const streaming = streamRevenantJournal(socket, liveJob, 0, {
-            async readChunk(_jobId, offset) {
+            async readChunk(_workflowId, _jobId, offset) {
                 return { offset, bytes: journal.subarray(offset) }
             },
         })
@@ -80,5 +143,104 @@ describe('revenant journal stream', () => {
         const chunk = socket.messages.find(message => message.type === 'chunk')
         expect(Buffer.from(chunk.dataBase64, 'base64').toString()).toBe('later')
         expect(socket.messages.at(-1)?.type).toBe('done')
+    })
+})
+
+describe('revenant workflow validation', () => {
+    it('normalizes an ordered checkpoint plan', () => {
+        expect(normalizeRevenantWorkflowPlan([
+            {
+                key: 'user.persist',
+                kind: 'user.persist',
+                recoveryPolicy: 'resume',
+                status: 'completed',
+            },
+            {
+                key: 'lua.llm:run-1:0',
+                kind: 'lua.llm',
+                recoveryPolicy: 'replay_output',
+                metadata: { callIndex: 0 },
+            },
+        ])).toEqual([
+            {
+                key: 'user.persist',
+                kind: 'user.persist',
+                recoveryPolicy: 'resume',
+                status: 'completed',
+                order: 0,
+            },
+            {
+                key: 'lua.llm:run-1:0',
+                kind: 'lua.llm',
+                recoveryPolicy: 'replay_output',
+                status: 'pending',
+                metadata: { callIndex: 0 },
+                order: 1,
+            },
+        ])
+    })
+
+    it('rejects duplicate or unsafe step keys and non-initial states', () => {
+        expect(normalizeRevenantWorkflowPlan([
+            { key: 'same', kind: 'one', recoveryPolicy: 'resume' },
+            { key: 'same', kind: 'two', recoveryPolicy: 'resume' },
+        ])).toBeUndefined()
+        expect(normalizeRevenantWorkflowPlan([
+            { key: '../unsafe key', kind: 'one', recoveryPolicy: 'resume' },
+        ])).toBeUndefined()
+        expect(normalizeRevenantWorkflowPlan([
+            { key: 'model.main', kind: 'model.main', recoveryPolicy: 'resume', status: 'running' },
+        ])).toBeUndefined()
+    })
+
+    it('accepts only known runtime step states', () => {
+        expect(normalizeRevenantWorkflowStepUpdate({ status: 'output_ready' }))
+            .toEqual({ status: 'output_ready', jobId: null, metadata: null })
+        expect(normalizeRevenantWorkflowStepUpdate({
+            status: 'waiting_client',
+            metadata: {
+                checkpoint: 'embedding.local',
+                embeddingModel: 'MiniLM',
+            },
+        })).toEqual({
+            status: 'waiting_client',
+            jobId: null,
+            metadata: {
+                checkpoint: 'embedding.local',
+                embeddingModel: 'MiniLM',
+            },
+        })
+        expect(normalizeRevenantWorkflowStepUpdate({ status: 'cancelled' }))
+            .toBeUndefined()
+    })
+
+    it('accepts remote Hypa recipes and rejects browser-local embedding models', () => {
+        const recipe = {
+            schemaVersion: 1,
+            batchId: 'batch-1',
+            expectedOperationIds: ['operation-1'],
+            embedding: { model: 'openai3small', apiKey: 'secret' },
+            tokenizer: { tokenizer: 'tik', chatAdditionalTokens: 3, useName: 'name' },
+            settings: {
+                recentMemoryRatio: 0.4,
+                similarMemoryRatio: 0.4,
+                queryChatCount: 3,
+                summaryChunkSeparator: '\\n\\n',
+            },
+            memory: { summaries: [] },
+            chats: [{ role: 'user', content: 'hello' }],
+            startIdx: 0,
+            currentTokens: 100,
+            maxContextTokens: 1000,
+            availableMemoryTokens: 200,
+            memoryTokens: 250,
+            shouldReserveMemoryTokens: true,
+            randomSeed: 'seed',
+        }
+        expect(normalizeRevenantHypaExecutionRecipe(recipe)).toEqual(recipe)
+        expect(normalizeRevenantHypaExecutionRecipe({
+            ...recipe,
+            embedding: { model: 'MiniLM', apiKey: '' },
+        })).toBeUndefined()
     })
 })

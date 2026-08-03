@@ -83,6 +83,7 @@ interface requestDataArgument{
     blockPlugins?: boolean
     /** Persisted data needed to apply an auxiliary result after a reload. */
     revenantOperationContext?:RevenantOperationContext
+    revenantDispatchPolicy?:import('../revenantGeneration/types').RevenantDispatchPolicy
     onRevenantJobCreated?:(jobId:string) => void
 }
 

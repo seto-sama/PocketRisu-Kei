@@ -5,13 +5,14 @@ import path from 'path'
 import pkg from './generationJournal.cjs'
 
 const { createGenerationJournalStore } = pkg as {
-    createGenerationJournalStore: (options: { journalDir: string }) => {
-        create: (jobId: string) => string
-        openWriter: (jobId: string) => fs.WriteStream
-        readAll: (jobId: string) => Buffer
-        readChunk: (jobId: string, offset: number) => Promise<{ offset: number, bytes: Buffer }>
-        size: (jobId: string) => number
-        removeOrphans: (validJobIds: Set<string>, olderThan: number) => number
+    createGenerationJournalStore: (options: { revenantDir: string }) => {
+        journalKey: (workflowId: string | null, jobId: string) => string
+        create: (workflowId: string | null, jobId: string) => string
+        openWriter: (workflowId: string | null, jobId: string) => fs.WriteStream
+        readAll: (workflowId: string | null, jobId: string) => Buffer
+        readChunk: (workflowId: string | null, jobId: string, offset: number) => Promise<{ offset: number, bytes: Buffer }>
+        size: (workflowId: string | null, jobId: string) => number
+        removeOrphans: (validJournals: Set<string>, olderThan: number) => number
     }
 }
 
@@ -24,14 +25,14 @@ afterEach(() => {
 function makeStore() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'revenant-journal-'))
     tempDirs.push(dir)
-    return createGenerationJournalStore({ journalDir: path.join(dir, 'journals') })
+    return createGenerationJournalStore({ revenantDir: path.join(dir, 'revenant') })
 }
 
 describe('generation journal store', () => {
     it('appends provider bytes and replays from a byte offset', async () => {
         const store = makeStore()
-        store.create('job-1')
-        const writer = store.openWriter('job-1')
+        const journalPath = store.create('workflow-1', 'job-1')
+        const writer = store.openWriter('workflow-1', 'job-1')
         writer.write(Buffer.from('provider-'))
         writer.end(Buffer.from('bytes'))
         await new Promise<void>((resolve, reject) => {
@@ -39,22 +40,27 @@ describe('generation journal store', () => {
             writer.once('error', reject)
         })
 
-        expect(store.size('job-1')).toBe(14)
-        expect(store.readAll('job-1').toString()).toBe('provider-bytes')
-        const replay = await store.readChunk('job-1', 9)
+        expect(journalPath).toContain(path.join('workflow-1', 'job-1.journal'))
+        expect(store.size('workflow-1', 'job-1')).toBe(14)
+        expect(store.readAll('workflow-1', 'job-1').toString()).toBe('provider-bytes')
+        const replay = await store.readChunk('workflow-1', 'job-1', 9)
         expect(replay.offset).toBe(9)
         expect(replay.bytes.toString()).toBe('bytes')
     })
 
     it('removes only old orphan journals', () => {
         const store = makeStore()
-        const keptPath = store.create('kept')
-        const orphanPath = store.create('orphan')
+        const keptPath = store.create('workflow-kept', 'kept')
+        const orphanPath = store.create('workflow-orphan', 'orphan')
         fs.utimesSync(keptPath, new Date(0), new Date(0))
         fs.utimesSync(orphanPath, new Date(0), new Date(0))
 
-        expect(store.removeOrphans(new Set(['kept']), Date.now())).toBe(1)
-        expect(store.size('kept')).toBe(0)
+        expect(store.removeOrphans(
+            new Set([store.journalKey('workflow-kept', 'kept')]),
+            Date.now(),
+        )).toBe(1)
+        expect(store.size('workflow-kept', 'kept')).toBe(0)
         expect(fs.existsSync(orphanPath)).toBe(false)
+        expect(fs.existsSync(path.dirname(orphanPath))).toBe(false)
     })
 })

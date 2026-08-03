@@ -17,7 +17,6 @@ function job(overrides: Partial<RecoverableGenerationJob>): RecoverableGeneratio
         jobId: 'job-1',
         chatId: 'message-1',
         status: 'generated',
-        rawContent: '',
         createdAt: 1,
         updatedAt: 2,
         ...overrides,

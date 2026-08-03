@@ -48,14 +48,15 @@ export function subscribeRecoverableGeneration(
 export async function readRecoverableGenerationContent(
     job: RecoverableJournalJob,
 ): Promise<string> {
+    if (job.projection?.content) return job.projection.content
     const stream = await openRecoverableJournalStream(job)
     try {
         return await decodeRevenantGenerationJournal(job, stream)
     }
     catch (error) {
         // Interrupted journals can end inside an SSE/JSON frame. The last
-        // client-parsed checkpoint is still a valid partial recovery.
-        if (job.rawContent) return job.rawContent
+        // normalized client projection is still a valid partial recovery.
+        if (job.projection?.content) return job.projection.content
         throw error
     }
 }

@@ -332,6 +332,13 @@ export class ChatTokenizer {
         this.useName = useName
         this.tokenizerOverride = tokenizerOverride
     }
+    getRevenantSpec(){
+        return {
+            chatAdditionalTokens: this.chatAdditionalTokens,
+            useName: this.useName,
+            tokenizer: this.tokenizerOverride,
+        }
+    }
     private encodeText(data: string) {
         return this.tokenizerOverride
             ? encodeWithTokenizer(data, this.tokenizerOverride)

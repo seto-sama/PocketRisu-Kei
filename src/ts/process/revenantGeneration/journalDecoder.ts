@@ -32,6 +32,10 @@ import type {
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 
+function projectedContent(job: RecoverableJournalJob): string {
+    return job.projection?.content ?? ''
+}
+
 function formatReasoning(reasoning?: AdapterReasoningPart[]): string {
     if (!reasoning?.length) return ''
     let body = ''
@@ -91,11 +95,11 @@ export async function decodeRevenantGenerationJournal(
 
     if (!isStreamingJournal(job)) {
         const text = await new Response(stream).text()
-        if (!text.trim()) return job.rawContent
+        if (!text.trim()) return projectedContent(job)
         const parsed = parseJsonResponse(job.adapterKind, JSON.parse(text))
         const content = formatReasoning(parsed.reasoning) + parsed.text
         if (content) onContent?.(content)
-        return content || job.rawContent
+        return content || projectedContent(job)
     }
 
     let output = ''
@@ -140,5 +144,5 @@ export async function decodeRevenantGenerationJournal(
         }
     }
 
-    return publish() || job.rawContent
+    return publish() || projectedContent(job)
 }

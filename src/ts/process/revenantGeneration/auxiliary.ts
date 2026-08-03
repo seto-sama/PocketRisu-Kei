@@ -205,11 +205,17 @@ export async function resolveRecoverableAuxiliaryGeneration(
     const resolved = isRevenantJobActive(job.status)
         ? await waitForRecoverableAuxiliaryGeneration(job.jobId)
         : job
-    if (!resolved.rawContent && (resolved.rawBytes ?? 0) > 0) {
-        resolved.rawContent = await readRecoverableGenerationContent(resolved)
-        await updateRecoverableAuxiliaryGenerationResult(
+    if (!resolved.projection?.content && (resolved.rawBytes ?? 0) > 0) {
+        const content = await readRecoverableGenerationContent(resolved)
+        resolved.projection = {
+            schemaVersion: 1,
+            source: 'client',
+            adapterKind: resolved.adapterKind ?? 'openai-compatible',
+            content,
+        }
+        await updateRecoverableAuxiliaryGenerationProjection(
             resolved.jobId,
-            resolved.rawContent,
+            content,
         )
     }
     updateAuxiliaryGenerationJob(resolved)
@@ -225,14 +231,17 @@ export async function resolveRecoverableAuxiliaryGenerations<T extends RevenantO
         isContext: (value: unknown) => value is T
         force?: boolean
         matchesContext?: (context: T) => boolean
+        matchesJob?: (job: TypedRecoverableAuxiliaryJob<T>) => boolean
     },
 ): Promise<TypedRecoverableAuxiliaryJob<T>[]> {
     const jobs = await listRecoverableAuxiliaryGenerations(options.force)
     const matching = jobs.filter((job): job is TypedRecoverableAuxiliaryJob<T> => {
         if (job.jobType !== options.jobType) return false
         const context = job.operationContext
-        return options.isContext(context)
-            && (options.matchesContext?.(context) ?? true)
+        if (!options.isContext(context)) return false
+        const typedJob = job as TypedRecoverableAuxiliaryJob<T>
+        return (options.matchesContext?.(context) ?? true)
+            && (options.matchesJob?.(typedJob) ?? true)
     })
     return await Promise.all(matching.map(async job =>
         await resolveRecoverableAuxiliaryGeneration(job) as TypedRecoverableAuxiliaryJob<T>))
@@ -304,19 +313,19 @@ export async function consumeRecoverableAuxiliaryGeneration(jobId: string): Prom
     }
 }
 
-export async function updateRecoverableAuxiliaryGenerationResult(
+export async function updateRecoverableAuxiliaryGenerationProjection(
     jobId: string,
-    result: string,
+    content: string,
 ): Promise<void> {
     const auth = await createRevenantGenerationAuth()
-    const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/raw-content`, {
+    const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/projection`, {
         method: 'PUT',
         headers: {
             'content-type': 'application/json',
             'risu-auth': auth,
             'x-sync-client-id': getRevenantGenerationSyncClientId(),
         },
-        body: JSON.stringify({ rawContent: result }),
+        body: JSON.stringify({ content }),
     })
     if (!response.ok) {
         throw new Error(`Failed to store auxiliary generation result: ${response.status}`)
