@@ -6,9 +6,9 @@ import { alertError, notifySuccess } from "../alert";
 import { language } from "src/lang";
 import { selectSingleFile } from "../util";
 import { assetRegex, type CbsConditions, risuChatParser as risuChatParserOrg, type simpleCharacterArgument } from "../parser/parser.svelte";
-import { getModuleAssets, getModuleRegexScripts } from "./modules";
+import { getModuleAssets, getModuleRegexScripts, getModuleTriggers } from "./modules";
 import { HypaProcesser } from "./memory/hypamemory";
-import { runLuaEditTrigger } from "./scriptings";
+import { hasLuaEditListener, runLuaEditTrigger } from "./scriptings";
 import { pluginV2 } from "../plugins/plugins.svelte";
 import { runTrigger } from "./triggers";
 
@@ -95,7 +95,9 @@ export function resetScriptCache(){
 export async function processScriptFull(char:character|simpleCharacterArgument, data:string, mode:ScriptMode, chatID = -1, cbsConditions:CbsConditions = {}){
     let db = getDatabase()
     let emoChanged = false
-    data = await runLuaEditTrigger(char, mode, data, { index:chatID })
+    if (mode !== 'editprocess' && hasLuaEditListener(char, mode)) {
+        data = await runLuaEditTrigger(char, mode, data, { index:chatID })
+    }
 
     if(mode === 'editdisplay'){
         const currentChar = getCurrentCharacter()
@@ -336,9 +338,6 @@ export async function processScriptFull(char:character|simpleCharacterArgument, 
             console.error(error)
         }
     }
-
-    
-
     if(db.dynamicAssets && (char.type === 'simple' || char.type === 'character') && char.additionalAssets && char.additionalAssets.length > 0){
         if((!db.dynamicAssetsEditDisplay && mode === 'editdisplay')
             || mode === 'editinput' || mode === 'editprocess'){

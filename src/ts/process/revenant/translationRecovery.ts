@@ -7,6 +7,7 @@ import {
     createRevenantOperation,
     isRevenantTranslationOperation,
     type RecoverableAuxiliaryJob,
+    type RevenantChatMessageTranslationTarget,
     type RevenantTranslationOperation,
 } from './types'
 
@@ -41,6 +42,7 @@ const recoveringTranslationJobs =
 export function prepareRevenantTranslationRequest(
     text: string,
     replaceExisting: boolean,
+    target: RevenantChatMessageTranslationTarget | null = null,
 ): RevenantTranslationRequest {
     const cacheKey = text
     const styleDecodes: string[] = []
@@ -60,6 +62,7 @@ export function prepareRevenantTranslationRequest(
             cacheKey,
             styleDecodes,
             replaceExisting,
+            target,
         }),
     }
 }

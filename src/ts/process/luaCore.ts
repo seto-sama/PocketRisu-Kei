@@ -251,6 +251,23 @@ type LuaGlobal = {
     get: (name: string) => ((...args: any[]) => unknown) | undefined
 }
 
+export function luaMayListenForEditMode(code: string, mode: string): boolean {
+    if (!/\blistenEdit\b/.test(code)) return false
+
+    const listenerPattern = /\blistenEdit\s*\(\s*([^,\r\n)]+)/g
+    let foundDirectCall = false
+    for (const match of code.matchAll(listenerPattern)) {
+        foundDirectCall = true
+        const argument = match[1].trim()
+        const literal = argument.match(/^(['"])(.*?)\1$/)
+        // Dynamic arguments can resolve to any edit mode at runtime.
+        if (!literal || literal[2] === mode) return true
+    }
+
+    // A reference without a direct call can be aliased and invoked later.
+    return !foundDirectCall
+}
+
 export async function invokeLuaMode(
     global: LuaGlobal,
     mode: string,
@@ -259,6 +276,13 @@ export async function invokeLuaMode(
     meta: unknown,
 ): Promise<{ result: unknown, data: unknown }> {
     if (['editRequest', 'editDisplay', 'editInput', 'editOutput'].includes(mode)) {
+        // The wrapper has already executed the script and registered all edit
+        // listeners. Avoid serializing a potentially huge chat message across
+        // the JS/Lua boundary when this script does not listen to this mode.
+        const hasListener = global.get('hasEditListener')
+        if (hasListener && !await hasListener(mode)) {
+            return { result: undefined, data }
+        }
         const listener = global.get('callListenMain')
         if (!listener) return { result: undefined, data }
         const result = await listener(mode, accessKey, JSON.stringify(data), JSON.stringify(meta))

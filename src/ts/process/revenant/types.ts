@@ -185,6 +185,14 @@ export interface RevenantTranslationOperation {
     cacheKey: string
     styleDecodes: string[]
     replaceExisting: boolean
+    target: RevenantChatMessageTranslationTarget | null
+}
+
+export interface RevenantChatMessageTranslationTarget {
+    kind: 'chat-message'
+    messageChatId: string | null
+    messageIndex: number
+    swipeId: number
 }
 
 export interface RevenantHypaV3SummaryOperation {
@@ -378,6 +386,16 @@ export function isRevenantTranslationOperation(
         && typeof context.cacheKey === 'string'
         && Array.isArray(context.styleDecodes)
         && context.styleDecodes.every(item => typeof item === 'string')
+        && (
+            context.target === null
+            || (
+                context.target
+                && context.target.kind === 'chat-message'
+                && (context.target.messageChatId === null || typeof context.target.messageChatId === 'string')
+                && Number.isInteger(context.target.messageIndex)
+                && Number.isInteger(context.target.swipeId)
+            )
+        )
         && typeof context.replaceExisting === 'boolean'
 }
 

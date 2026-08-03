@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { invokeLuaMode, registerLuaCoreApis, type LuaCoreAdapter } from './luaCore'
+import { invokeLuaMode, luaMayListenForEditMode, registerLuaCoreApis, type LuaCoreAdapter } from './luaCore'
 
 function apiHarness() {
     const functions: Record<string, (...args: any[]) => any> = {}
@@ -23,6 +23,14 @@ function apiHarness() {
 }
 
 describe('Lua core', () => {
+    it('only skips edit modes that cannot be registered by the script', () => {
+        expect(luaMayListenForEditMode('function button() end', 'editDisplay')).toBe(false)
+        expect(luaMayListenForEditMode("listenEdit('editInput', handler)", 'editDisplay')).toBe(false)
+        expect(luaMayListenForEditMode("listenEdit('editDisplay', handler)", 'editDisplay')).toBe(true)
+        expect(luaMayListenForEditMode('listenEdit(mode, handler)', 'editDisplay')).toBe(true)
+        expect(luaMayListenForEditMode('local register = listenEdit', 'editDisplay')).toBe(true)
+    })
+
     it('binds deterministic APIs to the current invocation adapter', () => {
         const harness = apiHarness()
         harness.functions.setChatVar('denied', 'mood', 'bad')
@@ -76,5 +84,21 @@ describe('Lua core', () => {
         expect(output.result).toBe(false)
         expect(calls).toEqual([['key']])
         expect(edited.data).toBe('answer-edited')
+    })
+
+    it('does not serialize edit data when the loaded script has no listener for that mode', async () => {
+        let editCalls = 0
+        const global = {
+            get: (name: string) => name === 'hasEditListener'
+                ? (mode: string) => mode === 'editInput'
+                : name === 'callListenMain'
+                    ? () => { editCalls++; return JSON.stringify('unexpected') }
+                    : undefined,
+        }
+
+        const data = { nested: ['large', 'message'] }
+        const skipped = await invokeLuaMode(global, 'editDisplay', 'key', data, {})
+        expect(skipped).toEqual({ result: undefined, data })
+        expect(editCalls).toBe(0)
     })
 })

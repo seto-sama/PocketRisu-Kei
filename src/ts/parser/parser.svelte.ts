@@ -175,10 +175,12 @@ function renderMarkedText(open:string, content:string, close:string, mark:string
 }
 
 function removeBlockquoteBreakPlaceholders(text:string){
+    if(!text.includes(blockquoteBreakPlaceholder)) return text
     return text.replace(/\uE9B4(?:[ \t]*<br\s*\/?>\s*\n?)?/gu, '')
 }
 
 function applyCornerBracketStyling(text:string){
+    if(!/[「『«《]/u.test(text)) return text
     for(const style of cornerBracketStyles){
         text = text.replace(style.regex, (_full, content) => {
             return renderMarkedText(style.open, content, style.close, style.mark)
@@ -191,6 +193,7 @@ const standaloneOrderedListMarker = /^([ \t]{0,3}\d{1,9})\.([ \t]*)$/
 const fencedCodeOpening = /^[ \t]{0,3}(`{3,}|~{3,})/
 
 function escapeStandaloneOrderedListMarkers(markdown:string){
+    if(!/^[ \t]{0,3}\d{1,9}\.[ \t]*\r?$/m.test(markdown)) return markdown
     let fenceCharacter = ''
     let fenceLength = 0
 
@@ -606,6 +609,14 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
         let match = assetPaths?.[name]
 
         if(!match){
+            // Legacy media lookup intentionally accepts exact names only.
+            // Falling through to fuzzy matching scans every character asset
+            // for every missing media token; large cards can spend seconds
+            // here while merely opening a chat or rendering its preview.
+            if(DBState.db.legacyMediaFindings){
+                return ''
+            }
+
             if(assetPaths){
                 match = getClosestMatch(char, name, assetPaths)
             }
@@ -1014,9 +1025,7 @@ export async function ParseMarkdown(
     }
 
     data = parseInlayAssets(data ?? '')
-
     data = parseThoughtsAndTools(data, options.inlineThoughts === true)
-
     data = encodeStyle(data)
     if(mode === 'normal' || mode === 'notrim'){
         data = await renderHighlightableMarkdown(data)
@@ -1037,7 +1046,9 @@ export function trimMarkdown(data:string){
     // Include hideAllImages in cache key — DOMPurify hook rewrites <img> based on this flag
     const cacheKey = (DBState.db?.hideAllImages ? '1|' : '0|') + data
     let cached = trimCache.get(cacheKey)
-    if (cached !== undefined) return cached
+    if (cached !== undefined) {
+        return cached
+    }
     cached = decodeStyle(DOMPurify.sanitize(data, {
         ADD_TAGS: ["iframe", "style", "risu-style", "x-em", 'annotation', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt'],
         ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-ctrl" ,"risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-lang', 'x-hl-text', 'data-inlay-id', 'data-inlay-type'],

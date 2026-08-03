@@ -1488,6 +1488,7 @@ export interface Database{
     }
     settingsCloseButtonSize:number
     promptDiffPrefs:PromptDiffPrefs
+    legacyMediaFindings?: boolean
     hideAllImages?: boolean
     hideMessagePageCount?: boolean
     autoScrollToNewMessage?: boolean

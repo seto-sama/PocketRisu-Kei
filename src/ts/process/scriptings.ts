@@ -44,6 +44,7 @@ import {
     type LuaCoreAdapter,
     type LuaEffectAdapter,
     type LuaEffectApiName,
+    luaMayListenForEditMode,
 } from './luaCore';
 import {
     extractLuaLlmInlays,
@@ -998,6 +999,8 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
     
         for(let trigger of triggers){
             if(trigger?.effect?.[0]?.type === 'triggerlua'){
+                const code = trigger.effect[0].code
+                if (!luaMayListenForEditMode(code, mode)) continue
                 const runResult = await runScripted(trigger.effect[0].code, {
                     char: char,
                     lowLevelAccess: false,
@@ -1016,22 +1019,25 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
     }
 }
 
-export function hasLuaEditRequestListener(char: character|simpleCharacterArgument): boolean {
+export function hasLuaEditListener(
+    char: character|simpleCharacterArgument,
+    mode: 'editinput'|'editoutput'|'editdisplay'|'editRequest',
+): boolean {
+    const runtimeMode = mode === 'editinput' ? 'editInput'
+        : mode === 'editoutput' ? 'editOutput'
+            : mode === 'editdisplay' ? 'editDisplay'
+                : mode
     return char.triggerscript
         .concat(getModuleTriggers())
         .some(trigger => {
             const effect = trigger?.effect?.[0]
             if (effect?.type !== 'triggerlua') return false
-            const listenerPattern = /\blistenEdit\s*\(\s*([^,\r\n)]+)/g
-            for (const match of effect.code.matchAll(listenerPattern)) {
-                const argument = match[1].trim()
-                const literal = argument.match(/^(['"])(.*?)\1$/)
-                // A dynamic first argument cannot be proven unrelated to
-                // editRequest, so retain the browser execution boundary.
-                if (!literal || literal[2] === 'editRequest') return true
-            }
-            return false
+            return luaMayListenForEditMode(effect.code, runtimeMode)
         })
+}
+
+export function hasLuaEditRequestListener(char: character|simpleCharacterArgument): boolean {
+    return hasLuaEditListener(char, 'editRequest')
 }
 
 export async function runLuaButtonTrigger(char:character|simpleCharacterArgument, data:string):Promise<any>{
