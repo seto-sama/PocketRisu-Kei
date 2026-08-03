@@ -20,6 +20,14 @@ export type TriggerV2CoreAdapter = {
     character?: {
         firstMessage?: string
         alternateGreetings?: string[]
+        desc?: string
+        replaceGlobalNote?: string
+        globalLore?: any[]
+    }
+    database?: {
+        personaPrompt?: string
+        selectedPersona?: number
+        personas?: Array<{ personaPrompt?: string }>
     }
     globalVar?: (key: string) => string
     randomInteger?: (minimum: number, maximum: number, effectIndex: number, visit: number) => number
@@ -32,6 +40,12 @@ export type TriggerV2CoreStep = {
     stop?: boolean
     looped?: boolean
     visit: number
+    mutations?: TriggerV2MutationPatch
+}
+
+export type TriggerV2MutationPatch = {
+    character?: Record<string, unknown>
+    database?: Record<string, unknown>
 }
 
 function asArray(value: unknown): unknown[] {
@@ -134,6 +148,15 @@ export function createTriggerV2Core(adapter: TriggerV2CoreAdapter) {
             : 0
         let nextIndex = index
         let looped = false
+        const mutations: TriggerV2MutationPatch = {}
+        const markCharacter = (field: string, value: unknown) => {
+            mutations.character ||= {}
+            mutations.character[field] = structuredClone(value)
+        }
+        const markDatabase = (field: string, value: unknown) => {
+            mutations.database ||= {}
+            mutations.database[field] = structuredClone(value)
+        }
 
         switch (effect.type) {
             case 'v2Header':
@@ -533,11 +556,161 @@ export function createTriggerV2Core(adapter: TriggerV2CoreAdapter) {
                 }
                 break
             }
+            case 'v2GetCharacterDesc':
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                setOutput(effect, adapter.character.desc ?? '')
+                break
+            case 'v2SetCharacterDesc':
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                adapter.character.desc = read(effect)
+                markCharacter('desc', adapter.character.desc)
+                break
+            case 'v2GetPersonaDesc':
+                if (!adapter.database) return { handled: false, nextIndex: index, visit }
+                setOutput(effect, adapter.database.personaPrompt
+                    || adapter.database.personas?.[adapter.database.selectedPersona ?? -1]?.personaPrompt
+                    || '')
+                break
+            case 'v2SetPersonaDesc': {
+                if (!adapter.database) return { handled: false, nextIndex: index, visit }
+                const value = read(effect)
+                adapter.database.personaPrompt = value
+                const persona = adapter.database.personas?.[adapter.database.selectedPersona ?? -1]
+                if (persona) {
+                    persona.personaPrompt = value
+                    markDatabase('personas', adapter.database.personas)
+                }
+                markDatabase('personaPrompt', value)
+                break
+            }
+            case 'v2GetReplaceGlobalNote':
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                setOutput(effect, adapter.character.replaceGlobalNote ?? '')
+                break
+            case 'v2SetReplaceGlobalNote':
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                adapter.character.replaceGlobalNote = read(effect)
+                markCharacter('replaceGlobalNote', adapter.character.replaceGlobalNote)
+                break
+            case 'v2GetLorebookCount':
+            case 'v2GetLorebookCountNew':
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                setOutput(effect, adapter.character.globalLore?.length ?? 0)
+                break
+            case 'v2GetAllLorebooks':
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                setOutput(effect, JSON.stringify((adapter.character.globalLore || []).map(lore => (
+                    lore?.content ?? lore?.[1] ?? ''
+                ))))
+                break
+            case 'v2GetLorebook': {
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                const name = read(effect, 'target', 'targetType')
+                const lore = (adapter.character.globalLore || []).find(item => (
+                    (item?.comment ?? item?.[0]) === name
+                ))
+                setOutput(effect, lore?.content ?? lore?.[1] ?? 'null')
+                break
+            }
+            case 'v2ModifyLorebook': {
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                const name = read(effect, 'target', 'targetType')
+                const lore = (adapter.character.globalLore || []).find(item => (
+                    (item?.comment ?? item?.[0]) === name
+                ))
+                if (lore) {
+                    if (Array.isArray(lore)) lore[1] = read(effect)
+                    else lore.content = read(effect)
+                    markCharacter('globalLore', adapter.character.globalLore)
+                }
+                break
+            }
+            case 'v2GetLorebookEntry':
+            case 'v2GetLorebookByIndex': {
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                const parsedIndex = Number(read(effect, 'index', 'indexType'))
+                const loreIndex = Number.isNaN(parsedIndex) ? 0 : parsedIndex
+                const lore = (adapter.character.globalLore || [])[loreIndex]
+                setOutput(effect, lore?.content ?? lore?.[1] ?? 'null')
+                break
+            }
+            case 'v2GetLorebookIndexViaName':
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                setOutput(effect, (adapter.character.globalLore || []).findIndex(item => (
+                    (item?.comment ?? item?.[0]) === read(effect, 'name', 'nameType')
+                )))
+                break
+            case 'v2GetLorebookByName': {
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                const regex = new RegExp(read(effect, 'name', 'nameType'), 'i')
+                const indices: number[] = []
+                for (const [loreIndex, lore] of (adapter.character.globalLore || []).entries()) {
+                    if (regex.test(lore?.comment ?? lore?.[0] ?? '')) indices.push(loreIndex)
+                }
+                setOutput(effect, JSON.stringify(indices))
+                break
+            }
+            case 'v2CreateLorebook':
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                adapter.character.globalLore ||= []
+                adapter.character.globalLore.push({
+                    key: read(effect, 'key', 'keyType'),
+                    secondkey: '',
+                    insertorder: Number(read(effect, 'insertOrder', 'insertOrderType')) || 100,
+                    comment: read(effect, 'name', 'nameType'),
+                    content: read(effect, 'content', 'contentType'),
+                    mode: 'normal',
+                    alwaysActive: false,
+                    selective: false,
+                })
+                markCharacter('globalLore', adapter.character.globalLore)
+                break
+            case 'v2ModifyLorebookByIndex': {
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                const loreIndex = Number(read(effect, 'index', 'indexType'))
+                const lore = adapter.character.globalLore?.[loreIndex]
+                if (!lore || Array.isArray(lore)) break
+                lore.comment = read(effect, 'name', 'nameType').replace(/{{slot}}/g, lore.comment || '')
+                lore.key = read(effect, 'key', 'keyType').replace(/{{slot}}/g, lore.key || '')
+                lore.content = read(effect, 'content', 'contentType').replace(/{{slot}}/g, lore.content || '')
+                const order = Number(read(effect, 'insertOrder', 'insertOrderType')
+                    .replace(/{{slot}}/g, String(lore.insertorder || 100)))
+                if (!Number.isNaN(order)) lore.insertorder = order
+                markCharacter('globalLore', adapter.character.globalLore)
+                break
+            }
+            case 'v2DeleteLorebookByIndex': {
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                const loreIndex = Number(read(effect, 'index', 'indexType'))
+                if (Number.isInteger(loreIndex) && adapter.character.globalLore?.[loreIndex]) {
+                    adapter.character.globalLore.splice(loreIndex, 1)
+                    markCharacter('globalLore', adapter.character.globalLore)
+                }
+                break
+            }
+            case 'v2SetLorebookActivation':
+            case 'v2SetLorebookAlwaysActive': {
+                if (!adapter.character) return { handled: false, nextIndex: index, visit }
+                const loreIndex = Number(read(effect, 'index', 'indexType'))
+                const lore = adapter.character.globalLore?.[loreIndex]
+                if (lore) {
+                    if (Array.isArray(lore)) lore[2] = effect.value
+                    else lore.alwaysActive = effect.value
+                    markCharacter('globalLore', adapter.character.globalLore)
+                }
+                break
+            }
             default:
                 return { handled: false, nextIndex: index, visit }
         }
 
-        return { handled: true, nextIndex, looped, visit }
+        return {
+            handled: true,
+            nextIndex,
+            looped,
+            visit,
+            ...(mutations.character || mutations.database ? { mutations } : {}),
+        }
     }
 
     return { step, read, outputVar }

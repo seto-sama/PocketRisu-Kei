@@ -11,6 +11,9 @@ const { renderRevenantTemplate } = require(path.join(
 const { createTriggerV2Core } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerV2Core.ts',
 ));
+const { evaluateTriggerConditions } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerConditionCore.ts',
+));
 
 function triggerVar(chat, recipe, key) {
     const current = chat.scriptstate?.[`$${key}`];
@@ -30,46 +33,13 @@ function setTriggerVar(chat, key, value) {
     chat.scriptstate[`$${key}`] = String(value);
 }
 
-function compare(left, operator, right) {
-    switch (operator) {
-        case '=': return left === right;
-        case '!=': return left !== right;
-        case '>': return Number(left) > Number(right);
-        case '<': return Number(left) < Number(right);
-        case '>=': return Number(left) >= Number(right);
-        case '<=': return Number(left) <= Number(right);
-        case 'null': return left === 'null' || left === '';
-        case 'true': return left === 'true' || left === '1';
-        default: return false;
-    }
-}
-
 function passesConditions(trigger, recipe, chat) {
-    for (const condition of trigger.conditions || []) {
-        if (condition.type === 'var' || condition.type === 'value' || condition.type === 'chatindex') {
-            const left = condition.type === 'var'
-                ? triggerVar(chat, recipe, condition.var)
-                : condition.type === 'chatindex'
-                    ? String(chat.message.length)
-                    : String(condition.var ?? '');
-            const right = renderRevenantTemplate(String(condition.value ?? ''), recipe, chat).text;
-            if (!compare(left, condition.operator, right)) return false;
-        }
-        else if (condition.type === 'exists') {
-            const depth = Math.max(0, Number(condition.depth) || 0);
-            const messages = chat.message.slice(Math.max(0, chat.message.length - depth));
-            const source = messages.map(message => message.data || '').join('\n');
-            const value = renderRevenantTemplate(String(condition.value ?? ''), recipe, chat).text;
-            if (condition.type2 === 'regex') {
-                try { if (!new RegExp(value).test(source)) return false; }
-                catch { return false; }
-            }
-            else if (condition.type2 === 'strict' ? !source.split(' ').includes(value) : !source.toLowerCase().includes(value.toLowerCase())) {
-                return false;
-            }
-        }
-    }
-    return true;
+    return evaluateTriggerConditions({
+        conditions: trigger.conditions || [],
+        getVar: key => triggerVar(chat, recipe, key),
+        render: value => renderRevenantTemplate(String(value ?? ''), recipe, chat).text,
+        messages: chat.message,
+    });
 }
 
 function actionResult(responses, actionId, action) {
@@ -119,14 +89,6 @@ async function executeRevenantOutputTriggers(options) {
         errors,
         ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
     });
-    const markCharacterMutation = field => {
-        mutations.character ||= {};
-        mutations.character[field] = structuredClone(character[field]);
-    };
-    const markDatabaseMutation = field => {
-        mutations.database ||= {};
-        mutations.database[field] = structuredClone(database[field]);
-    };
     const providerFor = mode => recipe.auxProviders?.[mode] || {
         backend: recipe.providerBackend,
         modelPreset: recipe.modelPreset,
@@ -192,6 +154,7 @@ async function executeRevenantOutputTriggers(options) {
             clearLocals,
             chat: coreChat,
             character,
+            database,
             globalVar: key => database.globalChatVariables?.[key] ?? 'null',
             randomInteger: (minimum, maximum, effectIndex, visit) => deterministicInteger([
                 recipe.messageChatId || chat.id || '', triggerIndex, effectIndex,
@@ -212,6 +175,16 @@ async function executeRevenantOutputTriggers(options) {
                 const coreStep = v2Core.step(effectIndex);
                 if (coreStep.handled) {
                     effectIndex = coreStep.nextIndex;
+                    if (coreStep.mutations?.character) {
+                        mutations.character = {
+                            ...(mutations.character || {}), ...coreStep.mutations.character,
+                        };
+                    }
+                    if (coreStep.mutations?.database) {
+                        mutations.database = {
+                            ...(mutations.database || {}), ...coreStep.mutations.database,
+                        };
+                    }
                     if (coreStep.stop) break;
                     continue;
                 }
@@ -457,142 +430,6 @@ async function executeRevenantOutputTriggers(options) {
                         );
                         if (!pending.available) return outcome('waiting_client', pending.action);
                         setVar(outputVar(effect), pending.value);
-                        break;
-                    }
-                    case 'v2GetCharacterDesc':
-                        setVar(outputVar(effect), character.desc ?? '');
-                        break;
-                    case 'v2SetCharacterDesc':
-                        character.desc = read(effect);
-                        markCharacterMutation('desc');
-                        break;
-                    case 'v2GetPersonaDesc':
-                        setVar(
-                            outputVar(effect),
-                            database.personaPrompt
-                                || database.personas?.[database.selectedPersona]?.personaPrompt
-                                || '',
-                        );
-                        break;
-                    case 'v2SetPersonaDesc': {
-                        const value = read(effect);
-                        database.personaPrompt = value;
-                        if (database.personas?.[database.selectedPersona]) {
-                            database.personas[database.selectedPersona].personaPrompt = value;
-                            markDatabaseMutation('personas');
-                        }
-                        markDatabaseMutation('personaPrompt');
-                        break;
-                    }
-                    case 'v2GetReplaceGlobalNote':
-                        setVar(outputVar(effect), character.replaceGlobalNote ?? '');
-                        break;
-                    case 'v2SetReplaceGlobalNote':
-                        character.replaceGlobalNote = read(effect);
-                        markCharacterMutation('replaceGlobalNote');
-                        break;
-                    case 'v2GetLorebookCount':
-                    case 'v2GetLorebookCountNew':
-                        setVar(outputVar(effect), character.globalLore?.length || 0);
-                        break;
-                    case 'v2GetAllLorebooks':
-                        setVar(
-                            outputVar(effect),
-                            JSON.stringify((character.globalLore || []).map(lore => (
-                                lore?.content ?? lore?.[1] ?? ''
-                            ))),
-                        );
-                        break;
-                    case 'v2GetLorebook': {
-                        const name = read(effect, 'target', 'targetType');
-                        const lore = (character.globalLore || []).find(item => (
-                            (item?.comment ?? item?.[0]) === name
-                        ));
-                        setVar(outputVar(effect), lore?.content ?? lore?.[1] ?? 'null');
-                        break;
-                    }
-                    case 'v2ModifyLorebook': {
-                        const name = read(effect, 'target', 'targetType');
-                        const lore = (character.globalLore || []).find(item => (
-                            (item?.comment ?? item?.[0]) === name
-                        ));
-                        if (lore) {
-                            if (Array.isArray(lore)) lore[1] = read(effect);
-                            else lore.content = read(effect);
-                            markCharacterMutation('globalLore');
-                        }
-                        break;
-                    }
-                    case 'v2GetLorebookEntry':
-                    case 'v2GetLorebookByIndex': {
-                        const lore = (character.globalLore || [])[Number(read(effect, 'index', 'indexType'))];
-                        setVar(outputVar(effect), lore?.content ?? lore?.[1] ?? 'null');
-                        break;
-                    }
-                    case 'v2GetLorebookIndexViaName':
-                        setVar(
-                            outputVar(effect),
-                            (character.globalLore || []).findIndex(item => (
-                                (item?.comment ?? item?.[0]) === read(effect, 'name', 'nameType')
-                            )),
-                        );
-                        break;
-                    case 'v2GetLorebookByName': {
-                        const regex = new RegExp(read(effect, 'name', 'nameType'), 'i');
-                        const indices = [];
-                        for (const [index, lore] of (character.globalLore || []).entries()) {
-                            if (regex.test(lore?.comment ?? lore?.[0] ?? '')) indices.push(index);
-                        }
-                        setVar(outputVar(effect), JSON.stringify(indices));
-                        break;
-                    }
-                    case 'v2CreateLorebook':
-                        character.globalLore ||= [];
-                        character.globalLore.push({
-                            key: read(effect, 'key', 'keyType'),
-                            secondkey: '',
-                            insertorder: Number(read(effect, 'insertOrder', 'insertOrderType')) || 100,
-                            comment: read(effect, 'name', 'nameType'),
-                            content: read(effect, 'content', 'contentType'),
-                            mode: 'normal',
-                            alwaysActive: false,
-                            selective: false,
-                        });
-                        markCharacterMutation('globalLore');
-                        break;
-                    case 'v2ModifyLorebookByIndex': {
-                        const index = Number(read(effect, 'index', 'indexType'));
-                        const lore = character.globalLore?.[index];
-                        if (!lore || Array.isArray(lore)) break;
-                        lore.comment = read(effect, 'name', 'nameType')
-                            .replace(/{{slot}}/g, lore.comment || '');
-                        lore.key = read(effect, 'key', 'keyType')
-                            .replace(/{{slot}}/g, lore.key || '');
-                        lore.content = read(effect, 'content', 'contentType')
-                            .replace(/{{slot}}/g, lore.content || '');
-                        const order = Number(read(effect, 'insertOrder', 'insertOrderType')
-                            .replace(/{{slot}}/g, String(lore.insertorder || 100)));
-                        if (!Number.isNaN(order)) lore.insertorder = order;
-                        markCharacterMutation('globalLore');
-                        break;
-                    }
-                    case 'v2DeleteLorebookByIndex': {
-                        const index = Number(read(effect, 'index', 'indexType'));
-                        if (Number.isInteger(index) && character.globalLore?.[index]) {
-                            character.globalLore.splice(index, 1);
-                            markCharacterMutation('globalLore');
-                        }
-                        break;
-                    }
-                    case 'v2SetLorebookActivation':
-                    case 'v2SetLorebookAlwaysActive': {
-                        const index = Number(read(effect, 'index', 'indexType'));
-                        const lore = character.globalLore?.[index];
-                        if (lore) {
-                            if (Array.isArray(lore)) lore[2] = effect.value;
-                            else lore.alwaysActive = effect.value;
-                            markCharacterMutation('globalLore');
-                        }
                         break;
                     }
                     case 'runtrigger':

@@ -80,4 +80,37 @@ describe('Trigger v2 core', () => {
 
         expect(result.delegated).toEqual(['v2RunLLM', 'v2ShowAlert'])
     })
+
+    it('returns character and database patches from draft mutations', () => {
+        const effects: TriggerV2Effect[] = [
+            { type: 'v2SetCharacterDesc', value: 'new description', valueType: 'value' },
+            { type: 'v2SetPersonaDesc', value: 'new persona', valueType: 'value' },
+            {
+                type: 'v2CreateLorebook', name: 'Entry', nameType: 'value',
+                key: 'key', keyType: 'value', content: 'content', contentType: 'value',
+                insertOrder: '10', insertOrderType: 'value',
+            },
+        ]
+        const character = { desc: 'old', globalLore: [] as any[] }
+        const database = { personaPrompt: 'old', selectedPersona: 0, personas: [{ personaPrompt: 'old' }] }
+        const core = createTriggerV2Core({
+            effects,
+            render: value => String(value ?? ''),
+            getVar: () => 'null',
+            setVar: () => undefined,
+            declareLocal: () => undefined,
+            clearLocals: () => undefined,
+            character,
+            database,
+        })
+        const patches = effects.map((_effect, index) => core.step(index).mutations)
+
+        expect(character).toMatchObject({ desc: 'new description', globalLore: [{ comment: 'Entry' }] })
+        expect(database).toMatchObject({ personaPrompt: 'new persona', personas: [{ personaPrompt: 'new persona' }] })
+        expect(patches).toEqual([
+            { character: { desc: 'new description' } },
+            { database: { personaPrompt: 'new persona', personas: [{ personaPrompt: 'new persona' }] } },
+            { character: { globalLore: [expect.objectContaining({ comment: 'Entry' })] } },
+        ])
+    })
 })
