@@ -73,6 +73,37 @@ describe('empty database initialization', () => {
         expect(db.personas).toHaveLength(1)
         expect(db.pluginCustomStorage).toEqual({})
     })
+
+    test('preserves retired fields that are no longer part of the typed database', () => {
+        const db: any = {
+            additionalPrompt: { role: 'system', content: 'legacy prompt' },
+            descriptionPrefix: 'legacy prefix',
+            presetChain: ['legacy-preset'],
+            promptPreprocess: { mode: 'legacy' },
+            customModels: [{ id: 'xcustom:::legacy', opaque: true }],
+            modelPresetLocalRegistryOnly: true,
+            modelRegistrySeen: { legacy: 1 },
+            useCustomModelRegistry: true,
+            modelProfileRegistryBaseUrl: 'https://legacy.example',
+            botPresets: [{
+                ...makePreset('legacy-preset', 'Legacy'),
+                promptPreprocess: { nested: true },
+            }],
+        }
+
+        setDatabase(db)
+
+        expect(db.additionalPrompt).toEqual({ role: 'system', content: 'legacy prompt' })
+        expect(db.descriptionPrefix).toBe('legacy prefix')
+        expect(db.presetChain).toEqual(['legacy-preset'])
+        expect(db.promptPreprocess).toEqual({ mode: 'legacy' })
+        expect(db.customModels).toEqual([{ id: 'xcustom:::legacy', opaque: true }])
+        expect(db.modelPresetLocalRegistryOnly).toBe(true)
+        expect(db.modelRegistrySeen).toEqual({ legacy: 1 })
+        expect(db.useCustomModelRegistry).toBe(true)
+        expect(db.modelProfileRegistryBaseUrl).toBe('https://legacy.example')
+        expect(db.botPresets[0].promptPreprocess).toEqual({ nested: true })
+    })
 })
 
 describe('createBotPresetTemplate', () => {

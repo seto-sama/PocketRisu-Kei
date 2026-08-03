@@ -1161,7 +1161,6 @@ export const languageChinese = {
     "fallbackModel": "回退模型",
     "fallbackWhenBlankResponse": "空白响应时回退",
     "doNotChangeFallbackModels": "预设更改时不要更改回退模型",
-    "customModels": "自定义模型",
     "igpPrompt": "IGP 提示词",
     "hypaMemoryV3Modal": "Hypa V3 模态框",
     "showMenuHypaMemoryModal": "显示菜单 Hypa 模态框",

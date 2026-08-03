@@ -1242,7 +1242,6 @@ export const languageChineseTraditional = {
     "fallbackModel": "備援模型",
     "fallbackWhenBlankResponse": "當回應空白時自動啟動備援模型",
     "doNotChangeFallbackModels": "套用預設時不更改備援模型設定",
-    "customModels": "自訂模型",
     "igpPrompt": "IGP 提示詞",
     "hypaMemoryV3Modal": "Hypa V3 視窗",
     "showMenuHypaMemoryModal": "顯示 Hypa 視窗選單",

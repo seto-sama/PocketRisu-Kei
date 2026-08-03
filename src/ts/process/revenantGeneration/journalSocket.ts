@@ -28,7 +28,7 @@ export function openRevenantJournalSocket(
     options: RevenantJournalSocketOptions,
 ): ReadableStream<Uint8Array> {
     const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsBaseUrl = `${wsProtocol}//${location.host}/proxy-stream-jobs/${encodeURIComponent(options.jobId)}/ws?risu-auth=${encodeURIComponent(options.auth)}`
+    const wsBaseUrl = `${wsProtocol}//${location.host}/api/generation/jobs/${encodeURIComponent(options.jobId)}/journal/ws?risu-auth=${encodeURIComponent(options.auth)}`
     const maxReconnectAttempts = options.maxReconnectAttempts ?? 5
     const reconnectBaseMs = options.reconnectBaseMs ?? 1000
     let cancelLocal = () => options.onLocalAbort?.()

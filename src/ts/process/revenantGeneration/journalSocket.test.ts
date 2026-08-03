@@ -45,6 +45,7 @@ describe('openRevenantJournalSocket', () => {
         })
         const reader = stream.getReader()
         const first = FakeWebSocket.instances[0]
+        expect(first.url).toContain('/api/generation/jobs/job-1/journal/ws')
         first.emit({
             type: 'chunk',
             offset: 0,

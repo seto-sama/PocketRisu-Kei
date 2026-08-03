@@ -494,7 +494,7 @@ export const LLMModels: LLMModel[] = [
         'google/gemma-2-27b-it',
         'google/gemma-2-9b-it'
     ]),
-    // NanoGPT — single provider entry; model list fetched on demand via getNanoGPTModels()
+    // NanoGPT legacy provider entry. Current model selection uses ModelPresets.
     {
         id: 'nanogpt',
         name: 'NanoGPT',
@@ -628,25 +628,6 @@ export function getModelInfo(id?: string | null): LLMModel{
             tokenizer: LLMTokenizer.Unknown
         }
     }
-    if(id.startsWith('xcustom:::')){
-        const customModels = db?.customModels || []
-        const found = customModels.find((model) => model.id === id)
-        if(found){
-            return {
-                id: found.id,
-                name: found.name,
-                shortName: found.name,
-                fullName: found.name,
-                internalID: found.internalId,
-                provider: LLMProvider.AsIs,
-                format: found.format,
-                flags: found.flags,
-                parameters: ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p', 'top_a', 'top_k', 'thinking_tokens'],
-                tokenizer: found.tokenizer
-            }
-        }
-    }
-
     if(id.startsWith('pluginmodel:::')){
         const pluginModel = customV3ProviderMetaStore.find(model => model.id === id)
         if(pluginModel){
@@ -686,59 +667,4 @@ export function getModelInfo(id?: string | null): LLMModel{
 
 export function isV3PluginModel(id: string | undefined | null): boolean {
     return !!id && customV3ProviderMetaStore.some((model) => model.id === id)
-}
-
-interface GetModelListGroup {
-    providerName: string
-    models: LLMModel[]
-}
-
-export function getModelList<T extends boolean>(arg:{
-    recommendedOnly?:boolean,
-    groupedByProvider?:T
-} = {}): T extends true ? GetModelListGroup[] : LLMModel[]{
-    let models = LLMModels
-    if(arg.recommendedOnly){
-         models = models.filter(model => model.recommended)
-    }
-    const pluginGroup: GetModelListGroup = {
-        providerName: 'Plugins',
-        models: customV3ProviderMetaStore
-    }
-
-    if(arg.groupedByProvider){
-        let group: GetModelListGroup[] = []
-        for(let model of models){
-            if(model.provider === LLMProvider.AsIs || model.provider === LLMProvider.NanoGPT){
-                group.push({
-                    providerName: '@as-is',
-                    models: [model]
-                })
-                continue
-            }
-
-            let providerName = ProviderNames.get(model.provider) || 'Unknown'
-            let groupIndex = group.findIndex(g => g.providerName === providerName)
-            if(groupIndex === -1){
-                group.push({
-                    providerName,
-                    models: [model]
-                })
-            }else{
-                group[groupIndex].models.push(model)
-            }
-        }
-
-        if(pluginGroup.models.length > 0){
-            group.push(pluginGroup)
-        }
-        return group as any
-    }
-    else{
-        for(const model of pluginGroup.models){
-            models.push(model)
-        }
-    }
-
-    return models as any
 }

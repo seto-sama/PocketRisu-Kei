@@ -151,7 +151,6 @@ function createGenerationWorkers(options) {
                     headers: request.headers,
                     method: request.method,
                     bodyBase64: request.bodyBase64,
-                    allowExternal: true,
                     usageProviderId: request.usageProviderId,
                     usageModelId: request.usageModelId,
                     usageServiceTier: request.usageServiceTier,

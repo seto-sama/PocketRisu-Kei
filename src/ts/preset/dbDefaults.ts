@@ -19,10 +19,6 @@ export interface ModelPresetDefaultsTarget {
     modelProfileVisibilityLevel?: 'all' | 'hideDeprecated' | 'currentOnly'
     modelProfileHiddenProviderIds?: string[]
     modelProfileProviderFilterInitialized?: boolean
-    modelPresetLocalRegistryOnly?: boolean
-    modelRegistrySeen?: Record<string, number>
-    useCustomModelRegistry?: boolean
-    modelProfileRegistryBaseUrl?: string
     modelPresetDefaultMaxContext?: number
     modelPresetDefaultMaxResponse?: number
     modelPresetPromptPresetFirst?: boolean
@@ -229,10 +225,6 @@ export function applyModelPresetDefaults(data: ModelPresetDefaultsTarget): void 
         // allowlist once the remote provider catalog is available.
         data.modelProfileProviderFilterInitialized = hadStoredProviderFilter
     }
-    delete data.modelPresetLocalRegistryOnly
-    delete data.modelRegistrySeen
-    delete data.useCustomModelRegistry
-    delete data.modelProfileRegistryBaseUrl
     data.modelPresetDefaultMaxContext ??= 65000
     data.modelPresetDefaultMaxResponse ??= 4096
     data.modelPresetPromptPresetFirst ??= false
