@@ -1,8 +1,6 @@
-export interface RevenantGenerationLifecycle {
-    onJobCreated?: (jobId: string) => void
-    onJobRegistrationUnavailable?: (error?: unknown) => void
-    onProviderStarted?: (startedAt: number) => void
-}
+import type { RevenantGenerationLifecycle } from './types'
+
+export type { RevenantGenerationLifecycle } from './types'
 
 export interface RevenantGenerationCoordinatorOptions<T> extends RevenantGenerationLifecycle {
     /** True when the returned value is a live stream whose transport is still starting. */
