@@ -1,5 +1,4 @@
 import { language } from "../../../lang";
-import { fetchNative } from "../../globalApi.svelte";
 import { isV3PluginModel, LLMFlags, type LLMModel } from "../../model/modellist";
 import { risuEscape, risuUnescape } from "../../parser/parser.svelte";
 import { pluginProviderRequestContextKey, pluginV2 } from "../../plugins/plugins.svelte";
@@ -32,7 +31,7 @@ import { pumpPresetStream } from "./presetStreamPump";
 import { resolveChatModelBinding, buildModelPresetCredential, applyPromptPresetParams } from "./modelPresetBinding";
 import { expandAdapterMessages, toAdapterMessage, toolResponseText } from "./modelPresetMessages";
 import { pluginArgumentValues, pluginProviderName } from "src/ts/preset/pluginModels";
-import { isLocalNetworkUrl } from "src/ts/network/localNetwork";
+import { createLLMTransportFetch } from "src/ts/network/llmTransport";
 import {
     startStatus, appendText, endStatus, setStatusTokenCounter, addBadge,
     type RequestKind,
@@ -624,13 +623,9 @@ async function requestPluginPresetProvider(
     }
 }
 
-// Route adapter requests through the proxy-aware fetch (fetchNative) instead of
-// globalThis.fetch: NodeOnly runs in the browser, so a direct cross-origin fetch
-// to a provider that doesn't send CORS headers fails ("Failed to fetch").
-// fetchNative tries a direct fetch first and falls back to the node /proxy2.
-// chatId (= the message generationId) is threaded into fetchNative so the
-// request is recorded in the fetch log against the message — otherwise the
-// per-message "view log" shows "deleted log" for binding requests.
+// Provider adapters receive a normal Fetch implementation backed by the shared
+// LLM transport. Its default `auto` policy is durable-first and keeps route,
+// recovery, cancellation, timeout, and local-network behavior out of adapters.
 function modelsDevUsageIdentity(
     preset: ModelPreset,
 ): Pick<
@@ -649,28 +644,13 @@ function modelsDevUsageIdentity(
     }
 }
 
-function makeProxiedFetch(arg: RequestDataArgumentExtended, preset: ModelPreset): typeof fetch {
+function makeModelTransportFetch(arg: RequestDataArgumentExtended, preset: ModelPreset): typeof fetch {
     const usageIdentity = modelsDevUsageIdentity(preset)
-    return ((input: RequestInfo | URL, init?: RequestInit) => {
-        const url = typeof input === 'string' ? input : input.toString()
-        const isLocalNetworkRequest = isLocalNetworkUrl(url)
-        return fetchNative(url, {
-            method: (init?.method as 'POST' | 'GET' | 'PUT' | 'DELETE') ?? 'POST',
-            headers: (init?.headers as Record<string, string>) ?? {},
-            body: init?.body as string,
-            signal: init?.signal ?? undefined,
-            chatId: arg.chatId,
-            interceptor: 'model_preset',
-            generationContext: buildGenerationContext(arg, usageIdentity),
-            // Local providers (e.g. self-hosted Ollama) must route through the node
-            // proxy rather than a browser-direct fetch to a private address.
-            networkRoute: isLocalNetworkRequest ? 'local_network' : 'auto',
-            // Honor the same request-timeout the classic path uses.
-            requestTimeoutMs: isLocalNetworkRequest
-                ? 600_000
-                : undefined,
-        })
-    }) as typeof fetch
+    return createLLMTransportFetch({
+        interceptor: 'model_preset',
+        chatId: arg.chatId,
+        getGenerationContext: () => buildGenerationContext(arg, usageIdentity),
+    })
 }
 
 // Pull out adapter-error detail for logging without leaking the credential.
@@ -852,7 +832,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
 
     const credential = buildModelPresetCredential(preset)
     const usageIdentity = modelsDevUsageIdentity(preset)
-    const fetchImpl = makeProxiedFetch(arg, preset)
+    const fetchImpl = makeModelTransportFetch(arg, preset)
     // arg.chatId is the per-request generationId for main chat (sendChat passes
     // it under that name; see generation-state-keying.md §1-bis). Aux requests
     // (translate/memory/emotion/sub) don't supply one, so mint a per-request key

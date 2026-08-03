@@ -3,7 +3,6 @@ const app = express();
 const http = require('http');
 const https = require('https');
 const path = require('path');
-const net = require('net');
 const compression = require('compression');
 const htmlparser = require('node-html-parser');
 const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
@@ -31,6 +30,7 @@ const {
 } = require('./logs/logs.cjs');
 const { addRequestLog, installRequestLogRoutes, updateRequestLogResponseById } = require('./logs/requestLogs.cjs');
 const { installUsageRoutes, recordGenerationUsage } = require('./logs/usageDb.cjs');
+const { executeUpstreamRequest } = require('./upstreamRequest.cjs');
 const generationDb = require('./revenant/generationDb.cjs');
 const {
     getGenerationJob,
@@ -1672,83 +1672,6 @@ async function checkProxyAuth(req, res) {
     return await checkAuth(req, res);
 }
 
-// --- Proxy Stream: network helpers ---
-
-function isPrivateIPv4Host(hostname) {
-    const parts = hostname.split('.');
-    if (parts.length !== 4) {
-        return false;
-    }
-    const octets = parts.map((part) => Number.parseInt(part, 10));
-    if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
-        return false;
-    }
-    const [a, b] = octets;
-    if (a === 10) return true;
-    if (a === 127) return true;
-    if (a === 0) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 169 && b === 254) return true;
-    return false;
-}
-
-function isLocalNetworkHost(hostname) {
-    if (typeof hostname !== 'string' || hostname.trim() === '') {
-        return false;
-    }
-    const normalizedHost = hostname.toLowerCase().replace(/\.$/, '').split('%')[0];
-    if (normalizedHost === 'localhost' || normalizedHost === '::1' || normalizedHost.endsWith('.local')) {
-        return true;
-    }
-    // NodeOnly policy: keep server-side validation aligned with the client helper
-    // for Node/self-hosted deployments where single-label LAN or Docker DNS names
-    // like "litellm" / "ollama" are valid local targets. Upstream currently only
-    // allows localhost/.local/IP here, but NodeOnly routes all local-network-mode
-    // traffic through the Node server, so rejecting single-label hosts would make
-    // the feature unusable for common self-hosted setups.
-    if (/^[a-z0-9_-]+$/i.test(normalizedHost) && !normalizedHost.includes('.')) {
-        return true;
-    }
-    if (net.isIP(normalizedHost) === 4) {
-        return isPrivateIPv4Host(normalizedHost);
-    }
-    if (net.isIP(normalizedHost) === 6) {
-        if (normalizedHost.startsWith('::ffff:')) {
-            const mapped = normalizedHost.substring(7);
-            return net.isIP(mapped) === 4 && isPrivateIPv4Host(mapped);
-        }
-        if (normalizedHost.startsWith('fc') || normalizedHost.startsWith('fd')) {
-            return true;
-        }
-        if (/^fe[89ab]/.test(normalizedHost)) {
-            return true;
-        }
-        return normalizedHost === '::1';
-    }
-    return false;
-}
-
-function sanitizeTargetUrl(raw) {
-    if (typeof raw !== 'string' || raw.trim() === '') {
-        return null;
-    }
-    try {
-        const parsed = new URL(raw);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            return null;
-        }
-        if (!isLocalNetworkHost(parsed.hostname)) {
-            return null;
-        }
-        parsed.username = '';
-        parsed.password = '';
-        return parsed.toString();
-    } catch {
-        return null;
-    }
-}
-
 function sanitizeGenerationTargetUrl(raw) {
     if (typeof raw !== 'string' || raw.trim() === '') return null;
     try {
@@ -1780,15 +1703,6 @@ function normalizeForwardHeaders(input) {
     delete normalized['host'];
     delete normalized['connection'];
     delete normalized['content-length'];
-    return normalized;
-}
-
-function normalizeProxyResponseHeaders(headers) {
-    const normalized = {};
-    for (const [key, value] of Object.entries(headers || {})) {
-        if (value === undefined) continue;
-        normalized[key.toLowerCase()] = Array.isArray(value) ? value.join(', ') : String(value);
-    }
     return normalized;
 }
 
@@ -1833,75 +1747,6 @@ function hasGenerationStreamTerminalMarker(rawBuffer) {
         }
     }
     return false;
-}
-
-// --- Proxy Stream: native HTTP request to local target ---
-
-function requestLocalTargetStream(targetUrl, arg) {
-    return new Promise((resolve, reject) => {
-        const parsedUrl = new URL(targetUrl);
-        const client = parsedUrl.protocol === 'https:' ? https : http;
-        const headers = normalizeForwardHeaders(arg.headers);
-        if (!headers['host']) {
-            headers['host'] = parsedUrl.host;
-        }
-        if (arg.bodyBuffer && !headers['content-length']) {
-            headers['content-length'] = String(arg.bodyBuffer.length);
-        }
-
-        let settled = false;
-        let cleanupAbort = () => {};
-        const finishReject = (error) => {
-            if (settled) return;
-            settled = true;
-            cleanupAbort();
-            reject(error);
-        };
-
-        const req = client.request(parsedUrl, {
-            method: arg.method,
-            headers
-        }, (res) => {
-            if (settled) {
-                res.destroy();
-                return;
-            }
-            settled = true;
-            cleanupAbort();
-            resolve({
-                status: res.statusCode || 502,
-                headers: normalizeProxyResponseHeaders(res.headers),
-                body: res
-            });
-        });
-
-        req.on('error', (error) => {
-            finishReject(error);
-        });
-
-        req.setTimeout(arg.timeoutMs, () => {
-            req.destroy(new Error(`Upstream request timed out after ${arg.timeoutMs}ms`));
-        });
-
-        if (arg.signal) {
-            const onAbort = () => {
-                const abortError = new Error('Proxy stream job aborted');
-                abortError.name = 'AbortError';
-                req.destroy(abortError);
-            };
-            if (arg.signal.aborted) {
-                onAbort();
-                return;
-            }
-            arg.signal.addEventListener('abort', onAbort, { once: true });
-            cleanupAbort = () => arg.signal.removeEventListener('abort', onAbort);
-        }
-
-        if (arg.bodyBuffer && arg.method !== 'GET' && arg.method !== 'HEAD') {
-            req.write(arg.bodyBuffer);
-        }
-        req.end();
-    });
 }
 
 // --- Proxy Stream: job lifecycle ---
@@ -2050,20 +1895,15 @@ const generationWorkflowService = createGenerationWorkflowService({
 });
 
 async function runProxyStreamJob(job, arg) {
-    const targetUrl = arg.allowExternal
-        ? sanitizeGenerationTargetUrl(arg.targetUrl)
-        : sanitizeTargetUrl(arg.targetUrl);
+    const targetUrl = sanitizeGenerationTargetUrl(arg.targetUrl);
     if (!targetUrl) {
-        pushJobEvent(job, { type: 'error', status: 400, message: 'Blocked non-local target URL' });
+        pushJobEvent(job, { type: 'error', status: 400, message: 'Invalid target URL' });
         if (job.persistent) finishGenerationJob(job.id, 'failed', 'invalid_target', 'Invalid target URL');
         markJobDone(job);
         return;
     }
 
     const headers = normalizeForwardHeaders(arg.headers);
-    if (!arg.allowExternal && !headers['x-forwarded-for']) {
-        headers['x-forwarded-for'] = arg.clientIp;
-    }
     const bodyBuffer = arg.bodyBase64 ? Buffer.from(arg.bodyBase64, 'base64') : undefined;
     let completionProbe = Buffer.alloc(0);
     let providerCompleted = false;
@@ -2113,43 +1953,14 @@ async function runProxyStreamJob(job, arg) {
                 platform: arg.requestLog?.platform,
             });
         }
-        const upstreamResponse = arg.allowExternal
-            ? await (async () => {
-                const response = await fetch(targetUrl, {
-                    method: arg.method,
-                    headers,
-                    body: bodyBuffer && arg.method !== 'GET' && arg.method !== 'HEAD' ? bodyBuffer : undefined,
-                    signal: job.abortController.signal,
-                    redirect: 'follow',
-                });
-                return {
-                    status: response.status,
-                    headers: Object.fromEntries(response.headers.entries()),
-                    body: response.body,
-                };
-            })()
-            : await requestLocalTargetStream(targetUrl, {
-                method: arg.method,
-                headers,
-                bodyBuffer,
-                timeoutMs: job.timeoutMs,
-                signal: job.abortController.signal
-            });
-
-        const filteredHeaders = {};
-        for (const [key, value] of Object.entries(upstreamResponse.headers)) {
-            if (
-                key === 'content-security-policy'
-                || key === 'content-security-policy-report-only'
-                || key === 'clear-site-data'
-                || key === 'content-encoding'
-                || key === 'content-length'
-                || key === 'transfer-encoding'
-            ) {
-                continue;
-            }
-            filteredHeaders[key] = value;
-        }
+        const upstreamResponse = await executeUpstreamRequest({
+            url: targetUrl,
+            method: arg.method,
+            headers,
+            body: bodyBuffer && arg.method !== 'GET' && arg.method !== 'HEAD' ? bodyBuffer : undefined,
+            signal: job.abortController.signal,
+        });
+        const filteredHeaders = upstreamResponse.headers;
 
         if (job.persistent) {
             setGenerationJobHeaders(job.id, upstreamResponse.status, filteredHeaders);
@@ -2355,7 +2166,7 @@ async function runProxyStreamJob(job, arg) {
 
 // --- Proxy Stream: WebSocket setup ---
 
-function setupProxyStreamWebSocket(server) {
+function setupGenerationWebSocket(server) {
     const wsServer = new WebSocketServer({ noServer: true });
     const syncWsServer = new WebSocketServer({ noServer: true });
     server.on('upgrade', async (req, socket, head) => {
@@ -2374,7 +2185,10 @@ function setupProxyStreamWebSocket(server) {
                 });
                 return;
             }
-            if (!reqUrl.pathname.startsWith('/proxy-stream-jobs/') || !reqUrl.pathname.endsWith('/ws')) {
+            const generationJournalMatch = reqUrl.pathname.match(
+                /^\/api\/generation\/jobs\/([^/]+)\/journal\/ws$/,
+            );
+            if (!generationJournalMatch) {
                 socket.destroy();
                 return;
             }
@@ -2386,8 +2200,7 @@ function setupProxyStreamWebSocket(server) {
                 return;
             }
 
-            const pathParts = reqUrl.pathname.split('/').filter(Boolean);
-            const jobId = pathParts.length >= 3 ? pathParts[1] : '';
+            const jobId = decodeURIComponent(generationJournalMatch[1]);
             const job = proxyStreamJobs.get(jobId) || loadPersistedProxyStreamJob(jobId);
             if (!job) {
                 socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
@@ -2715,35 +2528,15 @@ const reverseProxyFunc = async (req, res, next) => {
                 requestBody = JSON.stringify(req.body);
             }
         }
-        // make request to original server
-        originalResponse = await fetch(urlParam, {
+        originalResponse = await executeUpstreamRequest({
+            url: urlParam,
             method: req.method,
             headers: header,
             body: requestBody,
             signal: timeout.signal
         });
-        // get response body as stream
-        const originalBody = originalResponse.body;
-        // get response headers
-        const head = new Headers(originalResponse.headers);
-        head.delete('content-security-policy');
-        head.delete('content-security-policy-report-only');
-        head.delete('clear-site-data');
-        head.delete('Cache-Control');
-        head.delete('Content-Encoding');
-        // Node's fetch already decompressed the body, so the upstream
-        // (compressed) Content-Length no longer matches and would truncate the
-        // response. Drop it and let the body stream out chunked.
-        head.delete('Content-Length');
-        const headObj = {};
-        for (let [k, v] of head) {
-            headObj[k] = v;
-        }
-        // send response headers to client
-        res.header(headObj);
-        // send response status to client
+        res.header(originalResponse.headers);
         res.status(originalResponse.status);
-        // send response body to client
         await pipeline(originalResponse.body, res);
 
 
@@ -2765,83 +2558,6 @@ const reverseProxyFunc = async (req, res, next) => {
         // Express error middleware knows to skip. The cause chain is preserved
         // via formatErrorWithCause in normalizeArgs.
         logger.error(`[Proxy] ${req.method} ${urlParam}`, err);
-        next(err);
-        return;
-    } finally {
-        timeout.cleanup();
-    }
-}
-
-const reverseProxyFunc_get = async (req, res, next) => {
-    if(!await checkAuth(req, res)){
-        return;
-    }
-    
-    const urlParam = req.headers['risu-url'] ? decodeURIComponent(req.headers['risu-url']) : req.query.url;
-
-    if (!urlParam) {
-        res.status(400).send({
-            error:'URL has no param'
-        });
-        return;
-    }
-    const timeoutMs = getRequestTimeoutMs(req.headers['risu-timeout-ms']);
-    const timeout = createTimeoutController(timeoutMs);
-    let originalResponse;
-    try {
-    const header = req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : req.headers;
-    if (req.headers['x-risu-tk'] && !header['x-risu-tk']) {
-        header['x-risu-tk'] = req.headers['x-risu-tk'];
-    }
-    if (req.headers['risu-location'] && !header['risu-location']) {
-        header['risu-location'] = req.headers['risu-location'];
-    }
-    if(!header['x-forwarded-for']){
-        header['x-forwarded-for'] = req.ip
-    }
-        // make request to original server
-        originalResponse = await fetch(urlParam, {
-            method: 'GET',
-            headers: header,
-            signal: timeout.signal
-        });
-        // get response body as stream
-        const originalBody = originalResponse.body;
-        // get response headers
-        const head = new Headers(originalResponse.headers);
-        head.delete('content-security-policy');
-        head.delete('content-security-policy-report-only');
-        head.delete('clear-site-data');
-        head.delete('Cache-Control');
-        head.delete('Content-Encoding');
-        // Node's fetch already decompressed the body, so the upstream
-        // (compressed) Content-Length no longer matches and would truncate the
-        // response. Drop it and let the body stream out chunked.
-        head.delete('Content-Length');
-        const headObj = {};
-        for (let [k, v] of head) {
-            headObj[k] = v;
-        }
-        // send response headers to client
-        res.header(headObj);
-        // send response status to client
-        res.status(originalResponse.status);
-        // send response body to client
-        await pipeline(originalResponse.body, res);
-    }
-    catch (err) {
-        if (err?.name === 'AbortError') {
-            if (!res.headersSent) {
-                res.status(504).send({
-                    error: timeoutMs
-                        ? `Proxy request timed out after ${timeoutMs}ms`
-                        : 'Proxy request aborted'
-                });
-            } else {
-                res.end();
-            }
-            return;
-        }
         next(err);
         return;
     } finally {
@@ -3013,7 +2729,7 @@ async function hubProxyFunc(req, res) {
     }
 }
 
-app.get('/proxy2', reverseProxyFunc_get);
+app.get('/proxy2', reverseProxyFunc);
 app.get('/hub-proxy/*splat', hubProxyFunc);
 
 app.post('/proxy2', reverseProxyFunc);
@@ -3021,72 +2737,6 @@ app.put('/proxy2', reverseProxyFunc);
 app.patch('/proxy2', reverseProxyFunc);
 app.delete('/proxy2', reverseProxyFunc);
 app.post('/hub-proxy/*splat', hubProxyFunc);
-
-// --- Proxy Stream Job endpoints ---
-app.post('/proxy-stream-jobs', async (req, res) => {
-    if (!await checkProxyAuth(req, res)) {
-        return;
-    }
-
-    const rawUrl = typeof req.body?.url === 'string' ? req.body.url : '';
-    const encodedUrl = encodeURIComponent(rawUrl);
-    const url = sanitizeTargetUrl(decodeURIComponent(encodedUrl));
-    if (!url) {
-        res.status(400).send({ error: 'Invalid target URL. Only local/private network http(s) endpoints are allowed.' });
-        return;
-    }
-
-    const method = typeof req.body?.method === 'string' ? req.body.method.toUpperCase() : 'POST';
-    if (!['POST', 'GET', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
-        res.status(400).send({ error: 'Invalid method' });
-        return;
-    }
-
-    const bodyBase64 = typeof req.body?.bodyBase64 === 'string' ? req.body.bodyBase64 : '';
-    if (bodyBase64.length > PROXY_STREAM_MAX_BODY_BASE64_BYTES) {
-        res.status(413).send({ error: 'Request body too large' });
-        return;
-    }
-    if (countActiveProxyStreamJobs() >= PROXY_STREAM_MAX_ACTIVE_JOBS) {
-        res.status(429).send({ error: 'Too many active stream jobs. Retry shortly.' });
-        return;
-    }
-    const headers = normalizeForwardHeaders(req.body?.headers);
-    const heartbeatSec = normalizeHeartbeatSec(Number(req.body?.heartbeatSec));
-    const job = createProxyStreamJob({
-        heartbeatSec,
-        timeoutMs: req.body?.timeoutMs
-    });
-
-    job.runPromise = runProxyStreamJob(job, {
-        targetUrl: url,
-        headers,
-        method,
-        bodyBase64,
-        clientIp: req.ip
-    });
-    void job.runPromise;
-
-    res.send({
-        jobId: job.id,
-        heartbeatSec: job.heartbeatSec
-    });
-});
-
-app.delete('/proxy-stream-jobs/:jobId', async (req, res) => {
-    if (!await checkProxyAuth(req, res)) {
-        return;
-    }
-    const job = proxyStreamJobs.get(req.params.jobId);
-    if (!job) {
-        res.send({ success: true });
-        return;
-    }
-    job.abortController.abort();
-    markJobDone(job);
-    cleanupJob(job.id);
-    res.send({ success: true });
-});
 
 // --- Revenant generation jobs -------------------------------------------------
 installRevenantGenerationRoutes(app, {
@@ -6544,7 +6194,7 @@ async function startServer() {
             // HTTPS
             serverIsHttps = true;
             server = https.createServer(httpsOptions, app);
-            setupProxyStreamWebSocket(server);
+            setupGenerationWebSocket(server);
             server.listen(port, () => {
                 console.log("[Server] HTTPS server is running.");
                 console.log(`[Server] https://localhost:${port}/`);
@@ -6552,7 +6202,7 @@ async function startServer() {
         } else {
             // HTTP
             server = http.createServer(app);
-            setupProxyStreamWebSocket(server);
+            setupGenerationWebSocket(server);
             server.listen(port, () => {
                 console.log("[Server] HTTP server is running.");
                 console.log(`[Server] http://localhost:${port}/`);

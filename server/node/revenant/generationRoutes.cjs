@@ -397,8 +397,6 @@ function installRevenantGenerationRoutes(app, deps) {
                 headers: forwardHeaders,
                 method,
                 bodyBase64,
-                clientIp: req.ip,
-                allowExternal: true,
                 usageProviderId,
                 usageModelId,
                 usageServiceTier,

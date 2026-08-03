@@ -1,9 +1,4 @@
 import {
-    decodeProxyJobWsChunk,
-    formatProxyStreamErrorMessage,
-    parseProxyJobWsEvent,
-} from '../../network/proxyJobWs'
-import {
     createRevenantGenerationAuth,
     getRevenantGenerationMetadata,
     getRevenantGenerationSyncClientId,
@@ -20,7 +15,7 @@ import type {
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 
-const defaultProxyJobHeartbeatSec = 15
+const defaultGenerationHeartbeatSec = 15
 
 export function subscribeRecoverableGeneration(
     job: RecoverableGenerationJob,
@@ -78,27 +73,25 @@ async function openRecoverableJournalStream(
     })
 }
 
-export async function fetchViaProxyJobWs(url: string, arg: {
+export async function fetchViaGenerationJob(url: string, arg: {
     method: string
     headers: Record<string, string>
     body?: Uint8Array
     signal?: AbortSignal
     requestTimeoutMs?: number
-    revenant?: boolean
     onJobCreated?: (jobId: string) => void
     onProviderStarted?: (startedAt: number) => void
-    generationContext?: RevenantGenerationContext
+    generationContext: RevenantGenerationContext
 }): Promise<Response> {
     const auth = await createRevenantGenerationAuth()
     const bodyBase64 = arg.body ? Buffer.from(arg.body).toString('base64') : ''
 
-    const jobEndpoint = arg.revenant ? '/api/generation/jobs' : '/proxy-stream-jobs'
-    const jobRes = await fetch(jobEndpoint, {
+    const jobRes = await fetch('/api/generation/jobs', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'risu-auth': auth,
-            ...(arg.revenant ? { 'x-sync-client-id': getRevenantGenerationSyncClientId() } : {}),
+            'x-sync-client-id': getRevenantGenerationSyncClientId(),
         },
         body: JSON.stringify({
             url,
@@ -106,9 +99,9 @@ export async function fetchViaProxyJobWs(url: string, arg: {
             headers: arg.headers,
             bodyBase64,
             timeoutMs: arg.requestTimeoutMs,
-            heartbeatSec: defaultProxyJobHeartbeatSec,
-            ...(arg.generationContext ?? {}),
-            ...(arg.generationContext?.chatId
+            heartbeatSec: defaultGenerationHeartbeatSec,
+            ...arg.generationContext,
+            ...(arg.generationContext.chatId
                 ? getRevenantGenerationMetadata(arg.generationContext.chatId)
                 : undefined),
         }),
@@ -116,39 +109,32 @@ export async function fetchViaProxyJobWs(url: string, arg: {
     })
 
     if (!jobRes.ok) {
-        throw new Error(`Failed to create proxy stream job: ${jobRes.status} ${await jobRes.text()}`)
+        throw new Error(`Failed to create generation job: ${jobRes.status} ${await jobRes.text()}`)
     }
 
     const { jobId } = await jobRes.json() as { jobId: string }
     arg.onJobCreated?.(jobId)
-    if (arg.revenant) {
-        setRevenantGenerationLocallyOwned(jobId, true)
-    }
-    if (arg.revenant && arg.generationContext?.jobType === 'model' && arg.generationContext.chatId) {
+    setRevenantGenerationLocallyOwned(jobId, true)
+    if (arg.generationContext.jobType === 'model' && arg.generationContext.chatId) {
         trackRevenantGenerationJob(arg.generationContext.chatId, jobId)
     }
-    return arg.revenant
-        ? openRevenantProxyJobResponse(jobId, auth, arg.signal, arg.onProviderStarted)
-        : openLegacyProxyJobResponse(jobId, auth, arg.signal)
+    return openGenerationJobResponse(jobId, auth, arg.signal, arg.onProviderStarted)
 }
 
-function deleteProxyJob(
+function deleteGenerationJob(
     jobId: string,
     auth: string,
-    revenant: boolean,
 ): Promise<void> {
-    return fetch(revenant
-        ? `/api/generation/jobs/${encodeURIComponent(jobId)}`
-        : `/proxy-stream-jobs/${encodeURIComponent(jobId)}`, {
+    return fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}`, {
         method: 'DELETE',
         headers: {
             'risu-auth': auth,
-            ...(revenant ? { 'x-sync-client-id': getRevenantGenerationSyncClientId() } : {}),
+            'x-sync-client-id': getRevenantGenerationSyncClientId(),
         },
     }).then(() => {}, () => {})
 }
 
-function openRevenantProxyJobResponse(
+function openGenerationJobResponse(
     jobId: string,
     auth: string,
     signal?: AbortSignal,
@@ -187,97 +173,8 @@ function openRevenantProxyJobResponse(
             },
             onLocalAbort() {
                 setRevenantGenerationLocallyOwned(jobId, false)
-                void deleteProxyJob(jobId, auth, true)
+                void deleteGenerationJob(jobId, auth)
             },
         })
-    })
-}
-
-function openLegacyProxyJobResponse(
-    jobId: string,
-    auth: string,
-    signal?: AbortSignal,
-): Promise<Response> {
-    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${wsProtocol}//${location.host}/proxy-stream-jobs/${encodeURIComponent(jobId)}/ws?risu-auth=${encodeURIComponent(auth)}`
-    return new Promise((resolve, reject) => {
-        const ws = new WebSocket(wsUrl)
-        let settled = false
-        let terminal = false
-        let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
-        const cleanup = () => signal?.removeEventListener('abort', abort)
-        const abort = () => {
-            terminal = true
-            ws.close()
-            void deleteProxyJob(jobId, auth, false)
-            const error = new DOMException('Aborted', 'AbortError')
-            if (!settled) {
-                settled = true
-                reject(error)
-            }
-            else {
-                try { streamController?.error(error) } catch { /* already closed */ }
-            }
-        }
-        const stream = new ReadableStream<Uint8Array>({
-            start(controller) {
-                streamController = controller
-            },
-            cancel() {
-                terminal = true
-                ws.close()
-                void deleteProxyJob(jobId, auth, false)
-            },
-        })
-        ws.onmessage = event => {
-            const parsed = parseProxyJobWsEvent(typeof event.data === 'string' ? event.data : '')
-            if (!parsed) return
-            switch (parsed.type) {
-                case 'upstream_headers':
-                    if (!settled) {
-                        settled = true
-                        resolve(new Response(stream, {
-                            status: parsed.status,
-                            headers: parsed.headers,
-                        }))
-                    }
-                    break
-                case 'chunk':
-                    streamController?.enqueue(decodeProxyJobWsChunk(parsed.dataBase64))
-                    break
-                case 'error': {
-                    terminal = true
-                    const message = formatProxyStreamErrorMessage(parsed.status, parsed.message)
-                    if (!settled) {
-                        settled = true
-                        resolve(new Response(message, { status: parsed.status ?? 502 }))
-                    }
-                    else streamController?.error(new Error(message))
-                    cleanup()
-                    ws.close()
-                    break
-                }
-                case 'done':
-                    terminal = true
-                    streamController?.close()
-                    cleanup()
-                    ws.close()
-            }
-        }
-        ws.onerror = () => ws.close()
-        ws.onclose = () => {
-            cleanup()
-            if (terminal) return
-            const error = new Error('WebSocket closed before completion')
-            if (!settled) {
-                settled = true
-                reject(error)
-            }
-            else {
-                try { streamController?.error(error) } catch { /* already closed */ }
-            }
-        }
-        if (signal?.aborted) abort()
-        else signal?.addEventListener('abort', abort, { once: true })
     })
 }
