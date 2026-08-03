@@ -1,5 +1,5 @@
 import { get } from "svelte/store";
-import { getCurrentCharacter, getCurrentChat, getDatabase, setCurrentChat, setDatabase } from "../storage/database.svelte";
+import { getCurrentCharacter, getCurrentChat, getDatabase, normalizeChat, setDatabase } from "../storage/database.svelte";
 import { selectedCharID } from "../stores.svelte";
 import { alertInput, alertMd, alertNormal, alertSelect } from "../alert";
 import { sayTTS } from "./tts";
@@ -219,13 +219,22 @@ async function processCommand(command:string, pipe:string):Promise<false | strin
         }
         case 'trigger':{
             const currentChar = getCurrentCharacter()
+            const currentChat = getCurrentChat()
+            const characterId = currentChar.chaId
+            const roomId = currentChat.id
             const triggerResult = await runTrigger(currentChar, 'manual', {
-                chat: getCurrentChat(),
+                chat: currentChat,
                 manualName: arg
             });
 
             if(triggerResult){
-               setCurrentChat(triggerResult.chat);
+                const targetCharacter = getDatabase().characters.find(character =>
+                    character?.chaId === characterId)
+                const targetChatIndex = targetCharacter?.chats?.findIndex(chat =>
+                    chat?.id === roomId) ?? -1
+                if (targetCharacter && targetChatIndex >= 0) {
+                    targetCharacter.chats[targetChatIndex] = normalizeChat(triggerResult.chat)
+                }
             }
             return
         }

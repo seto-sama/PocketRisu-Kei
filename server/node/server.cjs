@@ -30,7 +30,10 @@ const {
 } = require('./logs/logs.cjs');
 const { addRequestLog, installRequestLogRoutes, updateRequestLogResponseById } = require('./logs/requestLogs.cjs');
 const { installUsageRoutes, recordGenerationUsage } = require('./logs/usageDb.cjs');
-const { executeUpstreamRequest } = require('./upstreamRequest.cjs');
+const {
+    executeEchoProviderRequest,
+    executeUpstreamRequest,
+} = require('./upstreamRequest.cjs');
 const {
     generationDb,
     getGenerationJob,
@@ -1958,13 +1961,16 @@ async function runGenerationProviderJob(job, arg) {
             clientId: arg.requestLog?.clientId,
             platform: arg.requestLog?.platform,
         });
-        const upstreamResponse = await executeUpstreamRequest({
+        const providerRequest = {
             url: targetUrl,
             method: arg.method,
             headers,
             body: bodyBuffer && arg.method !== 'GET' && arg.method !== 'HEAD' ? bodyBuffer : undefined,
             signal: job.abortController.signal,
-        });
+        };
+        const upstreamResponse = arg.adapterKind === 'echo'
+            ? await executeEchoProviderRequest(providerRequest)
+            : await executeUpstreamRequest(providerRequest);
         const filteredHeaders = upstreamResponse.headers;
 
         setGenerationJobHeaders(job.id, upstreamResponse.status, filteredHeaders);

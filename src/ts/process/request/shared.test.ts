@@ -106,6 +106,33 @@ describe('buildGenerationRequest', () => {
         expect(second?.workflow?.executionId).toBe(first?.workflow?.executionId)
     })
 
+    test('keeps main generation ownership on the submitted room after navigation', () => {
+        const request = buildGenerationRequest({
+            formated: [],
+            bias: {},
+            mode: 'model',
+            chatId: 'message-1',
+            currentChar: {
+                chaId: 'character-1',
+                // The UI has already moved away from the submitted room.
+                chatPage: 1,
+                chats: [
+                    { id: 'submitted-room', message: [{ role: 'char', data: 'submitted prefix' }] },
+                    { id: 'visible-room', message: [{ role: 'char', data: 'visible prefix' }] },
+                ],
+            },
+            continue: true,
+            revenantRoomId: 'submitted-room',
+            revenantContinuationPrefix: 'submitted prefix',
+        } as any)
+
+        expect(request?.job).toMatchObject({
+            characterId: 'character-1',
+            roomId: 'submitted-room',
+            continuationPrefix: 'submitted prefix',
+        })
+    })
+
     test('links a delegated client action to its parent step', () => {
         workflowState.workflow = { workflowId: 'workflow-1' }
         const request = buildGenerationRequest({

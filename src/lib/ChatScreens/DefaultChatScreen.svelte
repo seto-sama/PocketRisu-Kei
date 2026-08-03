@@ -8,7 +8,7 @@
     import ShDropdownMenuItem from 'src/lib/UI/GUI/ShDropdownMenuItem.svelte';
     import IconButtonGroup from 'src/lib/UI/GUI/IconButtonGroup.svelte';
     import { selectedCharID, PlaygroundStore, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
-    import { tick, untrack } from 'svelte';
+    import { onDestroy, tick, untrack } from 'svelte';
     import Chat from "./Chat.svelte";
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
     import { type Chat as ChatData, type Message } from "../../ts/storage/database.svelte";
@@ -113,7 +113,58 @@ import { isMobile } from 'src/ts/platform'
     let currentRevenantWorkflow = $derived($activeRevenantWorkflows.find(workflow =>
         workflow.characterId === currentCharacter?.chaId
         && workflow.roomId === currentChatSlot?.id))
-    let workflowCancelInFlight = $state(false)
+    let workflowCancellationIds = $state.raw<string[]>([])
+    let workflowCancelInFlight = $derived(
+        !!currentRevenantWorkflow
+        && workflowCancellationIds.includes(currentRevenantWorkflow.workflowId)
+    )
+    interface ForegroundGenerationContext {
+        abortController: AbortController
+        detachController: AbortController
+        abortRequested: boolean
+        rerollSession?: ActiveRerollSession
+        origin: {
+            characterId: string
+            roomId: string
+        }
+    }
+
+    let foregroundGenerationContexts = $state.raw<ForegroundGenerationContext[]>([])
+    let currentRoomForegroundGeneration = $derived(
+        foregroundGenerationContexts.find(context =>
+            context.origin.characterId === currentCharacter?.chaId
+            && context.origin.roomId === currentChatSlot?.id
+        )
+    )
+    let currentRoomOwnsForegroundGeneration = $derived(!!currentRoomForegroundGeneration)
+    let currentRoomHasMainGeneration = $derived(
+        currentRoomOwnsForegroundGeneration || !!currentRevenantWorkflow
+    )
+
+    onDestroy(() => {
+        // Room/character navigation can unmount ChatScreen before the target
+        // selection is applied, so detach the foreground observer here too.
+        for (const context of foregroundGenerationContexts) {
+            context.detachController.abort()
+        }
+    })
+
+    // Once the main provider work belongs to another room, detach only this
+    // page's foreground observer. The durable Revenant job/workflow continues
+    // and the ordinary room-entry recovery effect attaches when the user
+    // returns. User cancellation keeps using the separate abortController.
+    $effect(() => {
+        const characterId = currentCharacter?.chaId
+        const roomId = currentChatSlot?.id
+        for (const context of foregroundGenerationContexts) {
+            if (
+                context.origin.characterId !== characterId
+                || context.origin.roomId !== roomId
+            ) {
+                context.detachController.abort()
+            }
+        }
+    })
 
     // Workflow ownership is shared across the user's devices. Keep the local
     // composer flag in sync when another device finishes or cancels the room.
@@ -225,13 +276,20 @@ import { isMobile } from 'src/ts/platform'
     })
 
     /** Await hydration of active chat. Returns full Chat or null on failure. */
-    async function ensureActiveChatReady(selectedChar = $selectedCharID): Promise<ChatData | null> {
+    async function ensureActiveChatReady(
+        selectedChar = $selectedCharID,
+        roomId?: string,
+    ): Promise<ChatData | null> {
         const char = DBState.db.characters[selectedChar]
         if (!char) return null
-        const chat = char.chats[char.chatPage]
+        const chatPage = roomId
+            ? char.chats.findIndex(chat => chat?.id === roomId)
+            : char.chatPage
+        if (chatPage < 0) return null
+        const chat = char.chats[chatPage]
         if (!chat) return null
         if (!chat._placeholder) return chat
-        return await ensureCurrentChatReady(char.chats, char.chatPage, char.chaId)
+        return await ensureCurrentChatReady(char.chats, chatPage, char.chaId)
     }
 
     // A generation belongs to the server once submitted. If its originating
@@ -251,7 +309,7 @@ import { isMobile } from 'src/ts/platform'
             }
             recoveryInFlight = true
             recoveryRequested = false
-            void ensureActiveChatReady(selectedChar).then(async chat => {
+            void ensureActiveChatReady(selectedChar, chatId).then(async chat => {
                 if (!chat) return
                 const detachedTranslationJobs = await listRecoverableAuxiliaryGenerations()
                     .then(jobs => jobs.filter(job =>
@@ -489,77 +547,103 @@ import { isMobile } from 'src/ts/platform'
     }
 
     async function sendMain(continueResponse:boolean) {
-        let selectedChar = $selectedCharID
-        if($doingChat || currentRevenantWorkflow){
+        const selectedChar = $selectedCharID
+        if(currentRoomHasMainGeneration){
             return
         }
 
-        const activeChat = await ensureActiveChatReady(selectedChar)
-        if(!activeChat) return
-
-        let cha = activeChat.message
-
-        if(messageInput.startsWith('/')){
-            const commandProcessed = await processMultiCommand(messageInput)
-            if(commandProcessed !== false){
-                messageInput = ''
-                messageInputTranslate = ''
-                removeChatDraft(draftChaId, draftChatId)
-                return
-            }
+        const generationCharacter = DBState.db.characters[selectedChar]
+        const generationChat = generationCharacter?.chats[generationCharacter.chatPage]
+        if(!generationCharacter?.chaId || !generationChat?.id) return
+        const generationTarget = {
+            characterId: generationCharacter.chaId,
+            roomId: generationChat.id,
         }
+        // Input and draft state follow the visible room. Snapshot and clear
+        // them before any asynchronous preprocessing so a later room switch
+        // cannot feed or erase the newly selected room's composer text.
+        let submittedMessageInput = messageInput
+        const submittedFiles = [...fileInput]
+        messageInput = ''
+        messageInputTranslate = ''
+        fileInput = []
+        removeChatDraft(generationTarget.characterId, generationTarget.roomId)
+        const foregroundContext = beginForegroundGeneration(generationTarget)
+        let foregroundHandedOff = false
 
-        if(fileInput.length > 0){
-            for(const file of fileInput){
-                messageInput += `{{inlayed::${file}}}`
+        try {
+            const activeChat = await ensureActiveChatReady(selectedChar, generationTarget.roomId)
+            if(!activeChat) return
+
+            let cha = activeChat.message
+
+            if(submittedMessageInput.startsWith('/')){
+                const commandProcessed = await processMultiCommand(submittedMessageInput)
+                if(commandProcessed !== false){
+                    return
+                }
             }
-            fileInput = []
-        }
 
-        if(messageInput === ''){
-            if(cha.length === 0 || cha[cha.length - 1].role !== 'user'){
-                if(DBState.db.useSayNothing){
+            if(submittedFiles.length > 0){
+                for(const file of submittedFiles){
+                    submittedMessageInput += `{{inlayed::${file}}}`
+                }
+            }
+
+            if(submittedMessageInput === ''){
+                if(cha.length === 0 || cha[cha.length - 1].role !== 'user'){
+                    if(DBState.db.useSayNothing){
+                        cha.push({
+                            role: 'user',
+                            data: '*says nothing*',
+                            name: null
+                        })
+                    }
+                }
+            }
+            else{
+                const char = DBState.db.characters[selectedChar]
+                if(char.type === 'character'){
+                    let triggerResult = await runTrigger(char,'input', {chat: activeChat})
+                    if(triggerResult){
+                        cha = triggerResult.chat.message
+                    }
+
                     cha.push({
                         role: 'user',
-                        data: '*says nothing*',
+                        data: await processScript(char,submittedMessageInput,'editinput'),
+                        time: Date.now(),
+                        name: null
+                    })
+                }
+                else{
+                    cha.push({
+                        role: 'user',
+                        data: submittedMessageInput,
+                        time: Date.now(),
                         name: null
                     })
                 }
             }
-        }
-        else{
-            const char = DBState.db.characters[selectedChar]
-            if(char.type === 'character'){
-                let triggerResult = await runTrigger(char,'input', {chat: activeChat})
-                if(triggerResult){
-                    cha = triggerResult.chat.message
-                }
+            const targetChatIndex = DBState.db.characters[selectedChar].chats.findIndex(chat =>
+                chat?.id === generationTarget.roomId)
+            if(targetChatIndex === -1) return
+            DBState.db.characters[selectedChar].chats[targetChatIndex].message = cha
 
-                cha.push({
-                    role: 'user',
-                    data: await processScript(char,messageInput,'editinput'),
-                    time: Date.now(),
-                    name: null
-                })
-            }
-            else{
-                cha.push({
-                    role: 'user',
-                    data: messageInput,
-                    time: Date.now(),
-                    name: null
-                })
+            await sleep(10)
+            updateInputSizeAll()
+            foregroundHandedOff = true
+            await sendChatMain(
+                continueResponse,
+                undefined,
+                generationTarget,
+                foregroundContext,
+            )
+        } finally {
+            if(!foregroundHandedOff){
+                releaseForegroundGeneration(foregroundContext)
             }
         }
-        messageInput = ''
-        messageInputTranslate = ''
-        removeChatDraft(draftChaId, draftChatId)
-        DBState.db.characters[selectedChar].chats[DBState.db.characters[selectedChar].chatPage].message = cha
-
-        await sleep(10)
-        updateInputSizeAll()
-        await sendChatMain(continueResponse)
-
     }
 
     // Fullscreen compose mode: the same messageInput, just shown in a full-screen
@@ -618,23 +702,27 @@ import { isMobile } from 'src/ts/platform'
     }
 
     type ActiveRerollSession = {
-        charId: number
-        chatPage: number
+        characterId: string
+        roomId: string
+        originalTargetChatId?: string
         savedSwipes: string[]
         generatedMessageIndex: number
         trailingComments: Message[]
     }
 
-    let activeRerollSession: ActiveRerollSession | null = null
-    let chatAbortRequested = false
-
-    function finishCancelledRerollSession() {
+    function finishCancelledRerollSession(activeRerollSession?: ActiveRerollSession) {
         if (!activeRerollSession) return false
-        const { charId, chatPage, savedSwipes, generatedMessageIndex, trailingComments } = activeRerollSession
-        const char = DBState.db.characters[charId]
-        const chat = char?.chats?.[chatPage]
+        const {
+            characterId,
+            roomId,
+            originalTargetChatId,
+            savedSwipes,
+            generatedMessageIndex,
+            trailingComments,
+        } = activeRerollSession
+        const char = DBState.db.characters.find(candidate => candidate?.chaId === characterId)
+        const chat = char?.chats?.find(candidate => candidate?.id === roomId)
         if (!char || !chat) {
-            activeRerollSession = null
             return false
         }
 
@@ -642,8 +730,15 @@ import { isMobile } from 'src/ts/platform'
         const generatedMsg = messages[generatedMessageIndex]
         const generatedData = generatedMsg?.role === 'char' ? generatedMsg.data ?? '' : ''
 
-        if (!generatedMsg || generatedMsg.role !== 'char' || !generatedData.trim()) {
-            activeRerollSession = null
+        if (
+            !generatedMsg
+            || generatedMsg.role !== 'char'
+            || !generatedData.trim()
+            // A cancellation before Echo produced content restores the original
+            // reroll target. Do not reinterpret that restored message as a new
+            // partial swipe.
+            || generatedMsg.chatId === originalTargetChatId
+        ) {
             return false
         }
 
@@ -657,12 +752,19 @@ import { isMobile } from 'src/ts/platform'
         chat.message = messages
         chat.isStreaming = false
         char.reloadKeys += 1
-        activeRerollSession = null
         return true
     }
 
     async function reroll() {
-        if($doingChat || currentRevenantWorkflow) return
+        if(currentRoomHasMainGeneration) return
+        const selectedChar = $selectedCharID
+        const rerollCharacter = DBState.db.characters[selectedChar]
+        const rerollChat = rerollCharacter?.chats?.[rerollCharacter.chatPage]
+        if (!rerollCharacter?.chaId || !rerollChat?.id) return
+        const generationTarget = {
+            characterId: rerollCharacter.chaId,
+            roomId: rerollChat.id,
+        }
         const lastMsg = getLastCharMsg()
         if (!lastMsg) return
 
@@ -671,7 +773,7 @@ import { isMobile } from 'src/ts/platform'
 
         // Generate new response
         // Preserve trailing comment/disabled messages (e.g. branch comments)
-        let cha = safeStructuredClone(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message)
+        let cha = safeStructuredClone(rerollChat.message)
         const originalMessages = safeStructuredClone(cha)
         if(cha.length === 0) return
         openMenu = false
@@ -698,37 +800,46 @@ import { isMobile } from 'src/ts/platform'
             targetIndex: generatedMessageIndex,
             trailingMessages: safeStructuredClone(trailingComments),
         }
-        activeRerollSession = {
-            charId: $selectedCharID,
-            chatPage: DBState.db.characters[$selectedCharID].chatPage,
+        const foregroundContext = beginForegroundGeneration(generationTarget)
+        foregroundContext.rerollSession = {
+            characterId: generationTarget.characterId,
+            roomId: generationTarget.roomId,
+            originalTargetChatId: originalMessages[generatedMessageIndex]?.chatId,
             savedSwipes,
             generatedMessageIndex,
             trailingComments: safeStructuredClone(trailingComments),
         }
-        const rerollChat = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
         rerollChat.isStreaming = true
         rerollChat.message = cha
-        const generated = await sendChatMain(false, rerollSnapshot)
+        const generated = await sendChatMain(
+            false,
+            rerollSnapshot,
+            generationTarget,
+            foregroundContext,
+        )
 
         // A user-triggered cancel keeps the partial reroll as the active swipe.
         if (!generated) {
-            if (chatAbortRequested && finishCancelledRerollSession()) {
-                chatAbortRequested = false
+            if (
+                foregroundContext.abortRequested
+                && finishCancelledRerollSession(foregroundContext.rerollSession)
+            ) {
                 return
             }
-            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = originalMessages
-            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].isStreaming = false
-            activeRerollSession = null
-            chatAbortRequested = false
+            const failedCharacter = DBState.db.characters.find(character =>
+                character?.chaId === generationTarget.characterId)
+            const failedChat = failedCharacter?.chats?.find(chat =>
+                chat?.id === generationTarget.roomId)
+            if (failedChat) {
+                failedChat.message = originalMessages
+                failedChat.isStreaming = false
+            }
             return
         }
-        chatAbortRequested = false
-        activeRerollSession = null
-        activeRerollSession = null
     }
 
     async function unReroll(idx?: number) {
-        if($doingChat) return
+        if(currentRoomHasMainGeneration) return
         const lastMsg = getSwipeTargetMsg(idx)
         if (!lastMsg || !lastMsg.swipes || lastMsg.swipeId === undefined) return
 
@@ -765,42 +876,79 @@ import { isMobile } from 'src/ts/platform'
         DBState.db.characters[$selectedCharID].reloadKeys += 1
     }
 
-    let abortController:null|AbortController = null
+    function beginForegroundGeneration(
+        origin: ForegroundGenerationContext['origin'],
+    ): ForegroundGenerationContext {
+        const context = {
+            abortController: new AbortController(),
+            detachController: new AbortController(),
+            abortRequested: false,
+            origin,
+        }
+        foregroundGenerationContexts = [...foregroundGenerationContexts, context]
+        return context
+    }
+
+    function releaseForegroundGeneration(context: ForegroundGenerationContext) {
+        foregroundGenerationContexts = foregroundGenerationContexts.filter(
+            activeContext => activeContext !== context
+        )
+    }
 
     async function sendChatMain(
         continued:boolean = false,
         rerollSnapshot?: RevenantRerollSnapshot,
+        generationTarget?: ForegroundGenerationContext['origin'],
+        preparedContext?: ForegroundGenerationContext,
     ) {
 
-        messageInput = ''
-        abortController = new AbortController()
-        chatAbortRequested = false
+        const origin = generationTarget ?? (
+            currentCharacter?.chaId && currentChatSlot?.id
+                ? {
+                    characterId: currentCharacter.chaId,
+                    roomId: currentChatSlot.id,
+                }
+                : null
+        )
+        if(!origin) return false
+        const foregroundContext = preparedContext ?? beginForegroundGeneration(origin)
+        const detachController = foregroundContext.detachController
         let generated = false
+        let detached = false
         try {
             generated = await sendChat(-1, {
-                signal:abortController.signal,
+                signal:foregroundContext.abortController.signal,
+                detachSignal: detachController.signal,
+                onDetached: () => detached = true,
                 continue:continued,
                 rerollSnapshot,
+                generationTarget: origin,
             })
         } catch (error) {
-            console.error(error)
-            alertError(error)
+            if(!detached){
+                console.error(error)
+                alertError(error)
+            }
         }
-        $doingChat = false
-        if(DBState.db.playMessage){
+        if(!detached) $doingChat = false
+        releaseForegroundGeneration(foregroundContext)
+        if(!detached && DBState.db.playMessage){
             playNotificationSound(DBState.db.messageSound, DBState.db.messageSoundVolume)
         }
-        return generated
+        // A detached generation is still owned by its Revenant workflow. Treat
+        // it as retained so reroll cleanup does not restore the old branch.
+        return detached ? true : generated
     }
 
     async function abortChat(){
-        if(abortController){
-            chatAbortRequested = true
-            abortController.abort()
+        const foregroundContext = currentRoomForegroundGeneration
+        if(foregroundContext){
+            foregroundContext.abortRequested = true
+            foregroundContext.abortController.abort()
         }
         const workflow = currentRevenantWorkflow
         if(!workflow || workflowCancelInFlight) return
-        workflowCancelInFlight = true
+        workflowCancellationIds = [...workflowCancellationIds, workflow.workflowId]
         const workflowBelongsToCurrentChat =
             currentCharacter?.chaId === workflow.characterId
             && currentChatSlot?.id === workflow.roomId
@@ -823,7 +971,9 @@ import { isMobile } from 'src/ts/platform'
             }
         }
         finally{
-            workflowCancelInFlight = false
+            workflowCancellationIds = workflowCancellationIds.filter(
+                workflowId => workflowId !== workflow.workflowId
+            )
         }
     }
 
@@ -1318,7 +1468,7 @@ import { isMobile } from 'src/ts/platform'
                     <Maximize2 />
                 </button>
 
-                {#if $doingChat || doingChatInputTranslate || currentRevenantWorkflow}
+                {#if currentRoomHasMainGeneration || doingChatInputTranslate}
                     <button
                             aria-labelledby="cancel"
                             disabled={workflowCancelInFlight}

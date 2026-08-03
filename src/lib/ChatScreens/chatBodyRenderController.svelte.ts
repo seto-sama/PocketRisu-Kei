@@ -30,10 +30,13 @@ export function createChatBodyRenderController(
     let lastTranslationPending: boolean | null = null
     let disposed = false
     const renderAbortController = new AbortController()
-    const translationAbortControllers = new Set<AbortController>()
+    const translationAbortControllers = new Map<AbortController, {
+        persistOnDispose: boolean
+    }>()
 
-    function cancelTranslations() {
-        for (const controller of translationAbortControllers) {
+    function cancelTranslations(includePersistent = true) {
+        for (const [controller, task] of translationAbortControllers) {
+            if (!includePersistent && task.persistOnDispose) continue
             controller.abort()
         }
     }
@@ -111,14 +114,24 @@ export function createChatBodyRenderController(
             return await task(renderAbortController.signal)
         }
 
-        if (disposed) return await task(new AbortController().signal)
+        // Do not start new work after the body has gone away. LLM requests
+        // which were already started are handled separately in dispose() so
+        // they can finish and populate the translation cache.
+        if (disposed) renderAbortController.signal.throwIfAborted()
         const abortController = new AbortController()
-        translationAbortControllers.add(abortController)
+        translationAbortControllers.set(abortController, {
+            persistOnDispose: DBState.db.translatorType === 'llm',
+        })
         updateTranslationCanceller()
         activeTranslationTasks += 1
         onTranslationTaskChange(1)
         try {
-            return await task(abortController.signal)
+            const result = await task(abortController.signal)
+            // A persistent LLM request may finish after its chat body has been
+            // disposed so translateHTML can store the result. Stop before any
+            // detached Markdown/DOM rendering continues.
+            if (disposed) renderAbortController.signal.throwIfAborted()
+            return result
         }
         finally {
             translationAbortControllers.delete(abortController)
@@ -135,7 +148,11 @@ export function createChatBodyRenderController(
         if (disposed) return
         disposed = true
         renderAbortController.abort()
-        cancelTranslations()
+        // Navigating away should not turn an already-issued LLM translation
+        // into "Generation job aborted". Detached revenant jobs finish in the
+        // background and populate the cache; explicit user cancellation still
+        // calls cancelTranslations() with persistent tasks included.
+        cancelTranslations(false)
         translationAbortControllers.clear()
         updateTranslationCanceller()
         while (activeTranslationTasks > 0) {

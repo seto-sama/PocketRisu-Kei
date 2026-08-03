@@ -171,7 +171,80 @@ async function waitForParserCalls(expected: number) {
     }
 }
 
+async function waitForTranslationButtonState(target: HTMLElement, active: boolean) {
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline) {
+        const button = target.querySelector<HTMLButtonElement>('.button-icon-translate')
+        if (button?.classList.contains('text-primary') === active) {
+            // Cache-state publication is intentionally deferred by 10 ms.
+            // Require the state to survive that window so this catches a
+            // stale render cache undoing the user's click.
+            await new Promise(resolve => setTimeout(resolve, 30))
+            const settledButton = target.querySelector<HTMLButtonElement>('.button-icon-translate')
+            if (settledButton?.classList.contains('text-primary') === active) return settledButton
+        }
+        await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    return target.querySelector<HTMLButtonElement>('.button-icon-translate')
+}
+
 describe('Chat editing', () => {
+    it('keeps user translation toggles while retaining cached room restores', async () => {
+        DBState.db.translator = 'google'
+        DBState.db.translatorType = 'google'
+        DBState.db.legacyTranslation = false
+
+        const firstTarget = document.createElement('div')
+        document.body.appendChild(firstTarget)
+        const firstComponent = mount(Chat, {
+            target: firstTarget,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                isLastMemory: false,
+                renderCacheKey: 'room:message',
+            },
+        })
+        await waitForParserCalls(1)
+
+        firstTarget.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        const translatedButton = await waitForTranslationButtonState(firstTarget, true)
+        expect(translatedButton?.classList.contains('text-primary')).toBe(true)
+
+        translatedButton?.click()
+        const originalButton = await waitForTranslationButtonState(firstTarget, false)
+        expect(originalButton?.classList.contains('text-primary')).toBe(false)
+
+        originalButton?.click()
+        await waitForTranslationButtonState(firstTarget, true)
+        await unmount(firstComponent)
+        firstTarget.remove()
+
+        parserMocks.ParseMarkdown.mockClear()
+        const restoredTarget = document.createElement('div')
+        document.body.appendChild(restoredTarget)
+        const restoredComponent = mount(Chat, {
+            target: restoredTarget,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                isLastMemory: false,
+                renderCacheKey: 'room:message',
+            },
+        })
+        mountedComponents.push(restoredComponent)
+
+        const restoredButton = await waitForTranslationButtonState(restoredTarget, true)
+        expect(restoredButton?.classList.contains('text-primary')).toBe(true)
+        expect(parserMocks.ParseMarkdown).not.toHaveBeenCalled()
+    })
+
     it('enters the original-message editor after one edit click', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)

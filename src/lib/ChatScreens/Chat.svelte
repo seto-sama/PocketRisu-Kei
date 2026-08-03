@@ -17,7 +17,7 @@
     import { alertClear, alertConfirm, alertConfirmMulti, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { getLLMCache, setLLMCache } from "../../ts/translator/translator"
-    import { getCurrentCharacter, getCurrentChat, setCurrentChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
+    import { getCurrentCharacter, getCurrentChat, normalizeChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
     import AutoresizeArea from "../UI/GUI/TextAreaResizable.svelte"
@@ -418,6 +418,10 @@
         if(!currentChar){
             return
         }
+        const characterId = currentChar.chaId
+        const currentChat = getCurrentChat()
+        const roomId = currentChat?.id
+        if (!characterId || !roomId) return
 
         const target = event.target as HTMLElement
         const origin = target.closest('[risu-trigger], [risu-btn]')
@@ -432,7 +436,7 @@
         const triggerResult =
             triggerName ?
                 await runTrigger(currentChar, 'manual', {
-                    chat: getCurrentChat(),
+                    chat: currentChat,
                     manualName: triggerName,
                     triggerId: triggerId || undefined,
                 }) :
@@ -441,7 +445,13 @@
             null
 
         if(triggerResult) {
-            setCurrentChat(triggerResult.chat)
+            const targetCharacter = DBState.db.characters.find(character =>
+                character?.chaId === characterId)
+            const targetChatIndex = targetCharacter?.chats?.findIndex(chat =>
+                chat?.id === roomId) ?? -1
+            if (targetCharacter && targetChatIndex >= 0) {
+                targetCharacter.chats[targetChatIndex] = normalizeChat(triggerResult.chat)
+            }
             ReloadChatPointer.update((v) => {
                 v[idx] = (v[idx] ?? 0) + 1
                 return v

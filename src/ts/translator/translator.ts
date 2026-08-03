@@ -9,7 +9,7 @@ import {
 import { globalFetch } from "../globalApi.svelte"
 import { notifyError } from "../alert"
 import { requestChatData } from "../process/request/request"
-import { doingChat, type OpenAIChat } from "../process/index.svelte"
+import { type OpenAIChat } from "../process/index.svelte"
 import { applyMarkdownToNode, type simpleCharacterArgument } from "../parser/parser.svelte"
 import { selectedCharID } from "../stores.svelte"
 import { clearPersistentPrefix, listPersistentKeys, makeHashedStorageKey, readPersistentJson, readPersistentJsonBatch, removePersistentKey, writePersistentJson } from "../storage/persistentKv"
@@ -421,14 +421,6 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
         }
     }
     let db = getDatabase()
-    let DoingChat = get(doingChat)
-    if(DoingChat){
-        if(isExpTranslator()){
-            if(!(db.translatorType === 'llm' && await getLLMCache(html) !== null)){
-                return html
-            }
-        }
-    }
     if(db.translatorType === 'llm'){
         const tr = db.translator || 'en'
         const from = db.translatorInputLanguage

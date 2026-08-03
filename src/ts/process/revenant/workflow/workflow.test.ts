@@ -147,6 +147,29 @@ describe('revenant workflow resume checkpoint', () => {
 })
 
 describe('active workflow client state', () => {
+    it('tracks one active main workflow independently for each room', async () => {
+        const first = workflowWithMetadata()
+        const second = {
+            ...workflowWithMetadata(),
+            workflowId: 'workflow-2',
+            roomId: 'room-2',
+        }
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: first }), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: second }), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: null }), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: null }), { status: 200 }))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await getActiveRevenantWorkflow('character-1', 'room-1')
+        await getActiveRevenantWorkflow('character-1', 'room-2')
+        expect(get(activeRevenantWorkflows)).toEqual([first, second])
+
+        await getActiveRevenantWorkflow('character-1', 'room-1')
+        await getActiveRevenantWorkflow('character-1', 'room-2')
+        expect(get(activeRevenantWorkflows)).toEqual([])
+    })
+
     it('authenticates workflow job mutations without a browser ownership lease', async () => {
         const workflow = workflowWithMetadata()
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(

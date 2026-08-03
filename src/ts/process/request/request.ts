@@ -87,6 +87,10 @@ export interface requestDataArgument{
     revenantOperationContext?:RevenantOperationContext
     revenantDispatchPolicy?:import('../revenant').RevenantDispatchPolicy
     revenantWorkflowDependency?:import('../revenant').RevenantWorkflowDependency
+    /** Room captured when the request was submitted; stable across UI navigation. */
+    revenantRoomId?:string
+    /** Continuation prefix captured from that same room. */
+    revenantContinuationPrefix?:string
     onRevenantJobCreated?:(jobId:string) => void
     onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
     onRevenantProviderStarted?:(startedAt:number) => void
@@ -426,28 +430,57 @@ export async function requestModelPresetData(
 }
 
 
-async function requestEchoPreset(preset: ModelPreset, abortSignal: AbortSignal | null): Promise<requestDataResponse> {
+async function requestEchoPreset(
+    arg: RequestDataArgumentExtended,
+    preset: ModelPreset,
+    abortSignal: AbortSignal | null,
+): Promise<requestDataResponse> {
     const rawDelay = preset.userValues?.echoDelay
     const delay = typeof rawDelay === 'number' ? rawDelay : 0
     const rawMessage = preset.userValues?.echoMessage
     const message = typeof rawMessage === 'string' ? rawMessage : "Echo Message"
 
-    if(delay > 0){
-        await sleep(delay * 1000)
-    }
-
-    if(abortSignal?.aborted){
+    arg.revenantAdapterKind = 'echo'
+    arg.revenantStreaming = false
+    try {
+        const response = await makeModelTransportFetch(arg, preset)(
+            'https://echo.invalid/v1/chat/completions',
+            {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    message,
+                    delayMs: Math.max(0, delay * 1000),
+                    model: preset.name,
+                }),
+                signal: abortSignal ?? undefined,
+            },
+        )
+        const body = await response.json() as {
+            choices?: Array<{ message?: { content?: unknown } }>
+            error?: { message?: unknown }
+        }
+        if (!response.ok) {
+            return {
+                type: 'fail',
+                result: String(body.error?.message ?? `Echo request failed (${response.status})`),
+                model: preset.name,
+            }
+        }
         return {
-            type: 'fail',
-            result: 'Aborted',
+            type: 'success',
+            result: String(body.choices?.[0]?.message?.content ?? ''),
             model: preset.name,
         }
     }
-
-    return {
-        type: 'success',
-        result: message,
-        model: preset.name,
+    catch (error) {
+        return {
+            type: 'fail',
+            result: abortSignal?.aborted
+                ? 'Aborted'
+                : error instanceof Error ? error.message : String(error),
+            model: preset.name,
+        }
     }
 }
 
@@ -926,7 +959,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                 model: preset.name,
             }
         }
-        return requestEchoPreset(preset, abortSignal)
+        return requestEchoPreset(arg, preset, abortSignal)
     }
     // HTTP streaming adapters expose their ReadableStream before the lazy
     // async generator reaches fetchNative. Track the durable-registration

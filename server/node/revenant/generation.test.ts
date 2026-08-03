@@ -356,7 +356,10 @@ describe('revenant workflow validation', () => {
             { ...workflowContext, postprocess: { ...workflowContext.postprocess, providerBackend: 'echo' } },
             'character-1',
             'room-1',
-        )).toBeUndefined()
+        )).toEqual({
+            ...workflowContext,
+            postprocess: { ...workflowContext.postprocess, providerBackend: 'echo' },
+        })
         expect(normalizeRevenantWorkflowContext(
             {
                 ...workflowContext,

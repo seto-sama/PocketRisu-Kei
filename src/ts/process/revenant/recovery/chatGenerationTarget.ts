@@ -17,6 +17,23 @@ export interface GenerationMessageTargetOptions {
 }
 
 /**
+ * Updates a generated message without losing reroll swipe state. Reroll
+ * placeholders keep the in-progress branch in their selected swipe, so every
+ * streamed/non-streamed content update must update both views atomically.
+ */
+export function setGenerationMessageContent(message: Message, content: string): void {
+    message.data = content
+    if (
+        Array.isArray(message.swipes)
+        && Number.isInteger(message.swipeId)
+        && (message.swipeId as number) >= 0
+        && (message.swipeId as number) < message.swipes.length
+    ) {
+        message.swipes[message.swipeId as number] = content
+    }
+}
+
+/**
  * Finds the transient assistant message by its stable id. A remote chat refresh
  * can replace the entire message array while generation is in progress, so a
  * numeric index captured before an await/stream read is never safe to reuse.
