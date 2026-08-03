@@ -1,4 +1,4 @@
-import type { RevenantJobStatus } from './types'
+import type { RevenantJobStatus } from '../types'
 
 export const MAIN_JOB_REGISTRATION_GRACE_MS = 5000
 

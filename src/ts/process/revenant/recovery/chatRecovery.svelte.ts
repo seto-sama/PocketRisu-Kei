@@ -1,34 +1,34 @@
 import { tick } from 'svelte'
-import { safeStructuredClone } from '../../polyfill'
+import { safeStructuredClone } from '../../../polyfill'
 import {
     type Chat,
     type Message,
     type character,
-} from '../../storage/database.svelte'
-import { DBState, ReloadChatPointer } from '../../stores.svelte'
-import { saveChatToServer } from '../../storage/chatStorage'
-import { abortStatusesForChat, endStatus, startStatus, type RequestKind } from '../../status/requestStatus'
-import { recoverHypaV3SummaryJobs } from '../memory/hypav3'
-import { recoverRevenantLuaJobsForChat } from '../scriptings'
+} from '../../../storage/database.svelte'
+import { DBState, ReloadChatPointer } from '../../../stores.svelte'
+import { saveChatToServer } from '../../../storage/chatStorage'
+import { abortStatusesForChat, endStatus, startStatus, type RequestKind } from '../../../status/requestStatus'
+import { recoverHypaV3SummaryJobs } from '../../memory/hypav3'
+import { recoverRevenantLuaJobsForChat } from '../../scriptings'
 import {
     listRecoverableAuxiliaryGenerations,
-} from './auxiliary'
+} from '../auxiliary'
 import {
     isRevenantGenerationLocallyObserved,
     listRecoverableGenerations,
     setRevenantGenerationLocallyObserved,
-} from './client'
+} from '../transport/client'
 import {
     readRecoverableGenerationContent,
     subscribeRecoverableGeneration,
-} from './stream'
+} from '../transport/stream'
 import {
     isRevenantJobActive,
     type RecoverableAuxiliaryJob,
     type RecoverableGenerationJob,
     type RevenantRerollSnapshot,
     type RevenantWorkflow,
-} from './types'
+} from '../types'
 import {
     finishRevenantWorkflow,
     getActiveRevenantWorkflow,
@@ -36,9 +36,9 @@ import {
     getRevenantWorkflowResumeContext,
     type RevenantWorkflowResumeContext,
     updateRevenantWorkflowStep,
-} from './workflow'
+} from '../workflow/workflow'
 import { commitCancelledGenerationProjection } from './chatCancellation'
-import { serviceRevenantClientActions } from './clientActions.svelte'
+import { serviceRevenantClientActions } from '../workflow/clientActions.svelte'
 import {
     clientActionRecoveryMode,
     mainRecoveryStatusAction,

@@ -1,6 +1,6 @@
-import { safeStructuredClone } from '../../polyfill'
-import type { Chat, Message } from '../../storage/database.svelte'
-import type { RevenantRerollSnapshot } from './types'
+import { safeStructuredClone } from '../../../polyfill'
+import type { Chat, Message } from '../../../storage/database.svelte'
+import type { RevenantRerollSnapshot } from '../types'
 
 export interface CancelledGenerationProjection {
     messageChatId: string

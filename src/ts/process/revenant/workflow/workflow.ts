@@ -2,7 +2,7 @@ import {
     createRevenantCancellationHeaders,
     createRevenantGenerationAuth,
     getRevenantGenerationSyncClientId,
-} from './client'
+} from '../transport/client'
 import { writable } from 'svelte/store'
 import type {
     RevenantOperationContext,
@@ -15,7 +15,7 @@ import type {
     RevenantWorkflowPlanStep,
     RevenantWorkflowStatus,
     RevenantWorkflowStepStatus,
-} from './types'
+} from '../types'
 
 const activeWorkflows = new Map<string, RevenantWorkflow>()
 export const activeRevenantWorkflows = writable<RevenantWorkflow[]>([])

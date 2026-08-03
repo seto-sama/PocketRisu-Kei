@@ -1,4 +1,4 @@
-import { consumeRecoverableAuxiliaryGeneration } from './auxiliary'
+import { consumeRecoverableAuxiliaryGeneration } from '../auxiliary'
 
 export async function consumeRevenantAuxiliaryResults(jobIds: Iterable<string>): Promise<void> {
     await Promise.all(

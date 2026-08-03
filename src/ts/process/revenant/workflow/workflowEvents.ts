@@ -1,4 +1,4 @@
-import type { RevenantWorkflowStatus } from './types'
+import type { RevenantWorkflowStatus } from '../types'
 
 export interface RevenantWorkflowUpdateEvent {
     workflowId: string

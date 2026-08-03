@@ -3,7 +3,7 @@ import {
     formatProxyStreamErrorMessage,
     parseProxyJobWsEvent,
     trimProxyJobWsReplay,
-} from '../../network/proxyJobWs'
+} from '../../../network/proxyJobWs'
 
 export interface RevenantJournalSocketOptions {
     jobId: string

@@ -1,12 +1,12 @@
 import { createSubscriber } from 'svelte/reactivity'
-import { DBState, selIdState } from '../../stores.svelte'
+import { DBState, selIdState } from '../../../stores.svelte'
 import {
     acknowledgeRecoverableTranslation,
     getRecoverableTranslationCacheKeyForTarget,
     isRecoverableTranslationSnapshotLoaded,
     subscribeRecoverableTranslations,
-} from './auxiliary'
-import type { RevenantChatMessageTranslationTarget } from './types'
+} from '../auxiliary'
+import type { RevenantChatMessageTranslationTarget } from '../types'
 import {
     recoverRevenantTranslationJobs,
     type RevenantTranslationCache,

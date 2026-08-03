@@ -4,7 +4,7 @@ import {
     isRevenantGenerationLocallyObserved,
     setRevenantGenerationLocallyObserved,
     trackRevenantGenerationWorkflow,
-} from './client'
+} from './transport/client'
 import {
     isRevenantJobActive,
     isRevenantTranslationOperation,
@@ -12,7 +12,7 @@ import {
     type RevenantOperationContext,
     type RecoverableAuxiliaryJob,
 } from './types'
-import { readRecoverableGenerationContent } from './stream'
+import { readRecoverableGenerationContent } from './transport/stream'
 
 let auxiliaryGenerationListCache: {
     at: number

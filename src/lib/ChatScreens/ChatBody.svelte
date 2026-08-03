@@ -8,7 +8,7 @@
     import { getCurrentCharacter } from "src/ts/storage/database.svelte";
     import { getFileSrc } from "src/ts/globalApi.svelte";
     import { createChatBodyRenderController, translationLoadingHTML } from "./chatBodyRenderController.svelte";
-    import type { RevenantChatTranslationRecovery, RevenantChatTranslationRecoverySnapshot } from "src/ts/process/revenant/chatTranslationRecovery.svelte";
+    import type { RevenantChatTranslationRecovery, RevenantChatTranslationRecoverySnapshot } from "src/ts/process/revenant/recovery";
     import { getLLMTranslationCacheRevision } from "src/ts/translator/translator";
     import { getChatBodyRenderCache, setChatBodyRenderCache, waitForChatBodyRenderCacheCommit } from "./chatBodyRenderCache";
 

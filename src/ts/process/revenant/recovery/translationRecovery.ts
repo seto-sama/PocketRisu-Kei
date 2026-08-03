@@ -2,14 +2,14 @@ import {
     consumeRecoverableAuxiliaryGeneration,
     listRecoverableAuxiliaryGenerations,
     resolveRecoverableAuxiliaryGeneration,
-} from './auxiliary'
+} from '../auxiliary'
 import {
     createRevenantOperation,
     isRevenantTranslationOperation,
     type RecoverableAuxiliaryJob,
     type RevenantChatMessageTranslationTarget,
     type RevenantTranslationOperation,
-} from './types'
+} from '../types'
 
 export interface RevenantTranslationCache {
     get: (key: string) => Promise<string | null>

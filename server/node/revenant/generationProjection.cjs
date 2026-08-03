@@ -18,6 +18,7 @@ const {
     'ts',
     'process',
     'revenant',
+    'transport',
     'journalDecoder.ts',
 ));
 

@@ -21,8 +21,8 @@ import {
     completeRevenantTranslation,
     prepareRevenantTranslationRequest,
     recoverRevenantTranslationJobs,
-} from '../process/revenant/translationRecovery'
-import type { RevenantChatMessageTranslationTarget } from '../process/revenant/types'
+} from '../process/revenant/recovery'
+import type { RevenantChatMessageTranslationTarget } from '../process/revenant'
 
 let cache={
     origin: [''],

@@ -1,6 +1,6 @@
-import { registerCBS, type RegisterCallback } from '../../cbs'
-import type { Chat, character } from '../../storage/database.svelte'
-import type { RevenantPostprocessRecipe } from './types'
+import { registerCBS, type RegisterCallback } from '../../../cbs'
+import type { Chat, character } from '../../../storage/database.svelte'
+import type { RevenantPostprocessRecipe } from '../types'
 
 type TemplateState = {
     recipe: RevenantPostprocessRecipe

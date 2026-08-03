@@ -1,7 +1,7 @@
 import type {
     RevenantGenerationMetadata,
     RecoverableGenerationJob,
-} from './types'
+} from '../types'
 
 interface RevenantGenerationClientDependencies {
     createAuth: () => Promise<string>

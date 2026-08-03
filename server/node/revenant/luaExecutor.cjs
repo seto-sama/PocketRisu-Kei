@@ -13,10 +13,10 @@ const {
 
 require('sucrase/register/ts');
 const { wrapRevenantLua } = require(path.join(
-    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'luaWrapper.ts',
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'postprocess', 'luaWrapper.ts',
 ));
 const { renderRevenantTemplate } = require(path.join(
-    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'headlessParser.ts',
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'postprocess', 'headlessParser.ts',
 ));
 const { invokeLuaMode, registerLuaCoreApis, registerLuaEffectApis } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'luaCore.ts',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { RevenantPostprocessRecipe } from './types'
+import type { RevenantPostprocessRecipe } from '../types'
 import { runRevenantOutputTransform } from './postprocess'
 
 function recipe(): RevenantPostprocessRecipe {

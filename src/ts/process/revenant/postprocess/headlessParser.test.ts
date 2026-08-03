@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { RevenantPostprocessRecipe } from './types'
+import type { RevenantPostprocessRecipe } from '../types'
 import { renderRevenantTemplate } from './headlessParser'
 
 function recipe(): RevenantPostprocessRecipe {

@@ -2,33 +2,33 @@ import {
     parseAmazonBedrockResponse,
     parseAmazonBedrockStreamEvent,
     parseAwsEventStream,
-} from '../../preset/adapter/amazonBedrock'
+} from '../../../preset/adapter/amazonBedrock'
 import {
     parseAnthropicMessage,
     parseAnthropicStreamDelta,
-} from '../../preset/adapter/anthropicMessages'
+} from '../../../preset/adapter/anthropicMessages'
 import {
     parseGeminiResponse,
     parseGeminiStreamDelta,
-} from '../../preset/adapter/googleGemini'
+} from '../../../preset/adapter/googleGemini'
 import {
     parseRecoveredChatCompletion,
     parseRecoveredChatStreamDelta,
-} from '../../preset/adapter/openaiCompatible'
+} from '../../../preset/adapter/openaiCompatible'
 import {
     parseResponsesResponse,
     parseResponsesStreamEvent,
-} from '../../preset/adapter/openaiResponses'
-import { parseSseStream } from '../../preset/adapter/sse'
+} from '../../../preset/adapter/openaiResponses'
+import { parseSseStream } from '../../../preset/adapter/sse'
 import type {
     AdapterChatResponse,
     AdapterChatStreamDelta,
     AdapterReasoningPart,
-} from '../../preset/adapter/types'
+} from '../../../preset/adapter/types'
 import type {
     RecoverableAuxiliaryJob,
     RecoverableGenerationJob,
-} from './types'
+} from '../types'
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 

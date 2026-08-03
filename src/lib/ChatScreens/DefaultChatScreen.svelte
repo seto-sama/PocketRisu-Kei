@@ -30,9 +30,9 @@ import { isMobile } from 'src/ts/platform'
     import AssetInput from './AssetInput.svelte';
     import { scrollWithinContainer } from './scrollWithin';
     import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile } from 'src/ts/globalApi.svelte';
-    import { isRevenantGenerationLocallyObserved } from 'src/ts/process/revenant/client';
+    import { isRevenantGenerationLocallyObserved } from 'src/ts/process/revenant/transport';
     import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenant/auxiliary';
-    import type { RevenantRerollSnapshot } from 'src/ts/process/revenant/types';
+    import type { RevenantRerollSnapshot } from 'src/ts/process/revenant';
     import { runTrigger } from 'src/ts/process/triggers';
     import { v4 } from 'uuid';
     import { processMultiCommand } from 'src/ts/process/command';
@@ -45,14 +45,12 @@ import { isMobile } from 'src/ts/platform'
         cancelRevenantWorkflow,
         getActiveRevenantWorkflow,
         getRevenantWorkflow,
+        subscribeRevenantWorkflowSyncReady,
+        subscribeRevenantWorkflowUpdates,
     } from 'src/ts/process/revenant/workflow';
     import {
         clearRevenantRecoveryForChat,
-    } from 'src/ts/process/revenant/chatRecovery.svelte';
-    import {
-        subscribeRevenantWorkflowSyncReady,
-        subscribeRevenantWorkflowUpdates,
-    } from 'src/ts/process/revenant/workflowEvents';
+    } from 'src/ts/process/revenant/recovery';
 
     import Chats from './Chats.svelte';
     import PartialEditManager from './PartialEditManager.svelte';

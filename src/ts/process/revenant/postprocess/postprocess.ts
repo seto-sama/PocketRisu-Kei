@@ -1,6 +1,6 @@
-import type { Chat, customscript } from '../../storage/database.svelte'
+import type { Chat, customscript } from '../../../storage/database.svelte'
 import { renderRevenantTemplate } from './headlessParser'
-import type { RevenantPostprocessRecipe } from './types'
+import type { RevenantPostprocessRecipe } from '../types'
 
 export type RevenantForegroundEffect =
     | { kind: 'emotion', name: string }

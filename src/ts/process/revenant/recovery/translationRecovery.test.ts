@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { revenantTranslationTargetsMatch } from './auxiliary'
+import { revenantTranslationTargetsMatch } from '../auxiliary'
 import { prepareRevenantTranslationRequest } from './translationRecovery'
-import type { RevenantChatMessageTranslationTarget } from './types'
+import type { RevenantChatMessageTranslationTarget } from '../types'
 
 const target: RevenantChatMessageTranslationTarget = {
     kind: 'chat-message',

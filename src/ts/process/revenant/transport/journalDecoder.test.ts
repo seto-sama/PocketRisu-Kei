@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { decodeRevenantGenerationJournal } from './journalDecoder'
-import type { RecoverableGenerationJob } from './types'
+import type { RecoverableGenerationJob } from '../types'
 
 function streamText(...parts: string[]): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder()

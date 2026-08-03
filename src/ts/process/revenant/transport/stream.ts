@@ -13,7 +13,7 @@ import type {
     RecoverableAuxiliaryJob,
     RecoverableGenerationJob,
     RevenantGenerationRequest,
-} from './types'
+} from '../types'
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
 

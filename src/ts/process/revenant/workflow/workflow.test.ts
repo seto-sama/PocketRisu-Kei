@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
-import type { RevenantWorkflow } from './types'
+import type { RevenantWorkflow } from '../types'
 import {
     activeRevenantWorkflows,
     cancelRevenantWorkflow,
@@ -15,7 +15,7 @@ import {
     configureRevenantGenerationClient,
     createRevenantJobMutationHeaders,
     trackRevenantGenerationWorkflow,
-} from './client'
+} from '../transport/client'
 
 function workflowWithMetadata(metadata?: Record<string, unknown>): RevenantWorkflow {
     return {

@@ -1,11 +1,11 @@
-import { safeStructuredClone } from '../../polyfill'
+import { safeStructuredClone } from '../../../polyfill'
 import type {
     Chat,
     Message,
     MessageGenerationInfo,
     MessagePresetInfo,
-} from '../../storage/database.svelte'
-import type { RevenantRerollSnapshot } from './types'
+} from '../../../storage/database.svelte'
+import type { RevenantRerollSnapshot } from '../types'
 
 export interface GenerationMessageTargetOptions {
     messageChatId: string

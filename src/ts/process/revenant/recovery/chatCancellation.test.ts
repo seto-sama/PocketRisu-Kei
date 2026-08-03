@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Chat, Message } from '../../storage/database.svelte'
+import type { Chat, Message } from '../../../storage/database.svelte'
 import { commitCancelledGenerationProjection } from './chatCancellation'
 
 function chat(message: Message[]): Chat {
