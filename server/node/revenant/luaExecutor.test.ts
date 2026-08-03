@@ -18,6 +18,27 @@ function recipe(backend = 'http') {
 }
 
 describe('revenant headless Lua executor', () => {
+    it('uses the shared mode dispatcher for input, start, and button callbacks', async () => {
+        const code = `
+            function onInput(id) setChatVar(id, 'mode', 'input') end
+            function onStart(id) setChatVar(id, 'mode', 'start') end
+            function onButtonClick(id, value) setChatVar(id, 'mode', value) end
+        `
+        const input = await executeRevenantLua({
+            code, mode: 'input', data: '', recipe: recipe(), chat: recipe().chat,
+        })
+        const start = await executeRevenantLua({
+            code, mode: 'start', data: '', recipe: recipe(), chat: recipe().chat,
+        })
+        const button = await executeRevenantLua({
+            code, mode: 'onButtonClick', data: 'button', recipe: recipe(), chat: recipe().chat,
+        })
+
+        expect(input.chat.scriptstate).toEqual({ $mode: 'input' })
+        expect(start.chat.scriptstate).toEqual({ $mode: 'start' })
+        expect(button.chat.scriptstate).toEqual({ $mode: 'button' })
+    })
+
     it('runs editOutput and output triggers once against an isolated chat', async () => {
         const code = `
             listenEdit('editOutput', function(id, value, meta) return value .. '-edited' end)

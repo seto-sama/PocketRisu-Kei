@@ -8,8 +8,8 @@ require('sucrase/register/ts');
 const { renderRevenantTemplate } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'headlessParser.ts',
 ));
-const { calculateExpression } = require(path.join(
-    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'calculate.ts',
+const { createTriggerV2Core } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerV2Core.ts',
 ));
 
 function triggerVar(chat, recipe, key) {
@@ -80,63 +80,12 @@ function actionResult(responses, actionId, action) {
     return { available: false, action: { schemaVersion: 1, actionId: key, ...action } };
 }
 
-function asArray(value) {
-    try {
-        const parsed = JSON.parse(String(value));
-        return Array.isArray(parsed) ? parsed : [];
-    }
-    catch { return []; }
-}
-
-function asObject(value) {
-    try {
-        const parsed = JSON.parse(String(value));
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    }
-    catch { return {}; }
-}
-
 function deterministicInteger(seed, min, max) {
     if (!Number.isFinite(min) || !Number.isFinite(max)) return 0;
     const low = Math.min(Math.trunc(min), Math.trunc(max));
     const high = Math.max(Math.trunc(min), Math.trunc(max));
     const value = crypto.createHash('sha256').update(seed).digest().readUInt32BE(0);
     return low + (value % (high - low + 1));
-}
-
-function compareV2(left, operator, right) {
-    switch (operator) {
-        case '=':
-            return !Number.isNaN(Number(left)) && !Number.isNaN(Number(right))
-                ? Number(left) === Number(right) : left === right;
-        case '!=':
-            return !Number.isNaN(Number(left)) && !Number.isNaN(Number(right))
-                ? Number(left) !== Number(right) : left !== right;
-        case '>': return Number(left) > Number(right);
-        case '<': return Number(left) < Number(right);
-        case '>=': return Number(left) >= Number(right);
-        case '<=': return Number(left) <= Number(right);
-        case '∈':
-            try { return asArray(right).includes(left); } catch { return false; }
-        case '∋':
-            try { return asArray(left).includes(right); } catch { return false; }
-        case '∉':
-            try { return !asArray(right).includes(left); } catch { return true; }
-        case '∌':
-            try { return !asArray(left).includes(right); } catch { return true; }
-        case '≒': {
-            const leftNumber = Number(left);
-            const rightNumber = Number(right);
-            return Number.isNaN(leftNumber) || Number.isNaN(rightNumber)
-                ? left.toLocaleLowerCase().replace(/ /g, '') === right.toLocaleLowerCase().replace(/ /g, '')
-                : Math.abs(leftNumber - rightNumber) < 0.0001;
-        }
-        case '≡':
-            if (right === 'true') return left === 'true' || left === '1';
-            if (right === 'false') return !(left === 'true' || left === '1');
-            return left === right;
-        default: return false;
-    }
 }
 
 async function executeRevenantOutputTriggers(options) {
@@ -189,7 +138,6 @@ async function executeRevenantOutputTriggers(options) {
         if (!passesConditions(trigger, { ...recipe, character, database }, chat)) continue;
         const effects = trigger.effect || [];
         const localScopes = {};
-        const loopCounts = {};
         const effectVisits = {};
         let currentIndent = 0;
         const getLocalVar = key => {
@@ -225,6 +173,28 @@ async function executeRevenantOutputTriggers(options) {
             return effect[typeField] === 'var' ? getVar(rendered) : rendered;
         };
         const outputVar = effect => render(effect.outputVar ?? effect.inputVar ?? '');
+        const coreChat = {};
+        Object.defineProperties(coreChat, {
+            id: { get: () => chat.id },
+            fmIndex: { get: () => chat.fmIndex },
+            note: { get: () => chat.note, set: value => { chat.note = value; } },
+            message: { get: () => chat.message, set: value => { chat.message = value; } },
+        });
+        const v2Core = createTriggerV2Core({
+            effects,
+            render,
+            getVar,
+            setVar,
+            declareLocal,
+            clearLocals,
+            chat: coreChat,
+            character,
+            globalVar: key => database.globalChatVariables?.[key] ?? 'null',
+            randomInteger: (minimum, maximum, effectIndex, visit) => deterministicInteger([
+                recipe.messageChatId || chat.id || '', triggerIndex, effectIndex,
+                visit, minimum, maximum,
+            ].join(':'), minimum, maximum),
+        });
 
         for (let effectIndex = 0; effectIndex < effects.length; effectIndex++) {
             const effect = effects[effectIndex];
@@ -236,6 +206,14 @@ async function executeRevenantOutputTriggers(options) {
                 throw new Error(`Trigger loop limit exceeded at effect ${effectIndex}`);
             }
             try {
+                const coreStep = v2Core.step(effectIndex);
+                if (coreStep.handled) {
+                    effectIndex = coreStep.nextIndex;
+                    if (coreStep.stop) break;
+                    continue;
+                }
+                // Revenant effect adapter: only delegated or legacy effects reach
+                // this switch; pure v2 execution stays in triggerV2Core.ts.
                 switch (effect.type) {
                     case 'triggercode':
                         // JavaScript triggercode is intentionally not executed on the server.
@@ -282,84 +260,6 @@ async function executeRevenantOutputTriggers(options) {
                         setVar(key, result);
                         break;
                     }
-                    case 'v2SetVar': {
-                        const key = render(effect.var);
-                        const value = read(effect);
-                        const parsedPrevious = Number(getVar(key));
-                        const previous = Number.isNaN(parsedPrevious) ? 0 : parsedPrevious;
-                        const operand = Number(value);
-                        const result = effect.operator === '+=' ? previous + operand
-                            : effect.operator === '-=' ? previous - operand
-                                : effect.operator === '*=' ? previous * operand
-                                    : effect.operator === '/=' ? previous / operand
-                                        : effect.operator === '%=' ? previous % operand
-                                            : value;
-                        setVar(key, result);
-                        break;
-                    }
-                    case 'v2Header':
-                    case 'v2Comment':
-                    case 'v2Loop':
-                    case 'v2LoopNTimes':
-                        break;
-                    case 'v2DeclareLocalVar':
-                        declareLocal(render(effect.var), read(effect), currentIndent);
-                        break;
-                    case 'v2If':
-                    case 'v2IfAdvanced': {
-                        const source = effect.type === 'v2If' || effect.sourceType === 'var'
-                            ? getVar(render(effect.source))
-                            : render(effect.source);
-                        const target = read(effect, 'target', 'targetType');
-                        if (!compareV2(String(source), effect.condition, String(target))) {
-                            const bodyIndent = currentIndent + 1;
-                            for (; effectIndex < effects.length; effectIndex++) {
-                                const candidate = effects[effectIndex];
-                                if (candidate?.type !== 'v2EndIndent' || candidate.indent !== bodyIndent) continue;
-                                const next = effects[effectIndex + 1];
-                                if (next?.type === 'v2Else' && next.indent === currentIndent) effectIndex += 1;
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                    case 'v2Else': {
-                        const bodyIndent = currentIndent + 1;
-                        for (; effectIndex < effects.length; effectIndex++) {
-                            const candidate = effects[effectIndex];
-                            if (candidate?.type === 'v2EndIndent' && candidate.indent === bodyIndent) break;
-                        }
-                        break;
-                    }
-                    case 'v2EndIndent': {
-                        if (effect.endOfLoop) {
-                            const loopIndent = currentIndent - 1;
-                            const endIndex = effectIndex;
-                            for (let index = effectIndex - 1; index >= 0; index--) {
-                                const candidate = effects[index];
-                                if (!['v2Loop', 'v2LoopNTimes'].includes(candidate?.type)
-                                    || candidate.indent !== loopIndent) continue;
-                                if (candidate.type === 'v2LoopNTimes') {
-                                    const limit = Number(read(candidate));
-                                    loopCounts[index] = (loopCounts[index] || 0) + 1;
-                                    if (!Number.isFinite(limit) || loopCounts[index] >= Math.max(0, limit)) {
-                                        effectIndex = endIndex;
-                                    }
-                                    else effectIndex = index;
-                                }
-                                else effectIndex = index;
-                                break;
-                            }
-                        }
-                        clearLocals(currentIndent);
-                        break;
-                    }
-                    case 'v2BreakLoop':
-                        for (; effectIndex < effects.length; effectIndex++) {
-                            const candidate = effects[effectIndex];
-                            if (candidate?.type === 'v2EndIndent' && candidate.endOfLoop) break;
-                        }
-                        break;
                     case 'v2ConsoleLog':
                         foregroundEffects.push({ kind: 'log', value: read(effect, 'source', 'sourceType') });
                         break;
@@ -450,26 +350,6 @@ async function executeRevenantOutputTriggers(options) {
                         if (!pending.available) return outcome('waiting_client', pending.action);
                         break;
                     }
-                    case 'v2CutChat': {
-                        const start = Number(read(effect, 'start', 'startType'));
-                        const end = Number(read(effect, 'end', 'endType'));
-                        chat.message = chat.message.slice(
-                            Number.isNaN(start) ? 0 : start,
-                            Number.isNaN(end) ? chat.message.length : end,
-                        );
-                        break;
-                    }
-                    case 'v2ModifyChat': {
-                        const index = Number(read(effect, 'index', 'indexType'));
-                        if (chat.message[index]) chat.message[index].data = read(effect);
-                        break;
-                    }
-                    case 'v2Impersonate':
-                        chat.message.push({
-                            role: effect.role === 'user' ? 'user' : 'char',
-                            data: read(effect),
-                        });
-                        break;
                     case 'v2Command': {
                         const pending = waitFor(
                             `${effectActionPrefix}.ui.command`,
@@ -574,331 +454,6 @@ async function executeRevenantOutputTriggers(options) {
                         );
                         if (!pending.available) return outcome('waiting_client', pending.action);
                         setVar(outputVar(effect), pending.value);
-                        break;
-                    }
-                    case 'v2ExtractRegex': {
-                        const source = read(effect);
-                        const pattern = read(effect, 'regex', 'regexType');
-                        const flags = read(effect, 'flags', 'flagsType');
-                        const format = read(effect, 'result', 'resultType');
-                        const match = new RegExp(pattern, flags).exec(source);
-                        const result = format
-                            .replace(/\$([0-9]+)/g, (_whole, index) => match?.[Number(index)] || '')
-                            .replace(/\$&/g, match?.[0] || '')
-                            .replace(/\$\$/g, '$');
-                        setVar(outputVar(effect), result);
-                        break;
-                    }
-                    case 'v2RegexTest': {
-                        let matched = false;
-                        try {
-                            matched = new RegExp(
-                                read(effect, 'regex', 'regexType'),
-                                read(effect, 'flags', 'flagsType'),
-                            ).test(read(effect));
-                        }
-                        catch { /* Invalid patterns are false, matching the browser executor. */ }
-                        setVar(outputVar(effect), matched ? '1' : '0');
-                        break;
-                    }
-                    case 'v2ReplaceString': {
-                        const source = read(effect, 'source', 'sourceType');
-                        try {
-                            const format = read(effect, 'result', 'resultType');
-                            const replacement = read(effect, 'replacement', 'replacementType');
-                            const regex = new RegExp(
-                                read(effect, 'regex', 'regexType'),
-                                read(effect, 'flags', 'flagsType'),
-                            );
-                            const result = source.replace(regex, (...args) => {
-                                const match = args[0];
-                                const groups = args.slice(1, -2);
-                                const target = format.match(/^\$(\d+)$/);
-                                if (target) {
-                                    const index = Number(target[1]);
-                                    if (index === 0) return replacement;
-                                    if (groups[index - 1]) return match.replace(groups[index - 1], replacement);
-                                }
-                                return format
-                                    .replace(/\$([0-9]+)/g, (_whole, index) => (
-                                        Number(index) === 0 ? match : groups[Number(index) - 1] || ''
-                                    ))
-                                    .replace(/\$&/g, match)
-                                    .replace(/\$\$/g, '$');
-                            });
-                            setVar(outputVar(effect), result);
-                        }
-                        catch { setVar(outputVar(effect), source); }
-                        break;
-                    }
-                    case 'v2Random': {
-                        const minimum = Number(read(effect, 'min', 'minType'));
-                        const maximum = Number(read(effect, 'max', 'maxType'));
-                        const seed = [
-                            recipe.messageChatId || chat.id || '', triggerIndex, effectIndex,
-                            effectVisits[effectIndex], minimum, maximum,
-                        ].join(':');
-                        setVar(outputVar(effect), deterministicInteger(seed, minimum, maximum));
-                        break;
-                    }
-                    case 'v2GetLastMessage':
-                        setVar(outputVar(effect), chat.message.at(-1)?.data ?? 'null');
-                        break;
-                    case 'v2GetMessageAtIndex':
-                        setVar(
-                            outputVar(effect),
-                            chat.message[Number(read(effect, 'index', 'indexType'))]?.data ?? 'null',
-                        );
-                        break;
-                    case 'v2GetMessageCount':
-                        setVar(outputVar(effect), chat.message.length);
-                        break;
-                    case 'v2GetLastUserMessage':
-                        setVar(
-                            outputVar(effect),
-                            chat.message.findLast(message => message?.role === 'user')?.data ?? 'null',
-                        );
-                        break;
-                    case 'v2GetLastCharMessage':
-                        setVar(
-                            outputVar(effect),
-                            chat.message.findLast(message => message?.role === 'char')?.data ?? 'null',
-                        );
-                        break;
-                    case 'v2GetFirstMessage':
-                        setVar(
-                            outputVar(effect),
-                            chat.fmIndex === -1
-                                ? character.firstMessage ?? ''
-                                : character.alternateGreetings?.[chat.fmIndex] ?? character.firstMessage ?? '',
-                        );
-                        break;
-                    case 'v2GetCharAt':
-                        setVar(
-                            outputVar(effect),
-                            read(effect, 'source', 'sourceType')[Number(read(effect, 'index', 'indexType'))]
-                                ?? 'null',
-                        );
-                        break;
-                    case 'v2GetCharCount':
-                        setVar(outputVar(effect), read(effect, 'source', 'sourceType').length);
-                        break;
-                    case 'v2ToLowerCase':
-                        setVar(outputVar(effect), read(effect, 'source', 'sourceType').toLocaleLowerCase());
-                        break;
-                    case 'v2ToUpperCase':
-                        setVar(outputVar(effect), read(effect, 'source', 'sourceType').toLocaleUpperCase());
-                        break;
-                    case 'v2SetCharAt': {
-                        const source = [...read(effect, 'source', 'sourceType')];
-                        source[Number(read(effect, 'index', 'indexType'))] = read(effect);
-                        setVar(outputVar(effect), source.join(''));
-                        break;
-                    }
-                    case 'v2ConcatString':
-                        setVar(
-                            outputVar(effect),
-                            read(effect, 'source1', 'source1Type')
-                                + read(effect, 'source2', 'source2Type'),
-                        );
-                        break;
-                    case 'v2QuickSearchChat': {
-                        const value = read(effect);
-                        const depth = Number(read(effect, 'depth', 'depthType'));
-                        const source = chat.message
-                            .slice(Number.isNaN(depth) ? 0 : -Math.max(0, depth))
-                            .map(message => message?.data || '').join(' ');
-                        let found = false;
-                        if (effect.condition === 'strict') found = source.split(' ').includes(value);
-                        else if (effect.condition === 'regex') found = new RegExp(value).test(source);
-                        else found = source.toLocaleLowerCase().includes(value.toLocaleLowerCase());
-                        setVar(outputVar(effect), found ? '1' : '0');
-                        break;
-                    }
-                    case 'v2GetAuthorNote':
-                        setVar(outputVar(effect), chat.note ?? '');
-                        break;
-                    case 'v2SetAuthorNote':
-                        chat.note = read(effect);
-                        break;
-                    case 'v2SplitString': {
-                        const source = read(effect, 'source', 'sourceType');
-                        const delimiter = read(effect, 'delimiter', 'delimiterType');
-                        if (effect.delimiterType !== 'regex') {
-                            setVar(outputVar(effect), JSON.stringify(source.split(delimiter)));
-                            break;
-                        }
-                        try {
-                            const literal = delimiter.match(/^\/(.+)\/([gimuy]*)$/);
-                            const regex = literal
-                                ? new RegExp(literal[1], literal[2])
-                                : new RegExp(delimiter);
-                            setVar(outputVar(effect), JSON.stringify(source.split(regex)));
-                        }
-                        catch { setVar(outputVar(effect), JSON.stringify([source])); }
-                        break;
-                    }
-                    case 'v2JoinArrayVar':
-                        setVar(
-                            outputVar(effect),
-                            asArray(read(effect, 'var', 'varType'))
-                                .join(read(effect, 'delimiter', 'delimiterType')),
-                        );
-                        break;
-                    case 'v2MakeArrayVar': {
-                        const key = render(effect.var);
-                        if (!key.startsWith('[') || !key.endsWith(']')) setVar(key, '[]');
-                        break;
-                    }
-                    case 'v2GetArrayVarLength':
-                        setVar(outputVar(effect), asArray(getVar(render(effect.var))).length);
-                        break;
-                    case 'v2GetArrayVar': {
-                        const array = asArray(getVar(render(effect.var)));
-                        setVar(
-                            outputVar(effect),
-                            array[Number(read(effect, 'index', 'indexType'))] ?? 'null',
-                        );
-                        break;
-                    }
-                    case 'v2SetArrayVar': {
-                        const key = render(effect.var);
-                        const array = asArray(getVar(key));
-                        const index = Number(read(effect, 'index', 'indexType'));
-                        if (!Number.isNaN(index)) {
-                            array[index] = read(effect);
-                            setVar(key, JSON.stringify(array));
-                        }
-                        break;
-                    }
-                    case 'v2PushArrayVar': {
-                        const key = render(effect.var);
-                        const array = asArray(getVar(key));
-                        array.push(read(effect));
-                        setVar(key, JSON.stringify(array));
-                        break;
-                    }
-                    case 'v2PopArrayVar': {
-                        const key = render(effect.var);
-                        const array = asArray(getVar(key));
-                        setVar(outputVar(effect), array.pop() ?? 'null');
-                        setVar(key, JSON.stringify(array));
-                        break;
-                    }
-                    case 'v2ShiftArrayVar': {
-                        const key = render(effect.var);
-                        const array = asArray(getVar(key));
-                        setVar(outputVar(effect), array.shift() ?? 'null');
-                        setVar(key, JSON.stringify(array));
-                        break;
-                    }
-                    case 'v2UnshiftArrayVar': {
-                        const key = render(effect.var);
-                        const array = asArray(getVar(key));
-                        array.unshift(read(effect));
-                        setVar(key, JSON.stringify(array));
-                        break;
-                    }
-                    case 'v2SpliceArrayVar': {
-                        const key = render(effect.var);
-                        const array = asArray(getVar(key));
-                        array.splice(Number(read(effect, 'start', 'startType')) || 0, 0, read(effect, 'item', 'itemType'));
-                        setVar(key, JSON.stringify(array));
-                        break;
-                    }
-                    case 'v2SliceArrayVar':
-                        setVar(
-                            outputVar(effect),
-                            JSON.stringify(asArray(getVar(render(effect.var))).slice(
-                                Number(read(effect, 'start', 'startType')) || 0,
-                                Number(read(effect, 'end', 'endType')) || 0,
-                            )),
-                        );
-                        break;
-                    case 'v2GetIndexOfValueInArrayVar':
-                        setVar(
-                            outputVar(effect),
-                            asArray(getVar(render(effect.var))).indexOf(read(effect)),
-                        );
-                        break;
-                    case 'v2RemoveIndexFromArrayVar': {
-                        const key = render(effect.var);
-                        const array = asArray(getVar(key));
-                        array.splice(Number(read(effect, 'index', 'indexType')) || 0, 1);
-                        setVar(key, JSON.stringify(array));
-                        break;
-                    }
-                    case 'v2MakeDictVar': {
-                        const key = render(effect.var);
-                        if (!key.startsWith('{') || !key.endsWith('}')) setVar(key, '{}');
-                        break;
-                    }
-                    case 'v2GetDictVar': {
-                        const dictionary = asObject(read(effect, 'var', 'varType'));
-                        setVar(outputVar(effect), dictionary[read(effect, 'key', 'keyType')] ?? 'null');
-                        break;
-                    }
-                    case 'v2SetDictVar': {
-                        if (effect.varType === 'value') break;
-                        const key = render(effect.var);
-                        const dictionary = asObject(getVar(key));
-                        dictionary[read(effect, 'key', 'keyType')] = read(effect);
-                        setVar(key, JSON.stringify(dictionary));
-                        break;
-                    }
-                    case 'v2DeleteDictKey': {
-                        if (effect.varType === 'value') break;
-                        const key = render(effect.var);
-                        const dictionary = asObject(getVar(key));
-                        delete dictionary[read(effect, 'key', 'keyType')];
-                        setVar(key, JSON.stringify(dictionary));
-                        break;
-                    }
-                    case 'v2HasDictKey':
-                        setVar(
-                            outputVar(effect),
-                            Object.hasOwn(
-                                asObject(read(effect, 'var', 'varType')),
-                                read(effect, 'key', 'keyType'),
-                            ) ? '1' : '0',
-                        );
-                        break;
-                    case 'v2ClearDict': {
-                        const key = render(effect.var);
-                        if (!key.startsWith('{') || !key.endsWith('}')) setVar(key, '{}');
-                        break;
-                    }
-                    case 'v2GetDictSize':
-                        setVar(
-                            outputVar(effect),
-                            Object.keys(asObject(read(effect, 'var', 'varType'))).length,
-                        );
-                        break;
-                    case 'v2GetDictKeys':
-                        setVar(
-                            outputVar(effect),
-                            JSON.stringify(Object.keys(asObject(read(effect, 'var', 'varType')))),
-                        );
-                        break;
-                    case 'v2GetDictValues':
-                        setVar(
-                            outputVar(effect),
-                            JSON.stringify(Object.values(asObject(read(effect, 'var', 'varType')))),
-                        );
-                        break;
-                    case 'v2Calculate': {
-                        let expression = read(effect, 'expression', 'expressionType');
-                        expression = expression.replace(/\$([a-zA-Z0-9_]+)/g, (_whole, key) => {
-                            const value = Number.parseFloat(getVar(key));
-                            return Number.isNaN(value) ? '0' : String(value);
-                        });
-                        try {
-                            setVar(outputVar(effect), calculateExpression(expression, {
-                                chat: getVar,
-                                global: key => database.globalChatVariables?.[key] ?? 'null',
-                            }));
-                        }
-                        catch { setVar(outputVar(effect), '0'); }
                         break;
                     }
                     case 'v2GetCharacterDesc':
@@ -1090,9 +645,6 @@ async function executeRevenantOutputTriggers(options) {
                     case 'v2GetRequestStateLength':
                         // The browser executor stops a trigger when a mode-specific
                         // state operation is encountered in the wrong mode.
-                        effectIndex = effects.length;
-                        break;
-                    case 'v2StopTrigger':
                         effectIndex = effects.length;
                         break;
                     case 'stop':

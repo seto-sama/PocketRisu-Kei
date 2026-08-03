@@ -12,6 +12,9 @@ const { wrapRevenantLua } = require(path.join(
 const { renderRevenantTemplate } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'headlessParser.ts',
 ));
+const { invokeLuaMode, registerLuaCoreApis } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'luaCore.ts',
+));
 
 const WAITING_CLIENT_PREFIX = 'RISU_REVENANT_WAITING_CLIENT:';
 let factoryPromise;
@@ -41,10 +44,6 @@ function parseWaitingClientError(error) {
     const encoded = message.slice(offset + WAITING_CLIENT_PREFIX.length).split(/\s/)[0];
     try { return JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')); }
     catch { return undefined; }
-}
-
-function normalizeRole(role) {
-    return role === 'user' ? 'user' : 'char';
 }
 
 async function executeRevenantLua(options) {
@@ -91,48 +90,31 @@ async function executeRevenantLua(options) {
     const engine = await factory.createEngine({ injectObjects: true, functionTimeout: 5000 });
     const declare = (name, fn) => engine.global.set(name, fn);
 
-    declare('getChatVar', (_id, key) => chatVar(key));
-    declare('setChatVar', (_id, key, value) => setChatVar(key, value));
-    declare('getGlobalVar', (_id, key) => String(recipe.database.globalChatVariables?.[key] ?? 'null'));
-    declare('stopChat', () => { stopped = true; });
+    registerLuaCoreApis(declare, () => ({
+        canSetVariable: () => true,
+        canMutate: () => true,
+        getChat: () => chat,
+        getCharacter: () => recipe.character,
+        getVar: chatVar,
+        setVar: setChatVar,
+        getGlobalVar: key => String(recipe.database.globalChatVariables?.[key] ?? 'null'),
+        stop: () => { stopped = true; },
+        render: value => renderRevenantTemplate(value, recipe, chat).text,
+        markCharacterMutation: (field, value) => {
+            mutations.character ||= {};
+            mutations.character[field] = value;
+        },
+    }));
+
     declare('alertError', (_id, value) => { foregroundEffects.push({ kind: 'alert', level: 'error', message: String(value) }); });
     declare('alertNormal', (_id, value) => { foregroundEffects.push({ kind: 'alert', level: 'normal', message: String(value) }); });
     declare('alertInput', (_id, value) => requireLowLevel() ? action('ui.input', { message: String(value) }) : '');
     declare('alertSelect', (_id, values) => requireLowLevel() ? action('ui.select', { options: [...values] }) : '');
     declare('alertConfirm', (_id, value) => requireLowLevel() ? action('ui.confirm', { message: String(value) }) : false);
-    declare('getChatMain', (_id, index) => {
-        const message = chat.message.at(Number(index));
-        return JSON.stringify(message ? { role: message.role, data: message.data, time: message.time ?? 0 } : null);
-    });
-    declare('setChat', (_id, index, value) => {
-        const message = chat.message.at(Number(index));
-        if (message) message.data = String(value);
-    });
-    declare('setChatRole', (_id, index, role) => {
-        const message = chat.message.at(Number(index));
-        if (message) message.role = normalizeRole(role);
-    });
-    declare('cutChat', (_id, start, end) => { chat.message = chat.message.slice(Number(start), Number(end)); });
-    declare('removeChat', (_id, index) => { chat.message.splice(Number(index), 1); });
-    declare('addChat', (_id, role, value) => { chat.message.push({ role: normalizeRole(role), data: String(value) }); });
-    declare('insertChat', (_id, index, role, value) => {
-        chat.message.splice(Number(index), 0, { role: normalizeRole(role), data: String(value) });
-    });
-    declare('getChatLength', () => chat.message.length);
     declare('getTokens', async (_id, value) => action(
         'utility.tokenize', { text: String(value) },
     ));
-    declare('getFullChatMain', () => JSON.stringify(chat.message.map(message => ({
-        role: message.role, data: message.data, time: message.time ?? 0,
-    }))));
-    declare('setFullChatMain', (_id, value) => {
-        const messages = JSON.parse(String(value));
-        if (Array.isArray(messages)) chat.message = messages.map(message => ({
-            role: normalizeRole(message?.role), data: String(message?.data ?? ''), time: message?.time,
-        }));
-    });
     declare('sleep', async (_id, time) => new Promise(resolve => setTimeout(resolve, Math.min(5000, Math.max(0, Number(time) || 0)))));
-    declare('cbs', value => renderRevenantTemplate(String(value), recipe, chat).text);
     declare('logMain', value => { foregroundEffects.push({ kind: 'log', value: String(value) }); });
     declare('reloadDisplay', () => { foregroundEffects.push({ kind: 'reload.display' }); });
     declare('reloadChat', (_id, index) => {
@@ -184,45 +166,10 @@ async function executeRevenantLua(options) {
         : '');
     declare('getCharacterImageMain', async () => action('asset.character-image', {}));
     declare('getPersonaImageMain', async () => action('asset.persona-image', {}));
-    declare('getName', () => recipe.character.name ?? '');
-    declare('setName', (_id, name) => {
-        recipe.character.name = String(name);
-        mutations.character ||= {};
-        mutations.character.name = recipe.character.name;
-    });
-    declare('getDescription', () => recipe.character.desc ?? '');
-    declare('setDescription', (_id, value) => {
-        recipe.character.desc = String(value);
-        mutations.character ||= {};
-        mutations.character.desc = recipe.character.desc;
-    });
     declare('getPersonaName', () => recipe.database.username ?? 'User');
     declare('getPersonaDescription', () => renderRevenantTemplate(
         recipe.database.personaPrompt ?? '', recipe, chat,
     ).text);
-    declare('getCharacterFirstMessage', () => recipe.character.firstMessage ?? '');
-    declare('setCharacterFirstMessage', (_id, value) => {
-        recipe.character.firstMessage = String(value);
-        mutations.character ||= {};
-        mutations.character.firstMessage = recipe.character.firstMessage;
-        return true;
-    });
-    declare('getCharacterLastMessage', () => (
-        chat.message.findLast(message => message?.role === 'char')?.data
-        ?? recipe.character.firstMessage
-        ?? ''
-    ));
-    declare('getUserLastMessage', () => (
-        chat.message.findLast(message => message?.role === 'user')?.data ?? ''
-    ));
-    declare('getAuthorsNote', () => chat.note ?? '');
-    declare('getBackgroundEmbedding', () => recipe.character.backgroundHTML ?? '');
-    declare('setBackgroundEmbedding', (_id, value) => {
-        recipe.character.backgroundHTML = String(value);
-        mutations.character ||= {};
-        mutations.character.backgroundHTML = recipe.character.backgroundHTML;
-        return true;
-    });
     declare('getLoreBooksMain', (_id, search) => {
         const sources = [
             chat.localLore || [],
@@ -261,17 +208,9 @@ async function executeRevenantLua(options) {
 
     try {
         await engine.doString(wrapRevenantLua(code));
-        if (mode === 'editOutput') {
-            const listener = engine.global.get('callListenMain');
-            if (listener) data = JSON.parse(await listener(mode, accessKey, JSON.stringify(data), JSON.stringify(meta)));
-        }
-        else {
-            const callback = engine.global.get(mode === 'output' ? 'onOutput' : mode);
-            if (callback) {
-                const result = await callback(accessKey);
-                if (result === false) stopped = true;
-            }
-        }
+        const invoked = await invokeLuaMode(engine.global, mode, accessKey, data, meta);
+        data = invoked.data;
+        if (invoked.result === false) stopped = true;
         return {
             status: 'completed', data, chat, stopped, foregroundEffects,
             ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
