@@ -59,12 +59,14 @@ export function getChatBodyRenderCache(
     key: string,
     sourceData: string,
     translationCacheRevision: number,
+    expectedTranslated?: boolean,
 ): ChatBodyRenderCacheEntry | null {
     const entry = cache.get(key)
     if (
         !entry
         || entry.sourceData !== sourceData
         || entry.translationCacheRevision !== translationCacheRevision
+        || (expectedTranslated !== undefined && entry.translated !== expectedTranslated)
     ) return null
     cache.delete(key)
     cache.set(key, entry)

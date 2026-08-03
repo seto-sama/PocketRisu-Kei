@@ -96,6 +96,7 @@
         recoverySnapshot: RevenantChatTranslationRecoverySnapshot
         role: string | null
         firstMessage: boolean
+        allowCachedTranslationStateRestore: boolean
     } | null = null
     let currentMarkParsingSettled = false
     let skipNextTranslatedRender:boolean|null = null
@@ -175,6 +176,7 @@
                 renderCacheKey,
                 data,
                 getLLMTranslationCacheRevision(),
+                requestContext?.allowCachedTranslationStateRestore ? undefined : translated,
             )
             : null
         if (persistentRender) {
@@ -473,6 +475,15 @@
         const charArg = character
         const chatId = idx
         const translatedState = translated
+        // A fresh body may restore both its HTML and translated state from the
+        // room cache. Once this body has rendered, or the requested state has
+        // changed while its first render is in flight, a mismatched cache entry
+        // must not undo the user's translation toggle.
+        const allowCachedTranslationStateRestore = completedRender === null
+            && (
+                currentMarkParsingRequest === null
+                || currentMarkParsingRequest.translated === translatedState
+            )
         const request = {
             data,
             charArg,
@@ -486,6 +497,7 @@
             recoverySnapshot: revenantTranslationRecoverySnapshot,
             role,
             firstMessage,
+            allowCachedTranslationStateRestore,
         }
         if (
             currentMarkParsingPromise

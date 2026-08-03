@@ -21,6 +21,21 @@ describe('chatBodyRenderCache', () => {
             .toBe('<p>translated</p>')
         expect(getChatBodyRenderCache('room:message', 'edited', 3)).toBeNull()
         expect(getChatBodyRenderCache('room:message', 'source', 4)).toBeNull()
+        expect(getChatBodyRenderCache('room:message', 'source', 3, true)?.html)
+            .toBe('<p>translated</p>')
+        expect(getChatBodyRenderCache('room:message', 'source', 3, false)).toBeNull()
+    })
+
+    it('can restore the last render state without constraining fresh mounts', () => {
+        setChatBodyRenderCache('room:message', {
+            sourceData: 'source',
+            html: '<p>translated</p>',
+            translated: true,
+            translationCacheKey: 'translation-key',
+            translationCacheRevision: 3,
+        })
+
+        expect(getChatBodyRenderCache('room:message', 'source', 3)?.translated).toBe(true)
     })
 
     it('replaces an older render for the same message', () => {
