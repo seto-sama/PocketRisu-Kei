@@ -11,22 +11,19 @@
     // as unknown. Edit/delete are allowed directly, guarded by confirm.
     import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
     import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
     import ShSelect from 'src/lib/UI/GUI/ShSelect.svelte'
     import OptionInput from 'src/lib/UI/GUI/OptionInput.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import {
         RefreshCwIcon,
         Trash2Icon,
-        PencilIcon,
-        AlignLeftIcon,
-        SaveIcon,
     } from '@lucide/svelte'
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert'
     import { getDatabase } from 'src/ts/storage/database.svelte'
     import { SafeLocalStorage, SafeLocalPluginStorage } from 'src/ts/plugins/pluginSafeClass'
     import { getOwners, removeOwner } from 'src/ts/plugins/pluginStorageMeta'
     import { language } from 'src/lang'
+    import { showPopupEditor } from 'src/ts/stores.svelte'
 
     type BackendId = 'save' | 'local' | 'idb'
 
@@ -66,12 +63,6 @@
     let searchQuery = $state('')
     let ownerFilter = $state('')   // '' = all; UNKNOWN = no recorded origin; else plugin name
     let filtersOpen = $state(false)
-
-    let detailOpen = $state(false)
-    let selected = $state<Entry | null>(null)
-    let editing = $state(false)
-    let editText = $state('')
-    let saving = $state(false)
 
     const filtered = $derived.by(() => {
         const query = searchQuery.trim().toLowerCase()
@@ -243,30 +234,22 @@
         }
     }
 
-    function openDetail(entry: Entry) {
-        selected = entry
-        editing = false
-        editText = prettyPrint(entry.str)
-        detailOpen = true
+    function openEditor(entry: Entry) {
+        showPopupEditor({
+            value: prettyPrint(entry.str),
+            title: entry.key,
+            formatJson: true,
+            metadata: [
+                { label: language.pluginStorageMetaType, value: entry.type },
+                { label: language.pluginStorageMetaSize, value: formatSize(entry.size) },
+                { label: language.pluginStorageMetaChars, value: entry.str.length.toLocaleString() },
+                { label: language.pluginStorageOwner, value: entry.owner ?? language.pluginStorageOwnerUnknown },
+            ],
+            onSave: (editText) => saveEdit(entry, editText),
+        })
     }
 
-    function startEdit() {
-        if (!selected) return
-        editText = prettyPrint(selected.str)
-        editing = true
-    }
-
-    function formatJson() {
-        try {
-            editText = JSON.stringify(JSON.parse(editText), null, 2)
-        } catch (e) {
-            notifyError(language.pluginStorageJsonError(e instanceof Error ? e.message : String(e)))
-        }
-    }
-
-    async function saveEdit() {
-        if (!selected) return
-        saving = true
+    async function saveEdit(entry: Entry, editText: string): Promise<boolean> {
         try {
             let saveValue: unknown
             if (backend === 'local') {
@@ -283,17 +266,14 @@
                     saveValue = editText
                 }
             }
-            await backendSet(selected.key, saveValue)
-            const savedKey = selected.key
+            await backendSet(entry.key, saveValue)
+            const savedKey = entry.key
             await load()
-            selected = entries.find((e) => e.key === savedKey) ?? null
-            editing = false
-            if (!selected) detailOpen = false
             notifySuccess(language.pluginStorageSaved(savedKey))
+            return true
         } catch (e) {
             notifyError(e instanceof Error ? e.message : String(e))
-        } finally {
-            saving = false
+            return false
         }
     }
 
@@ -305,7 +285,6 @@
         if (!ok) return
         try {
             await backendRemove(entry.key)
-            if (selected?.key === entry.key) detailOpen = false
             await load()
             notifySuccess(language.pluginStorageDeleted)
         } catch (e) {
@@ -339,7 +318,6 @@
             } else {
                 for (const e of targets) await backendRemove(e.key)
             }
-            detailOpen = false
             await load()
             notifySuccess(language.pluginStorageBulkDeleted(targets.length))
         } catch (e) {
@@ -426,8 +404,8 @@
     {:else}
         {#each displayed as entry (entry.key)}
             <SettingLayout variant="item" interactive
-                onclick={() => openDetail(entry)}
-                onkeydown={(e) => { if (e.key === 'Enter') openDetail(entry) }}
+                onclick={() => openEditor(entry)}
+                onkeydown={(e) => { if (e.key === 'Enter') openEditor(entry) }}
             >
                 <div class="flex flex-1 min-w-0 flex-col gap-1">
                     <span class="font-mono text-sm text-textcolor truncate" title={entry.key}>{entry.key}</span>
@@ -450,55 +428,3 @@
         {/each}
     {/if}
 </SettingLayout>
-
-<!-- Detail / edit dialog -->
-<ShDialog bind:open={detailOpen} size="xl" tier="base">
-    {#snippet title()}
-        <span class="font-mono break-all">{selected?.key ?? ''}</span>
-    {/snippet}
-    {#if selected}
-        <div class="flex flex-wrap gap-x-6 gap-y-1 text-xs mb-3">
-            <span class="text-textcolor2">{language.pluginStorageMetaType}: <span class="text-textcolor font-mono">{selected.type}</span></span>
-            <span class="text-textcolor2">{language.pluginStorageMetaSize}: <span class="text-textcolor font-mono">{formatSize(selected.size)}</span></span>
-            <span class="text-textcolor2">{language.pluginStorageMetaChars}: <span class="text-textcolor font-mono">{selected.str.length.toLocaleString()}</span></span>
-            <span class="text-textcolor2">{language.pluginStorageOwner}: <span class="text-textcolor font-mono">{selected.owner ?? language.pluginStorageOwnerUnknown}</span></span>
-        </div>
-
-        {#if editing}
-            <textarea
-                bind:value={editText}
-                class="w-full h-[50vh] resize-none rounded-md border border-darkborderc bg-black/40 p-3 font-mono text-xs leading-relaxed text-textcolor outline-none focus-visible:border-borderc whitespace-pre"
-                spellcheck="false"
-            ></textarea>
-        {:else}
-            <pre class="w-full h-[50vh] overflow-auto rounded-md border border-darkborderc bg-black/40 p-3 font-mono text-xs leading-relaxed text-textcolor2 whitespace-pre-wrap break-all">{prettyPrint(selected.str)}</pre>
-        {/if}
-    {/if}
-    {#snippet footer()}
-        <div class="flex w-full justify-end gap-2">
-            {#if editing}
-                <ShButton variant="outline" onclick={formatJson} disabled={saving}>
-                    <AlignLeftIcon />
-                    {language.pluginStorageFormatJson}
-                </ShButton>
-                <ShButton variant="outline" onclick={() => (editing = false)} disabled={saving}>
-                    {language.cancel}
-                </ShButton>
-                <ShButton variant="primary" onclick={saveEdit} disabled={saving}>
-                    <SaveIcon />
-                    {language.pluginStorageSave}
-                </ShButton>
-            {:else}
-                <div class="flex w-full items-center justify-end gap-2">
-                    <ShButton variant="outline" onclick={() => (detailOpen = false)}>
-                        {language.cancel}
-                    </ShButton>
-                    <ShButton variant="primary" onclick={startEdit}>
-                        <PencilIcon />
-                        {language.edit}
-                    </ShButton>
-                </div>
-            {/if}
-        </div>
-    {/snippet}
-</ShDialog>

@@ -5,21 +5,20 @@
     import LoreBookList from "src/lib/SideBars/LoreBook/LoreBookList.svelte";
     import { type CCLorebook, convertExternalLorebook } from "src/ts/process/lorebook.svelte";
     import type { RisuModule } from "src/ts/process/modules";
-    import { DownloadIcon, FolderPlusIcon, HardDriveUploadIcon, PencilIcon, PlusIcon, TrashIcon } from "@lucide/svelte";
+    import { DownloadIcon, FolderPlusIcon, HardDriveUploadIcon, PencilIcon, PlusIcon } from "@lucide/svelte";
     import RegexList from "src/lib/SideBars/Scripts/RegexList.svelte";
     import TriggerList from "src/lib/SideBars/Scripts/TriggerList.svelte";
     import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
     import Help from "src/lib/Others/Help.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import { getFileSrc, saveAsset, downloadFile } from "src/ts/globalApi.svelte";
+    import { downloadFile } from "src/ts/globalApi.svelte";
     import { alertError, notifySuccess } from "src/ts/alert";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
     import { selectMultipleFile } from "src/ts/util";
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-    
-    import { DBState } from 'src/ts/stores.svelte';
-  import { v4 } from "uuid";
+    import AdditionalAssetsEditor from "src/lib/UI/AdditionalAssetsEditor.svelte";
+    import { v4 } from "uuid";
 
     let submenu = $state(0)
     let loreListEditMode = $state(false)
@@ -28,24 +27,6 @@
     }
 
     let { currentModule = $bindable() }: Props = $props();
-    let assetFileExtensions:string[] = $state([])
-    let assetFilePath:string[] = $state([])
-
-    $effect.pre(() => {
-        if(DBState.db.useAdditionalAssetsPreview){
-            if(currentModule?.assets){
-                for(let i = 0; i < currentModule.assets.length; i++){
-                    if(currentModule.assets[i].length > 2 && currentModule.assets[i][2]) {
-                        assetFileExtensions[i] = currentModule.assets[i][2]
-                    } else 
-                        assetFileExtensions[i] = currentModule.assets[i][1].split('.').pop()
-                        getFileSrc(currentModule.assets[i][1]).then((filePath) => {
-                        assetFilePath[i] = filePath
-                    })
-                }
-            }
-        }
-    });
 
     function addLorebook(){
         if(Array.isArray(currentModule.lorebook)){
@@ -261,67 +242,12 @@
 
 {#if submenu === 5 && (Array.isArray(currentModule.assets))}
     <span class="mb-2 flex items-center">{language.additionalAssets}<Help key="moduleAdditionalAssets" /></span>
-    <div class="w-full max-w-full border border-selected rounded-md p-2">
-        <table class="contain w-full max-w-full tabler mt-2">
-            <tbody>
-            <tr>
-                <th class="font-medium">{language.value}</th>
-                <th class="font-medium cursor-pointer w-10">
-                    <button class="hover:text-primary" onclick={async () => {
-                        const da = await selectMultipleFile(['png', 'webp', 'mp4', 'mp3', 'gif', 'jpeg', 'jpg', 'ttf', 'otf', 'css', 'webm', 'woff', 'woff2', 'svg', 'avif'])
-                        currentModule.assets = currentModule.assets ?? []
-                        if(!da){
-                            return
-                        }
-                        for(const f of da){
-                            const img = f.data
-                            const name = f.name
-                            const extension = name.split('.').pop().toLowerCase()
-                            const imgp = await saveAsset(img,'', extension)
-                            currentModule.assets.push([name, imgp, extension])
-                            currentModule.assets = currentModule.assets
-                        }
-                    }}>
-                        <PlusIcon />
-                    </button>
-                </th>
-            </tr>
-            {#if (!currentModule.assets) || currentModule.assets.length === 0}
-                <tr>
-                    <td colspan="3">{language.noData}</td>
-                </tr>
-            {:else}
-                {#each currentModule.assets as assets, i}
-                    <tr>
-                        <td class="font-medium truncate">
-                            {#if assetFilePath[i] && DBState.db.useAdditionalAssetsPreview}
-                                {#if assetFileExtensions[i] === 'mp4'}
-                                <!-- svelte-ignore a11y_media_has_caption -->
-                                    <video controls class="mt-2 px-2 w-full m-1 rounded-md"><source src={assetFilePath[i]} type="video/mp4"></video>
-                                {:else if assetFileExtensions[i] === 'mp3'}
-                                    <audio controls class="mt-2 px-2 w-full h-16 m-1 rounded-md" loop><source src={assetFilePath[i]} type="audio/mpeg"></audio>
-                                {:else}
-                                    <img src={assetFilePath[i]} class="w-16 h-16 m-1 rounded-md" alt={assets[0]}/>
-                                {/if}
-                            {/if}
-                            <TextInput fullwidth marginBottom bind:value={currentModule.assets[i][0]} placeholder="..." />
-                        </td>
-                        
-                        <th class="font-medium cursor-pointer w-10">
-                            <button class="hover:text-red-400" onclick={() => {
-                                let additionalAssets = currentModule.assets
-                                additionalAssets.splice(i, 1)
-                                currentModule.assets = additionalAssets
-                            }}>
-                                <TrashIcon />
-                            </button>
-                        </th>
-                    </tr>
-                {/each}
-            {/if}
-            </tbody>
-        </table>
-    </div>
+    <AdditionalAssetsEditor
+        assets={currentModule.assets}
+        onChange={(assets) => {
+            currentModule.assets = assets
+        }}
+    />
 {/if}
 
 {#if submenu === 3 && (Array.isArray(currentModule.trigger))}

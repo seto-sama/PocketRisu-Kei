@@ -24,6 +24,7 @@
         closeOnEscape?: boolean;
         closeOnOutsideClick?: boolean;
         contentClass?: string;
+        bodyClass?: string;
         overlayClass?: string;
         onCloseAutoFocus?: (event: Event) => void;
         title?: Snippet;
@@ -47,6 +48,7 @@
         closeOnEscape = false,
         closeOnOutsideClick = true,
         contentClass = '',
+        bodyClass = '',
         overlayClass = '',
         onCloseAutoFocus,
         title,
@@ -121,7 +123,7 @@
             {/if}
 
             {#if children}
-                <div class="text-textcolor wrap-break-word">
+                <div class={cn('text-textcolor wrap-break-word', bodyClass)}>
                     {@render children()}
                 </div>
             {/if}

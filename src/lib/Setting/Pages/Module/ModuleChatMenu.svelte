@@ -2,7 +2,6 @@
     import { Waypoints } from "@lucide/svelte";
     import { language } from "src/lang";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { AddonSettingsTab, openAddonSettings } from "src/ts/routing";
@@ -124,6 +123,7 @@
     itemSearchTexts={DBState.db.modules.map((rmodule) => `${rmodule.name}\n${rmodule.description ?? ''}`)}
     searchPlaceholder={language.search}
     itemDragDataKey="moduleIndex"
+    readOnly
     bind:selectedFolder
     bind:searchQuery={moduleSearch}
     bind:visibleItemIndexes={visibleModuleIndexes}
@@ -142,6 +142,8 @@
         );
         void requestImmediateSave();
     }}
+    configure={openModuleSettings}
+    configureLabel={language.edit}
 >
     {#snippet itemContent(index)}
         {@const rmodule = DBState.db.modules[index]}
@@ -177,9 +179,6 @@
         {/if}
     {/snippet}
 
-    <div class="shrink-0 flex justify-start pt-2">
-        <ShButton variant="primary" size="sm" onclick={openModuleSettings}>{language.edit}</ShButton>
-    </div>
 </PresetPickerLayout>
 
 <style>

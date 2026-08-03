@@ -5,7 +5,6 @@
     
     import { DBState } from 'src/ts/stores.svelte';
     import Button from "src/lib/UI/GUI/Button.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
@@ -21,6 +20,8 @@
     import { getCharImage } from "src/ts/characters";
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import { openSettings, SettingsRoute } from "src/ts/routing";
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
@@ -29,13 +30,9 @@
     let mode = $state(0)
     let editModuleIndex = $state(-1)
     let moduleSearch = $state('')
-    let isDraggingModule = $state(false)
-    let draggedModuleIndex = $state(-1)
-    let dragOverModuleIndex = $state(-1)
-    let suppressModuleClick = $state(false)
     let charConversionMode = $state(false)
     let personaModuleTarget:RisuModule|null = $state(null)
-    let personaModuleDraft:string[] = $state([])
+    let personaModuleSelection:string[] = $state([])
     let personaFolder = $state('all')
     let personaSearch = $state('')
     let visiblePersonaIndexes = $state<number[]>([])
@@ -98,36 +95,39 @@
         personaModuleTarget = rmodule
         personaFolder = 'all'
         personaSearch = ''
-        personaModuleDraft = DBState.db.personas
+        personaModuleSelection = DBState.db.personas
             .map((persona) => persona.id)
             .filter((id): id is string => !!id && map[id]?.includes(rmodule.id))
     }
 
-    function setPersonaModuleDraft(personaId: string, checked: boolean) {
+    function setPersonaModuleSelection(personaId: string, checked: boolean) {
+        let next: string[]
         if (checked) {
-            if (!personaModuleDraft.includes(personaId)) {
-                personaModuleDraft = [...personaModuleDraft, personaId]
-            }
-            return
+            next = personaModuleSelection.includes(personaId)
+                ? personaModuleSelection
+                : [...personaModuleSelection, personaId]
+        } else {
+            next = personaModuleSelection.filter((id) => id !== personaId)
         }
-        personaModuleDraft = personaModuleDraft.filter((id) => id !== personaId)
+        personaModuleSelection = next
+        savePersonaModuleSelection(next)
     }
 
-    function togglePersonaModuleDraft(index: number) {
+    function togglePersonaModuleSelection(index: number) {
         const personaId = DBState.db.personas[index]?.id
         if (!personaId) return
-        setPersonaModuleDraft(personaId, !personaModuleDraft.includes(personaId))
+        setPersonaModuleSelection(personaId, !personaModuleSelection.includes(personaId))
     }
 
     function closePersonaModuleModal() {
         personaModuleTarget = null
-        personaModuleDraft = []
+        personaModuleSelection = []
     }
 
-    function savePersonaModuleModal() {
+    function savePersonaModuleSelection(selectedPersonaIds: string[]) {
         if (!personaModuleTarget) return
         const moduleId = personaModuleTarget.id
-        const selected = new Set(personaModuleDraft)
+        const selected = new Set(selectedPersonaIds)
         const map = {...getPersonaEnabledModules()}
         for (const persona of DBState.db.personas) {
             if (!persona.id) continue
@@ -145,63 +145,29 @@
             }
         }
         DBState.db.personaEnabledModules = map
+        void requestImmediateSave()
+    }
+
+    function openPersonaSettings() {
         closePersonaModuleModal()
-        notifySuccess(language.moduleUpdated)
+        openSettings(SettingsRoute.Persona)
     }
 
-    function moveModule(fromIndex: number, toIndex: number) {
+    function reorderModules(orderedIds: string[]) {
         const modules = DBState.db.modules
-        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= modules.length || toIndex > modules.length) return
+        const visibleById = new Map(visibleModules.map(({ rmodule }) => [rmodule.id, rmodule]))
+        const reorderedVisible = orderedIds
+            .map((id) => visibleById.get(id))
+            .filter((rmodule): rmodule is RisuModule => !!rmodule)
+        if (reorderedVisible.length !== orderedIds.length) return
 
-        const next = [...modules]
-        const [moved] = next.splice(fromIndex, 1)
-        if (!moved) return
-        const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
-        next.splice(adjustedToIndex, 0, moved)
-        DBState.db.modules = next
-    }
-
-    function startModuleDrag(index: number, e: DragEvent) {
-        e.stopPropagation()
-        const target = e.target as HTMLElement | null
-        if (target?.closest('[data-no-row-drag="true"]')) {
-            e.preventDefault()
-            return
-        }
-        isDraggingModule = true
-        draggedModuleIndex = index
-        dragOverModuleIndex = index
-        suppressModuleClick = true
-        e.dataTransfer?.setData('text/plain', 'module')
-        e.dataTransfer?.setData('moduleIndex', String(index))
-        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-    }
-
-    function updateModuleDragTarget(index: number, e: DragEvent) {
-        e.preventDefault()
-        e.stopPropagation()
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-        dragOverModuleIndex = e.clientY < rect.top + rect.height / 2 ? index : index + 1
-    }
-
-    function dropModule(e: DragEvent) {
-        e.preventDefault()
-        e.stopPropagation()
-        const kind = e.dataTransfer?.getData('text/plain')
-        if (kind !== 'module') return
-        const sourceIndex = Number(e.dataTransfer?.getData('moduleIndex') || draggedModuleIndex)
-        moveModule(sourceIndex, dragOverModuleIndex)
-        endModuleDrag()
-    }
-
-    function endModuleDrag() {
-        isDraggingModule = false
-        draggedModuleIndex = -1
-        dragOverModuleIndex = -1
-        setTimeout(() => {
-            suppressModuleClick = false
-        }, 0)
+        const visibleIds = new Set(orderedIds)
+        let visibleIndex = 0
+        DBState.db.modules = modules.map((rmodule) =>
+            visibleIds.has(rmodule.id)
+                ? reorderedVisible[visibleIndex++] ?? rmodule
+                : rmodule
+        )
     }
 
     onDestroy(() => {
@@ -251,7 +217,10 @@
         {/snippet}
     </SettingLayout>
 
-    <div class="contain w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto">
+    <ShSortableList
+        className="contain w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto"
+        onReorder={reorderModules}
+    >
         {#if managedModuleCount === 0}
             <div class="text-textcolor2 text-sm text-center py-8">{view === 'mcp' ? language.noData : language.noModules}</div>
         {:else}
@@ -259,36 +228,18 @@
                 <div class="text-textcolor2 text-sm text-center py-8">{language.noData}</div>
             {/if}
             {#each visibleModules as { rmodule, index } (rmodule.id)}
-                <div
-                    class="h-1 rounded-full transition-colors"
-                    class:bg-primary={isDraggingModule && dragOverModuleIndex === index}
-                    class:bg-transparent={!isDraggingModule || dragOverModuleIndex !== index}
-                    role="presentation"
-                    ondragover={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-                        dragOverModuleIndex = index
-                    }}
-                    ondrop={dropModule}
-                ></div>
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
-                    class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors text-left cursor-grab active:cursor-grabbing"
-                    class:opacity-50={isDraggingModule && draggedModuleIndex === index}
-                    draggable="true"
+                    data-sortable-key={rmodule.id}
+                    class="mt-2 flex items-center text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors text-left cursor-grab active:cursor-grabbing"
                     role="button"
                     tabindex="0"
                     onclick={() => {
-                        if (suppressModuleClick || rmodule.mcp) return
+                        if (rmodule.mcp) return
                         tempModule = rmodule
                         editModuleIndex = index
                         mode = 2
                     }}
-                    ondragstart={(e) => startModuleDrag(index, e)}
-                    ondragend={endModuleDrag}
-                    ondragover={(e) => updateModuleDragTarget(index, e)}
-                    ondrop={dropModule}
                 >
                     <div class="flex flex-col min-w-0 grow">
                         <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
@@ -299,7 +250,7 @@
                         </span>
                         <span class="text-xs text-textcolor2 truncate">{rmodule.description || 'No description provided'}</span>
                     </div>
-                    <IconButtonGroup size="default" className="shrink-0 ml-2" data-no-row-drag="true">
+                    <IconButtonGroup size="default" className="no-sort shrink-0 ml-2">
                         {#if charConversionMode}
                             <IconButton
                                 className="text-scoped"
@@ -388,21 +339,8 @@
                     </IconButtonGroup>
                 </div>
             {/each}
-            <div
-                class="h-1 rounded-full transition-colors"
-                class:bg-primary={isDraggingModule && dragOverModuleIndex === DBState.db.modules.length}
-                class:bg-transparent={!isDraggingModule || dragOverModuleIndex !== DBState.db.modules.length}
-                role="presentation"
-                ondragover={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-                    dragOverModuleIndex = DBState.db.modules.length
-                }}
-                ondrop={dropModule}
-            ></div>
         {/if}
-    </div>
+    </ShSortableList>
 
     {#if personaModuleTarget}
         <PresetPickerLayout
@@ -413,14 +351,14 @@
             itemNames={DBState.db.personas.map(persona => persona.name ?? '')}
             itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
             searchPlaceholder={language.personaSearch}
-            manageFolders={false}
+            readOnly
             itemDragDataKey="personaModuleIndex"
             bind:selectedFolder={personaFolder}
             bind:searchQuery={personaSearch}
             bind:visibleItemIndexes={visiblePersonaIndexes}
             bind:emptyMessage={emptyPersonaMessage}
             close={closePersonaModuleModal}
-            onSelectItem={togglePersonaModuleDraft}
+            onSelectItem={togglePersonaModuleSelection}
             onFoldersChange={(next) => {
                 DBState.db.personaFolders = next
                 void requestImmediateSave()
@@ -438,6 +376,8 @@
                 )
                 void requestImmediateSave()
             }}
+            configure={openPersonaSettings}
+            configureLabel={language.edit}
         >
             {#snippet itemContent(index)}
                 {@const persona = DBState.db.personas[index]}
@@ -453,15 +393,10 @@
                     {#if persona.note}<span class="text-textcolor2"> / {persona.note}</span>{/if}
                 </div>
                 <ShSwitch
-                    checked={!!persona.id && personaModuleDraft.includes(persona.id)}
+                    checked={!!persona.id && personaModuleSelection.includes(persona.id)}
                     className="mr-1"
                 />
             {/snippet}
-
-            <div class="flex justify-end gap-2 pt-2">
-                <ShButton variant="outline" onclick={closePersonaModuleModal}>{language.cancel}</ShButton>
-                <ShButton variant="primary" onclick={savePersonaModuleModal}>{language.confirm}</ShButton>
-            </div>
         </PresetPickerLayout>
     {/if}
 
