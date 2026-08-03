@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { LuaFactory } = require('wasmoon');
 
 require('sucrase/register/ts');
@@ -58,13 +59,17 @@ async function executeRevenantLua(options) {
     let data = options.data;
     let chat = structuredClone(options.chat || recipe.chat);
     const foregroundEffects = [];
+    const mutations = {};
     const lowLevelAccess = options.lowLevelAccess ?? recipe.character?.lowLevelAccess === true;
     let stopped = false;
     let callIndex = 0;
     const accessKey = 'revenant-server';
     const requireLowLevel = () => lowLevelAccess;
     const action = (kind, payload) => {
-        const actionId = `${actionNamespace}.${kind}:${callIndex++}`;
+        const rawActionId = `${actionNamespace}.${kind}:${callIndex++}`;
+        const actionId = rawActionId.length <= 128
+            ? rawActionId
+            : `${rawActionId.slice(0, 94)}.${crypto.createHash('sha256').update(rawActionId).digest('hex').slice(0, 32)}`;
         if (Object.prototype.hasOwnProperty.call(responses, actionId)) return responses[actionId];
         throw waitingClientError({
             schemaVersion: 1,
@@ -77,6 +82,10 @@ async function executeRevenantLua(options) {
     const setChatVar = (key, value) => {
         chat.scriptstate ||= {};
         chat.scriptstate[`$${key}`] = String(value);
+    };
+    const providerFor = mode => recipe.auxProviders?.[mode] || {
+        backend: recipe.providerBackend,
+        modelPreset: recipe.modelPreset,
     };
     const factory = await getFactory();
     const engine = await factory.createEngine({ injectObjects: true, functionTimeout: 5000 });
@@ -110,6 +119,9 @@ async function executeRevenantLua(options) {
         chat.message.splice(Number(index), 0, { role: normalizeRole(role), data: String(value) });
     });
     declare('getChatLength', () => chat.message.length);
+    declare('getTokens', async (_id, value) => action(
+        'utility.tokenize', { text: String(value) },
+    ));
     declare('getFullChatMain', () => JSON.stringify(chat.message.map(message => ({
         role: message.role, data: message.data, time: message.time ?? 0,
     }))));
@@ -123,12 +135,21 @@ async function executeRevenantLua(options) {
     declare('cbs', value => renderRevenantTemplate(String(value), recipe, chat).text);
     declare('logMain', value => { foregroundEffects.push({ kind: 'log', value: String(value) }); });
     declare('reloadDisplay', () => { foregroundEffects.push({ kind: 'reload.display' }); });
-    declare('reloadChat', () => { foregroundEffects.push({ kind: 'reload.chat' }); });
+    declare('reloadChat', (_id, index) => {
+        foregroundEffects.push({ kind: 'reload.chat', index: Number(index) || 0 });
+    });
+    declare('similarity', async (_id, source, values) => requireLowLevel()
+        ? action('utility.similarity-list', {
+            source: String(source),
+            values: values ? [...values].map(String) : [],
+        })
+        : []);
     declare('LLMMain', async (_id, prompt, useMultimodal, llmOptions) => {
         if (!requireLowLevel()) return JSON.stringify({ success: false, result: 'Low-level access is disabled' });
+        const provider = providerFor('model');
         const result = action('provider.llm', {
-            backend: recipe.providerBackend,
-            modelPreset: recipe.modelPreset,
+            backend: provider.backend,
+            modelPreset: provider.modelPreset,
             prompt: JSON.parse(String(prompt)),
             useMultimodal: useMultimodal === true,
             options: llmOptions ? JSON.parse(String(llmOptions)) : {},
@@ -137,9 +158,10 @@ async function executeRevenantLua(options) {
     });
     declare('axLLMMain', async (_id, prompt, useMultimodal, llmOptions) => {
         if (!requireLowLevel()) return JSON.stringify({ success: false, result: 'Low-level access is disabled' });
+        const provider = providerFor('otherAx');
         const result = action('provider.axllm', {
-            backend: recipe.providerBackend,
-            modelPreset: recipe.modelPreset,
+            backend: provider.backend,
+            modelPreset: provider.modelPreset,
             prompt: JSON.parse(String(prompt)),
             useMultimodal: useMultimodal === true,
             options: llmOptions ? JSON.parse(String(llmOptions)) : {},
@@ -163,14 +185,79 @@ async function executeRevenantLua(options) {
     declare('getCharacterImageMain', async () => action('asset.character-image', {}));
     declare('getPersonaImageMain', async () => action('asset.persona-image', {}));
     declare('getName', () => recipe.character.name ?? '');
-    declare('setName', (_id, name) => { recipe.character.name = String(name); });
+    declare('setName', (_id, name) => {
+        recipe.character.name = String(name);
+        mutations.character ||= {};
+        mutations.character.name = recipe.character.name;
+    });
     declare('getDescription', () => recipe.character.desc ?? '');
-    declare('setDescription', (_id, value) => { recipe.character.desc = String(value); });
+    declare('setDescription', (_id, value) => {
+        recipe.character.desc = String(value);
+        mutations.character ||= {};
+        mutations.character.desc = recipe.character.desc;
+    });
     declare('getPersonaName', () => recipe.database.username ?? 'User');
-    declare('getPersonaDescription', () => recipe.database.personaPrompt ?? '');
-    declare('getLoreBooksMain', () => JSON.stringify((recipe.modules || []).flatMap(module => module?.lorebook || [])));
-    declare('loadLoreBooksMain', async () => JSON.stringify((recipe.modules || []).flatMap(module => module?.lorebook || [])));
-    declare('hash', async (_id, value) => require('crypto').createHash('sha256').update(String(value)).digest('hex'));
+    declare('getPersonaDescription', () => renderRevenantTemplate(
+        recipe.database.personaPrompt ?? '', recipe, chat,
+    ).text);
+    declare('getCharacterFirstMessage', () => recipe.character.firstMessage ?? '');
+    declare('setCharacterFirstMessage', (_id, value) => {
+        recipe.character.firstMessage = String(value);
+        mutations.character ||= {};
+        mutations.character.firstMessage = recipe.character.firstMessage;
+        return true;
+    });
+    declare('getCharacterLastMessage', () => (
+        chat.message.findLast(message => message?.role === 'char')?.data
+        ?? recipe.character.firstMessage
+        ?? ''
+    ));
+    declare('getUserLastMessage', () => (
+        chat.message.findLast(message => message?.role === 'user')?.data ?? ''
+    ));
+    declare('getAuthorsNote', () => chat.note ?? '');
+    declare('getBackgroundEmbedding', () => recipe.character.backgroundHTML ?? '');
+    declare('setBackgroundEmbedding', (_id, value) => {
+        recipe.character.backgroundHTML = String(value);
+        mutations.character ||= {};
+        mutations.character.backgroundHTML = recipe.character.backgroundHTML;
+        return true;
+    });
+    declare('getLoreBooksMain', (_id, search) => {
+        const sources = [
+            chat.localLore || [],
+            recipe.character.globalLore || [],
+            ...(recipe.modules || []).map(module => module?.lorebook || []),
+        ];
+        const found = sources.flatMap(source => source)
+            .filter(book => book?.comment === String(search ?? ''))
+            .map(book => ({
+                ...structuredClone(book),
+                content: renderRevenantTemplate(String(book.content ?? ''), recipe, chat).text,
+            }));
+        return JSON.stringify(found);
+    });
+    declare('upsertLocalLoreBook', (_id, name, content, options = {}) => {
+        chat.localLore ||= [];
+        const normalized = options && typeof options === 'object' ? options : {};
+        chat.localLore = chat.localLore.filter(book => book?.comment !== String(name));
+        chat.localLore.push({
+            alwaysActive: normalized.alwaysActive === true,
+            comment: String(name),
+            content: String(content),
+            insertorder: Number(normalized.insertOrder) || 100,
+            mode: 'normal',
+            key: String(normalized.key ?? ''),
+            secondkey: String(normalized.secondKey ?? ''),
+            selective: !!normalized.secondKey,
+            useRegex: normalized.regex === true,
+        });
+        return true;
+    });
+    declare('loadLoreBooksMain', async (_id, reserve = 0) => requireLowLevel()
+        ? action('utility.lua-load-lorebooks', { reserve: Number(reserve) || 0 })
+        : JSON.stringify([]));
+    declare('hash', async (_id, value) => crypto.createHash('sha256').update(String(value)).digest('hex'));
 
     try {
         await engine.doString(wrapRevenantLua(code));
@@ -185,12 +272,18 @@ async function executeRevenantLua(options) {
                 if (result === false) stopped = true;
             }
         }
-        return { status: 'completed', data, chat, stopped, foregroundEffects };
+        return {
+            status: 'completed', data, chat, stopped, foregroundEffects,
+            ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
+        };
     }
     catch (error) {
         const pendingAction = parseWaitingClientError(error);
         if (pendingAction) {
-            return { status: 'waiting_client', action: pendingAction, data, chat, stopped, foregroundEffects };
+            return {
+                status: 'waiting_client', action: pendingAction, data, chat, stopped, foregroundEffects,
+                ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
+            };
         }
         throw error;
     }

@@ -7,6 +7,15 @@ const {
     renderRevenantPostprocessPrompt,
 } = require('./postprocessPipeline.cjs');
 
+function recipeWithMutations(recipe, ...patches) {
+    const result = structuredClone(recipe);
+    for (const patch of patches) {
+        if (patch?.character) Object.assign(result.character, structuredClone(patch.character));
+        if (patch?.database) Object.assign(result.database, structuredClone(patch.database));
+    }
+    return result;
+}
+
 function createRevenantPostprocessWorker(options) {
     const repository = options.repository || require('./generationDb.cjs');
     const {
@@ -96,11 +105,17 @@ function createRevenantPostprocessWorker(options) {
                     && claimGenerationWorkflowStep(workflow.workflowId, 'trigger.output', 'pending')) {
                     try {
                         const result = await runTriggerStage({
-                            recipe: workflow.context.postprocess,
+                            recipe: recipeWithMutations(
+                                workflow.context.postprocess,
+                                outputStep.metadata.mutations,
+                            ),
                             text: outputStep.metadata.text,
                             chat: outputStep.metadata.chat,
                             responses: triggerStep.metadata?.responses,
                         });
+                        if (result.status !== 'waiting_client' && result.errors?.length > 0) {
+                            throw new Error(result.errors.join('\n'));
+                        }
                         updateGenerationWorkflowStep(workflow.workflowId, 'trigger.output', {
                             status: result.status === 'waiting_client' ? 'waiting_client' : 'completed',
                             metadata: {
@@ -134,15 +149,21 @@ function createRevenantPostprocessWorker(options) {
                     const rawPrompt = String(
                         workflow.context.postprocess.database?.igpPrompt || '',
                     ).trim();
+                    const effectiveRecipe = recipeWithMutations(
+                        workflow.context.postprocess,
+                        outputStep.metadata.mutations,
+                        triggerStep.metadata.mutations,
+                    );
                     const prompt = rawPrompt
-                        ? renderPrompt(rawPrompt, workflow.context.postprocess, currentChat).trim()
+                        ? renderPrompt(rawPrompt, effectiveRecipe, currentChat).trim()
                         : '';
+                    const igpProvider = effectiveRecipe.auxProviders?.emotion;
                     if (!prompt) {
                         updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
                             status: 'skipped', metadata: { schemaVersion: 1, chat: currentChat },
                         });
                     }
-                    else if (!workflow.context.postprocess.igpProvider) {
+                    else if (!igpProvider) {
                         updateGenerationWorkflowStep(workflow.workflowId, 'igp', {
                             status: 'skipped',
                             metadata: {
@@ -168,8 +189,8 @@ function createRevenantPostprocessWorker(options) {
                                         actionId,
                                         kind: 'provider.igp',
                                         payload: {
-                                            backend: workflow.context.postprocess.igpProvider.backend,
-                                            modelPreset: workflow.context.postprocess.igpProvider.modelPreset,
+                                            backend: igpProvider.backend,
+                                            modelPreset: igpProvider.modelPreset,
                                             prompt,
                                         },
                                     },
@@ -211,6 +232,30 @@ function createRevenantPostprocessWorker(options) {
                 const finalMessage = [...(currentChat.message || [])]
                     .reverse()
                     .find(message => message?.role === 'char');
+                if (
+                    workflow.context.postprocess.character?.inlayViewScreen
+                    && finalMessage?.data
+                ) {
+                    foregroundEffects.push({ kind: 'inlay.screen' });
+                }
+                const explicitEmotion = foregroundEffects.some(effect => effect?.kind === 'emotion');
+                const emotionProvider = workflow.context.postprocess.auxProviders?.emotion;
+                if (
+                    !workflow.context.postprocess.character?.inlayViewScreen
+                    && workflow.context.postprocess.character?.viewScreen === 'emotion'
+                    && !explicitEmotion
+                    && finalMessage?.data
+                    && (workflow.context.postprocess.database?.emotionProcesser === 'embedding'
+                        || emotionProvider)
+                ) {
+                    foregroundEffects.push({
+                        kind: 'emotion.auto',
+                        text: finalMessage.data,
+                        processor: workflow.context.postprocess.database?.emotionProcesser || 'submodel',
+                        prompt: workflow.context.postprocess.database?.emotionPrompt2 || '',
+                        ...(emotionProvider ? { provider: emotionProvider } : {}),
+                    });
+                }
                 if (workflow.context.postprocess.database?.notification && finalMessage?.data) {
                     foregroundEffects.push({ kind: 'notification', text: finalMessage.data });
                 }
@@ -229,7 +274,8 @@ function createRevenantPostprocessWorker(options) {
                 if (foregroundStep?.status === 'pending'
                     && claimGenerationWorkflowStep(workflow.workflowId, 'postprocess', 'pending')) {
                     const actionId = 'postprocess.ui-effects';
-                    const acknowledged = foregroundStep.metadata?.responses?.[actionId] !== undefined;
+                    const response = foregroundStep.metadata?.responses?.[actionId];
+                    const acknowledged = response !== undefined;
                     if (foregroundEffects.length > 0 && !acknowledged) {
                         updateGenerationWorkflowStep(workflow.workflowId, 'postprocess', {
                             status: 'waiting_client',
@@ -243,12 +289,16 @@ function createRevenantPostprocessWorker(options) {
                                     schemaVersion: 1,
                                     actionId,
                                     kind: 'ui.effects',
-                                    payload: { effects: foregroundEffects },
+                                    payload: { effects: foregroundEffects, chat: currentChat },
                                 },
                             },
                         });
                     }
                     else {
+                        if (
+                            response?.chat?.id === currentChat.id
+                            && Array.isArray(response.chat.message)
+                        ) currentChat = structuredClone(response.chat);
                         updateGenerationWorkflowStep(workflow.workflowId, 'postprocess', {
                             status: 'completed',
                             metadata: {

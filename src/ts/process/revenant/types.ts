@@ -115,6 +115,8 @@ export interface RevenantPostprocessDatabaseSnapshot {
     notification: boolean
     ttsEnabled: boolean
     ttsAutoSpeech: boolean
+    emotionProcesser: 'submodel' | 'embedding'
+    emotionPrompt2: string
 }
 
 export interface RevenantPostprocessRecipe {
@@ -124,10 +126,10 @@ export interface RevenantPostprocessRecipe {
     rerollSnapshot?: RevenantRerollSnapshot
     providerBackend: 'http' | 'plugin'
     modelPreset: unknown
-    igpProvider?: {
+    auxProviders?: Partial<Record<'submodel' | 'emotion' | 'otherAx', {
         backend: 'http' | 'plugin' | 'echo'
         modelPreset: unknown
-    }
+    }>>
     character: character
     chat: Chat
     database: RevenantPostprocessDatabaseSnapshot
@@ -138,7 +140,8 @@ export interface RevenantPostprocessRecipe {
 
 export interface RevenantPostprocessMutationPatch {
     character?: Partial<Pick<character,
-        'name' | 'desc' | 'replaceGlobalNote' | 'globalLore'>>
+        'name' | 'desc' | 'firstMessage' | 'backgroundHTML'
+        | 'replaceGlobalNote' | 'globalLore'>>
     database?: {
         personaPrompt?: string
         personas?: unknown[]

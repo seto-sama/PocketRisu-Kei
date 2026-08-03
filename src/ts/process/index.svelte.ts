@@ -455,17 +455,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             if(compiledMainPreset.backend !== 'echo'){
                 if(!outgoingChat.id) throw new Error('Cannot start generation because the chat has no id.')
                 const igpEnabled = !!(DBState.db.igpPrompt ?? '').trim()
-                let igpProvider:RevenantChatWorkflowContext['postprocess']['igpProvider']
-                if(igpEnabled){
-                    const igpBinding = resolveChatModelBinding(outgoingChat, 'emotion')
-                    if(igpBinding.kind === 'modelPreset'){
-                        const compiledIgpPreset = compileModelPreset(igpBinding.preset, {
-                            jsonSchemaRequested: false,
-                        })
-                        igpProvider = {
-                            backend: compiledIgpPreset.backend,
-                            modelPreset: safeStructuredClone(compiledIgpPreset.sourcePreset),
-                        }
+                const snapshotAuxProvider = (mode:'submodel'|'emotion'|'otherAx') => {
+                    const binding = resolveChatModelBinding(outgoingChat, mode)
+                    if(binding.kind !== 'modelPreset') return undefined
+                    const compiled = compileModelPreset(binding.preset, {
+                        jsonSchemaRequested: false,
+                    })
+                    return {
+                        backend: compiled.backend,
+                        modelPreset: safeStructuredClone(compiled.sourcePreset),
                     }
                 }
                 const resumeContext:RevenantWorkflowResumeContext = {
@@ -495,7 +493,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         rerollSnapshot,
                         providerBackend: compiledMainPreset.backend,
                         modelPreset: safeStructuredClone(compiledMainPreset.sourcePreset),
-                        igpProvider,
+                        auxProviders: {
+                            submodel: snapshotAuxProvider('submodel'),
+                            emotion: snapshotAuxProvider('emotion'),
+                            otherAx: snapshotAuxProvider('otherAx'),
+                        },
                         character: postprocessCharacter,
                         chat: safeStructuredClone(outgoingChat),
                         database: {
@@ -513,6 +515,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             notification: DBState.db.notification ?? false,
                             ttsEnabled: DBState.db.ttsEnabled ?? false,
                             ttsAutoSpeech: DBState.db.ttsAutoSpeech ?? false,
+                            emotionProcesser: DBState.db.emotionProcesser ?? 'submodel',
+                            emotionPrompt2: DBState.db.emotionPrompt2 ?? '',
                         },
                         modules: safeStructuredClone(getModules()),
                         moduleRegexScripts: safeStructuredClone(getModuleRegexScripts()),

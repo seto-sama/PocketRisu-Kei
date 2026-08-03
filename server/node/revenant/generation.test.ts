@@ -311,7 +311,9 @@ describe('revenant workflow validation', () => {
             isContinuation: false,
             providerBackend: 'http',
             modelPreset: {},
-            igpProvider: { backend: 'plugin', modelPreset: { id: 'igp-preset' } },
+            auxProviders: {
+                emotion: { backend: 'plugin', modelPreset: { id: 'igp-preset' } },
+            },
             character: { chaId: 'character-1' },
             chat: { id: 'room-1', message: [] },
             database: {},
@@ -337,7 +339,9 @@ describe('revenant workflow validation', () => {
                 ...workflowContext,
                 postprocess: {
                     ...workflowContext.postprocess,
-                    igpProvider: { backend: 'legacy', modelPreset: {} },
+                    auxProviders: {
+                        emotion: { backend: 'legacy', modelPreset: {} },
+                    },
                 },
             },
             'character-1',

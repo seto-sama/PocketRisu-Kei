@@ -113,6 +113,47 @@ describe('revenant postprocess worker', () => {
         expect(repository.finishGenerationWorkflow).toHaveBeenCalledWith('workflow-1', 'failed')
     })
 
+    it('fails instead of silently materializing a trigger execution error', async () => {
+        const chat = { id: 'room-1', message: [{ role: 'char', data: 'answer' }] }
+        const steps: Record<string, { status: string, metadata?: any }> = {
+            'output.transform': { status: 'completed', metadata: { text: 'answer', chat } },
+            'trigger.output': { status: 'pending' },
+        }
+        const repository = {
+            listReadyChatWorkflowJobs: () => [{ jobId: 'job-1', workflowId: 'workflow-1' }],
+            getGenerationWorkflow: () => ({
+                workflowId: 'workflow-1',
+                context: { kind: 'chat-generation', postprocess: {} },
+                steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
+            }),
+            claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
+                if (steps[stepKey].status !== 'pending') return null
+                steps[stepKey].status = 'running'
+                return {}
+            },
+            updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
+                steps[stepKey] = { status: update.status, metadata: update.metadata }
+            },
+            finishGenerationWorkflow: vi.fn(),
+        }
+        const worker = createRevenantPostprocessWorker({
+            repository,
+            runTriggerStage: vi.fn(async () => ({
+                status: 'completed', chat, foregroundEffects: [],
+                errors: ['invalid trigger regex'],
+            })),
+            logger: { error: vi.fn() },
+        })
+
+        await worker.pump()
+
+        expect(steps['trigger.output']).toEqual({
+            status: 'failed',
+            metadata: { schemaVersion: 1, error: 'invalid trigger regex' },
+        })
+        expect(repository.finishGenerationWorkflow).toHaveBeenCalledWith('workflow-1', 'failed')
+    })
+
     it('renders IGP against the completed chat and uses its auxiliary preset', async () => {
         const chat = { id: 'room-1', message: [{ role: 'char', data: 'answer' }] }
         const steps: Record<string, { status: string, metadata?: any }> = {
@@ -133,9 +174,11 @@ describe('revenant postprocess worker', () => {
                     kind: 'chat-generation',
                     postprocess: {
                         database: { igpPrompt: 'raw {{char}}' },
-                        igpProvider: {
-                            backend: 'plugin',
-                            modelPreset: { id: 'aux-preset' },
+                        auxProviders: {
+                            emotion: {
+                                backend: 'plugin',
+                                modelPreset: { id: 'aux-preset' },
+                            },
                         },
                     },
                 },
@@ -162,7 +205,7 @@ describe('revenant postprocess worker', () => {
 
         expect(renderPrompt).toHaveBeenCalledWith(
             'raw {{char}}',
-            expect.objectContaining({ igpProvider: expect.any(Object) }),
+            expect.objectContaining({ auxProviders: expect.any(Object) }),
             chat,
         )
         expect(steps.igp).toMatchObject({
@@ -202,9 +245,14 @@ describe('revenant postprocess worker', () => {
                 context: {
                     kind: 'chat-generation',
                     postprocess: {
+                        character: {
+                            viewScreen: 'emotion', inlayViewScreen: false,
+                            emotionImages: [['happy', 'asset']],
+                        },
                         database: {
                             igpPrompt: '', notification: true,
                             ttsEnabled: true, ttsAutoSpeech: true,
+                            emotionProcesser: 'embedding', emotionPrompt2: '',
                         },
                     },
                 },
@@ -234,7 +282,12 @@ describe('revenant postprocess worker', () => {
                 action: {
                     kind: 'ui.effects',
                     payload: {
+                        chat,
                         effects: [
+                            {
+                                kind: 'emotion.auto', text: 'final answer',
+                                processor: 'embedding', prompt: '',
+                            },
                             { kind: 'notification', text: 'final answer' },
                             { kind: 'tts', text: 'final answer' },
                             { kind: 'chat.resend' },
@@ -245,5 +298,26 @@ describe('revenant postprocess worker', () => {
         })
         expect(materializeGeneration).not.toHaveBeenCalled()
         expect(repository.finishGenerationWorkflow).not.toHaveBeenCalled()
+
+        const inlayChat = {
+            ...chat,
+            message: [{ role: 'char', data: 'final answer {{inlay::asset-id}}' }],
+        }
+        steps.postprocess = {
+            status: 'pending',
+            metadata: {
+                responses: {
+                    'postprocess.ui-effects': { chat: inlayChat },
+                },
+            },
+        }
+        await worker.pump()
+
+        expect(steps.postprocess).toMatchObject({
+            status: 'completed',
+            metadata: { chat: inlayChat },
+        })
+        expect(materializeGeneration).toHaveBeenCalledWith('job-1')
+        expect(repository.finishGenerationWorkflow).toHaveBeenCalledWith('workflow-1', 'completed')
     })
 })

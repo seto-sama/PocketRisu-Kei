@@ -4,7 +4,7 @@ import { alertConfirm, alertError, alertInput, alertNormal, alertSelect } from '
 import { fetchNative, readImage } from '../../globalApi.svelte'
 import { parseChatML } from '../../parser/chatML'
 import type { ModelPreset } from '../../preset/types'
-import type { character } from '../../storage/database.svelte'
+import { getDatabase, type Chat, type character } from '../../storage/database.svelte'
 import { CharEmotion, ReloadChatPointer, ReloadGUIPointer } from '../../stores.svelte'
 import { asBuffer, getUserIcon } from '../../util'
 import { processMultiCommand } from '../command'
@@ -13,6 +13,11 @@ import { requestModelPresetData } from '../request/request'
 import { collectStreamingText } from '../request/shared'
 import { generateAIImage } from '../stableDiff'
 import { sayTTS } from '../tts'
+import { runInlayScreen } from '../inlayScreen'
+import { loadLoreBookV3Prompt } from '../lorebook.svelte'
+import { risuChatParser } from '../../parser/parser.svelte'
+import { HypaProcesser } from '../memory/hypamemory'
+import { tokenize } from '../../tokenizer'
 import type { OpenAIChat } from '../index.svelte'
 import type { RevenantClientAction, RevenantWorkflow } from './types'
 import { registerRevenantGenerationMetadata } from './client'
@@ -110,6 +115,11 @@ async function executeProviderAction(
         })
         return { success: true, result: { jobId } }
     }
+    const delegatedMode = ['submodel', 'memory', 'emotion', 'translate', 'otherAx']
+        .includes(String(payload.mode))
+        ? payload.mode as 'submodel' | 'memory' | 'emotion' | 'translate' | 'otherAx'
+        : action.kind === 'provider.axllm' ? 'otherAx'
+            : 'model'
     const response = await requestModelPresetData({
         formated: prompt,
         bias: {},
@@ -123,7 +133,7 @@ async function executeProviderAction(
             actionId: action.actionId,
             executionId: uuidv4(),
         },
-    }, preset, action.kind === 'provider.axllm' ? 'otherAx' : 'model', signal ?? null)
+    }, preset, delegatedMode, signal ?? null)
     if (response.type === 'fail') return { success: false, result: `Error: ${response.result}` }
     if (response.type === 'streaming') {
         return { success: true, result: await collectStreamingText(response.result) }
@@ -152,6 +162,21 @@ async function assetToInlay(assetId: string | undefined): Promise<string> {
     }
 }
 
+function applyCharacterEmotion(character: character, requested: string): boolean {
+    const normalized = requested.replace(/\s+/g, '').toLocaleLowerCase()
+    const names = character.emotionImages?.map(item => item[0]) ?? []
+    const selected = character.emotionImages?.find(item => item[0].toLocaleLowerCase() === normalized)
+        ?? character.emotionImages?.find(item => normalized.includes(item[0].toLocaleLowerCase()))
+        ?? character.emotionImages?.find(item => item[0].toLocaleLowerCase() === 'neutral')
+    if (!selected || names.length === 0) return false
+    const state = get(CharEmotion)
+    const history = state[character.chaId] ?? []
+    history.push([selected[0], selected[1], Date.now()])
+    state[character.chaId] = history.slice(-5)
+    CharEmotion.set(state)
+    return true
+}
+
 async function executeClientAction(
     workflow: RevenantWorkflow,
     stepKey: string,
@@ -165,24 +190,25 @@ async function executeClientAction(
     }
     switch (action.kind) {
         case 'ui.input': return alertInput(String(payload.message ?? ''))
-        case 'ui.select': return alertSelect(Array.isArray(payload.options) ? payload.options.map(String) : [])
+        case 'ui.select': return alertSelect(
+            Array.isArray(payload.options) ? payload.options.map(String) : [],
+            typeof payload.message === 'string' ? payload.message : undefined,
+        )
         case 'ui.confirm': return alertConfirm(String(payload.message ?? ''))
         case 'ui.command': return processMultiCommand(String(payload.command ?? ''))
         case 'ui.effects': {
             const effects = Array.isArray(payload.effects) ? payload.effects : []
+            const resultChat = payload.chat
+                && typeof payload.chat === 'object'
+                && Array.isArray((payload.chat as Chat).message)
+                ? structuredClone(payload.chat) as Chat
+                : undefined
             for (const rawEffect of effects) {
                 const effect = rawEffect && typeof rawEffect === 'object'
                     ? rawEffect as Record<string, unknown>
                     : {}
                 if (effect.kind === 'emotion') {
-                    const emotion = character.emotionImages?.find(item => item[0] === effect.name)
-                    if (emotion) {
-                        const state = get(CharEmotion)
-                        const history = state[character.chaId] ?? []
-                        history.push([emotion[0], emotion[1], Date.now()])
-                        state[character.chaId] = history.slice(-5)
-                        CharEmotion.set(state)
-                    }
+                    applyCharacterEmotion(character, String(effect.name ?? ''))
                 }
                 else if (effect.kind === 'alert') {
                     if (effect.level === 'error') alertError(effect.message)
@@ -193,7 +219,10 @@ async function executeClientAction(
                 }
                 else if (effect.kind === 'reload.chat') {
                     ReloadChatPointer.update(value => {
-                        value[character.chatPage] = (value[character.chatPage] ?? 0) + 1
+                        const index = Number.isInteger(effect.index)
+                            ? Number(effect.index)
+                            : character.chatPage
+                        value[index] = (value[index] ?? 0) + 1
                         return value
                     })
                 }
@@ -213,10 +242,58 @@ async function executeClientAction(
                     }
                     catch { /* Notifications are best-effort foreground effects. */ }
                 }
+                else if (effect.kind === 'inlay.screen' && resultChat) {
+                    const target = resultChat.message.findLast(message => message?.role === 'char')
+                    if (target?.data) {
+                        const inlay = runInlayScreen(character, target.data)
+                        target.data = inlay.promise ? await inlay.promise : inlay.text
+                    }
+                }
+                else if (effect.kind === 'emotion.auto') {
+                    const emotionNames = character.emotionImages?.map(item => item[0]) ?? []
+                    if (emotionNames.length === 0) continue
+                    let selected = ''
+                    if (effect.processor === 'embedding') {
+                        const processer = new HypaProcesser()
+                        await processer.addText(emotionNames.map(name => `emotion:${name}`))
+                        selected = (await processer.similaritySearch(String(effect.text ?? '')))[0]
+                            ?.replace(/^emotion:/, '') ?? ''
+                    }
+                    else if (effect.provider && typeof effect.provider === 'object') {
+                        const provider = effect.provider as Record<string, unknown>
+                        const prompt = String(effect.prompt || '')
+                            || 'From the list below, choose the single word that best represents the character\'s outfit, action, or emotion.'
+                        const response = await executeProviderAction(
+                            workflow,
+                            stepKey,
+                            {
+                                schemaVersion: 1,
+                                actionId: action.actionId,
+                                kind: 'provider.llm',
+                                payload: {
+                                    backend: provider.backend,
+                                    modelPreset: provider.modelPreset,
+                                    mode: 'emotion',
+                                    prompt: [
+                                        {
+                                            role: 'system',
+                                            content: `${prompt}\n\nList: ${emotionNames.join(', ')}\nOutput only one word.`,
+                                        },
+                                        { role: 'user', content: String(effect.text ?? '') },
+                                    ],
+                                },
+                            },
+                            character,
+                            signal,
+                        )
+                        if (response.success) selected = String(response.result ?? '')
+                    }
+                    if (selected) applyCharacterEmotion(character, selected)
+                }
                 // chat.resend is acknowledged here. The observer starts the
                 // next workflow only after this workflow materializes.
             }
-            return true
+            return resultChat ? { chat: resultChat } : true
         }
         case 'network.request': {
             const url = String(payload.url ?? '')
@@ -237,6 +314,61 @@ async function executeClientAction(
         }
         case 'asset.character-image': return assetToInlay(character.image)
         case 'asset.persona-image': return assetToInlay(getUserIcon())
+        case 'utility.tokenize': return await tokenize(String(payload.text ?? ''))
+        case 'utility.similarity': {
+            const values = Array.isArray(payload.values) ? payload.values.map(String) : []
+            const processer = new HypaProcesser()
+            await processer.addText(values)
+            return (await processer.similaritySearch(String(payload.source ?? ''))).join('§')
+        }
+        case 'utility.similarity-list': {
+            const values = Array.isArray(payload.values) ? payload.values.map(String) : []
+            const processer = new HypaProcesser()
+            await processer.addText(values)
+            return await processer.similaritySearch(String(payload.source ?? ''))
+        }
+        case 'utility.lua-load-lorebooks': {
+            const reserve = Math.max(0, Number(payload.reserve) || 0)
+            const maximum = Math.max(0, getDatabase().maxContext - reserve)
+            const active = (await loadLoreBookV3Prompt()).actives
+            const result:Array<{ data:string, role:string }> = []
+            let total = 0
+            for (const book of active) {
+                const data = risuChatParser(book.prompt, { chara: character }).trim()
+                if (!data) continue
+                const tokens = await tokenize(data)
+                if (total + tokens > maximum) break
+                total += tokens
+                result.push({
+                    data,
+                    role: book.role === 'assistant' ? 'char' : book.role,
+                })
+            }
+            return JSON.stringify(result)
+        }
+        case 'utility.dynamic-assets': {
+            let text = String(payload.text ?? '')
+            const assetNames = Array.isArray(payload.assetNames)
+                ? payload.assetNames.map(String).filter(Boolean)
+                : []
+            if (assetNames.length === 0) return text
+            const processer = new HypaProcesser()
+            await processer.addText(assetNames)
+            const replacements = new Map<string, string>()
+            const assetPattern = /{{(raw|path|img|image|video|audio|bgm|bg|emotion|asset|video-img|source)::(.+?)}}/gms
+            for (const match of text.matchAll(assetPattern)) {
+                const [full, type, name] = match
+                if (type === 'emotion' || type === 'source' || assetNames.includes(name)) continue
+                if (!replacements.has(full)) {
+                    const best = (await processer.similaritySearch(name))[0]
+                    if (best) replacements.set(full, `{{${type}::${best}}}`)
+                }
+            }
+            for (const [source, replacement] of replacements) {
+                text = text.replaceAll(source, replacement)
+            }
+            return text
+        }
         default: throw new Error(`Unsupported Revenant client action: ${action.kind}`)
     }
 }
@@ -246,6 +378,7 @@ function canExecuteClientAction(action: RevenantClientAction): boolean {
     return action.kind.startsWith('ui.')
         || action.kind === 'network.request'
         || action.kind === 'image.generate'
+        || action.kind.startsWith('utility.')
         || action.kind.startsWith('asset.')
 }
 

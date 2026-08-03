@@ -95,10 +95,18 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
         || !['http', 'plugin'].includes(value.postprocess.providerBackend)
         || !value.postprocess.modelPreset
         || typeof value.postprocess.modelPreset !== 'object'
-        || (value.postprocess.igpProvider != null && (
-            !['http', 'plugin', 'echo'].includes(value.postprocess.igpProvider.backend)
-            || !value.postprocess.igpProvider.modelPreset
-            || typeof value.postprocess.igpProvider.modelPreset !== 'object'
+        || (value.postprocess.auxProviders != null && (
+            !value.postprocess.auxProviders
+            || typeof value.postprocess.auxProviders !== 'object'
+            || Array.isArray(value.postprocess.auxProviders)
+            || Object.entries(value.postprocess.auxProviders).some(([mode, provider]) => (
+                !['submodel', 'emotion', 'otherAx'].includes(mode)
+                || provider == null
+                || typeof provider !== 'object'
+                || !['http', 'plugin', 'echo'].includes(provider.backend)
+                || !provider.modelPreset
+                || typeof provider.modelPreset !== 'object'
+            ))
         ))
         || value.postprocess.character?.chaId !== characterId
         || value.postprocess.chat?.id !== roomId

@@ -136,27 +136,6 @@ db.exec(`DROP INDEX IF EXISTS idx_generation_jobs_pending`);
 const generationColumns = new Set(
     db.prepare(`PRAGMA table_info(generation_jobs)`).all().map(column => column.name)
 );
-const workflowColumns = new Set(
-    db.prepare(`PRAGMA table_info(generation_workflows)`).all().map(column => column.name)
-);
-if (workflowColumns.has('owner_epoch')) {
-    db.exec(`ALTER TABLE generation_workflows DROP COLUMN owner_epoch`);
-}
-if (workflowColumns.has('owner_client_id')) {
-    db.exec(`ALTER TABLE generation_workflows DROP COLUMN owner_client_id`);
-}
-if (!workflowColumns.has('context')) {
-    db.exec(`ALTER TABLE generation_workflows ADD COLUMN context TEXT`);
-}
-if (!generationColumns.has('normalized_projection')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN normalized_projection TEXT`);
-}
-if (!generationColumns.has('projection_error')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN projection_error TEXT`);
-}
-if (!generationColumns.has('projected_at')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN projected_at INTEGER`);
-}
 if (!generationColumns.has('job_type')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN job_type TEXT NOT NULL DEFAULT 'model'`);
 }
@@ -178,46 +157,6 @@ if (!generationColumns.has('reroll_snapshot')) {
 if (!generationColumns.has('operation_context')) {
     db.exec(`ALTER TABLE generation_jobs ADD COLUMN operation_context TEXT`);
 }
-if (!generationColumns.has('workflow_id')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN workflow_id TEXT`);
-}
-if (!generationColumns.has('workflow_step_key')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN workflow_step_key TEXT`);
-}
-if (!generationColumns.has('step_execution_id')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN step_execution_id TEXT`);
-}
-if (!generationColumns.has('adapter_kind')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN adapter_kind TEXT`);
-}
-if (!generationColumns.has('streaming')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN streaming INTEGER NOT NULL DEFAULT 0`);
-}
-if (!generationColumns.has('raw_bytes')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN raw_bytes INTEGER NOT NULL DEFAULT 0`);
-}
-if (!generationColumns.has('dispatch_group')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN dispatch_group TEXT`);
-}
-if (!generationColumns.has('dispatch_max_concurrent')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN dispatch_max_concurrent INTEGER`);
-}
-if (!generationColumns.has('dispatch_requests_per_minute')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN dispatch_requests_per_minute INTEGER`);
-}
-if (!generationColumns.has('dispatched_at')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN dispatched_at INTEGER`);
-}
-if (!generationColumns.has('request_spec')) {
-    db.exec(`ALTER TABLE generation_jobs ADD COLUMN request_spec TEXT`);
-}
-// raw_response was used by the experimental SQLite-BLOB journal. Journals are
-// now append-only files; do not keep two recovery sources alive indefinitely.
-if (generationColumns.has('raw_response')) {
-    db.exec(`UPDATE generation_jobs SET raw_response = X'' WHERE length(raw_response) > 0`);
-}
-// Older test builds cached client-side output here. The normalized projection
-// has an explicit schema now, so discard this incompatible cache.
 if (generationColumns.has('processed_content')) {
     db.exec(`UPDATE generation_jobs SET processed_content = NULL WHERE processed_content IS NOT NULL`);
 }

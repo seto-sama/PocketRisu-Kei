@@ -68,4 +68,38 @@ describe('revenant terminal postprocess pipeline', () => {
             '$trigger-output': 'once',
         })
     })
+
+    it('delegates dynamic asset matching after regex and materializes its response', async () => {
+        const input = recipe()
+        input.database.dynamicAssets = true
+        input.character.additionalAssets = [['happy', 'asset-id', 'image/png']]
+        input.character.triggerscript = []
+        const job = { completedAt: 1, generationInfo: {}, promptInfo: {} }
+        const transformOutput = (text: string, _recipe: any, chat: any) => ({
+            text, chat, foregroundEffects: [], errors: [],
+        })
+        const waiting = await runRevenantOutputStage({
+            text: '{{image::hapy}}', recipe: input, job, transformOutput,
+        })
+        expect(waiting).toMatchObject({
+            status: 'waiting_client',
+            action: {
+                actionId: 'output.dynamic-assets',
+                kind: 'utility.dynamic-assets',
+                payload: {
+                    text: '{{image::hapy}}',
+                    assetNames: ['happy'],
+                },
+            },
+        })
+
+        const completed = await runRevenantOutputStage({
+            text: '{{image::hapy}}', recipe: input, job, transformOutput,
+            responses: { 'output.dynamic-assets': '{{image::happy}}' },
+        })
+        expect(completed).toMatchObject({
+            status: 'completed',
+            text: '{{image::happy}}',
+        })
+    })
 })

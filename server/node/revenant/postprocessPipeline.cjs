@@ -88,6 +88,18 @@ async function runRevenantOutputStage(options) {
     let chat = structuredClone(recipe.chat);
     const foregroundEffects = [];
     const errors = [];
+    const mutations = {};
+
+    const mergeMutations = patch => {
+        if (patch?.character) {
+            mutations.character = { ...(mutations.character || {}), ...patch.character };
+            Object.assign(recipe.character, structuredClone(patch.character));
+        }
+        if (patch?.database) {
+            mutations.database = { ...(mutations.database || {}), ...patch.database };
+            Object.assign(recipe.database, structuredClone(patch.database));
+        }
+    };
 
     for (const script of outputLuaScripts(recipe)) {
         try {
@@ -103,8 +115,12 @@ async function runRevenantOutputStage(options) {
                 actionNamespace: `edit-output.${script.triggerIndex}`,
             });
             foregroundEffects.push(...result.foregroundEffects);
+            mergeMutations(result.mutations);
             if (result.status === 'waiting_client') {
-                return { status: 'waiting_client', action: result.action, foregroundEffects, errors };
+                return {
+                    status: 'waiting_client', action: result.action, foregroundEffects, errors,
+                    ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
+                };
             }
             text = result.data;
             chat = result.chat;
@@ -117,6 +133,32 @@ async function runRevenantOutputStage(options) {
     const transformed = await options.transformOutput(text, recipe, chat);
     foregroundEffects.push(...transformed.foregroundEffects);
     errors.push(...transformed.errors);
+    const assetNames = [
+        ...(recipe.character.additionalAssets || []).map(asset => asset?.[0]),
+        ...(recipe.modules || []).flatMap(module => (
+            Array.isArray(module?.assets) ? module.assets.map(asset => asset?.[0]) : []
+        )),
+    ].filter(name => typeof name === 'string' && name.length > 0);
+    if (recipe.database.dynamicAssets && assetNames.length > 0) {
+        const actionId = 'output.dynamic-assets';
+        const response = responses[actionId];
+        if (response === undefined) {
+            return {
+                status: 'waiting_client',
+                action: {
+                    schemaVersion: 1,
+                    actionId,
+                    kind: 'utility.dynamic-assets',
+                    payload: { text: transformed.text, assetNames },
+                },
+                foregroundEffects,
+                errors,
+                ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
+            };
+        }
+        if (typeof response === 'string') transformed.text = response;
+        else throw new Error('Dynamic asset resolver returned an invalid response');
+    }
     chat = applyGeneratedMessage(transformed.chat, recipe, options.job, transformed.text);
     return {
         status: 'completed',
@@ -124,6 +166,7 @@ async function runRevenantOutputStage(options) {
         chat,
         foregroundEffects,
         errors,
+        ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
     };
 }
 

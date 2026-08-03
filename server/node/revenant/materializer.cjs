@@ -45,7 +45,10 @@ function applyMutationPatch(database, characterId, patch) {
     if (patch.character && typeof patch.character === 'object') {
         const character = database.characters?.find(item => item?.chaId === characterId);
         if (character) {
-            for (const field of ['name', 'desc', 'replaceGlobalNote', 'globalLore']) {
+            for (const field of [
+                'name', 'desc', 'firstMessage', 'backgroundHTML',
+                'replaceGlobalNote', 'globalLore',
+            ]) {
                 if (Object.prototype.hasOwnProperty.call(patch.character, field)) {
                     character[field] = structuredClone(patch.character[field]);
                     changed = true;

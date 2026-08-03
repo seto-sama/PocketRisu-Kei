@@ -30,6 +30,7 @@ function recipe(): RevenantPostprocessRecipe {
             personaPrompt: '', selectedPersona: 0, personas: [], dynamicAssets: false,
             dynamicAssetsEditDisplay: false, igpPrompt: '',
             notification: false, ttsEnabled: false, ttsAutoSpeech: false,
+            emotionProcesser: 'submodel', emotionPrompt2: '',
         },
         modules: [], moduleRegexScripts: [], moduleTriggers: [],
     }
