@@ -448,22 +448,6 @@ html {
   scrollbar-color: color-mix(in srgb, var(--color-textcolor2) 35%, transparent) transparent;
 }
 
-/* Narrow screens: set UI Text Color 2 on each element instead of relying on
-   inheritance from html. Full-height mobile scroll surfaces may define their
-   own scrollbar color, which wins over an inherited value. */
-@media (max-width: 768px) {
-
-  /* Chromium may promote a single viewport-filling overflow element to its
-     implicit root scroller and paint a native, unstyleable scroll indicator.
-     A non-default opacity keeps these full-screen scrollers as regular element
-     scrollers; this value rounds to fully opaque when composited. */
-  .default-chat-screen,
-  .rs-setting-cont-3,
-  .rs-setting-cont-4 {
-    opacity: 0.999999;
-  }
-}
-
 * {
   font-family: var(--risu-font-family);
 }

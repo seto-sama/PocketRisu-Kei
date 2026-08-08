@@ -5,7 +5,7 @@
     import { getCharImage } from 'src/ts/characters';
     import { createSimpleCharacter, DBState, ReloadChatPointer } from 'src/ts/stores.svelte';
     import { chatFoldedStateMessageIndex } from 'src/ts/globalApi.svelte';
-    import { scrollWithinContainer } from './scrollWithin';
+    import type { ChatScrollController } from './chatScroll';
     import { createRevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from 'src/ts/process/revenant/recovery';
 
     let {
@@ -21,6 +21,7 @@
         roomIsStreaming = false,
         loadPages,
         userIconPortrait,
+        getScrollController = () => null,
         hasNewUnreadMessage = $bindable(false)
     }:{
         messages: Message[]
@@ -35,6 +36,7 @@
         roomIsStreaming?: boolean
         loadPages: number
         userIconPortrait?: boolean
+        getScrollController?: () => ChatScrollController | null
         hasNewUnreadMessage?: boolean
     } = $props();
 
@@ -148,6 +150,7 @@
             if (!entry) {
                 const element = document.createElement('div')
                 element.classList.add('chat-message-container')
+                element.toggleAttribute('data-streaming-chat-message', isStreamingMessage)
                 const props = $state<ChatMountProps>({
                     message: displayMessage,
                     isLastMemory: false,
@@ -188,6 +191,7 @@
             else {
                 untrack(() => {
                     const props = entry.props
+                    entry.element.toggleAttribute('data-streaming-chat-message', isStreamingMessage)
 
                     if (props.message !== displayMessage) props.message = displayMessage
                     if (props.idx !== i) props.idx = i
@@ -285,7 +289,7 @@
         const element = chatBody.firstElementChild as HTMLElement | null;
         const chatScreen = chatBody.parentElement;
         if(!element || !chatScreen) return;
-        scrollWithinContainer(element, chatScreen, { block: 'start', behavior: 'instant' });
+        getScrollController()?.scrollToElement(element, { block: 'start', behavior: 'instant' });
     }
 
     export const scrollToLatestMessage = () => {

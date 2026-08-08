@@ -28,7 +28,7 @@ import { isMobile } from 'src/ts/platform'
     import { stopTTS } from "src/ts/process/tts";
     import MainMenu from '../UI/MainMenu.svelte';
     import AssetInput from './AssetInput.svelte';
-    import { scrollWithinContainer } from './scrollWithin';
+    import { createChatScrollController, type ChatScrollController } from './chatScroll';
     import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile } from 'src/ts/globalApi.svelte';
     import { isRevenantGenerationLocallyObserved } from 'src/ts/process/revenant/transport';
     import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenant/auxiliary';
@@ -91,6 +91,8 @@ import { isMobile } from 'src/ts/platform'
     let scrollNavTimer: ReturnType<typeof setTimeout> | null = null
     let chatsInstance: any = $state()
     let chatScreenRoot: HTMLDivElement | null = $state(null)
+    let chatRangePixelSpacer: HTMLDivElement | null = $state(null)
+    let chatScrollController: ChatScrollController | null = null
     let isScrollingToMessage = $state(false)
     let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '' }: Props = $props();
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
@@ -100,6 +102,18 @@ import { isMobile } from 'src/ts/platform'
     let currentChatFmIndex = $derived(currentChatReady ? (currentChatSlot.fmIndex ?? -1) : -1)
     let loadPagesRoomKey = $state('')
     let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter?.chatPage ?? -1}:${currentChatSlot?.id ?? ''}`)
+
+    $effect(() => {
+        const container = chatScreenRoot
+        const rangeSpacer = chatRangePixelSpacer
+        if (!container || !rangeSpacer) return
+        const controller = createChatScrollController(container, rangeSpacer)
+        chatScrollController = controller
+        return () => {
+            if (chatScrollController === controller) chatScrollController = null
+            controller.destroy()
+        }
+    })
 
     // History depth belongs to a room. Carrying a large value (or Infinity
     // from screenshot/search navigation) into the next room mounts its entire
@@ -385,84 +399,28 @@ import { isMobile } from 'src/ts/platform'
         chatsInstance?.scrollToLatestMessage();
     }
 
+    function getChatScrollController() {
+        return chatScrollController
+    }
+
     function bumpScrollNav() {
         showScrollNav = true
         if (scrollNavTimer) clearTimeout(scrollNavTimer)
         scrollNavTimer = setTimeout(() => { showScrollNav = false }, 1500)
     }
 
-    function getLoadedMessages(container: HTMLElement) {
-        return Array.from(container.querySelectorAll('[data-chat-index]'))
-            .map(el => ({ el: el as HTMLElement, idx: parseInt(el.getAttribute('data-chat-index')!) }))
-            .sort((a, b) => a.idx - b.idx)
-    }
-
     // Top of currently loaded messages (no force-load of older pages).
     function scrollToLoadedTop() {
-        const container = document.querySelector('.default-chat-screen') as HTMLElement | null
-        if (!container) return
-        const messages = getLoadedMessages(container)
-        if (messages.length === 0) return
-        scrollWithinContainer(messages[0].el, container, { block: 'start', behavior: 'smooth' })
+        chatScrollController?.scrollToEdge('top', 'smooth')
     }
 
     // Literal bottom of the scroll (end of the latest message).
     function scrollToLoadedBottom() {
-        const container = document.querySelector('.default-chat-screen') as HTMLElement | null
-        if (!container) return
-        const messages = getLoadedMessages(container)
-        if (messages.length === 0) return
-        scrollWithinContainer(messages[messages.length - 1].el, container, { block: 'end', behavior: 'smooth' })
+        chatScrollController?.scrollToEdge('bottom', 'smooth')
     }
 
     function navigateMessage(direction: 'prev' | 'next') {
-        const container = document.querySelector('.default-chat-screen') as HTMLElement | null
-        if (!container) return
-        const messages = Array.from(container.querySelectorAll('[data-chat-index]'))
-            .map(el => ({ el: el as HTMLElement, idx: parseInt(el.getAttribute('data-chat-index')!) }))
-            .sort((a, b) => a.idx - b.idx)
-        if (messages.length === 0) return
-
-        const containerRect = container.getBoundingClientRect()
-        const threshold = 30
-
-        // Find the message currently at the top of the viewport
-        let current = messages[0]
-        for (const msg of messages) {
-            const rect = msg.el.getBoundingClientRect()
-            if (rect.bottom > containerRect.top + threshold) {
-                current = msg
-                break
-            }
-        }
-
-        const currentRect = current.el.getBoundingClientRect()
-
-        if (direction === 'prev') {
-            const topVisible = currentRect.top >= containerRect.top - threshold
-            if (!topVisible) {
-                // Current message top is hidden → scroll to its start
-                scrollWithinContainer(current.el, container, { block: 'start', behavior: 'smooth' })
-            } else {
-                // Already at top → go to previous message start
-                const prev = messages.find(m => m.idx === current.idx - 1)
-                if (prev) {
-                    scrollWithinContainer(prev.el, container, { block: 'start', behavior: 'smooth' })
-                }
-            }
-        } else {
-            const bottomVisible = currentRect.bottom <= containerRect.bottom + threshold
-            if (!bottomVisible) {
-                // Current message bottom is hidden → scroll to its end
-                scrollWithinContainer(current.el, container, { block: 'end', behavior: 'smooth' })
-            } else {
-                // Already see the end → go to next message start
-                const next = messages.find(m => m.idx === current.idx + 1)
-                if (next) {
-                    scrollWithinContainer(next.el, container, { block: 'start', behavior: 'smooth' })
-                }
-            }
-        }
+        chatScrollController?.navigateMessage(direction)
     }
     $effect(() => {
         if(ScrollToMessageStore.value !== -1){
@@ -487,20 +445,20 @@ import { isMobile } from 'src/ts/platform'
             let element: Element | null = null;
             // Poll for element existence (max 5 seconds)
             for(let i = 0; i < 50; i++){
-                element = document.querySelector(`[data-chat-index="${index}"]`)
+                element = chatScreenRoot?.querySelector(`[data-chat-index="${index}"]`) ?? null
                 if(element) break;
                 await sleep(100)
             }
 
-            const chatContainer = document.querySelector('.default-chat-screen') as HTMLElement | null;
+            const chatContainer = chatScreenRoot;
             const preIndex = Math.max(0, index - 3)
-            const preElement = document.querySelector(`[data-chat-index="${preIndex}"]`)
+            const preElement = chatContainer?.querySelector(`[data-chat-index="${preIndex}"]`)
             // Scroll within the chat container only — raw scrollIntoView climbs to
             // documentElement and, if the root is inflated, shoves the whole page up.
             if(chatContainer && preElement){
-                scrollWithinContainer(preElement as HTMLElement, chatContainer, { block: 'start', behavior: 'instant' })
+                chatScrollController?.scrollToElement(preElement as HTMLElement, { block: 'start', behavior: 'instant' })
             } else if(chatContainer && element){
-                scrollWithinContainer(element as HTMLElement, chatContainer, { block: 'start', behavior: 'instant' })
+                chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
             }
             await sleep(50)
 
@@ -523,10 +481,10 @@ import { isMobile } from 'src/ts/platform'
                 }
 
                 if(chatContainer){
-                    scrollWithinContainer(element as HTMLElement, chatContainer, { block: 'start', behavior: 'instant' })
+                    chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
                     // Small delay and scroll again to ensure position is correct after any final layout adjustments
                     await sleep(50)
-                    scrollWithinContainer(element as HTMLElement, chatContainer, { block: 'start', behavior: 'instant' })
+                    chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
                 }
 
                 element.classList.add('ring-2', 'ring-blue-500')
@@ -1644,6 +1602,7 @@ import { isMobile } from 'src/ts/platform'
 
             <Chats
                 bind:this={chatsInstance}
+                getScrollController={getChatScrollController}
                 messages={currentChat}
                 loadPages={loadPages}
                 onReroll={reroll}
@@ -1713,6 +1672,13 @@ import { isMobile } from 'src/ts/platform'
             {/if}
 
             {/if}
+
+            <div
+                bind:this={chatRangePixelSpacer}
+                class="w-full shrink-0 pointer-events-none"
+                style="height: 0px"
+                aria-hidden="true"
+            ></div>
 
         </div>
 
