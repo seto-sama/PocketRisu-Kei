@@ -40,6 +40,16 @@ const parserMocks = vi.hoisted(() => ({
     ParseMarkdown: vi.fn(async (value: string) => value),
 }))
 
+const interactionMocks = vi.hoisted(() => ({
+    runLuaButtonTrigger: vi.fn(),
+    runTrigger: vi.fn(),
+}))
+
+const translatorMocks = vi.hoisted(() => ({
+    getLLMCache: vi.fn(async () => null as string | null),
+    translateHTML: vi.fn(async (value: string) => value),
+}))
+
 vi.mock('src/ts/stores.svelte', () => storeMocks)
 vi.mock('src/ts/globalApi.svelte', () => ({
     aiLawApplies: () => false,
@@ -51,9 +61,9 @@ vi.mock('src/ts/globalApi.svelte', () => ({
 }))
 vi.mock('src/ts/gui/colorscheme', () => ({ ColorSchemeTypeStore: storeMocks.HideIconStore }))
 vi.mock('src/ts/model/modellist', () => ({ getModelInfo: () => ({ shortName: 'model' }) }))
-vi.mock('src/ts/process/scriptings', () => ({ runLuaButtonTrigger: vi.fn() }))
+vi.mock('src/ts/process/scriptings', () => ({ runLuaButtonTrigger: interactionMocks.runLuaButtonTrigger }))
 vi.mock('src/ts/process/scripts', () => ({ risuChatParser: (value: string) => value }))
-vi.mock('src/ts/process/triggers', () => ({ runTrigger: vi.fn() }))
+vi.mock('src/ts/process/triggers', () => ({ runTrigger: interactionMocks.runTrigger }))
 vi.mock('src/ts/process/tts', () => ({ sayTTS: vi.fn() }))
 vi.mock('src/ts/util', () => ({
     capitalize: (value: string) => value,
@@ -88,15 +98,16 @@ vi.mock('../../ts/parser/parser.svelte', () => ({
     trimMarkdown: (value: string) => value,
 }))
 vi.mock('../../ts/translator/translator', () => ({
-    getLLMCache: async () => null,
+    getLLMCache: translatorMocks.getLLMCache,
     getLLMTranslationCacheRevision: () => 0,
     setLLMCache: vi.fn(),
     subscribeLLMTranslationCache: () => () => {},
-    translateHTML: async (value: string) => value,
+    translateHTML: translatorMocks.translateHTML,
 }))
 vi.mock('../../ts/storage/database.svelte', () => ({
     getCurrentCharacter: () => storeMocks.DBState.db.characters[0],
     getCurrentChat: () => storeMocks.DBState.db.characters[0].chats[0],
+    normalizeChat: (chat: unknown) => chat,
     setCurrentChat: vi.fn(),
 }))
 vi.mock('src/ts/process/modules', () => ({ getModuleAssets: () => [] }))
@@ -139,6 +150,8 @@ const mountedComponents: unknown[] = []
 
 beforeEach(() => {
     clearChatBodyRenderCache()
+    translatorMocks.getLLMCache.mockResolvedValue(null)
+    translatorMocks.translateHTML.mockImplementation(async (value: string) => value)
     DBState.db = {
         theme: 'standardRisu',
         translator: '',
@@ -176,9 +189,9 @@ async function waitForTranslationButtonState(target: HTMLElement, active: boolea
     while (Date.now() < deadline) {
         const button = target.querySelector<HTMLButtonElement>('.button-icon-translate')
         if (button?.classList.contains('text-primary') === active) {
-            // Cache-state publication is intentionally deferred by 10 ms.
-            // Require the state to survive that window so this catches a
-            // stale render cache undoing the user's click.
+            // Cache-state publication is intentionally deferred until after
+            // the rendered HTML commits. Require the state to remain stable
+            // so this catches a stale render cache undoing the user's click.
             await new Promise(resolve => setTimeout(resolve, 30))
             const settledButton = target.querySelector<HTMLButtonElement>('.button-icon-translate')
             if (settledButton?.classList.contains('text-primary') === active) return settledButton
@@ -243,6 +256,10 @@ describe('Chat editing', () => {
         const restoredButton = await waitForTranslationButtonState(restoredTarget, true)
         expect(restoredButton?.classList.contains('text-primary')).toBe(true)
         expect(parserMocks.ParseMarkdown).not.toHaveBeenCalled()
+
+        restoredButton?.click()
+        const restoredOriginalButton = await waitForTranslationButtonState(restoredTarget, false)
+        expect(restoredOriginalButton?.classList.contains('text-primary')).toBe(false)
     })
 
     it('enters the original-message editor after one edit click', async () => {
@@ -278,6 +295,53 @@ describe('Chat editing', () => {
 
         expect(DBState.db.characters[0].chats[0].message[0].data).toBe('Edited user message')
         expect(target.querySelector('.message-edit-area')).toBeNull()
+    })
+
+    it('does not automatically retranslate content changed by an internal Lua button', async () => {
+        const buttonMessage = '<button risu-btn="change-view">Change</button>'
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        DBState.db.characters[0].chaId = 'character-1'
+        DBState.db.characters[0].chats[0].id = 'room-1'
+        DBState.db.characters[0].chats[0].message[0].data = buttonMessage
+        interactionMocks.runLuaButtonTrigger.mockImplementation(async () => {
+            // Simulate CBS/Lua state becoming visible before the trigger
+            // promise itself settles.
+            storeMocks.ReloadGUIPointer.set(1)
+            await Promise.resolve()
+            return { chat: DBState.db.characters[0].chats[0] }
+        })
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: buttonMessage,
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                isLastMemory: false,
+                renderCacheKey: 'room:lua-message',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await waitForTranslationButtonState(target, true)
+        expect(translatorMocks.translateHTML).toHaveBeenCalledTimes(1)
+
+        target.querySelector<HTMLButtonElement>('[risu-btn="change-view"]')?.click()
+        await vi.waitFor(() => {
+            expect(interactionMocks.runLuaButtonTrigger).toHaveBeenCalledTimes(1)
+            expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(false)
+        })
+        await new Promise(resolve => setTimeout(resolve, 30))
+
+        expect(translatorMocks.translateHTML).toHaveBeenCalledTimes(1)
     })
 
     it('updates every non-final editor independently in a four-message blank chat', async () => {

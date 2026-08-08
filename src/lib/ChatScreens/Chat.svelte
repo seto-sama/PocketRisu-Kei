@@ -106,6 +106,12 @@
 
     let msgDisplay = $state('')
     let translated = $state(false)
+    const translationTaskKey = $derived(renderCacheKey
+        ? JSON.stringify([
+            renderCacheKey,
+            translationRecoveryTarget?.swipeId ?? (firstMessage ? currentPage - 1 : 0),
+        ])
+        : '')
 
     async function rm(){
         const messages = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
@@ -315,11 +321,15 @@
         if (!isTranslationControlBusy()) translated = !translated
     }
 
+    function resetTranslationState() {
+        translated = false
+        retranslate = false
+    }
+
     function handleTranslationButton() {
         if (isTranslationBusy()) {
             cancelTranslationRequest?.()
-            translated = false
-            retranslate = false
+            resetTranslationState()
             return
         }
         toggleTranslation()
@@ -330,8 +340,7 @@
     }
 
     function changeSwipe(change: () => void) {
-        translated = false
-        retranslate = false
+        resetTranslationState()
         change()
         translationRevision += 1
     }
@@ -432,6 +441,11 @@
         const triggerName = origin.getAttribute('risu-trigger')
         const triggerId = origin.getAttribute('risu-id')
         const btnEvent = origin.getAttribute('risu-btn')
+
+        // A trigger may update reactive Lua/CBS state before its promise
+        // returns. Disable translation first so an intermediate render cannot
+        // start a new automatic translation request.
+        resetTranslationState()
 
         const triggerResult =
             triggerName ?
@@ -637,6 +651,7 @@
                 {bodyRoot}
                 {translationRevision}
                 {isStreamingDisplay}
+                {translationTaskKey}
                 renderRevision={`${totalLengthPointer}|${chatReloadPointer}`}
                 renderCacheKey={renderCacheKey ? `${renderCacheKey}|${totalLengthPointer}|${chatReloadPointer}` : ''}
                 {revenantTranslationRecovery}

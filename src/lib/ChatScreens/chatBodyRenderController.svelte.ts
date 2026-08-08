@@ -16,6 +16,24 @@ import { sleep } from '../../ts/util'
 type ParseMode = 'normal' | 'back' | 'pretranslate' | 'notrim'
 type ParseMessageMarkdown = (data: string, mode: ParseMode) => Promise<string>
 
+interface SharedTranslationTask {
+    cacheKey: string | null
+    promise: Promise<string>
+    abortController: AbortController
+}
+
+const sharedTranslationTasks = new Map<string, SharedTranslationTask>()
+const sharedTranslationTaskListeners = new Set<() => void>()
+
+function notifySharedTranslationTasks() {
+    sharedTranslationTaskListeners.forEach(listener => listener())
+}
+
+function subscribeSharedTranslationTasks(listener: () => void) {
+    sharedTranslationTaskListeners.add(listener)
+    return () => sharedTranslationTaskListeners.delete(listener)
+}
+
 export const translationLoadingHTML = `<div style="display:flex;justify-content:center;align-items:center;height:48px;"><div style="animation: spin 1s linear infinite; border-radius: 50%; height: 32px; width: 32px; border: 2px solid #3b82f6; border-top: 2px solid transparent;"></div></div><style>@keyframes spin { to { transform: rotate(360deg); } }</style>`
 
 export function createChatBodyRenderController(
@@ -33,6 +51,9 @@ export function createChatBodyRenderController(
     const translationAbortControllers = new Map<AbortController, {
         persistOnDispose: boolean
     }>()
+    const trackSharedTranslationTasks = createSubscriber((update) =>
+        subscribeSharedTranslationTasks(update)
+    )
 
     function cancelTranslations(includePersistent = true) {
         for (const [controller, task] of translationAbortControllers) {
@@ -96,11 +117,12 @@ export function createChatBodyRenderController(
         }
     }
 
-    async function runTranslationTask<T>(
-        task: (signal: AbortSignal) => Promise<T>,
+    async function runTranslationTask(
+        task: (signal: AbortSignal) => Promise<string>,
         cacheKey: string | null,
         regenerate: boolean,
-    ): Promise<T> {
+        translationTaskKey: string,
+    ): Promise<string> {
         // Translation rendering is derived asynchronously. Always cross an
         // await boundary before mutating task state.
         await Promise.resolve()
@@ -118,7 +140,13 @@ export function createChatBodyRenderController(
         // which were already started are handled separately in dispose() so
         // they can finish and populate the translation cache.
         if (disposed) renderAbortController.signal.throwIfAborted()
-        const abortController = new AbortController()
+        const sharedTask = DBState.db.translatorType === 'llm' && translationTaskKey
+            ? sharedTranslationTasks.get(translationTaskKey)
+            : undefined
+        const matchingSharedTask = sharedTask?.cacheKey === cacheKey
+            ? sharedTask
+            : undefined
+        const abortController = matchingSharedTask?.abortController ?? new AbortController()
         translationAbortControllers.set(abortController, {
             persistOnDispose: DBState.db.translatorType === 'llm',
         })
@@ -126,7 +154,29 @@ export function createChatBodyRenderController(
         activeTranslationTasks += 1
         onTranslationTaskChange(1)
         try {
-            const result = await task(abortController.signal)
+            let taskPromise: Promise<string>
+            if (matchingSharedTask) {
+                taskPromise = matchingSharedTask.promise
+            }
+            else {
+                taskPromise = task(abortController.signal)
+                if (DBState.db.translatorType === 'llm' && translationTaskKey) {
+                    const nextSharedTask: SharedTranslationTask = {
+                        cacheKey,
+                        promise: taskPromise,
+                        abortController,
+                    }
+                    sharedTranslationTasks.set(translationTaskKey, nextSharedTask)
+                    notifySharedTranslationTasks()
+                    const clearSharedTask = () => {
+                        if (sharedTranslationTasks.get(translationTaskKey) !== nextSharedTask) return
+                        sharedTranslationTasks.delete(translationTaskKey)
+                        notifySharedTranslationTasks()
+                    }
+                    void taskPromise.then(clearSharedTask, clearSharedTask)
+                }
+            }
+            const result = await taskPromise
             // A persistent LLM request may finish after its chat body has been
             // disposed so translateHTML can store the result. Stop before any
             // detached Markdown/DOM rendering continues.
@@ -168,6 +218,7 @@ export function createChatBodyRenderController(
         retranslate: boolean
         translationCacheKey: string | null
         parseMarkdown: ParseMessageMarkdown
+        translationTaskKey: string
     }): Promise<string> {
         let html: string
         if (
@@ -187,6 +238,7 @@ export function createChatBodyRenderController(
                 ),
                 cacheKey,
                 options.retranslate,
+                options.translationTaskKey,
             )
             html = await options.parseMarkdown(translatedData, 'notrim')
         }
@@ -205,6 +257,7 @@ export function createChatBodyRenderController(
                 )),
                 cacheKey,
                 options.retranslate,
+                options.translationTaskKey,
             )
         }
         else {
@@ -222,6 +275,7 @@ export function createChatBodyRenderController(
                 ),
                 cacheKey,
                 options.retranslate,
+                options.translationTaskKey,
             )
         }
 
@@ -231,15 +285,24 @@ export function createChatBodyRenderController(
     function isTranslationBusy(
         translationPending: boolean,
         retranslate: boolean,
+        translationTaskKey = '',
     ): boolean {
+        trackSharedTranslationTasks()
         return activeTranslationTasks > 0
             || translationPending
             || retranslate
+            || Boolean(translationTaskKey && sharedTranslationTasks.has(translationTaskKey))
+    }
+
+    function getActiveTranslationCacheKey(translationTaskKey: string): string | null {
+        trackSharedTranslationTasks()
+        return sharedTranslationTasks.get(translationTaskKey)?.cacheKey ?? null
     }
 
     return {
         beginRender,
         dispose,
+        getActiveTranslationCacheKey,
         isDisposed: () => disposed,
         isTranslationBusy,
         renderTranslation,

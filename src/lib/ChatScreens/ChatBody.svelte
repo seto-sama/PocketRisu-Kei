@@ -29,6 +29,7 @@
         isStreamingDisplay?: boolean
         renderRevision?: string
         renderCacheKey?: string
+        translationTaskKey?: string
         revenantTranslationRecovery: RevenantChatTranslationRecovery
         revenantTranslationRecoverySnapshot: RevenantChatTranslationRecoverySnapshot
     }
@@ -49,6 +50,7 @@
         isStreamingDisplay = false,
         renderRevision = '',
         renderCacheKey = '',
+        translationTaskKey = '',
         revenantTranslationRecovery,
         revenantTranslationRecoverySnapshot,
     }: Props =  $props()
@@ -92,11 +94,13 @@
         translationRevision: number
         renderRevision: string
         renderCacheKey: string
+        translationTaskKey: string
         streaming: boolean
         recoverySnapshot: RevenantChatTranslationRecoverySnapshot
         role: string | null
         firstMessage: boolean
         allowCachedTranslationStateRestore: boolean
+        postRenderStateUpdates?: Array<() => void>
     } | null = null
     let currentMarkParsingSettled = false
     let skipNextTranslatedRender:boolean|null = null
@@ -133,12 +137,25 @@
         translated;
         retranslate;
         translationRevision;
+        const isCurrentRenderRequest = () =>
+            requestContext === undefined || currentMarkParsingRequest === requestContext
+        const queuePostRenderStateUpdate = (update: () => void) => {
+            if (!requestContext) {
+                update()
+                return
+            }
+            requestContext.postRenderStateUpdates ??= []
+            requestContext.postRenderStateUpdates.push(update)
+        }
         // Cache-key discovery for ordinary auto-translation is render-local;
         // do not mutate the shared revenant snapshot passed down by Chat.
         const recoverySnapshot = { ...revenantTranslationRecoverySnapshot }
-        const translationRecoveryPending = recoverySnapshot.pending
+        const currentTranslationTaskKey = requestContext?.translationTaskKey ?? translationTaskKey
+        const activeTranslationCacheKey = renderController.getActiveTranslationCacheKey(currentTranslationTaskKey)
+        const translationRecoveryPending = recoverySnapshot.pending || activeTranslationCacheKey !== null
         const recoveryCacheKey = recoverySnapshot.cacheKey
         let translationCacheKey = recoveryCacheKey
+            ?? activeTranslationCacheKey
             ?? (
                 ordinaryTranslationCacheKey
                 && ordinaryTranslationCacheKey.data === data
@@ -185,6 +202,7 @@
             // Keep lookup/parsing eliminated, but budget HTML commits across
             // frames just as the asynchronous upstream path naturally does.
             await waitForChatBodyRenderCacheCommit(persistentRender.html.length)
+            if (!isCurrentRenderRequest()) return lastParsed || persistentRender.html
             translationCacheKey = persistentRender.translationCacheKey
             renderTranslated = persistentRender.translated
             lastParsed = persistentRender.html
@@ -201,8 +219,8 @@
                 firstMessage,
             }
             if (translated !== persistentRender.translated) {
-                setTimeout(() => {
-                    if (msgDisplay === data) {
+                queuePostRenderStateUpdate(() => {
+                    if (msgDisplay === data && isCurrentRenderRequest()) {
                         // The cached HTML already represents this state. Keep
                         // the current promise identity when publishing the
                         // control state so Svelte does not replace the same
@@ -210,7 +228,7 @@
                         skipNextTranslatedRender = persistentRender.translated
                         translated = persistentRender.translated
                     }
-                }, 10)
+                })
             }
             return persistentRender.html
         }
@@ -237,7 +255,7 @@
                             recoverySnapshot,
                             {
                                 data,
-                                translated,
+                                translated: translated || activeTranslationCacheKey !== null,
                                 streaming: isStreamingDisplay,
                                 parseMarkdown: parseMessageMarkdown,
                             },
@@ -282,9 +300,9 @@
                 }
             }
             if(isStreamingDisplay && renderTranslated){
-                setTimeout(() => {
-                    if (msgDisplay === data) translated = false
-                }, 10)
+                queuePostRenderStateUpdate(() => {
+                    if (msgDisplay === data && isCurrentRenderRequest()) translated = false
+                })
                 renderTranslated = false
             }
             if(!isStreamingDisplay && (retranslate || renderTranslated)){
@@ -296,6 +314,7 @@
                     retranslate,
                     translationCacheKey,
                     parseMarkdown: parseMessageMarkdown,
+                    translationTaskKey: currentTranslationTaskKey,
                 })
                 lastParsedQueue = transResult
                 currentParsedTranslated = true
@@ -309,9 +328,9 @@
                             DBState.db.legacyTranslation ? 'notrim' : 'pretranslate',
                         )
                 }
-                setTimeout(() => {
-                    retranslate = false
-                }, 10);
+                queuePostRenderStateUpdate(() => {
+                    if (isCurrentRenderRequest()) retranslate = false
+                })
                 await revenantTranslationRecovery.acknowledgeResolved(recoverySnapshot)
 
                 renderResultReady = true
@@ -347,7 +366,7 @@
             return await markParsing(data, charArg, chatID, (tries ?? 0) + 1, requestContext)
         }
         finally{
-            if (renderResultReady) {
+            if (renderResultReady && isCurrentRenderRequest()) {
                 const settledRenderRevision = requestContext?.renderRevision ?? renderRevision
                 const settledRenderCacheKey = requestContext?.renderCacheKey ?? renderCacheKey
                 //since trimMarkdown is fast, we don't need to cache it
@@ -378,8 +397,8 @@
                     })
                 }
                 if (translatedStateUpdate !== null) {
-                    setTimeout(() => {
-                        if (msgDisplay === data) {
+                    queuePostRenderStateUpdate(() => {
+                        if (msgDisplay === data && isCurrentRenderRequest()) {
                             // Chat's controls still need the published state,
                             // but the HTML represented by that state is already
                             // the result of the current promise. Reuse it once
@@ -387,7 +406,7 @@
                             skipNextTranslatedRender = translatedStateUpdate
                             translated = translatedStateUpdate!
                         }
-                    }, 10)
+                    })
                 }
             }
         }
@@ -484,7 +503,7 @@
                 currentMarkParsingRequest === null
                 || currentMarkParsingRequest.translated === translatedState
             )
-        const request = {
+        const request: NonNullable<typeof currentMarkParsingRequest> = {
             data,
             charArg,
             chatId,
@@ -493,6 +512,7 @@
             translationRevision,
             renderRevision,
             renderCacheKey,
+            translationTaskKey,
             streaming: isStreamingDisplay,
             recoverySnapshot: revenantTranslationRecoverySnapshot,
             role,
@@ -528,6 +548,7 @@
             && currentMarkParsingRequest.translationRevision === request.translationRevision
             && currentMarkParsingRequest.renderRevision === request.renderRevision
             && currentMarkParsingRequest.renderCacheKey === request.renderCacheKey
+            && currentMarkParsingRequest.translationTaskKey === request.translationTaskKey
             && currentMarkParsingRequest.streaming === request.streaming
             && isEqual(currentMarkParsingRequest.recoverySnapshot, request.recoverySnapshot)
             && currentMarkParsingRequest.role === request.role
@@ -545,6 +566,7 @@
             && currentMarkParsingRequest.translated === request.translated
             && currentMarkParsingRequest.retranslate === request.retranslate
             && currentMarkParsingRequest.translationRevision === request.translationRevision
+            && currentMarkParsingRequest.translationTaskKey === request.translationTaskKey
             && currentMarkParsingRequest.streaming === request.streaming
             && isEqual(currentMarkParsingRequest.recoverySnapshot, request.recoverySnapshot)
             && currentMarkParsingRequest.role === request.role
@@ -565,6 +587,15 @@
         void promise.finally(() => {
             if (currentMarkParsingPromise === promise) currentMarkParsingSettled = true
         })
+        void promise.then(async () => {
+            // Publish bindable control state only after the resolved HTML has
+            // been committed. This avoids recursively starting a duplicate
+            // parse without relying on an arbitrary timer delay.
+            await tick()
+            if (currentMarkParsingPromise !== promise || currentMarkParsingRequest !== request) return
+            const updates = request.postRenderStateUpdates?.splice(0) ?? []
+            for (const update of updates) update()
+        }, () => {})
         return currentMarkParsingPromise
     })
 
@@ -580,7 +611,7 @@
 </script>
 
 {#await markParsingResult}
-    {@html addMetadataToElement(trimMarkdown(DBState.db.showTranslationLoading && (renderController.isTranslationBusy(revenantTranslationRecoverySnapshot.pending, retranslate) || (translated && !lastParsedTranslated)) ? translationLoadingHTML : lastParsed), modelShortName)}
+    {@html addMetadataToElement(trimMarkdown(DBState.db.showTranslationLoading && (renderController.isTranslationBusy(revenantTranslationRecoverySnapshot.pending, retranslate, translationTaskKey) || (translated && !lastParsedTranslated)) ? translationLoadingHTML : lastParsed), modelShortName)}
 {:then md}
     {@html addMetadataToElement(trimMarkdown(md), modelShortName)}
 {/await}
