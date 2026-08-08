@@ -270,7 +270,7 @@
         </aside>
         <section class="min-w-0 min-h-0 grow flex flex-col p-3">
             <SettingLayout variant="search" className="mb-2">
-                <div class="flex items-center gap-2 border border-darkborderc rounded-md px-3 focus-within:border-primary">
+                <div class="risu-field-border flex items-center gap-2 rounded-md px-3">
                     <SearchIcon size={18} class="text-textcolor2 shrink-0"/>
                     <input bind:value={searchQuery} placeholder={searchPlaceholder}
                         class="w-full py-2 bg-transparent text-textcolor outline-none"/>

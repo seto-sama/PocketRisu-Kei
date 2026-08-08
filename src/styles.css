@@ -473,6 +473,16 @@ html {
   -webkit-text-stroke: 1px #000;
 }
 
+/* Shared border treatment for text fields and compound input frames. */
+.risu-field-border {
+  border: 1px solid var(--risu-theme-darkborderc);
+  transition: border-color 200ms ease;
+}
+
+.risu-field-border:focus-within {
+  border-color: var(--risu-theme-primary);
+}
+
 .x-risu-risu-file {
   padding: 1rem;
   border: 1px solid var(--risu-theme-selected);

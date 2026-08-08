@@ -3,6 +3,7 @@
     import { ArrowDownUpIcon, ChevronDownIcon, CopyIcon, DownloadIcon, EraserIcon, HardDriveUploadIcon, LanguagesIcon, PencilIcon, ScrollTextIcon, SearchIcon, Trash2Icon } from '@lucide/svelte';
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import ShInput from "src/lib/UI/GUI/ShInput.svelte";
+    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import Help from "src/lib/Others/Help.svelte";
     import { language } from "src/lang";
@@ -14,6 +15,7 @@
     import { selectFileByDom } from "src/ts/util";
     import { getDatabase, type Chat, type Message } from "src/ts/storage/database.svelte";
     import { fetchChatFromServer } from "src/ts/storage/chatStorage";
+    import { textAreaSize } from "src/ts/gui/guisize";
 
     type TranslationCacheEntry = {
         key: string;
@@ -21,6 +23,7 @@
     };
 
     const CACHE_DISPLAY_LIMIT = 20;
+    const cacheEditorHeight = $derived(`${(10 + $textAreaSize) * 2}rem`);
 
     let cacheAllEntries = $state<TranslationCacheEntry[]>([]);
     let cacheSearch = $state('');
@@ -377,15 +380,19 @@
                         <Collapsible.Content class="bg-darkbg/60">
                             <div class="p-3 text-xs text-textcolor2 space-y-3">
                                 {#if originalVisibleCacheEntries[entry.key]}
-                                    <pre class="max-h-64 overflow-auto whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono">{entry.key}</pre>
+                                    <pre class="overflow-auto whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded px-4 py-2 text-textcolor font-mono" style:height={cacheEditorHeight}>{entry.key}</pre>
                                 {/if}
                                 {#if editingCacheKey === entry.key}
-                                    <textarea
-                                        class="w-full min-h-0 max-h-64 [field-sizing:content] whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono resize-y overflow-auto"
+                                    <TextAreaInput
                                         bind:value={editingCacheValue}
-                                    ></textarea>
+                                        fullwidth
+                                        actionBar={true}
+                                        className="bg-bgcolor/50"
+                                        contentClassName="font-mono whitespace-pre-wrap break-all"
+                                        style={`height:${cacheEditorHeight};min-height:${cacheEditorHeight}`}
+                                    />
                                 {:else}
-                                    <pre class="max-h-64 overflow-auto whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono">{entry.value}</pre>
+                                    <pre class="overflow-auto whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded px-4 py-2 text-textcolor font-mono" style:height={cacheEditorHeight}>{entry.value}</pre>
                                 {/if}
                                 <div class="flex items-center justify-between gap-2">
                                     <div class="flex flex-wrap gap-2">

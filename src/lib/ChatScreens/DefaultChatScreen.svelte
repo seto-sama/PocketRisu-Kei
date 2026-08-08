@@ -1268,7 +1268,7 @@ import { isMobile } from 'src/ts/platform'
                      plugins that locate the composer via div[class*="items-stretch"] (e.g. gemini-cache-keeper)
                      relied on the pre-redesign container class. Keep it so they can still find/anchor their UI,
                      and it scopes the timer re-flow rules in <style> below. -->
-                <IconButtonGroup size="lg" className="flex-wrap gap-1 rounded-3xl border border-darkborderc bg-bgcolor px-2 py-1.5 transition-colors focus-within:border-borderc plugin-compat-items-stretch">
+                <IconButtonGroup size="lg" className="risu-field-border flex-wrap gap-1 rounded-3xl bg-bgcolor px-2 py-1.5 plugin-compat-items-stretch">
                 {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
                     <ShDropdownMenu bind:open={openMenu}>
                         <ShDropdownMenuTrigger>
@@ -1455,7 +1455,7 @@ import { isMobile } from 'src/ts/platform'
                     <label for='messageInputTranslate' class="text-textcolor ml-4">
                         <LanguagesIcon size={20} />
                     </label>
-                    <textarea id = 'messageInputTranslate' class="text-textcolor rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 border-darkbutton resize-none focus:bg-selected overflow-y-hidden overflow-x-hidden max-w-full"
+                    <textarea id = 'messageInputTranslate' class="risu-field-border text-textcolor rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 resize-none outline-hidden overflow-y-hidden overflow-x-hidden max-w-full"
                               bind:value={messageInputTranslate}
                               bind:this={inputTranslateEle}
                               onkeydown={(e) => {
@@ -1712,7 +1712,7 @@ import { isMobile } from 'src/ts/platform'
                     bind:this={fullscreenEle}
                     onblur={persistDraftNow}
                     placeholder={language.enterMessageToPersona(activePersonaName)}
-                    class="flex-1 min-h-0 w-full resize-none rounded-md border border-darkborderc bg-transparent p-3 text-textcolor text-base outline-hidden overflow-y-auto focus:border-textcolor transition-colors"
+                    class="risu-field-border flex-1 min-h-0 w-full resize-none rounded-md bg-transparent p-3 text-textcolor text-base outline-hidden overflow-y-auto"
             ></textarea>
             <div class="flex justify-end mt-3">
                 <button onclick={sendFullscreen} aria-label="send"
