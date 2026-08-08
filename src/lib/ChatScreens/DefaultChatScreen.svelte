@@ -487,9 +487,9 @@ import { isMobile } from 'src/ts/platform'
                     chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
                 }
 
-                element.classList.add('ring-2', 'ring-blue-500')
+                element.classList.add('ring-2')
                 setTimeout(() => {
-                    element.classList.remove('ring-2', 'ring-blue-500')
+                    element.classList.remove('ring-2')
                 }, 2000)
             }
         } finally {
@@ -1268,7 +1268,7 @@ import { isMobile } from 'src/ts/platform'
                      plugins that locate the composer via div[class*="items-stretch"] (e.g. gemini-cache-keeper)
                      relied on the pre-redesign container class. Keep it so they can still find/anchor their UI,
                      and it scopes the timer re-flow rules in <style> below. -->
-                <IconButtonGroup size="lg" className="flex-wrap gap-1 rounded-3xl border border-darkborderc bg-bgcolor px-2 py-1.5 transition-colors focus-within:border-textcolor plugin-compat-items-stretch">
+                <IconButtonGroup size="lg" className="flex-wrap gap-1 rounded-3xl border border-darkborderc bg-bgcolor px-2 py-1.5 transition-colors focus-within:border-borderc plugin-compat-items-stretch">
                 {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
                     <ShDropdownMenu bind:open={openMenu}>
                         <ShDropdownMenuTrigger>

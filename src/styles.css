@@ -124,7 +124,7 @@
   --height-124: 32rem;
   --height-138: 36rem;
 
-  --default-ring-color: rgb(59 130 246 / 0.5);
+  --default-ring-color: var(--color-primary);
 }
 
 /*
@@ -168,6 +168,10 @@
   dialog {
     margin: auto;
   }
+}
+
+textarea.message-edit-area {
+  @apply outline-none focus-visible:border-borderc;
 }
 
 body {

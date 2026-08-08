@@ -539,50 +539,64 @@
 
 
 {#snippet genInfo()}
-    <div class="flex flex-col items-end" class:standard-risu-gen-info={DBState.db.theme === 'standardRisu'}>
+    <IconButtonGroup
+        size="lg"
+        className={`chat-generation-info flex-wrap justify-end gap-1 ${DBState.db.theme === 'standardRisu' ? 'flex-row-reverse' : ''}`}
+        style="min-height:var(--icon-cell-size)"
+    >
         {#if messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())}
-            <button class="text-sm p-1 text-textcolor2 float-end mr-2 my-1
-                    rounded-md hover:text-primary transition-colors flex justify-center items-center"
-                    onclick={() => {
-                        const currentGenerationInfo = idx >= 0 ? 
-                            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx].generationInfo :
-                            messageGenerationInfo
+            {@const modelLabel = capitalize(getModelInfo(messageGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))}
+            <IconButton
+                expanded
+                className="text-sm"
+                aria-label={modelLabel}
+                title={modelLabel}
+                onclick={() => {
+                    const currentGenerationInfo = idx >= 0 ?
+                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx].generationInfo :
+                        messageGenerationInfo
 
-                        alertRequestData({
-                            genInfo: currentGenerationInfo,
-                            idx: idx,
-                        })
-                    }}
+                    alertRequestData({
+                        genInfo: currentGenerationInfo,
+                        idx: idx,
+                    })
+                }}
             >
-                <BotIcon size={20} />
-                <span class="ml-1 max-w-[288px] truncate">
-                    {capitalize(getModelInfo(messageGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))}
+                <BotIcon />
+                <span class="hidden max-w-[288px] truncate sm:inline">
+                    {modelLabel}
                 </span>
-            </button>
+            </IconButton>
         {/if}
         {#if DBState.db.translatorType === 'llm' && translated}
-            <button class="text-sm p-1 text-textcolor2 float-end mr-2 my-1
-                            rounded-md hover:text-primary transition-colors flex justify-center items-center
-                            {translationDisabledClasses} disabled:hover:text-textcolor2"
-                    disabled={isTranslationControlBusy()}
-                    onclick={requestRetranslation}
+            <IconButton
+                expanded
+                className="text-sm"
+                disabled={isTranslationControlBusy()}
+                aria-label={language.retranslate}
+                title={language.retranslate}
+                onclick={requestRetranslation}
             >
-                <RefreshCcwIcon size={20} />
-                <span class="ml-1">
-                    {language.retranslate}
-                </span>
-            </button>
-            <button class={"text-sm p-1 float-end mr-2 my-1 rounded-md hover:text-primary transition-colors flex justify-center items-center " + translationDisabledClasses + " " + ((editTranslationMode || editTranslationKeyMode) ? 'text-primary' : 'text-textcolor2')}
-                    disabled={isTranslationControlBusy()}
-                    onclick={toggleTranslationEdit}
+                <RefreshCcwIcon />
+                <span>{language.retranslate}</span>
+            </IconButton>
+            <IconButton
+                expanded
+                className="text-sm"
+                active={editTranslationMode || editTranslationKeyMode}
+                activeColor="primary"
+                disabled={isTranslationControlBusy()}
+                aria-label={editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
+                title={editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
+                onclick={toggleTranslationEdit}
             >
-                <PencilIcon size={20} />
-                <span class="ml-1">
+                <PencilIcon />
+                <span>
                     {editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
                 </span>
-            </button>
+            </IconButton>
         {/if}
-    </div>
+    </IconButtonGroup>
 {/snippet}
 
 {#snippet textBox()}
@@ -1503,9 +1517,3 @@
     "border-warning": disabled === 'allBefore',
 }}></div>
 {/if}
-
-<style>
-    .standard-risu-gen-info {
-        flex-direction: row-reverse;
-    }
-</style>
