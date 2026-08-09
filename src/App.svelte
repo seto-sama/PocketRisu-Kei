@@ -120,7 +120,7 @@
                 hidden={!$sideBarStore}
             />
         {:else}
-            <div class="top-0 w-full h-full left-0 z-30 flex flex-row items-center" class:fixed={$sideBarStore} class:hidden={!$sideBarStore} >
+            <div class="inset-0 w-full h-dvh z-30 flex flex-row items-center" class:fixed={$sideBarStore} class:hidden={!$sideBarStore} >
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <Sidebar
                     openGrid={openCharacterGrid}

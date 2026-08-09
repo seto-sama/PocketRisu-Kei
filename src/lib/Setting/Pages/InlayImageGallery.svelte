@@ -538,7 +538,7 @@
 
               <div
                 class="absolute inset-x-0 bottom-0 pt-8 pb-2 px-2
-                  bg-gradient-to-t from-black/80 via-black/40 to-transparent
+                  bg-gradient-to-t from-black from-[-25%] to-transparent
                   opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex flex-col"
               >
                 <p class="text-white text-xs font-medium truncate leading-tight">{item.name}</p>

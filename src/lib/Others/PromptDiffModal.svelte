@@ -1580,7 +1580,7 @@
 {/snippet}
 
 
-<div class="absolute inset-0 z-50 bg-black/60 flex justify-center items-center p-4">
+<div class="risu-modal-backdrop z-50 flex justify-center items-center p-4">
   <div class="bg-darkbg rounded-md w-full max-w-4xl max-h-full overflow-hidden flex flex-col">
     
     <div class="flex items-center justify-between px-4 py-3 border-b border-darkborderc">
