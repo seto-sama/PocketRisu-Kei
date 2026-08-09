@@ -21,6 +21,7 @@ import type { ApiKeyPoolEntry, ModelBindingFields, ModelBindingSet, ModelPreset,
 import { emptyModelBinding } from '../preset/types';
 import { defaultHotkeys, type Hotkey } from '../defaulthotkeys';
 import { normalizeTextTheme } from '../gui/textTheme';
+import { DEFAULT_TEXT_BORDER_COLOR } from '../gui/textOutline';
 
 //APP_VERSION_POINT is to locate the app version in the database file for version bumping
 export let appVer = "2026.2.291" //<APP_VERSION_POINT>
@@ -1123,6 +1124,7 @@ export interface Database{
     supaMemoryKey:string
     textScreenColor?:string
     textBorder?:boolean
+    textBorderColor?:string
     textScreenRounded?:boolean
     textScreenBorder?:string
     characterOrder:(string|folder)[]
@@ -1911,6 +1913,7 @@ export interface themePreset{
     roundIcons: boolean
     textScreenColor?: string
     textBorder?: boolean
+    textBorderColor?: string
     textScreenRounded?: boolean
     textScreenBorder?: string
     showSavingIcon: boolean
@@ -2344,6 +2347,7 @@ export const themePresetTemplate: themePreset = {
     roundIcons: false,
     textScreenColor: null,
     textBorder: false,
+    textBorderColor: DEFAULT_TEXT_BORDER_COLOR,
     textScreenRounded: false,
     textScreenBorder: null,
     showSavingIcon: false,
@@ -2707,6 +2711,7 @@ export function saveCurrentThemePreset(){
         roundIcons: db.roundIcons,
         textScreenColor: db.textScreenColor,
         textBorder: db.textBorder,
+        textBorderColor: db.textBorderColor,
         textScreenRounded: db.textScreenRounded,
         textScreenBorder: db.textScreenBorder,
         showSavingIcon: db.showSavingIcon,
@@ -2776,6 +2781,7 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.roundIcons = p.roundIcons ?? db.roundIcons
     db.textScreenColor = p.textScreenColor
     db.textBorder = p.textBorder
+    db.textBorderColor = p.textBorderColor ?? DEFAULT_TEXT_BORDER_COLOR
     db.textScreenRounded = p.textScreenRounded
     db.textScreenBorder = p.textScreenBorder
     db.showSavingIcon = p.showSavingIcon ?? db.showSavingIcon

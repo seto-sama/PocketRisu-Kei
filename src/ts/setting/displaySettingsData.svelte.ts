@@ -9,6 +9,7 @@ import { changeFullscreen } from '../util';
 import { updateAnimationSpeed } from '../gui/animation';
 import { updateGuisize } from '../gui/guisize';
 import { updateTextThemeAndCSS } from '../gui/colorscheme';
+import { DEFAULT_TEXT_BORDER_COLOR } from '../gui/textOutline';
 import { PRODUCT_BASE_NAME } from '../branding';
 import { localFontFamilies } from 'virtual:pocketrisu-local-font-families';
 
@@ -353,7 +354,19 @@ export const displayOtherBubbleItems: SettingItem[] = [
         keywords: ['text', 'screen', 'border', 'color'],
     },
     { id: 'display.textScreenRounded', type: 'check', labelKey: 'textScreenRound', helpKey: 'textScreenRound', bindKey: 'textScreenRounded', keywords: ['text', 'round'] },
-    { id: 'display.textBorder', type: 'check', labelKey: 'textBorder', helpKey: 'textBorder', bindKey: 'textBorder', keywords: ['text', 'border'] },
+    {
+        id: 'display.textBorder',
+        type: 'custom',
+        componentId: 'NullableTextColorToggle',
+        componentProps: {
+            field: 'textBorderColor',
+            toggleField: 'textBorder',
+            labelKey: 'textBorder',
+            defaultColor: DEFAULT_TEXT_BORDER_COLOR,
+            helpKey: 'textBorder',
+        },
+        keywords: ['text', 'border', 'color'],
+    },
 ];
 
 export const displayOtherQuoteItems: SettingItem[] = [
