@@ -1876,6 +1876,7 @@ export const languageKorean = {
   nightlyWarning:
     "## 나이틀리 빌드\n\n나이틀리 빌드에 연결하려고 합니다. 이 버전은 테스트용이며 버그가 포함되어 있을 수 있습니다. **이 버전에서는 버그 등 문제가 발생하더라도 직접적으로 해결하는 것을 지원하지 않습니다.**",
   loginSionyw: "Sionyw 계정으로 로그인",
+  pluginRiskDetectedTitle: "플러그인 위험 감지",
   pluginRiskDetectedAlert:
     "PocketRisu Kei가 API 키나 개인 데이터를 훔칠 수도 있는 위험한 코드를 감지했습니다. 이 플러그인을 설치하지 않는 것을 권장합니다.",
   doNotInstall: "설치하지 않음",

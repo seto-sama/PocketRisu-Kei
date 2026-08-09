@@ -10,6 +10,7 @@
     import { language } from "src/lang";
     import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
     import { TriangleAlertIcon } from "@lucide/svelte";
 
     const data = $derived($bootBackupPromptStore);
@@ -57,20 +58,20 @@
         </div>
 
         {#if data.insufficient}
-            <div class="bg-draculared/20 border border-draculared/40 rounded-md px-4 py-3 mt-3 flex items-center gap-2.5 text-red-300">
-                <TriangleAlertIcon class="size-4 shrink-0 text-red-400" />
-                <span class="leading-relaxed text-sm">{language.backupServerInsufficient}</span>
-            </div>
+            <ShAlert variant="destructive" className="mt-3">
+                {#snippet icon()}<TriangleAlertIcon />{/snippet}
+                {language.backupServerInsufficient}
+            </ShAlert>
         {:else if diskUsageLevel === 'crit' && diskUsedPct != null}
-            <div class="bg-draculared/20 border border-draculared/40 rounded-md px-4 py-3 mt-3 flex items-center gap-2.5 text-red-300">
-                <TriangleAlertIcon class="size-4 shrink-0 text-red-400" />
-                <span class="leading-relaxed text-sm">{language.storageDiskUsageHighWarning(diskUsedPct)}</span>
-            </div>
+            <ShAlert variant="destructive" className="mt-3">
+                {#snippet icon()}<TriangleAlertIcon />{/snippet}
+                {language.storageDiskUsageHighWarning(diskUsedPct)}
+            </ShAlert>
         {:else if diskUsageLevel === 'warn' && diskUsedPct != null}
-            <div class="bg-yellow-900/30 border border-yellow-700/40 rounded-md px-4 py-3 mt-3 flex items-center gap-2.5 text-yellow-300">
-                <TriangleAlertIcon class="size-4 shrink-0 text-yellow-400" />
-                <span class="leading-relaxed text-sm">{language.storageDiskUsageHighWarning(diskUsedPct)}</span>
-            </div>
+            <ShAlert variant="warning" className="mt-3">
+                {#snippet icon()}<TriangleAlertIcon />{/snippet}
+                {language.storageDiskUsageHighWarning(diskUsedPct)}
+            </ShAlert>
         {/if}
     </ShDialog>
 {/if}

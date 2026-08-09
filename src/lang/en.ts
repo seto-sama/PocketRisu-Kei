@@ -1778,7 +1778,8 @@ export const languageEnglish = {
     nightlyWarning:
         "## Nightly Builds\n\nYou are connecting to a nightly build of the software. This version is meant for testing and most likely contains bugs. **In this version, even if you encounter issues, we do not support resolving them directly.**",
     loginSionyw: "Login with Sionyw Account",
-    pluginRiskDetectedAlert: "PocketRisu Kei detected code that may be harmful which can STOLE YOUR API KEY OR PERSONAL DATA. we recommend you to NOT INSTALL THIS PLUGIN.",
+    pluginRiskDetectedTitle: "Plugin risk detected",
+    pluginRiskDetectedAlert: "PocketRisu Kei detected code that may steal your API key or personal data. We recommend that you do not install this plugin.",
     doNotInstall: "Do Not Install",
     continueAnyway: "Continue Anyway",
     pluginNoRiskButAlert: "PocketRisu Kei did not detect harmful code, but please be aware that installing plugins from untrusted sources can pose security risks.",
