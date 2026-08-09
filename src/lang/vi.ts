@@ -416,6 +416,7 @@ export const languageVietnamese = {
         "inlayImageGalleryEmptyDesc": "Hình ảnh được đính kèm hoặc tạo trong trò chuyện sẽ xuất hiện ở đây",
         "inlayMediaList": "Danh sách video/âm thanh",
         "inlayMediaGalleryEmptyDesc": "Video và âm thanh được đính kèm trong trò chuyện sẽ xuất hiện ở đây",
+        "inlayMissing": "Không tìm thấy tài sản Inlay",
         "inlaySelectAll": "Chọn tất cả",
         "inlayTotalAssets": "Tổng cộng ${count} tài sản",
         "inlayDelete": "Delete",

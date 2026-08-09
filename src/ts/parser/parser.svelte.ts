@@ -763,15 +763,15 @@ function assetUrl(kvKey: string): string {
 
 function createMissingInlayPlaceholder(id: string): HTMLDivElement {
     const box = document.createElement('div')
-    box.className = 'risu-inlay-missing'
+    box.className = 'x-risu-risu-inlay-missing'
     box.setAttribute('data-missing-inlay-id', id)
 
     const title = document.createElement('div')
-    title.className = 'risu-inlay-missing-title'
-    title.textContent = 'Image unavailable'
+    title.className = 'x-risu-risu-inlay-missing-title'
+    title.textContent = language.playground.inlayMissing
 
     const subtitle = document.createElement('div')
-    subtitle.className = 'risu-inlay-missing-subtitle'
+    subtitle.className = 'x-risu-risu-inlay-missing-subtitle'
     subtitle.textContent = id
 
     box.appendChild(title)
@@ -790,8 +790,8 @@ export function parseInlayAssets(data:string){
 
             let cached = blobUrlCache.get(id)
             if(!cached){
-                // If not in memory cache, inject placeholder
-                const placeholder = `${prefix}<div data-inlay-id="${id}" data-inlay-type="${inlayType}" class="risu-inlay-placeholder risu-loading-spinner" style="width: 100%; min-height: 100px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.1); border-radius: 8px;"></div>${postfix}`
+                // Keep a minimal box for IntersectionObserver without flashing a loading surface.
+                const placeholder = `${prefix}<div data-inlay-id="${id}" data-inlay-type="${inlayType}" class="risu-inlay-placeholder" style="width: 100%; min-height: 1px;"></div>${postfix}`
                 data = data.replace(inlay, placeholder)
                 continue
             }

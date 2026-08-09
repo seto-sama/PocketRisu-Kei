@@ -416,6 +416,7 @@ export const languageSpanish = {
         "inlayImageGalleryEmptyDesc": "Las imágenes adjuntas o generadas en chats aparecerán aquí",
         "inlayMediaList": "Lista de vídeo/audio",
         "inlayMediaGalleryEmptyDesc": "Los vídeos y audios adjuntos en chats aparecerán aquí",
+        "inlayMissing": "Recurso inlay no encontrado",
         "inlaySelectAll": "Seleccionar todo",
         "inlayTotalAssets": "Total {count} recursos",
         "inlayDelete": "Delete",

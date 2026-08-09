@@ -426,6 +426,7 @@ export const languageEnglish = {
         inlayImageList: "Image List",
         inlayMediaList: "Video / Audio List",
         inlayMediaGalleryEmptyDesc: "Videos and audio attached in chats will appear here",
+        inlayMissing: "Missing inlay",
         inlaySelectAll: "Select All",
         inlayDeleteConfirm: "Are you sure you want to delete {name}?",
         inlayDeleteMultipleConfirm: "Are you sure you want to delete the selected {count} assets?",

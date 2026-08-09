@@ -493,6 +493,7 @@ export const languageKorean = {
     inlayMediaList: "비디오/오디오 목록",
     inlayMediaGalleryEmptyDesc:
       "채팅에서 첨부된 비디오와 오디오가 여기에 나타납니다",
+    inlayMissing: "인레이 에셋을 찾지 못했습니다",
     inlaySelectAll: "모두 선택",
     inlayTotalAssets: "총 {count}개 에셋",
     inlayDelete: "삭제",

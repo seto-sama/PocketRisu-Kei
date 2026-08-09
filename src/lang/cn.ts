@@ -416,6 +416,7 @@ export const languageChinese = {
         "inlayImageGalleryEmptyDesc": "聊天中附加或生成的图片会显示在这里",
         "inlayMediaList": "视频/音频列表",
         "inlayMediaGalleryEmptyDesc": "聊天中附加的视频和音频会显示在这里",
+        "inlayMissing": "未找到内联资源",
         "inlaySelectAll": "全选",
         "inlayTotalAssets": "共{count}个资源",
         "inlayDelete": "Delete",

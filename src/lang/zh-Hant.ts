@@ -418,6 +418,7 @@ export const languageChineseTraditional = {
         "inlayImageGalleryEmptyDesc": "在對話中附加或生成的圖片將顯示在這裡",
         "inlayMediaList": "影片／音訊清單",
         "inlayMediaGalleryEmptyDesc": "在對話中附加的影片和音訊將顯示在這裡",
+        "inlayMissing": "找不到嵌入資源",
         "inlaySelectAll": "全選",
         "inlayTotalAssets": "共{count}個資源",
         "inlayDelete": "刪除",
