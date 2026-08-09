@@ -133,6 +133,7 @@ export function createSimpleCharacter(char:character){
 
     const simpleChar:simpleCharacterArgument = {
         type: "simple",
+        name: char.name,
         customscript: char.customscript,
         chaId: char.chaId,
         additionalAssets: char.additionalAssets,

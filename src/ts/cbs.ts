@@ -2298,7 +2298,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         name: 'bgm',
         callback: 'doc_only',
         alias: [],
-        description: 'Inserts background music control element.\n\nUsage:: {{bgm::musicName}}',
+        description: 'Alias of audio. Displays an audio player for asset A.\n\nUsage:: {{bgm::musicName}}',
     });
 
     registerFunction({

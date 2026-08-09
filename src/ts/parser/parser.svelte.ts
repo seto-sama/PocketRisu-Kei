@@ -577,6 +577,7 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
     let cx: number|null = null
 
     data = await replaceAsync(data, assetRegex, async (full:string, type:string, name:string) => {
+        const displayName = name.trim()
         name = name.toLocaleLowerCase()
 
         // Skip image-related assets when hideAllImages is enabled
@@ -651,7 +652,12 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
             case 'video-img':
                 return `<video autoplay muted loop><source src="${p}" type="video/mp4"></video>\n`
             case 'audio':
-                return `<audio controls autoplay loop><source src="${p}" type="audio/mpeg"></audio>\n`
+            case 'bgm': {
+                const audioSrc = md.utils.escapeHtml(p)
+                const audioTitle = md.utils.escapeHtml(displayName || 'Audio')
+                const characterName = md.utils.escapeHtml(char.name ?? '')
+                return `<div class="risu-audio-player-slot" data-risu-audio-player="1" data-audio-src="${audioSrc}" data-audio-title="${audioTitle}" data-character-name="${characterName}"></div>\n`
+            }
             case 'bg':
                 if(mode === 'back'){
                     return `<div style="width:100%;height:100%;background: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),url(${p}); background-size: cover;"></div>`
@@ -663,8 +669,6 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
                 }
                 return `<img src="${p}" alt="${p}" style="${assetWidthString} "/>\n`
             }
-            case 'bgm':
-                return `<div risu-ctrl="bgm___auto___${p}" style="display:none;"></div>\n`
         }
         return ''
     })
@@ -958,6 +962,7 @@ export interface simpleCharacterArgument{
     additionalAssets?: [string, string, string][]
     customscript: customscript[]
     chaId: string,
+    name?: string,
     virtualscript?: string
     emotionImages?: [string, string][]
     triggerscript?: triggerscript[]
@@ -1051,7 +1056,7 @@ export function trimMarkdown(data:string){
     }
     cached = decodeStyle(DOMPurify.sanitize(data, {
         ADD_TAGS: ["iframe", "style", "risu-style", "x-em", 'annotation', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt'],
-        ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-ctrl" ,"risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-lang', 'x-hl-text', 'data-inlay-id', 'data-inlay-type'],
+        ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-lang', 'x-hl-text', 'data-inlay-id', 'data-inlay-type'],
     }))
     if (trimCache.size >= TRIM_CACHE_MAX) {
         // evict oldest entry
