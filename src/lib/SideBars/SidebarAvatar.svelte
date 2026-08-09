@@ -1,6 +1,7 @@
 <script lang="ts">
   import { UserRoundIcon } from "@lucide/svelte";
   import { tooltipRight } from "src/ts/gui/tooltip";
+  import { getFolderColorStyle } from "./folderColors";
 
   interface Props {
     rounded: boolean;
@@ -34,22 +35,7 @@
     chaId
   }: Props = $props();
 
-  const folderColorClasses: Record<string, { fill: string; border: string }> = {
-    red: { fill: 'bg-draculared/20', border: 'border-draculared/40' },
-    orange: { fill: 'bg-highlight/20', border: 'border-highlight/40' },
-    yellow: { fill: 'bg-warning/20', border: 'border-warning/40' },
-    green: { fill: 'bg-success/20', border: 'border-success/40' },
-    blue: { fill: 'bg-primary/20', border: 'border-primary/40' },
-    indigo: { fill: 'bg-accent/20', border: 'border-accent/40' },
-    purple: { fill: 'bg-scoped/20', border: 'border-scoped/40' },
-    // Keep folders saved with the former palette's pink option theme-aware.
-    pink: { fill: 'bg-scoped/20', border: 'border-scoped/40' },
-  };
-
-  let folderColorStyle = $derived(folderColorClasses[color] ?? {
-    fill: 'bg-darkbg/20',
-    border: 'border-selected',
-  });
+  let folderColorStyle = $derived(getFolderColorStyle(color));
   let hasFolderImage = $derived(bordered && Boolean(backgroundimg));
   let showFolderBorder = $derived(bordered && !hasFolderImage);
 

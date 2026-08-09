@@ -53,6 +53,7 @@
     import { checkCharOrder, getFileSrc, saveAsset } from "src/ts/globalApi.svelte";
     import { alertInput, alertSelect } from "src/ts/alert";
     import SideChatList from "./SideChatList.svelte";
+    import { folderColorOptions } from "./folderColors";
 
   import { sideBarSize } from "src/ts/gui/guisize";
   import DevTool from "./DevTool.svelte";
@@ -96,16 +97,6 @@
   let openFolders:string[] = $state([])
   let sidebarSortElement: HTMLDivElement | undefined = $state()
   let mergeTargetId: string | null = null
-  const characterFolderColorOptions = [
-    { label: 'Color 1', value: 'red' },
-    { label: 'Color 2', value: 'orange' },
-    { label: 'Color 3', value: 'yellow' },
-    { label: 'Color 4', value: 'green' },
-    { label: 'Color 5', value: 'blue' },
-    { label: 'Color 6', value: 'indigo' },
-    { label: 'Color 7', value: 'purple' },
-    { label: 'Default', value: 'default' },
-  ] as const
   interface Props {
     openGrid?: any;
     onNavigate?: () => void;
@@ -556,9 +547,9 @@
                 }
                 else if(sel === 1){
                   const colorSelection = parseInt(await alertSelect(
-                    characterFolderColorOptions.map(({ label }) => label)
+                    folderColorOptions.map(({ label }) => label)
                   ))
-                  const selectedColor = characterFolderColorOptions[colorSelection]?.value
+                  const selectedColor = folderColorOptions[colorSelection]?.value
                   if(!selectedColor){
                     return
                   }
