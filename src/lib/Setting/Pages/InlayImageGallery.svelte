@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { Copy, Download, Trash2, ImageIcon } from '@lucide/svelte'
+  import { AudioLines, Copy, Download, Trash2, Video } from '@lucide/svelte'
   import OptionInput from "../../UI/GUI/OptionInput.svelte";
   import CheckInput from '../../UI/GUI/CheckInput.svelte'
   import ShButton from '../../UI/GUI/ShButton.svelte'
@@ -45,6 +45,7 @@
   let galleryScrollContainer: HTMLDivElement | null = $state(null)
   let loadMoreSentinel: HTMLDivElement | null = $state(null)
   let selection = $state<Set<string>>(new SvelteSet())
+  let failedVideoThumbnails = $state<Set<string>>(new SvelteSet())
 
   // Filter/sort state
   let sortKey = $state<SortKey>('updated-desc')
@@ -62,7 +63,7 @@
   let viewerUrl = $state('')
   let viewerLoading = $state(false)
   let viewerError = $state('')
-  // Mobile defaults to image-only — narrow info panel would dominate the viewport.
+  // Mobile defaults to preview-only — a narrow info panel would dominate the viewport.
   let infoPanelOpen = $state($SizeStore.w >= 768)
 
   // --- Derived ---
@@ -74,10 +75,12 @@
   const characterMap = $derived(new Map(characterIndex.map((char) => [char.chaId, char])))
   const allChatIds = $derived(new Set(characterIndex.flatMap((char) => char.chats.map((chat) => chat.id))))
   const availableChats = $derived(characterFilter ? (characterMap.get(characterFilter)?.chats ?? []) : [])
+  const tabItems = $derived(allItems.filter((item) => submenu === 0
+    ? item.type === 'image'
+    : item.type === 'video' || item.type === 'audio'))
 
   const filteredItems = $derived.by(() => {
-    return allItems
-      .filter((item) => item.type === 'image')
+    return tabItems
       .filter((item) => {
         if (characterFilter && item.meta?.charId !== characterFilter) return false
         if (chatFilter && item.meta?.chatId !== chatFilter) return false
@@ -164,7 +167,7 @@
 
   function sanitizeFileName(name: string): string {
     const trimmed = name.trim()
-    const fallback = trimmed.length > 0 ? trimmed : 'inlay-image.png'
+    const fallback = trimmed.length > 0 ? trimmed : 'inlay-asset.bin'
     return fallback.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
   }
 
@@ -194,12 +197,20 @@
     viewerUrl = ''
   }
 
+  function getAssetUrl(id: string): string {
+    return `/api/asset/${Buffer.from('inlay/' + id, 'utf-8').toString('hex')}`
+  }
+
+  function getVideoThumbnailUrl(id: string): string {
+    return `/api/asset/${Buffer.from('inlay_video_thumb/' + id, 'utf-8').toString('hex')}`
+  }
+
   function loadViewerAsset(id: string) {
     revokeViewerUrl()
     viewerLoading = false
     viewerError = ''
     // Use direct /api/asset/ URL — browser handles caching via HTTP headers
-    viewerUrl = `/api/asset/${Buffer.from('inlay/' + id, 'utf-8').toString('hex')}`
+    viewerUrl = getAssetUrl(id)
   }
 
   function openViewer(id: string) {
@@ -282,12 +293,19 @@
 
   // --- Effects ---
   $effect(() => {
+    submenu
+    selection.clear()
+    closeViewer()
+  })
+
+  $effect(() => {
     characterFilter
     const validChatIds = availableChats.map((chat) => chat.id)
     if (chatFilter && !validChatIds.includes(chatFilter)) chatFilter = ''
   })
 
   $effect(() => {
+    submenu
     allItems.length
     sortKey
     characterFilter
@@ -302,18 +320,6 @@
     if (specialFilter === 'orphan-message' && !scanResult) {
       scanResult = scanInlayReferences()
     }
-  })
-
-  // Keyboard shortcuts for viewer
-  $effect(() => {
-    if (!viewerOpen) return
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeViewer()
-      if (e.key === 'ArrowLeft' && canGoPrev) goToNeighbor(-1)
-      if (e.key === 'ArrowRight' && canGoNext) goToNeighbor(1)
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
   })
 
   // Infinite scroll.
@@ -373,17 +379,18 @@
   loadAssets()
 </script>
 
-<div class="min-h-0 flex flex-col {submenu === 0 ? 'h-full overflow-hidden' : ''}">
+<div class="min-h-0 flex flex-col {submenu !== 2 ? 'h-full overflow-hidden' : ''}">
   <div class="shrink-0">
     <SettingPage title={language.playground.inlayImageGallery}>
       <SettingTabs tabs={[
         { label: language.playground.inlayImageList, value: 0 },
-        { label: language.settings, value: 1 },
+        { label: language.playground.inlayMediaList, value: 1 },
+        { label: language.settings, value: 2 },
       ]} bind:selected={submenu} />
     </SettingPage>
   </div>
 
-  {#if submenu === 1}
+  {#if submenu === 2}
     <SettingRenderer items={inlayImageSettingsItems} layout="row" />
   {:else}
     <header class="shrink-0 flex flex-col gap-3 bg-bgcolor pb-4">
@@ -397,13 +404,13 @@
             <ShButton onclick={deselectAll} variant="outline" size="sm">
               {language.playground.inlayDeselectAll} ({selection.size})
             </ShButton>
-          {:else if allItems.length > 0}
+          {:else if filteredItems.length > 0}
             <ShButton onclick={selectAll} variant="outline" size="sm">{language.playground.inlaySelectAll}</ShButton>
           {/if}
         </div>
       </div>
 
-      {#if allItems.length > 0}
+      {#if tabItems.length > 0}
         <SettingLayout variant="filter" title={language.systemLogsFilters} bind:open={filtersOpen} activeCount={activeFilterCount}>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
               <div class="flex flex-col gap-1 text-xs text-textcolor2">
@@ -457,7 +464,11 @@
       {:else if filteredItems.length === 0}
         <div class="min-h-full flex flex-col items-center justify-center text-center text-textcolor2">
           <p class="text-lg">{language.playground.inlayEmpty}</p>
-          <p class="text-sm mt-2">{language.playground.inlayImageGalleryEmptyDesc}</p>
+          <p class="text-sm mt-2">
+            {submenu === 0
+              ? language.playground.inlayImageGalleryEmptyDesc
+              : language.playground.inlayMediaGalleryEmptyDesc}
+          </p>
         </div>
       {:else}
         <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
@@ -478,9 +489,26 @@
                   loading="lazy"
                   draggable={false}
                 />
+              {:else if item.type === 'video'}
+                {#if failedVideoThumbnails.has(item.id)}
+                  <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-textcolor2/60">
+                    <Video size={36} />
+                    <span class="text-[10px]">{language.playground.inlayVideoAsset}</span>
+                  </div>
+                {:else}
+                  <img
+                    alt={item.name}
+                    class="w-full h-full object-cover bg-darkbg"
+                    src={getVideoThumbnailUrl(item.id)}
+                    loading="lazy"
+                    draggable={false}
+                    onerror={() => failedVideoThumbnails.add(item.id)}
+                  />
+                {/if}
               {:else}
-                <div class="w-full h-full flex items-center justify-center text-textcolor2/40">
-                  <ImageIcon size={28} />
+                <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-textcolor2/60">
+                  <AudioLines size={36} />
+                  <span class="text-[10px]">{language.playground.inlayAudioAsset}</span>
                 </div>
               {/if}
 
@@ -593,6 +621,31 @@
   onNext={() => goToNeighbor(1)}
   onDownload={() => currentViewerItem && downloadCurrent(currentViewerItem)}
 >
+  {#snippet viewerContent()}
+    {#if currentViewerItem?.type === 'video'}
+      <!-- svelte-ignore a11y_media_has_caption: user-provided inlay media has no caption source -->
+      <video
+        src={viewerUrl}
+        controls
+        playsinline
+        class="max-w-full max-h-full rounded shadow-2xl"
+        style="max-height: calc(100vh - 112px);"
+      ></video>
+    {:else if currentViewerItem?.type === 'audio'}
+      <div class="flex w-full max-w-xl flex-col items-center gap-6 rounded-lg border border-darkborderc bg-darkbg p-8">
+        <AudioLines size={64} class="text-textcolor2" />
+        <audio src={viewerUrl} controls class="w-full"></audio>
+      </div>
+    {:else}
+      <img
+        src={viewerUrl}
+        alt={currentViewerItem?.name ?? viewerId}
+        class="max-w-full max-h-full object-contain rounded shadow-2xl"
+        style="max-height: calc(100vh - 112px);"
+      />
+    {/if}
+  {/snippet}
+
   {#snippet statusOverlay()}
     {#if getStatusLabel(currentViewerItem)}
       <div class="risu-status-warning absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full text-xs font-medium">

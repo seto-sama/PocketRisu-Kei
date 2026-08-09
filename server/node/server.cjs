@@ -5,7 +5,7 @@ const https = require('https');
 const path = require('path');
 const compression = require('compression');
 const htmlparser = require('node-html-parser');
-const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
+const { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
 const fs = require('fs/promises')
 const nodeCrypto = require('crypto')
 const rateLimit = require('express-rate-limit')
@@ -883,6 +883,7 @@ if (existsSync(instanceIdPath)) {
 
 const authCodePath = path.join(process.cwd(), 'save', '__authcode')
 const inlayDir = path.join(savePath, 'inlays')
+const inlayVideoThumbnailDir = path.join(inlayDir, '.video-thumbnails')
 const inlayMigrationMarker = path.join(inlayDir, '.migrated_to_fs')
 const hexRegex = /^[0-9a-fA-F]+$/;
 const BACKUP_IMPORT_MAX_BYTES = Number(process.env.RISU_BACKUP_IMPORT_MAX_BYTES ?? '0');
@@ -1081,6 +1082,25 @@ function getInlaySidecarPath(id) {
     return p;
 }
 
+function getInlayVideoThumbnailPath(id) {
+    if (!isSafeInlayId(id)) throw new Error(`Invalid inlay id: ${id}`);
+    const filePath = path.join(inlayVideoThumbnailDir, `${id}.webp`);
+    assertInsideInlayDir(filePath);
+    return filePath;
+}
+
+async function deleteInlayVideoThumbnail(id) {
+    await fs.unlink(getInlayVideoThumbnailPath(id)).catch(() => {});
+}
+
+function deleteInlayVideoThumbnailSync(id) {
+    try {
+        unlinkSync(getInlayVideoThumbnailPath(id));
+    } catch {
+        // ignore
+    }
+}
+
 async function ensureInlayDir() {
     await fs.mkdir(inlayDir, { recursive: true });
 }
@@ -1175,17 +1195,26 @@ function resolveInlayFilePathSync(id) {
 }
 
 async function readInlayFile(id) {
+    const info = await getInlayFileInfo(id);
+    if (!info) return null;
+    const buffer = await fs.readFile(info.filePath);
+    return {
+        ...info,
+        buffer,
+        mime: getMimeFromExt(info.ext, buffer),
+    };
+}
+
+async function getInlayFileInfo(id) {
     const filePath = await resolveInlayFilePath(id);
     if (!filePath) return null;
     const ext = normalizeInlayExt(path.extname(filePath).slice(1));
-    const buffer = await fs.readFile(filePath);
     const stat = await fs.stat(filePath);
     return {
-        buffer,
         ext,
         filePath,
         mtimeMs: stat.mtimeMs,
-        mime: getMimeFromExt(ext, buffer),
+        size: stat.size,
     };
 }
 
@@ -1216,6 +1245,7 @@ function writeInlaySidecarSync(id, info) {
 async function writeInlayFile(id, ext, buffer, info = null) {
     await ensureInlayDir();
     await deleteInlayRawFile(id);
+    await deleteInlayVideoThumbnail(id);
     const normalizedExt = normalizeInlayExt(ext);
     await fs.writeFile(getInlayFilePath(id, normalizedExt), Buffer.from(buffer));
     await writeInlaySidecar(id, {
@@ -1227,6 +1257,7 @@ async function writeInlayFile(id, ext, buffer, info = null) {
 function writeInlayFileSync(id, ext, buffer, info = null) {
     ensureInlayDirSync();
     deleteInlayRawFileSync(id);
+    deleteInlayVideoThumbnailSync(id);
     const normalizedExt = normalizeInlayExt(ext);
     writeFileSync(getInlayFilePath(id, normalizedExt), Buffer.from(buffer));
     writeInlaySidecarSync(id, {
@@ -1253,11 +1284,13 @@ function deleteInlayRawFileSync(id) {
 
 async function deleteInlayFile(id) {
     await deleteInlayRawFile(id);
+    await deleteInlayVideoThumbnail(id);
     await fs.unlink(getInlaySidecarPath(id)).catch(() => {});
 }
 
 function deleteInlayFileSync(id) {
     deleteInlayRawFileSync(id);
+    deleteInlayVideoThumbnailSync(id);
     try {
         unlinkSync(getInlaySidecarPath(id));
     } catch {
@@ -1520,9 +1553,10 @@ function detectMime(buf) {
 }
 const ASSET_EXT_MIME = {
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-    gif: 'image/gif', webp: 'image/webp',
-    mp4: 'video/mp4', webm: 'video/webm',
-    mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav',
+    gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
+    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+    m4v: 'video/x-m4v', avi: 'video/x-msvideo',
+    mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4',
 }
 
 async function checkDiskSpace(requiredBytes) {
@@ -2892,22 +2926,188 @@ function resolveAssetPayload(key, rawValue) {
     return { binary: rawValue, contentType }
 }
 
-const THUMB_MAX_SIDE = 320;
+const THUMB_SHORT_SIDE = 320;
+const THUMB_LONG_SIDE = 640;
 const THUMB_QUALITY = 75;
 const THUMB_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+const videoThumbnailJobs = new Map();
 
 async function generateThumbnail(buffer) {
     const vips = await getVips()
-    const img = vips.Image.thumbnailBuffer(buffer, THUMB_MAX_SIDE, {
-        height: THUMB_MAX_SIDE,
-        size: 'down',
-    })
+    const source = vips.Image.newFromBuffer(buffer)
+    let rotated = null
+    let img = null
     try {
+        rotated = source.autorot()
+        const landscape = rotated.width >= rotated.height
+        const targetWidth = landscape ? THUMB_LONG_SIDE : THUMB_SHORT_SIDE
+        const targetHeight = landscape ? THUMB_SHORT_SIDE : THUMB_LONG_SIDE
+        const scale = Math.min(targetWidth / rotated.width, targetHeight / rotated.height, 1)
+        img = scale < 1
+            ? rotated.resize(scale, { kernel: vips.Kernel.lanczos3 })
+            : rotated
         const out = img.writeToBuffer('.webp', { Q: THUMB_QUALITY })
         return Buffer.from(out);
     } finally {
-        img.delete()
+        if (img && img !== rotated) img.delete()
+        if (rotated) rotated.delete()
+        source.delete()
     }
+}
+
+function extractVideoThumbnailFrame(inputPath, outputPath) {
+    const bundledExecutable = path.join(
+        process.cwd(),
+        'bin',
+        process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg',
+    )
+    const executable = process.env.RISU_FFMPEG_PATH || (
+        existsSync(bundledExecutable) ? bundledExecutable : 'ffmpeg'
+    )
+
+    return new Promise((resolve) => {
+        const child = spawn(executable, [
+            '-hide_banner',
+            '-loglevel', 'error',
+            '-ss', '0.1',
+            '-i', inputPath,
+            '-map', '0:v:0',
+            '-frames:v', '1',
+            '-an',
+            '-sn',
+            '-c:v', 'png',
+            '-y',
+            outputPath,
+        ], {
+            stdio: 'ignore',
+            windowsHide: true,
+        })
+        let settled = false
+        const finish = (success) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timeout)
+            resolve(success)
+        }
+        const timeout = setTimeout(() => {
+            child.kill('SIGKILL')
+            finish(false)
+        }, 30_000)
+        child.once('error', () => finish(false))
+        child.once('close', (code) => finish(code === 0))
+    })
+}
+
+async function ensureInlayVideoThumbnail(id) {
+    const existingJob = videoThumbnailJobs.get(id)
+    if (existingJob) return await existingJob
+
+    const job = (async () => {
+        const [source, sidecar] = await Promise.all([
+            getInlayFileInfo(id),
+            readInlaySidecar(id),
+        ])
+        if (!source || sidecar?.type !== 'video') return null
+
+        const thumbnailPath = getInlayVideoThumbnailPath(id)
+        try {
+            const thumbnailStat = await fs.stat(thumbnailPath)
+            if (thumbnailStat.mtimeMs >= source.mtimeMs) {
+                return { filePath: thumbnailPath, mtimeMs: thumbnailStat.mtimeMs }
+            }
+        } catch {
+            // Generate a missing or stale thumbnail below.
+        }
+
+        await fs.mkdir(inlayVideoThumbnailDir, { recursive: true })
+        const temporaryBase = `${id}.${process.pid}.${nodeCrypto.randomBytes(6).toString('hex')}`
+        const framePath = path.join(
+            inlayVideoThumbnailDir,
+            `${temporaryBase}.frame.png`,
+        )
+        const temporaryThumbnailPath = path.join(
+            inlayVideoThumbnailDir,
+            `${temporaryBase}.tmp.webp`,
+        )
+        const extracted = await extractVideoThumbnailFrame(source.filePath, framePath)
+        if (!extracted) {
+            await fs.unlink(framePath).catch(() => {})
+            return null
+        }
+
+        try {
+            const frame = await fs.readFile(framePath)
+            const thumbnail = await generateThumbnail(frame)
+            await fs.writeFile(temporaryThumbnailPath, thumbnail)
+            await fs.rename(temporaryThumbnailPath, thumbnailPath)
+            const thumbnailStat = await fs.stat(thumbnailPath)
+            return { filePath: thumbnailPath, mtimeMs: thumbnailStat.mtimeMs }
+        } catch {
+            return null
+        } finally {
+            await Promise.allSettled([
+                fs.unlink(framePath),
+                fs.unlink(temporaryThumbnailPath),
+            ])
+        }
+    })().finally(() => {
+        videoThumbnailJobs.delete(id)
+    })
+
+    videoThumbnailJobs.set(id, job)
+    return await job
+}
+
+function parseSingleByteRange(rangeHeader, size) {
+    if (typeof rangeHeader !== 'string' || !rangeHeader.startsWith('bytes=')) return null
+    if (!Number.isSafeInteger(size) || size <= 0) return false
+
+    const spec = rangeHeader.slice('bytes='.length).trim()
+    if (!spec || spec.includes(',')) return false
+
+    const separator = spec.indexOf('-')
+    if (separator === -1) return false
+
+    const startText = spec.slice(0, separator).trim()
+    const endText = spec.slice(separator + 1).trim()
+    if (!startText && !endText) return false
+
+    if (!startText) {
+        const suffixLength = Number(endText)
+        if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return false
+        return {
+            start: Math.max(size - suffixLength, 0),
+            end: size - 1,
+        }
+    }
+
+    const start = Number(startText)
+    const requestedEnd = endText ? Number(endText) : size - 1
+    if (
+        !Number.isSafeInteger(start) ||
+        !Number.isSafeInteger(requestedEnd) ||
+        start < 0 ||
+        start >= size ||
+        requestedEnd < start
+    ) return false
+
+    return {
+        start,
+        end: Math.min(requestedEnd, size - 1),
+    }
+}
+
+function pipeFileResponse(res, filePath, options) {
+    const stream = createReadStream(filePath, options)
+    stream.on('error', (error) => {
+        if (res.headersSent) res.destroy(error)
+        else {
+            res.removeHeader('Content-Length')
+            res.removeHeader('Content-Range')
+            res.status(500).end()
+        }
+    })
+    return stream.pipe(res)
 }
 
 app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
@@ -2916,18 +3116,51 @@ app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
 
         if (key.startsWith('inlay/')) {
             const id = key.slice('inlay/'.length)
-            const file = await readInlayFile(id)
+            const file = await getInlayFileInfo(id)
             if (file) {
                 const etag = `"${Math.floor(file.mtimeMs)}"`
-                if (req.headers['if-none-match'] === etag) {
-                    return res.status(304).set('Cache-Control', 'public, max-age=31536000, immutable').end()
-                }
-                res.set({
-                    'Content-Type': file.mime,
+                const cacheHeaders = {
+                    'Content-Type': getMimeFromExt(file.ext),
                     'Cache-Control': 'public, max-age=31536000, immutable',
                     'ETag': etag,
+                    'Accept-Ranges': 'bytes',
+                }
+                const rangeHeader = req.headers.range
+                if (!rangeHeader && req.headers['if-none-match'] === etag) {
+                    return res.status(304).set(cacheHeaders).end()
+                }
+
+                const shouldUseRange = rangeHeader && (
+                    !req.headers['if-range'] || req.headers['if-range'] === etag
+                )
+                const range = shouldUseRange
+                    ? parseSingleByteRange(rangeHeader, file.size)
+                    : null
+                if (range === false) {
+                    return res.status(416).set({
+                        ...cacheHeaders,
+                        'Content-Range': `bytes */${file.size}`,
+                    }).end()
+                }
+                if (range) {
+                    res.status(206).set({
+                        ...cacheHeaders,
+                        'Content-Range': `bytes ${range.start}-${range.end}/${file.size}`,
+                        'Content-Length': String(range.end - range.start + 1),
+                    })
+                    if (req.method === 'HEAD') return res.end()
+                    return pipeFileResponse(res, file.filePath, {
+                        start: range.start,
+                        end: range.end,
+                    })
+                }
+
+                res.set({
+                    ...cacheHeaders,
+                    'Content-Length': String(file.size),
                 })
-                return res.send(file.buffer)
+                if (req.method === 'HEAD') return res.end()
+                return pipeFileResponse(res, file.filePath)
             }
             return res.status(404).set('Cache-Control', 'no-store').end()
         }
@@ -2951,6 +3184,27 @@ app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
                 'ETag': etag,
             })
             return res.send(thumb)
+        }
+
+        if (key.startsWith('inlay_video_thumb/')) {
+            const id = key.slice('inlay_video_thumb/'.length)
+            const thumbnail = await ensureInlayVideoThumbnail(id)
+            if (!thumbnail) return res.status(404).set('Cache-Control', 'no-store').end()
+
+            const stat = await fs.stat(thumbnail.filePath)
+            const etag = `"video-thumb-${Math.floor(thumbnail.mtimeMs)}"`
+            const cacheHeaders = {
+                'Content-Type': 'image/webp',
+                'Cache-Control': 'public, max-age=86400',
+                'ETag': etag,
+                'Content-Length': String(stat.size),
+            }
+            if (req.headers['if-none-match'] === etag) {
+                return res.status(304).set(cacheHeaders).end()
+            }
+            res.set(cacheHeaders)
+            if (req.method === 'HEAD') return res.end()
+            return pipeFileResponse(res, thumbnail.filePath)
         }
 
         // Fast-path 304: check updated_at BEFORE loading the blob.

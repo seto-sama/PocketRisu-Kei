@@ -486,11 +486,13 @@ export const languageKorean = {
     inlayEmpty: "저장된 인레이 에셋이 없습니다",
     inlayEmptyDesc:
       "채팅에서 첨부 또는 생성된 이미지, 오디오 및 비디오가 여기에 나타납니다",
-    inlayExplorer: "인레이 에셋 탐색기",
-    inlayImageGallery: "인레이 이미지",
+    inlayImageGallery: "인레이 갤러리",
     inlayImageGalleryEmptyDesc:
       "채팅에서 첨부 또는 생성된 이미지가 여기에 나타납니다",
     inlayImageList: "이미지 목록",
+    inlayMediaList: "비디오/오디오 목록",
+    inlayMediaGalleryEmptyDesc:
+      "채팅에서 첨부된 비디오와 오디오가 여기에 나타납니다",
     inlaySelectAll: "모두 선택",
     inlayTotalAssets: "총 {count}개 에셋",
     inlayDelete: "삭제",
@@ -504,7 +506,7 @@ export const languageKorean = {
     inlaySortCreatedAsc: "오래된 생성순",
     inlayFilter: "필터",
     inlayFilterAll: "전체",
-    inlayFilterMetaMissing: "메타 없음",
+    inlayFilterMetaMissing: "채팅 연결 정보 없음",
     inlayFilterOrphanCharacter: "고아 캐릭터",
     inlayFilterOrphanChat: "고아 채팅",
     inlayOriginalLoadNeeded: "원본 로드 필요",
