@@ -262,40 +262,38 @@
 // Style helpers (classnames)
 // -----------------------------------------------------------------------------
     const pillBase = 'px-2 py-1 text-xs cursor-pointer select-none'
-    const pillActive = 'text-black bg-white'
+    const pillActive = 'text-textcolor bg-primary'
     const pillInactive = 'text-textcolor2 bg-transparent'
     const diffLineBase = 'whitespace-pre-wrap'
     const diffLineCommon = 'border-l-4 rounded-sm pl-2'
 
     const diffSameClass = 'text-textcolor'
-    const diffAddClass = `${diffLineCommon} bg-green-500/10 border-green-500 text-green-400`
-    const diffRemoveClass = `${diffLineCommon} bg-red-500/10 border-red-500 text-red-400`
+    const diffAddClass = `${diffLineCommon} bg-success/10 border-success text-success`
+    const diffRemoveClass = `${diffLineCommon} bg-draculared/10 border-draculared text-draculared`
 
-    const tokenAddClass = 'text-green-400 bg-green-500/15 rounded-sm px-0.5'
-    const tokenRemoveClass = 'text-red-400 bg-red-500/15 rounded-sm px-0.5'
+    const tokenAddClass = 'text-success bg-success/15 rounded-sm px-0.5'
+    const tokenRemoveClass = 'text-draculared bg-draculared/15 rounded-sm px-0.5'
     const tokenSameClass = 'text-textcolor'
 
-    const lineRemoveClass = 'pl-2 border-l-4 border-red-500 bg-red-500/10 text-red-400 rounded-sm'
-    const lineAddClass    = 'pl-2 border-l-4 border-green-500 bg-green-500/10 text-green-400 rounded-sm'
-    const lineModifyClass = 'pl-2 border-l-4 border-blue-500 bg-blue-500/10 rounded-sm'
+    const lineRemoveClass = 'pl-2 border-l-4 border-draculared bg-draculared/10 text-draculared rounded-sm'
+    const lineAddClass    = 'pl-2 border-l-4 border-success bg-success/10 text-success rounded-sm'
+    const lineModifyClass = 'pl-2 border-l-4 border-accent bg-accent/10 rounded-sm'
 
-    const nameHeaderTagClass = 'shrink-0 text-[10px] px-1.5 py-0.5 rounded-sm border border-white/15 text-textcolor2 bg-black/20'
+    const nameHeaderTagClass = 'shrink-0 text-[10px] px-1.5 py-0.5 rounded-sm border border-darkborderc text-textcolor2 bg-darkbg'
 
     const splitEmptyLineClass = `${diffLineBase} ${diffLineCommon} ` +
-        'border-white/10 text-transparent select-none ' +
-        'bg-[linear-gradient(135deg,rgba(255,255,255,0.06)_0,rgba(255,255,255,0.06)_10px,rgba(255,255,255,0.02)_10px,rgba(255,255,255,0.02)_20px)] ' +
-        'bg-[length:20px_20px]'
+        'diff-empty-pattern border-darkborderc/50 text-transparent select-none'
 
     const tokenPackLineAdd: TokenClassPack = {
-      add: 'bg-green-500/20 rounded-sm px-0.5',
+      add: 'bg-success/20 rounded-sm px-0.5',
       remove: '',
-      same: 'text-green-200/90',
+      same: 'text-success',
     }
 
     const tokenPackLineRemove: TokenClassPack = {
       add: '',
-      remove: 'bg-red-500/20 rounded-sm px-0.5',
-      same: 'text-red-200/90',
+      remove: 'bg-draculared/20 rounded-sm px-0.5',
+      same: 'text-draculared',
     }
 
     const tokenPackIntraline: TokenClassPack = {
@@ -1264,7 +1262,7 @@
     >
       <input
         type="checkbox"
-        class="accent-green-500"
+        class="accent-primary"
         {disabled}
         checked={checked}
         onchange={(e) => setChecked((e.currentTarget as HTMLInputElement).checked)}
@@ -1285,7 +1283,7 @@
       max={max}
       step="1"
       value={value}
-      class="w-24 accent-green-500 disabled:opacity-40"
+      class="w-24 accent-primary disabled:opacity-40"
       {disabled}
       oninput={(e) => {
         if (disabled) return
@@ -1306,15 +1304,15 @@
 {#snippet renderCounts(counts: DiffCounts)}
   <div class="flex flex-wrap gap-3 text-xs text-textcolor2 mb-3">
     <span class="inline-flex items-center gap-2">
-      <span class="inline-block w-1 h-4 rounded-sm bg-blue-500"></span>
+      <span class="inline-block w-1 h-4 rounded-sm bg-accent"></span>
       {counts.modifiedCount}
     </span>
     <span class="inline-flex items-center gap-2">
-      <span class="inline-block w-1 h-4 rounded-sm bg-green-500"></span>
+      <span class="inline-block w-1 h-4 rounded-sm bg-success"></span>
       {counts.addedCount}
     </span>
     <span class="inline-flex items-center gap-2">
-      <span class="inline-block w-1 h-4 rounded-sm bg-red-500"></span>
+      <span class="inline-block w-1 h-4 rounded-sm bg-draculared"></span>
       {counts.removedCount}
     </span>
   </div>
@@ -1420,14 +1418,14 @@
           <!-- line diff -->
           {#if side === null}
             <!-- unified -->
-            <div class="whitespace-pre-wrap text-red-400">
+            <div class="whitespace-pre-wrap text-draculared">
               {@render renderTokens(part.tokens, 'add', tokenPackLineRemove)}
             </div>
-            <div class="whitespace-pre-wrap text-green-400">
+            <div class="whitespace-pre-wrap text-success">
               {@render renderTokens(part.tokens, 'remove', tokenPackLineAdd)}
             </div>
           {:else} <!-- split -->
-            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-red-400' : 'text-green-400'}`}>
+            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-draculared' : 'text-success'}`}>
               {@render renderTokens(
                 part.tokens,
                 side === 'left' ? 'add' : 'remove',
@@ -1445,7 +1443,7 @@
             </div>
           {:else}
             <!-- split intraline: -->
-            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-red-300' : 'text-green-300'}`}>
+            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-draculared' : 'text-success'}`}>
               {@render renderTokens(
                 part.tokens,
                 side === 'left' ? 'add' : 'remove',
@@ -1462,8 +1460,8 @@
             part.k === 'same'
               ? 'text-textcolor'
               : part.k === 'add'
-              ? 'text-green-400'
-              : 'text-red-400'
+              ? 'text-success'
+              : 'text-draculared'
           }`}
         >
           {part.line.text}
@@ -1477,11 +1475,11 @@
 
 {#snippet renderDivider(d: Extract<DiffSegment, { kind: 'divider' }>, scope: string)}
   <div class="my-3 flex items-center gap-3 text-xs text-textcolor2/70">
-    <div class="h-px flex-1 bg-white/10"></div>
+    <div class="h-px flex-1 bg-darkborderc/50"></div>
     <button
       type="button"
       class={`px-2 py-0.5 rounded-sm border border-darkborderc bg-darkbg shadow-md
-        ${d.omitted > 0 ? 'hover:border-white/40 hover:text-textcolor hover:shadow-lg cursor-pointer' : 'text-textcolor2/50 cursor-default'}`}
+        ${d.omitted > 0 ? 'risu-interactive-border risu-interactive-foreground hover:shadow-lg cursor-pointer' : 'text-textcolor2/50 cursor-default'}`}
       disabled={d.omitted === 0}
       onclick={() => expandRange(scope, d.from, d.to)}
       title={d.omitted > 0 ? 'Click to expand hidden lines' : ''}
@@ -1505,7 +1503,7 @@
       {/if}
     </button>
 
-    <div class="h-px flex-1 bg-white/10"></div>
+    <div class="h-px flex-1 bg-darkborderc/50"></div>
   </div>
 {/snippet}
 
@@ -1563,10 +1561,10 @@
     : 'Unchanged'}
 
   {@const statusClass =
-    cardPart.k === 'modify' ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
-    : cardPart.k === 'add'  ? 'bg-green-500/15 text-green-300 border-green-500/40'
-    : cardPart.k === 'remove' ? 'bg-red-500/15 text-red-300 border-red-500/40'
-    : 'bg-zinc-700/40 text-textcolor2 border-zinc-600/60'}
+    cardPart.k === 'modify' ? 'risu-status-info'
+    : cardPart.k === 'add'  ? 'risu-status-success'
+    : cardPart.k === 'remove' ? 'risu-status-danger'
+    : 'bg-selected/30 text-textcolor2 border-darkborderc'}
 
   <div class="flex flex-col items-end gap-1 shrink-0">
     <span class={`text-[11px] px-2 py-0.5 rounded-full border ${statusClass}`}>
@@ -1582,7 +1580,7 @@
 {/snippet}
 
 
-<div class="absolute inset-0 z-50 bg-black bg-black/60 flex justify-center items-center p-4">
+<div class="absolute inset-0 z-50 bg-black/60 flex justify-center items-center p-4">
   <div class="bg-darkbg rounded-md w-full max-w-4xl max-h-full overflow-hidden flex flex-col">
     
     <div class="flex items-center justify-between px-4 py-3 border-b border-darkborderc">
@@ -1598,7 +1596,7 @@
         {/if}
       </div>
 
-      <button class="text-textcolor2 hover:text-primary" onclick={(e) => {handleClose()}}>
+      <button class="text-textcolor2 risu-interactive-accent" onclick={(e) => {handleClose()}}>
         <XIcon size={20}/>
       </button>
     </div>
@@ -1619,15 +1617,15 @@
               <span class="text-textcolor2/60">·</span>
               <span class="text-textcolor2">total {firstCards.length} → {secondCards.length}</span>
               <span class="text-textcolor2/60">·</span>
-              <span class="inline-flex items-center gap-1 text-blue-300">
+              <span class="inline-flex items-center gap-1 text-accent">
                 ~{cardDiffResult.cardCounts.modifiedCount}
               </span>
               <span class="text-textcolor2/60">/</span>
-              <span class="inline-flex items-center gap-1 text-green-300">
+              <span class="inline-flex items-center gap-1 text-success">
                 +{cardDiffResult.cardCounts.addedCount}
               </span>
               <span class="text-textcolor2/60">/</span>
-              <span class="inline-flex items-center gap-1 text-red-300">
+              <span class="inline-flex items-center gap-1 text-draculared">
                 -{cardDiffResult.cardCounts.removedCount}
               </span>
             </div>
@@ -1641,7 +1639,7 @@
               {@const headerPart = lines[1]}
               {@const bodyParts = lines.slice(2)}
 
-              <div class="prompt-diff-hover bg-black/40 border border-darkborderc rounded-xl p-3 flex flex-col gap-2">
+              <div class="prompt-diff-hover bg-bgcolor border border-darkborderc rounded-xl p-3 flex flex-col gap-2">
                 <!-- name / header / card diff -->
                 <div class="flex items-start justify-between gap-2">
                   <div class="flex flex-col gap-2 min-w-0">
@@ -1702,8 +1700,8 @@
 
                 <div class="relative">
                   <div class="absolute inset-0 grid grid-cols-2 gap-x-3 pointer-events-none">
-                    <div class="bg-black/40 border border-darkborderc rounded-xl"></div>
-                    <div class="bg-black/40 border border-darkborderc rounded-xl"></div>
+                    <div class="bg-bgcolor border border-darkborderc rounded-xl"></div>
+                    <div class="bg-bgcolor border border-darkborderc rounded-xl"></div>
                   </div>
 
                   <div class="relative z-10 grid grid-cols-2 gap-x-3 p-px">
@@ -1718,7 +1716,7 @@
                           {@render renderCardStatus(cardPart)}
                         </div>
                       {:else}
-                        <div class="h-[70px] rounded-lg border border-dashed border-white/10 bg-black/10 flex items-center justify-center">
+                        <div class="h-[70px] rounded-lg border border-dashed border-darkborderc/50 bg-darkbg/50 flex items-center justify-center">
                           <span class="text-textcolor2/60 italic text-xs select-none">-</span>
                         </div>
                       {/if}
@@ -1735,14 +1733,14 @@
                           {@render renderCardStatus(cardPart)}
                         </div>
                       {:else}
-                        <div class="h-[70px] rounded-lg border border-dashed border-white/10 bg-black/10 flex items-center justify-center">
+                        <div class="h-[70px] rounded-lg border border-dashed border-darkborderc/50 bg-darkbg/50 flex items-center justify-center">
                           <span class="text-textcolor2/60 italic text-xs select-none">-</span>
                         </div>
                       {/if}
                     </div>
 
-                    <div class="h-px bg-white/10 mx-3"></div>
-                    <div class="h-px bg-white/10 mx-3"></div>
+                    <div class="h-px bg-darkborderc/50 mx-3"></div>
+                    <div class="h-px bg-darkborderc/50 mx-3"></div>
 
                     <!-- body rows -->
                     {#each rows as r, rIdx (r.key)}
@@ -1752,10 +1750,10 @@
                         </div>
                       {:else}
                         <div class="contents group">
-                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-white/10 group-hover:outline group-hover:outline-1 group-hover:outline-white/15">
+                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
                           {@render renderSplitCell(leftExists ? r.left : { kind: 'empty', role: r.left.role }, rIdx)}
                         </div>
-                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-white/10 group-hover:outline group-hover:outline-1 group-hover:outline-white/15">
+                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
                           {@render renderSplitCell(rightExists ? r.right : { kind: 'empty', role: r.right.role }, rIdx)}
                         </div>
                         </div>
@@ -1776,8 +1774,8 @@
 
           {#if showOnlyChanges && segments.length === 0}
             <div class="flex items-center justify-center py-10">
-              <div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-darkborderc bg-black/30 text-textcolor2">
-                <span class="inline-block w-2 h-2 rounded-full bg-green-500/70"></span>
+              <div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-darkborderc bg-bgcolor text-textcolor2">
+                <span class="inline-block w-2 h-2 rounded-full bg-success/70"></span>
                 <span class="text-sm">No changes</span>
               </div>
             </div>
@@ -1811,7 +1809,7 @@
           </div>
           {:else} <!-- split view -->
             {@const rows = toSplitRows(segments, 'raw')}
-            <div class="rounded-xl border border-darkborderc bg-black/30 overflow-hidden">
+            <div class="rounded-xl border border-darkborderc bg-bgcolor overflow-hidden">
               <div class="grid grid-cols-[1fr_auto_1fr] gap-0 font-mono text-sm leading-5">
                 {#each rows as r, idx (r.key)}
                   {#if r.kind === 'divider'}
@@ -1820,11 +1818,11 @@
                     </div>
                   {:else}
                     <div class="contents group">
-                    <div class="px-3 py-0.5 bg-black/10 group-hover:bg-white/10 group-hover:outline group-hover:outline-1 group-hover:outline-white/15">
+                    <div class="px-3 py-0.5 bg-darkbg/50 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
                       {@render renderSplitCell(r.left, idx)}
                     </div>
-                    <div class="w-px bg-white/10"></div>
-                    <div class="px-3 py-0.5 bg-black/10 group-hover:bg-white/10 group-hover:outline group-hover:outline-1 group-hover:outline-white/15">
+                    <div class="w-px bg-darkborderc/50"></div>
+                    <div class="px-3 py-0.5 bg-darkbg/50 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
                       {@render renderSplitCell(r.right, idx)}
                     </div>
                     </div>
@@ -1841,3 +1839,13 @@
 
   </div>
 </div>
+
+<style>
+  :global(.diff-empty-pattern) {
+    background-image: repeating-linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--risu-theme-selected) 35%, transparent) 0 10px,
+      color-mix(in srgb, var(--risu-theme-darkbg) 35%, transparent) 10px 20px
+    );
+  }
+</style>

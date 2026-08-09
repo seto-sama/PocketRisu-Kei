@@ -682,6 +682,10 @@ html {
   background-size: 200% auto;
 }
 
+.risu-saving-gradient {
+  @apply from-blue-500 to-purple-800;
+}
+
 @keyframes saving-anime {
   0% {
     background-position: 0 0;
