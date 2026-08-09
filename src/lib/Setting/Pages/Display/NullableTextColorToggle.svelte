@@ -1,6 +1,7 @@
 <script lang="ts">
     import { language } from 'src/lang';
     import { DBState } from 'src/ts/stores.svelte';
+    import ColorInput from 'src/lib/UI/GUI/ColorInput.svelte';
     import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte';
 
@@ -20,14 +21,7 @@
     {#snippet control()}
     <div class="flex items-center gap-2">
         {#if currentValue}
-            <input
-                type="color"
-                class="h-8 w-10 rounded border border-darkborderc bg-transparent cursor-pointer"
-                value={currentValue}
-                oninput={(e) => {
-                    DBState.db[field] = e.currentTarget.value;
-                }}
-            />
+            <ColorInput bind:value={DBState.db[field]} />
         {/if}
         <ShSwitch
             checked={!!currentValue}
