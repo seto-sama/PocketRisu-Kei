@@ -1,5 +1,5 @@
 <input 
-    class={"risu-field-border rounded-md shadow-xs bg-transparent numinput focus:outline-hidden" + ((className) ? (' ' + className) : '')}
+    class={"risu-field-border rounded-md shadow-xs bg-transparent numinput" + ((className) ? (' ' + className) : '')}
     class:text-sm={size === 'sm'}
     class:text-md={size === 'md'}
     class:text-lg={size === 'lg'}

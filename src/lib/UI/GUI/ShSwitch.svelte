@@ -63,11 +63,11 @@
     data-slot="switch"
     data-size={size}
     class={cn(
-        'peer group/switch relative inline-flex items-center transition-all outline-none ' +
+        'peer group/switch relative inline-flex items-center transition-all ' +
         'after:absolute after:-inset-x-3 after:-inset-y-2 ' +
         'data-disabled:cursor-not-allowed data-disabled:opacity-50 ' +
         'data-[state=checked]:bg-primary data-[state=unchecked]:bg-darkbutton ' +
-        'focus-visible:border-borderc ' +
+        'hover:brightness-110 ' +
         'aria-invalid:ring-draculared/20 aria-invalid:border-draculared ' +
         'shrink-0 rounded-full border border-transparent shadow-xs ' +
         'aria-invalid:ring-3 ' +

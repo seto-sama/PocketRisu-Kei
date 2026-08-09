@@ -83,8 +83,8 @@
     function globalButtonClass(rmodule: RisuModule) {
         if (hasPersonaEnabledModule(rmodule.id)) return "cursor-pointer text-scoped"
         if (DBState.db.enabledModules.includes(rmodule.id)) return "cursor-pointer text-primary"
-        if (isModuleIntegrated(rmodule)) return "text-highlight hover:text-primary cursor-pointer"
-        return "text-textcolor2 hover:text-primary cursor-pointer"
+        if (isModuleIntegrated(rmodule)) return "text-highlight risu-interactive-accent cursor-pointer"
+        return "text-textcolor2 risu-interactive-accent cursor-pointer"
     }
 
     function openPersonaModuleModal(rmodule: RisuModule, e: MouseEvent) {
@@ -231,7 +231,7 @@
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
                     data-sortable-key={rmodule.id}
-                    class="mt-2 flex items-center text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors text-left cursor-grab active:cursor-grabbing"
+                    class="mt-2 flex items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
                     role="button"
                     tabindex="0"
                     onclick={() => {

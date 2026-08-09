@@ -197,8 +197,8 @@
 <!-- Native select: always rendered for OptionInput children -->
 <!-- Touch: visible via transparent overlay / Mouse: screen-reader only -->
 {#if $isTouchDevice}
-    <div class="relative {className}">
-        <div class="flex {heightClasses[size]} items-center justify-between gap-2 rounded-md border border-darkborderc
+    <div class="risu-field-border relative rounded-md {className}">
+        <div class="flex {heightClasses[size]} items-center justify-between gap-2 rounded-md
                     bg-transparent {sizeClasses[size]} text-textcolor select-none pointer-events-none">
             <span class="flex flex-1 text-left truncate">{selectedLabel || ' '}</span>
             <ChevronDownIcon class="size-4 shrink-0 text-textcolor2" />
@@ -226,11 +226,10 @@
         aria-expanded={open ? 'true' : 'false'}
         aria-haspopup="listbox"
         aria-activedescendant={activeDescendant}
-        class="flex {heightClasses[size]} items-center justify-between gap-2 rounded-md border border-darkborderc
+        class="risu-field-border flex {heightClasses[size]} items-center justify-between gap-2 rounded-md
                bg-transparent {sizeClasses[size]} text-textcolor select-none
                transition-colors cursor-pointer
-               hover:bg-selected/30
-               focus-visible:border-borderc outline-none
+               risu-interactive-surface
                {className}"
         tabindex={0}
         onclick={() => open ? closeDropdown() : openDropdown()}
@@ -256,7 +255,7 @@
                     aria-selected={opt.value === String(value)}
                     class="relative flex w-full items-center gap-2 rounded-md {itemSizeClasses[size]}
                            text-textcolor cursor-pointer select-none text-left whitespace-nowrap
-                           {i === highlightedIndex ? 'bg-selected' : 'hover:bg-selected/50'}"
+                           {i === highlightedIndex ? 'bg-selected' : 'risu-interactive-surface-strong'}"
                     onmouseenter={() => highlightedIndex = i}
                     onclick={() => selectOption(opt.value)}
                 >

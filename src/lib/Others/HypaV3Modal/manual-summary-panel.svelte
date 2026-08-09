@@ -363,7 +363,7 @@
             <div class="flex min-h-0 flex-1 flex-col divide-y divide-darkborderc/50 overflow-hidden overflow-y-auto rounded-md border border-darkborderc bg-bgcolor/50">
               {#each filteredManualMessages as message (message.index)}
                 <details class="group" class:opacity-50={message.disabled}>
-                  <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 hover:bg-selected/30">
+                  <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 risu-interactive-surface">
                     <CheckInput
                       card
                       check={manualSelectedMessageIndices.has(message.index)}

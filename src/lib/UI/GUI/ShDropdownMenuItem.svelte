@@ -25,7 +25,7 @@
     data-slot="dropdown-menu-item"
     data-variant={variant}
     class={cn(
-        'relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none outline-hidden transition-colors ' +
+        'relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none transition-colors ' +
         'data-highlighted:bg-selected data-highlighted:text-textcolor ' +
         'data-disabled:pointer-events-none data-disabled:opacity-50 ' +
         'data-[variant=destructive]:text-draculared ' +

@@ -190,7 +190,7 @@
                     role="option"
                     aria-selected={option === value}
                     class="block w-full truncate rounded px-2 py-1.5 text-left text-sm text-textcolor
-                           {index === highlightedIndex ? 'bg-selected' : 'hover:bg-selected/50'}"
+                           {index === highlightedIndex ? 'bg-selected' : 'risu-interactive-surface-strong'}"
                     onmouseenter={() => highlightedIndex = index}
                     onclick={() => selectOption(option)}
                 >

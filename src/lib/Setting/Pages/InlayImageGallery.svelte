@@ -464,7 +464,7 @@
           {#each displayedItems as item (item.id)}
             <div
               class="relative group aspect-[2/3] rounded-lg overflow-hidden bg-darkbg border cursor-pointer select-none transition-colors
-                {selection.has(item.id) ? 'border-borderc' : 'border-darkborderc hover:border-borderc/70'}"
+                {selection.has(item.id) ? 'border-borderc' : 'border-darkborderc risu-interactive-border/70'}"
               role="button"
               tabindex="0"
               onclick={(event) => handleCardClick(event, item.id)}
@@ -631,7 +631,7 @@
       <button
         type="button"
         onclick={() => currentViewerItem && copyInlayReference(currentViewerItem.id)}
-        class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc hover:bg-selected/50 text-textcolor2 hover:text-textcolor text-sm transition-colors"
+        class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc risu-interactive-surface-strong text-textcolor2 risu-interactive-foreground text-sm transition-colors"
       >
         <Copy size={14} />
         {language.copy}
@@ -639,7 +639,7 @@
       <button
         type="button"
         onclick={() => currentViewerItem && downloadCurrent(currentViewerItem)}
-        class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc hover:bg-selected/50 text-textcolor2 hover:text-textcolor text-sm transition-colors"
+        class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc risu-interactive-surface-strong text-textcolor2 risu-interactive-foreground text-sm transition-colors"
       >
         <Download size={12} />
         {language.download}

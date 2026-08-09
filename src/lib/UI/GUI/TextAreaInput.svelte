@@ -40,7 +40,7 @@
     <div class="relative flex-1 min-h-0 w-full">
     {#if !highlight || $disableHighlight}
         <textarea
-            class="w-full h-full bg-transparent focus-within:outline-hidden resize-none absolute top-0 left-0 z-50 {autoResize ? 'overflow-y-hidden' : 'overflow-y-auto'} {contentClassName}"
+            class="w-full h-full bg-transparent resize-none absolute top-0 left-0 z-50 {autoResize ? 'overflow-y-hidden' : 'overflow-y-auto'} {contentClassName}"
             class:px-4={padding}
             class:py-2={padding}
             {autocomplete}
@@ -85,7 +85,7 @@
 ></textarea>
 {:else}
     <div
-        class="w-full h-full bg-transparent focus-within:outline-hidden resize-none absolute top-0 left-0 z-50 {autoResize ? 'overflow-y-hidden' : 'overflow-y-auto'} px-4 py-2 wrap-break-word whitespace-pre-wrap {contentClassName}"
+        class="w-full h-full bg-transparent resize-none absolute top-0 left-0 z-50 {autoResize ? 'overflow-y-hidden' : 'overflow-y-auto'} px-4 py-2 wrap-break-word whitespace-pre-wrap {contentClassName}"
         contenteditable="true"
         bind:textContent={value}
         onkeydown={(e) => {

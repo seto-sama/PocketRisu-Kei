@@ -49,7 +49,7 @@
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .ico:not(.noninteractive):hover {
+  .ico:not(.noninteractive):is(:hover, :focus-visible) {
     background-color: var(--risu-theme-primary);
   }
 

@@ -91,7 +91,7 @@
             <div
                 role="button"
                 tabindex="0"
-                class="flex min-w-0 grow cursor-pointer items-center text-left hover:text-primary"
+                class="flex min-w-0 grow cursor-pointer items-center text-left risu-interactive-accent"
                 data-disclosure-toggle
                 aria-expanded={disclosure ? open : undefined}
                 onclick={onToggle}
@@ -144,12 +144,12 @@
         color: var(--risu-theme-textcolor2);
     }
 
-    :global([data-disclosure-divider-tone="muted"] > [data-disclosure-header] > [data-disclosure-actions] > button:not([data-disclosure-action="delete"]):hover) {
+    :global([data-disclosure-divider-tone="muted"] > [data-disclosure-header] > [data-disclosure-actions] > button:not([data-disclosure-action="delete"]):is(:hover, :focus-visible)) {
         color: var(--risu-theme-primary);
     }
 
-    :global([data-disclosure-action="delete"]:hover),
-    :global([data-disclosure-divider-tone="muted"] > [data-disclosure-header] > [data-disclosure-actions] > [data-disclosure-action="delete"]:hover) {
+    :global([data-disclosure-action="delete"]:is(:hover, :focus-visible)),
+    :global([data-disclosure-divider-tone="muted"] > [data-disclosure-header] > [data-disclosure-actions] > [data-disclosure-action="delete"]:is(:hover, :focus-visible)) {
         color: var(--risu-theme-draculared);
     }
 </style>

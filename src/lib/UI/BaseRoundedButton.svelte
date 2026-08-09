@@ -15,8 +15,7 @@
   class="flex h-[56px] w-[56px] cursor-pointer select-none items-center justify-center
    border border-dashed border-darkborderc bg-transparent
    text-textcolor2 opacity-75 transition-[background-color,opacity]
-   hover:bg-selected/30 hover:opacity-100
-   focus-visible:outline-none focus-visible:border-borderc
+   risu-interactive-surface risu-interactive-reveal
    {isDisabled ? 'cursor-not-allowed!' : ''}"
   class:rounded-md={!rounded}
   class:rounded-full={rounded}

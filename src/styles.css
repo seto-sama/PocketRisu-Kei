@@ -2,6 +2,22 @@
 
 @plugin '@tailwindcss/typography';
 
+/*
+  Treat keyboard focus as the keyboard equivalent of hover. Existing hover:*
+  utilities keep their pointer behavior and also apply to :focus-visible.
+*/
+@custom-variant hover {
+  &:focus-visible {
+    @slot;
+  }
+
+  @media (hover: hover) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
 @theme {
   --breakpoint-xs: 25rem;
 
@@ -128,6 +144,55 @@
 }
 
 /*
+  Shared interaction vocabulary. These classes describe intent while the
+  hover variant above keeps pointer hover and keyboard focus-visible aligned.
+  Component-specific motion and layout effects should remain local.
+*/
+@utility risu-interactive-accent {
+  @apply hover:text-primary;
+}
+
+@utility risu-interactive-foreground {
+  @apply hover:text-textcolor;
+}
+
+@utility risu-interactive-danger {
+  @apply hover:text-draculared;
+}
+
+@utility risu-interactive-surface {
+  @apply hover:bg-selected/30;
+}
+
+@utility risu-interactive-surface-strong {
+  @apply hover:bg-selected/50;
+}
+
+@utility risu-interactive-surface-solid {
+  @apply hover:bg-selected;
+}
+
+@utility risu-interactive-primary {
+  @apply hover:bg-primary/90;
+}
+
+@utility risu-interactive-primary-soft {
+  @apply hover:bg-primary/20;
+}
+
+@utility risu-interactive-border {
+  @apply hover:border-borderc;
+}
+
+@utility risu-interactive-border-subtle {
+  @apply hover:border-borderc/30;
+}
+
+@utility risu-interactive-reveal {
+  @apply hover:opacity-100;
+}
+
+/*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,
   so we've added these compatibility styles to make sure everything still
   looks the same as it did with Tailwind CSS v3.
@@ -170,8 +235,16 @@
   }
 }
 
-textarea.message-edit-area {
-  @apply outline-none focus-visible:border-borderc;
+:focus-visible {
+  outline: none;
+}
+
+/* Preserve a system-native indicator for Windows High Contrast and similar modes. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
+  }
 }
 
 body {
@@ -496,7 +569,7 @@ html {
 }
 
 .x-risu-button-default {
-  @apply border text-textcolor rounded-md shadow-xs focus:outline-hidden transition-colors duration-200 border-darkborderc px-4 py-2 bg-darkbutton hover:bg-borderc focus:border-borderc;
+  @apply border text-textcolor rounded-md shadow-xs transition-colors duration-200 border-darkborderc px-4 py-2 bg-darkbutton hover:bg-borderc;
 }
 
 .loadmove {
@@ -512,7 +585,7 @@ html {
 }
 
 .x-risu-risu-comment {
-  @apply border border-darkborderc bg-darkbg text-textcolor rounded-md shadow-xs focus:outline-hidden transition-colors duration-200 px-4 py-2 min-w-0;
+  @apply border border-darkborderc bg-darkbg text-textcolor rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0;
 }
 
 .prose pre {
@@ -564,7 +637,7 @@ html {
 }
 
 .x-risu-risu-inlay-image img {
-  @apply rounded-lg focus:outline-hidden max-w-80 w-full;
+  @apply rounded-lg max-w-80 w-full;
   margin: 0;
   max-width: 100%;
   filter: drop-shadow(0 0 0.5rem rgba(0, 0, 0, 0.5));
@@ -572,11 +645,11 @@ html {
 }
 
 .x-risu-risu-inlay-image video {
-  @apply rounded-lg focus:outline-hidden max-w-80 w-full;
+  @apply rounded-lg max-w-80 w-full;
 }
 
 .x-risu-risu-inlay-image audio {
-  @apply rounded-lg focus:outline-hidden max-w-80 w-full;
+  @apply rounded-lg max-w-80 w-full;
 }
 
 .x-risu-risu-inlay-missing {
@@ -593,7 +666,7 @@ html {
 }
 
 .x-risu-risu-error {
-  @apply border-2 border-red-700 bg-red-500 text-white rounded-md shadow-xs focus:outline-hidden transition-colors duration-200 px-4 py-2 min-w-0 wrap-break-word;
+  @apply border-2 border-red-700 bg-red-500 text-white rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0 wrap-break-word;
 }
 
 .x-risu-risu-error h1 {
@@ -642,7 +715,7 @@ html {
 }
 
 .x-risu-tool-call {
-  @apply border border-darkborderc bg-darkbg text-textcolor rounded-md shadow-xs focus:outline-hidden transition-colors duration-200 px-4 py-2 min-w-0;
+  @apply border border-darkborderc bg-darkbg text-textcolor rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0;
 }
 
 .root-loaded-image {

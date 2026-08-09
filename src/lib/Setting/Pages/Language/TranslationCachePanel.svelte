@@ -371,7 +371,7 @@
                         onOpenChange={(value) => { expandedCacheEntries = { ...expandedCacheEntries, [entry.key]: value } }}
                     >
                         <Collapsible.Trigger class="w-full text-left group">
-                            <SettingLayout variant="item" className="gap-2 hover:bg-selected/30 group-focus-visible:bg-selected/30">
+                            <SettingLayout variant="item" className="gap-2 risu-interactive-surface group-focus-visible:bg-selected/30">
                             <span class="flex-1 min-w-0 truncate text-sm text-textcolor">{entry.key}</span>
                             <ChevronDownIcon size={16} class="shrink-0 text-textcolor2 transition-transform group-data-[state=open]:rotate-180" />
                             </SettingLayout>

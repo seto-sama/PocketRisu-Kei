@@ -180,8 +180,7 @@
                     index={thumb.index}
                     class={
                         'block size-4 shrink-0 rounded-full border-2 border-primary bg-white shadow-sm ' +
-                        'transition-[box-shadow,transform] cursor-grab active:cursor-grabbing ' +
-                        'focus-visible:outline-hidden focus-visible:border-borderc ' +
+                        'transition-[box-shadow,transform] cursor-grab active:cursor-grabbing hover:scale-110 ' +
                         'disabled:pointer-events-none disabled:opacity-50'
                     }
                 />
@@ -207,7 +206,6 @@
                 'risu-field-border shrink-0 numinput rounded-md bg-transparent ' +
                 'h-8 px-2 py-1 text-sm text-textcolor text-right ' +
                 'placeholder:text-xs ' +
-                'focus:outline-hidden ' +
                 'disabled:opacity-50 disabled:cursor-not-allowed',
                 inputWidth
             )}

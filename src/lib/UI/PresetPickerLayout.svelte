@@ -178,7 +178,7 @@
                     {#snippet trigger(props)}
                         <button
                             {...props}
-                            class="ml-1 inline-flex size-5 shrink-0 items-center justify-center text-textcolor2 cursor-help hover:text-primary"
+                            class="ml-1 inline-flex size-5 shrink-0 items-center justify-center text-textcolor2 cursor-help risu-interactive-accent"
                             aria-label={`${title} ${language.showHelp}`}
                         >
                             <CircleQuestionMarkIcon size={12}/>
@@ -201,7 +201,7 @@
                         { id: 'all', name: language.presetAll },
                         { id: 'uncategorized', name: language.presetUncategorized },
                     ] as folder}
-                        <button class="w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor {selectedFolder === folder.id ? '' : 'hover:bg-selected/30'}"
+                        <button class="w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor {selectedFolder === folder.id ? '' : 'risu-interactive-surface'}"
                             class:bg-selected={selectedFolder === folder.id}
                             class:folder-drop-target={itemDropTarget === folder.id}
                             ondragover={(e) => dragItemOverFolder(folder.id, e)}
@@ -226,7 +226,7 @@
                     onDragEnd={() => { draggingFolderId = null }}
                 >
                 {#each folders as folder (folder.id)}
-                    <div class="group w-full h-10 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor {selectedFolder === folder.id ? '' : 'hover:bg-selected/30'}"
+                    <div class="group w-full h-10 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor {selectedFolder === folder.id ? '' : 'risu-interactive-surface'}"
                         data-sortable-key={folder.id}
                         data-sortable-no-scale
                         class:bg-selected={selectedFolder === folder.id}
@@ -263,7 +263,7 @@
                 </ShSortableList>
             </div>
             {#if !readOnly}
-                <button class="shrink-0 mt-2 w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor2 hover:text-primary hover:bg-selected/30" onclick={createFolder}>
+                <button class="shrink-0 mt-2 w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor2 risu-interactive-accent risu-interactive-surface" onclick={createFolder}>
                     <FolderPlusIcon size={18}/><span>{language.presetNewFolder}</span>
                 </button>
             {/if}
@@ -289,7 +289,7 @@
                         <div role="button" tabindex={itemEditMode ? -1 : 0}
                             data-sortable-key={String(index)}
                             data-sortable-no-scale
-                            class="preset-picker-item w-full h-10 min-w-0 flex items-center rounded-md text-left text-textcolor px-2 {index === selectedItemIndex ? '' : 'hover:bg-selected/30'}"
+                            class="preset-picker-item w-full h-10 min-w-0 flex items-center rounded-md text-left text-textcolor px-2 {index === selectedItemIndex ? '' : 'risu-interactive-surface'}"
                             class:bg-selected={index === selectedItemIndex}
                             class:cursor-grab={!readOnly && !!onMoveItem && !itemEditMode}
                             onclick={() => { if (!itemEditMode) onSelectItem(index) }}

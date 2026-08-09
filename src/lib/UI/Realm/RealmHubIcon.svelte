@@ -15,7 +15,7 @@
 </script>
 
 
-<button class="bg-darkbg rounded-lg p-4 flex flex-col hover:bg-selected transition-colors relative lg:w-96 w-full items-start" onclick={onClick}>
+<button class="bg-darkbg rounded-lg p-4 flex flex-col risu-interactive-surface-solid transition-colors relative lg:w-96 w-full items-start" onclick={onClick}>
     <div class="flex gap-2 w-full">
     {#if DBState.db.hideAllImages}
         <div class="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md bg-darkbutton flex items-center justify-center text-textcolor2">
@@ -39,19 +39,19 @@
         <div class="grow"></div>
         <div class="flex flex-wrap w-full flex-row-reverse gap-1">
             {#if chara.hasEmotion}
-                <div class="text-textcolor2 hover:text-primary transition-colors" role="button" tabindex="0" onclick={((e) => {
+                <div class="text-textcolor2 risu-interactive-accent transition-colors" role="button" tabindex="0" onclick={((e) => {
                     e.stopPropagation()
                     notifyInfo("This character includes emotion images")
                 })} onkeydown={(e) => {}}><SmileIcon /></div>
             {/if}
             {#if chara.hasAsset}
-                <div class="text-textcolor2 hover:text-primary transition-colors" role="button" tabindex="0" onclick={((e) => {
+                <div class="text-textcolor2 risu-interactive-accent transition-colors" role="button" tabindex="0" onclick={((e) => {
                     e.stopPropagation()
                     notifyInfo("This character includes additional assets")
                 })} onkeydown={(e) => {}}><ImageIcon /></div>
             {/if}
             {#if chara.hasLore}
-                <div class="text-textcolor2 hover:text-primary transition-colors" role="button" tabindex="0" onclick={((e) => {
+                <div class="text-textcolor2 risu-interactive-accent transition-colors" role="button" tabindex="0" onclick={((e) => {
                     e.stopPropagation()
                     notifyInfo("This character includes lorebook")
                 })} onkeydown={(e) => {}}><BookIcon /></div>

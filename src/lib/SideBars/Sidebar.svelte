@@ -399,7 +399,7 @@
 
       {#if !DBState.db.hideLeftBarCollapseButton}
         <button
-          class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer items-center justify-center rounded-md border border-borderc text-textcolor transition-colors hover:border-primary hover:text-primary"
+          class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer items-center justify-center rounded-md border border-borderc text-textcolor transition-colors hover:border-primary risu-interactive-accent"
           aria-label="Collapse sidebar"
           onclick={() => leftBarCollapsed.set(true)}
         >
@@ -756,7 +756,7 @@
   </button>
   {#if $leftBarCollapsed}
     <button
-      class="hidden max-xs:flex absolute top-3 left-0 h-12 w-12 border-r border-b border-t border-darkborderc rounded-r-md bg-darkbg hover:border-borderc transition-colors items-center justify-center text-textcolor opacity-50 hover:opacity-90 focus-visible:outline-none focus-visible:border-borderc z-20"
+      class="hidden max-xs:flex absolute top-3 left-0 h-12 w-12 border-r border-b border-t border-darkborderc rounded-r-md bg-darkbg risu-interactive-border transition-colors items-center justify-center text-textcolor opacity-50 hover:opacity-90 z-20"
       aria-label="Expand sidebar"
       onclick={() => leftBarCollapsed.set(false)}
     >
@@ -782,7 +782,7 @@
           {#each recentChars.slice(0, recentVisible) as rc (rc.index)}
             <button
               type="button"
-              class="group flex items-center gap-2.5 rounded-md border border-borderc/10 bg-darkbg p-2 text-left transition-colors hover:border-borderc/30 hover:bg-selected/50"
+              class="group flex items-center gap-2.5 rounded-md border border-borderc/10 bg-darkbg p-2 text-left transition-colors risu-interactive-border-subtle risu-interactive-surface-strong"
               onclick={() => changeChar(rc.index, {reseter})}
             >
               <div class="shrink-0">
@@ -803,7 +803,7 @@
           {#if recentVisible < recentChars.length}
             <button
               type="button"
-              class="w-full rounded-md border border-borderc/10 bg-darkbg p-2 text-center text-sm text-textcolor2 transition-colors hover:border-borderc/30 hover:bg-selected/50 hover:text-textcolor"
+              class="w-full rounded-md border border-borderc/10 bg-darkbg p-2 text-center text-sm text-textcolor2 transition-colors risu-interactive-border-subtle risu-interactive-surface-strong risu-interactive-foreground"
               onclick={() => recentVisible += 10}
             >
               {language.loadMore}
@@ -920,7 +920,7 @@
     transition: color 150ms ease;
   }
 
-  .sidebar-mode-button:hover:not(.active) {
+  .sidebar-mode-button:is(:hover, :focus-visible):not(.active) {
     color: var(--risu-theme-textcolor);
   }
 
@@ -943,12 +943,6 @@
     height: 2px;
     background: var(--risu-theme-primary);
     box-shadow: 0 -4px 12px color-mix(in srgb, var(--risu-theme-primary) 38%, transparent);
-  }
-
-  .sidebar-mode-button:focus-visible {
-    z-index: 1;
-    outline: 2px solid var(--risu-theme-primary);
-    outline-offset: -3px;
   }
 
   .sidebar-mode-button :global(svg) {

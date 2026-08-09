@@ -3,6 +3,7 @@
     import { ParseMarkdown } from "src/ts/parser/parser.svelte";
     import { parseMultilangString, toLangName } from "src/ts/util";
     import { DBState } from "src/ts/stores.svelte";
+    import ShButton from "./ShButton.svelte";
 
     interface Props {
         value: string;
@@ -42,10 +43,10 @@
         <div class="flex flex-wrap max-w-fit p-1 gap-2 items-center">
             {#if sortedLangs.priority}
                 {#if sortedLangs.priority !== 'xx' || Object.keys(valueObject).length === 1}
-                    <button class="bg-bgcolor py-2 rounded-lg px-4" class:ring-1={selectedLang === sortedLangs.priority} onclick={((e) => {
+                    <ShButton variant={selectedLang === sortedLangs.priority ? 'primary' : 'outline'} className={selectedLang === sortedLangs.priority ? '' : 'text-textcolor2'} aria-pressed={selectedLang === sortedLangs.priority} onclick={(e) => {
                         e.stopPropagation()
                         selectedLang = sortedLangs.priority
-                    })}>{toLangName(sortedLangs.priority)}</button>
+                    }}>{toLangName(sortedLangs.priority)}</ShButton>
                 {/if}
                 {#if sortedLangs.rest.length > 0}
                     <div class="border-l border-l-selected h-6"></div>
@@ -53,10 +54,10 @@
             {/if}
             {#each sortedLangs.rest as lang}
                 {#if lang !== 'xx' || Object.keys(valueObject).length === 1}
-                    <button class="bg-bgcolor py-2 rounded-lg px-4" class:ring-1={selectedLang === lang} onclick={((e) => {
+                    <ShButton variant={selectedLang === lang ? 'primary' : 'outline'} className={selectedLang === lang ? '' : 'text-textcolor2'} aria-pressed={selectedLang === lang} onclick={(e) => {
                         e.stopPropagation()
                         selectedLang = lang
-                    })}>{toLangName(lang)}</button>
+                    }}>{toLangName(lang)}</ShButton>
                 {/if}
             {/each}
         </div>

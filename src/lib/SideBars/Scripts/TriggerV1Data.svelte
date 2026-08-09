@@ -69,7 +69,7 @@
             </SelectInput>
             
             <span class="text-textcolor mt-4">Conditions
-                <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 hover:text-primary" onclick={() => {
+                <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 risu-interactive-accent" onclick={() => {
                     value.conditions.push({
                         type: 'value',
                         value: '',
@@ -89,7 +89,7 @@
                         <hr class="border-selected my-4" />
                     {/if}
                     <span class="text-textcolor2 text-sm">{language.type}
-                        <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 hover:text-red-400" onclick={() => {
+                        <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 risu-interactive-danger" onclick={() => {
                             value.conditions.splice(i, 1)
                             value.conditions = value.conditions
         
@@ -167,7 +167,7 @@
             </div>
 
             <span class="text-textcolor mt-4">Effects
-                <button aria-labelledby="Add Effects" class="float-right text-textcolor2 hover:text-primary" onclick={() => {
+                <button aria-labelledby="Add Effects" class="float-right text-textcolor2 risu-interactive-accent" onclick={() => {
                     if(value.type === 'start'){
                         value.effect.push({
                             type: 'systemprompt',
@@ -197,7 +197,7 @@
                         <hr class="border-selected my-4" />
                     {/if}
                     <span class="text-textcolor2 text-sm">{language.type}
-                        <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 hover:text-red-400" onclick={() => {
+                        <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 risu-interactive-danger" onclick={() => {
                             value.effect.splice(i, 1)
                             value.effect = value.effect
         
@@ -483,7 +483,7 @@
 </div>
 
 <style>
-    .valuer:hover{
+    .valuer:is(:hover, :focus-visible){
         color: rgba(16, 185, 129, 1);
         cursor: pointer;
     }

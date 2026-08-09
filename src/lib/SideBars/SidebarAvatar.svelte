@@ -225,11 +225,10 @@
     transition: border-color 150ms ease;
   }
 
-  .avatar-state-border:hover > .avatar-border-overlay {
+  .avatar-state-border:is(:hover, :focus-visible) > .avatar-border-overlay {
     border-color: color-mix(in srgb, var(--risu-theme-primary) 50%, transparent);
   }
 
-  .avatar-state-border:focus-visible > .avatar-border-overlay,
   .avatar-state-border[data-selected="true"] > .avatar-border-overlay {
     border-color: var(--risu-theme-primary);
   }

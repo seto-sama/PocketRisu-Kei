@@ -6,6 +6,9 @@
     import RisuHubIcon from "./RealmHubIcon.svelte";
     import { MobileGUI, RealmInitialOpenChar } from "src/ts/stores.svelte";
     import RealmPopUp from "./RealmPopUp.svelte";
+    import IconButton from "../GUI/IconButton.svelte";
+    import ShButton from "../GUI/ShButton.svelte";
+    import ShInput from "../GUI/ShInput.svelte";
 
     let openedData:null|hubType = $state(null)
 
@@ -37,6 +40,14 @@
         return getHub()
     }
 
+    function submitSearch() {
+        if(sort === 'random' || sort === 'recommended'){
+            sort = ''
+        }
+        page = 0
+        getHub()
+    }
+
     getHub()
 
 
@@ -49,41 +60,37 @@
     })
 </script>
 <div class="w-full flex justify-center mt-4 mb-2">
-    <div class="flex items-stretch w-2xl max-w-full">
-        <input bind:value={search} class="peer focus:border-textcolor transition-colors outline-hidden text-textcolor p-2 min-w-0 border border-r-0 bg-transparent rounded-md rounded-r-none input-text text-xl grow ml-4 border-darkborderc resize-none overflow-y-hidden overflow-x-hidden max-w-full">
-            <button
-            onclick={() => {
-                if(sort === 'random' || sort === 'recommended'){
-                    sort = ''
-                }
-                page = 0
-                getHub()
-            }}
-            class="flex justify-center border-y border-darkborderc items-center text-textcolor p-3 peer-focus:border-textcolor hover:bg-primary/30 transition-colors"
+    <div class="mx-2 ml-4 flex w-2xl max-w-full items-stretch gap-2">
+        <ShInput bind:value={search} className="h-11 min-h-11 grow text-xl" />
+        <ShButton
+            variant="outline"
+            size="icon-lg"
+            onclick={submitSearch}
+            aria-label={language.search}
         >
             <SearchIcon />
-        </button>
-        <button
-            onclick={(e) => {
-                menuOpen = true
-            }}
-            class="peer-focus:border-textcolor mr-2 flex border-y border-r border-darkborderc justify-center items-center text-textcolor p-3 rounded-r-md hover:bg-primary/30 transition-colors"
+        </ShButton>
+        <ShButton
+            variant="outline"
+            size="icon-lg"
+            onclick={() => { menuOpen = true }}
+            aria-label="Menu"
         >
             <MenuIcon />
-        </button>
+        </ShButton>
     </div>
 </div>
 {#if $MobileGUI}
 <div class="ml-4 flex items-start ">
     <div class="p-2 flex mb-3 overflow-x-auto rounded-lg border-darkborderc border gap-2">
-        <button onclick={() => {
+        <ShButton size="sm" variant={nsfw ? 'primary' : 'outline'} className={nsfw ? '' : 'text-textcolor2'} aria-pressed={nsfw} onclick={() => {
             nsfw = !nsfw
             getHub()
         }}>
             {nsfw ? 'NSFW' : 'SFW'}
-        </button>
+        </ShButton>
         <div class="h-full border-r border-r-selected"></div>
-        <button onclick={() => {
+        <ShButton variant="ghost" size="sm" onclick={() => {
             switch(sort){
                 case '':
                     sort = 'trending'
@@ -107,38 +114,38 @@
                 sort === 'downloads' ? language.downloads :
                 language.random
             }
-        </button>
+        </ShButton>
     </div>
 </div>
 {:else}
-    <div class="w-full p-1 flex mb-3 overflow-x-auto sm:justify-center">
-        <button class="bg-darkbg p-2 rounded-lg ml-2 flex justify-center items-center hover:bg-selected transition-shadow" class:ring-3={nsfw} onclick={() => {
+    <div class="mb-3 flex w-full gap-2 overflow-x-auto p-1 sm:justify-center">
+        <ShButton variant={nsfw ? 'primary' : 'outline'} className={nsfw ? '' : 'text-textcolor2'} aria-pressed={nsfw} onclick={() => {
             nsfw = !nsfw
             getHub()
         }}>
             NSFW
-        </button>
-        <div class="ml-2 mr-2 h-full border-r border-r-selected"></div>
-        <button class="bg-darkbg p-2 rounded-lg ml-2 flex justify-center items-center hover:bg-selected transition-shadow" class:ring-3={sort === ''} onclick={() => {
+        </ShButton>
+        <div class="mx-2 h-full border-r border-r-selected"></div>
+        <ShButton variant={sort === '' ? 'primary' : 'outline'} className={sort === '' ? '' : 'text-textcolor2'} aria-pressed={sort === ''} onclick={() => {
             changeSort('')
         }}>
             {language.recent}
-        </button>
-        <button class="bg-darkbg p-2 rounded-lg ml-2 flex justify-center items-center hover:bg-selected transition-shadow" class:ring-3={sort === 'trending'} onclick={() => {
+        </ShButton>
+        <ShButton variant={sort === 'trending' ? 'primary' : 'outline'} className={sort === 'trending' ? '' : 'text-textcolor2'} aria-pressed={sort === 'trending'} onclick={() => {
             changeSort('trending')
         }}>
             {language.trending}
-        </button>
-        <button class="bg-darkbg p-2 rounded-lg ml-2 flex justify-center items-center hover:bg-selected transition-shadow" class:ring-3={sort === 'downloads'} onclick={() => {
+        </ShButton>
+        <ShButton variant={sort === 'downloads' ? 'primary' : 'outline'} className={sort === 'downloads' ? '' : 'text-textcolor2'} aria-pressed={sort === 'downloads'} onclick={() => {
             changeSort('downloads')
         }}>
             {language.downloads}
-        </button>
-        <button class="bg-darkbg p-2 rounded-lg ml-2 flex justify-center items-center hover:bg-selected transition-shadow min-w-0 max-w-full" class:ring-3={sort === 'random'} onclick={() => {
+        </ShButton>
+        <ShButton variant={sort === 'random' ? 'primary' : 'outline'} className="min-w-0 max-w-full {sort === 'random' ? '' : 'text-textcolor2'}" aria-pressed={sort === 'random'} onclick={() => {
             changeSort('random')
         }}>
             {language.random}
-        </button>
+        </ShButton>
     </div>
 {/if}
 {@html hubAdditionalHTML}
@@ -151,24 +158,22 @@
 </div>
 {#if sort !== 'random' && sort !== 'recommended'}
     <div class="w-full flex justify-center">
-        <div class="flex">
-            <button class="bg-darkbg h-14 w-14 min-w-14 rounded-lg flex justify-center items-center hover:ring-3 transition-shadow" onclick={() => {
-                if(page > 0){
-                    page -= 1
-                    getHub()
-                }
+        <div class="flex gap-2">
+            <ShButton variant="secondary" size="icon-lg" className="size-14" disabled={page === 0} onclick={() => {
+                page -= 1
+                getHub()
             }}>
                 <ArrowLeft />
-            </button>
-            <button class="bg-darkbg h-14 w-14 min-w-14 rounded-lg ml-2 flex justify-center items-center transition-shadow">
+            </ShButton>
+            <div class="flex size-14 shrink-0 items-center justify-center rounded-md border border-darkborderc bg-darkbg">
                 <span>{page + 1}</span>
-            </button>
-            <button class="bg-darkbg h-14 w-14 min-w-14 rounded-lg ml-2 flex justify-center items-center hover:ring-3 transition-shadow" onclick={() => {
+            </div>
+            <ShButton variant="secondary" size="icon-lg" className="size-14" onclick={() => {
                 page += 1
                 getHub()
             }}>
                 <ArrowRight />
-            </button>
+            </ShButton>
         </div>
     </div>
 {/if}
@@ -188,12 +193,12 @@
                 <span>
                     Menu
                 </span>
-                <button class="float-right text-textcolor2 hover:text-primary" onclick={() => {menuOpen = false}}>
+                <IconButton className="float-right" size="xl" aria-label="Close menu" onclick={() => {menuOpen = false}}>
                     <XIcon />
-                </button>
+                </IconButton>
             </h1>
             <div class=" mt-2 w-full border-t-2 border-t-bgcolor"></div>
-            <button class="w-full hover:bg-selected p-4" onclick={(async (e) => {
+            <ShButton variant="ghost" className="h-auto w-full p-4" onclick={(async (e) => {
                 e.stopPropagation()
                 menuOpen = false
                 const input = await alertInput('Input URL or ID')
@@ -208,7 +213,7 @@
                 const id = input.split("?").at(-1)
                 downloadRisuHub(id)
 
-            })}>Import Character from URL or ID</button>
+            })}>Import Character from URL or ID</ShButton>
         </div>
     </div>
 {/if}

@@ -299,7 +299,7 @@
                 <button
                     type="button"
                     onclick={() => copyRawReference(previewAsset[0])}
-                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc hover:bg-selected/50 text-textcolor2 hover:text-textcolor text-sm transition-colors"
+                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc risu-interactive-surface-strong text-textcolor2 risu-interactive-foreground text-sm transition-colors"
                 >
                     <Copy size={14} />
                     {language.copy}
@@ -307,7 +307,7 @@
                 <button
                     type="button"
                     onclick={downloadPreview}
-                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc hover:bg-selected/50 text-textcolor2 hover:text-textcolor text-sm transition-colors"
+                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc risu-interactive-surface-strong text-textcolor2 risu-interactive-foreground text-sm transition-colors"
                 >
                     <DownloadIcon size={12} />
                     {language.download}

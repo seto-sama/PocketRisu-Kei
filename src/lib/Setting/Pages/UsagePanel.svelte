@@ -531,7 +531,7 @@
                                 </span>
                             {/if}
                             {#snippet control()}<button
-                                class="shrink-0 p-1 text-textcolor2 hover:text-red-400 transition-colors cursor-pointer"
+                                class="shrink-0 p-1 text-textcolor2 risu-interactive-danger transition-colors cursor-pointer"
                                 onclick={() => deleteEntry(entry)}
                                 aria-label={language.remove}
                             >

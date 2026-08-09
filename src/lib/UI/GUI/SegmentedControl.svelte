@@ -142,7 +142,7 @@
         line-height: 1.4;
     }
 
-    .segmented-btn:hover:not(.segmented-btn-active) {
+    .segmented-btn:is(:hover, :focus-visible):not(.segmented-btn-active) {
         color: var(--risu-theme-textcolor);
     }
 
@@ -150,8 +150,4 @@
         color: #fff;
     }
 
-    .segmented-btn:focus-visible {
-        outline: 2px solid var(--risu-theme-borderc);
-        outline-offset: -2px;
-    }
 </style>
