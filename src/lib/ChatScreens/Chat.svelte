@@ -46,6 +46,7 @@
     let originalEditTranslationKey = $state<string | null>(null)
     let bodyRoot:HTMLElement|null = $state(null)
     let partialEditRoot: HTMLDivElement | null = $state(null)
+    const generationInfoAlignsLeft = $derived(DBState.db.theme === '')
     let activeTranslationTasks = 0
     let cancelTranslationRequest: (() => void) | null = $state(null)
     let messageEditTextAreaStyle = $derived(`font-size:${0.875 * (DBState.db.zoomsize / 100)}rem;line-height:${(DBState.db.lineHeight ?? 1.25) * (DBState.db.zoomsize / 100)}rem`)
@@ -620,7 +621,7 @@
 {#snippet genInfo()}
     <IconButtonGroup
         size="lg"
-        className={`chat-generation-info flex-wrap justify-end gap-1 ${DBState.db.theme === 'standardRisu' ? 'flex-row-reverse' : ''}`}
+        className={`chat-generation-info flex-wrap gap-1 ${generationInfoAlignsLeft ? 'justify-start' : 'chat-width w-full justify-end'}`}
         style="min-height:var(--icon-cell-size)"
     >
         {#if messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())}
@@ -635,7 +636,7 @@
                 : language.requestDiagnostics.unavailable}
             <IconButton
                 expanded
-                className="text-sm"
+                className={`text-sm ${generationInfoAlignsLeft ? '' : 'order-last'}`}
                 aria-label={modelLabel}
                 title={modelLabel}
                 onclick={() => {
