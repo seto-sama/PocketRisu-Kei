@@ -14,6 +14,6 @@
 
 <Accordion name={getLabel(item)} styled={item.options?.styled ?? false}>
     {#if item.options?.children}
-        <SettingRenderer items={item.options.children} modelInfo={ctx.modelInfo} subModelInfo={ctx.subModelInfo} target={ctx.target} />
+        <SettingRenderer items={item.options.children} target={ctx.target} />
     {/if}
 </Accordion>

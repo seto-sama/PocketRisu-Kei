@@ -2145,7 +2145,11 @@ export async function summarize(
 
     // API
     if (settings.summarizationModel === "subModel") {
-        console.log(logPrefix, `Using ax model ${db.subModel} for summarization.`);
+        const currentCharacter = getCurrentCharacter()
+        const currentRoom = currentCharacter?.chats[currentCharacter.chatPage]
+        const subBinding = resolveChatModelBinding(currentRoom, 'submodel')
+        const subModelName = subBinding.kind === 'modelPreset' ? subBinding.preset.name : ''
+        console.log(logPrefix, `Using ax model ${subModelName} for summarization.`);
 
         const response = await requestChatData(
             {

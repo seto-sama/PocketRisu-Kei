@@ -843,7 +843,7 @@ function statusEnabled(): boolean {
 // Register a LOCAL tokenizer with the status store so the render tick counts
 // streamed tokens language-aware (real subwords, good for CJK) instead of a
 // char/N estimate. Uses encodeWithTokenizer with a fixed local tokenizer — NOT
-// tokenizeNum/encode routes by db.aiModel, while status is only an approximate
+// Token usage is an estimate based on the bound model preset's tokenizer, while status is only an approximate
 // live display (the final count is reconciled from provider usage). A fixed local
 // tokenizer avoids unnecessary model-specific work on every render tick.
 setStatusTokenCounter(async (text) => {

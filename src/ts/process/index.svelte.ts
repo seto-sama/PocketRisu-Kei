@@ -18,11 +18,10 @@ import { runTrigger, type additonalSysPrompt } from "./triggers";
 import { HypaProcesser } from "./memory/hypamemory";
 import { additionalInformations } from "./embedding/addinfo";
 import { getInlayAsset } from "./files/inlays";
-import { getGenerationModelString } from "./models/modelString";
+import { getGenerationModelString, getModelPresetMetadata } from "./models/modelString";
 import { runInlayScreen } from "./inlayScreen";
 import { runImageEmbedding } from "./transformers";
 import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
-import { getModelInfo, LLMFlags } from "../model/modellist";
 import { applyPromptPresetParams, resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
 import { type RevenantChatWorkflowContext, type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant";
 import {
@@ -545,6 +544,14 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         ? !!resumeHypaStep && resumeHypaStep.status !== 'skipped'
         : !!((outgoingChat.supaMemory ?? nowChatroom.supaMemory) && DBState.db.hypaV3)
     const claimBinding = resolveChatModelBinding(outgoingChat, 'model')
+    const generationModelMetadata = getModelPresetMetadata(
+        claimBinding.kind === 'modelPreset' ? claimBinding.preset : undefined,
+    )
+    const usesOpenAIStyleTokenAccounting = generationModelMetadata.format === 'openai-compatible'
+        || generationModelMetadata.format === 'openai-responses'
+    const mergesAdjacentSystemPrompts = usesOpenAIStyleTokenAccounting
+        || generationModelMetadata.format === 'anthropic-messages'
+        || generationModelMetadata.format === 'amazon-bedrock'
     let compiledMainPreset:CompiledModelPreset|undefined
     if(!resumeWorkflow && !arg.preview && !arg.previewPrompt && claimBinding.kind === 'modelPreset'){
         try{
@@ -631,7 +638,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     let caculatedChatTokens = 0
-    if(DBState.db.aiModel.startsWith('gpt')){
+    if(usesOpenAIStyleTokenAccounting){
         caculatedChatTokens += 5
     }
     else{
@@ -653,7 +660,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         : undefined
     const tokenizer = new ChatTokenizer(
         chatAdditonalTokens,
-        DBState.db.aiModel.startsWith('gpt') ? 'noName' : 'name',
+        usesOpenAIStyleTokenAccounting ? 'noName' : 'name',
         presetTokenizer,
     )
     let maxContextTokens = DBState.db.maxContext
@@ -1210,7 +1217,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     let chats:OpenAIChat[] = examples
 
-    if(!DBState.db.aiModel.startsWith('novelai') && !DBState.db?.promptSettings?.trimStartNewChat){
+    if(!DBState.db?.promptSettings?.trimStartNewChat){
         chats.push({
             role: 'system',
             content: '[Start a new chat]',
@@ -1349,13 +1356,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
 
         let multimodal:MultiModal[] = []
-        const modelinfo = getModelInfo(DBState.db.aiModel)
         if(inlays.length > 0){
             for(const inlay of inlays){
                 const inlayName = inlay.replace('{{inlayed::', '').replace('{{inlay::', '').replace('}}', '').replace('{{inlayeddata::', '')
                 const inlayData = await getInlayAsset(inlayName)
                 if(inlayData?.type === 'image'){
-                    if(modelinfo.flags.includes(LLMFlags.hasImageInput)){
+                    if(generationModelMetadata.vision){
                         multimodal.push({
                             type: 'image',
                             base64: inlayData.data,
@@ -1648,7 +1654,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     //continue chat model
-    if(isContinuation && (DBState.db.aiModel.startsWith('claude') || DBState.db.aiModel.startsWith('gpt') || DBState.db.aiModel.startsWith('openrouter') || DBState.db.aiModel.startsWith('reverse_proxy'))){
+    if(isContinuation && mergesAdjacentSystemPrompts){
         unformated.postEverything.push({
             role: 'system',
             content: '[Continue the last response]'
@@ -1660,7 +1666,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             if(!chat.content.trim() && !(chat.multimodals && chat.multimodals.length > 0)){
                 continue
             }
-            if(!(DBState.db.aiModel.startsWith('gpt') || DBState.db.aiModel.startsWith('claude') || DBState.db.aiModel === 'openrouter' || DBState.db.aiModel === 'reverse_proxy')){
+            if(!mergesAdjacentSystemPrompts){
                 formated.push(chat)
                 continue
             }

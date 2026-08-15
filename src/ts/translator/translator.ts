@@ -188,7 +188,7 @@ export async function translate(text:string, reverse:boolean, signal?:AbortSigna
         }
     }
 
-    return runTranslator(text, reverse, db.translator,db.aiModel.startsWith('novellist') ? 'ja' : 'en', undefined, signal)
+    return runTranslator(text, reverse, db.translator, 'en', undefined, signal)
 }
 
 export async function runTranslator(text:string, reverse:boolean, from:string,target:string, exarg?:{translatorNote?:string}, signal?:AbortSignal) {
@@ -446,7 +446,7 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
         return applyEdittransRegex(r, charArg, alwaysExistChar)
     }
     if(db.translatorType == "bergamot" && db.htmlTranslation) {
-        const from = db.aiModel.startsWith('novellist') ? 'ja' : 'en'
+        const from = 'en'
         const to = db.translator || 'en'
 
         if(!bergamotTranslate){

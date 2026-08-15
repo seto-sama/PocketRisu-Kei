@@ -1,13 +1,11 @@
 import type { Tiktoken } from "@dqbd/tiktoken";
 import type { Tokenizer } from "@mlc-ai/web-tokenizers";
-import { type character, type Chat, getCurrentCharacter, getDatabase } from "./storage/database.svelte";
+import { type character, type Chat, getCurrentCharacter } from "./storage/database.svelte";
 import type { MultiModal, OpenAIChat } from "./process/index.svelte";
 import { supportsInlayImage } from "./process/files/inlays";
 import { risuChatParser } from "./parser/parser.svelte";
-import { tokenizeGGUFModel } from "./process/models/local";
-import { globalFetch } from "./globalApi.svelte";
-import { getModelInfo, LLMTokenizer, type LLMModel } from "./model/modellist";
-import { pluginV2 } from "./plugins/plugins.svelte";
+import { getGenerationModelPreset, getModelPresetTokenizer } from "./process/models/modelString";
+import type { RegistryTokenizer } from "./preset/types";
 import type { GemmaTokenizer } from "@huggingface/transformers";
 import { LRUMap } from 'mnemonist';
 import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "./storage/persistentKv";
@@ -18,14 +16,9 @@ const encodeCache = new LRUMap<string, number[] | Uint32Array | Int32Array>(MAX_
 
 function getHash(
     data: string,
-    aiModel: string,
-    customTokenizer: string,
-    currentPluginProvider: string,
-    modelInfo: LLMModel,
-    pluginTokenizer: string
+    tokenizer: RegistryTokenizer,
 ): string {
-    const combined = `${data}::${aiModel}::${customTokenizer}::${currentPluginProvider}::${modelInfo.tokenizer}::${pluginTokenizer}`;
-    return combined;
+    return `${data}::${tokenizer}`;
 }
 
 
@@ -44,43 +37,8 @@ export const tokenizerList = [
 
 type RevenantTokenizer = typeof tokenizerList[number][0]
 
-function getEffectiveRevenantTokenizer(): RevenantTokenizer | undefined {
-    const db = getDatabase()
-    if(db.aiModel === 'openrouter' || db.aiModel === 'reverse_proxy'){
-        // Keep this aligned with encode(): the legacy llama3 selection uses
-        // the llama tokenizer in that path.
-        if(db.customTokenizer === 'llama3') return 'llama'
-        if(tokenizerList.some(([id]) => id === db.customTokenizer)){
-            return db.customTokenizer as RevenantTokenizer
-        }
-        return 'tik'
-    }
-    if(db.aiModel === 'custom'){
-        const pluginTokenizer = pluginV2.providerOptions
-            .get(db.currentPluginProvider)?.tokenizer
-        if(pluginTokenizer === 'custom') return undefined
-        if(pluginTokenizer === 'o200k_base' || pluginTokenizer === 'cl100k_base'){
-            return 'tik'
-        }
-        if(tokenizerList.some(([id]) => id === pluginTokenizer)){
-            return pluginTokenizer as RevenantTokenizer
-        }
-        return 'tik'
-    }
-    switch(getModelInfo(db.aiModel).tokenizer){
-        case LLMTokenizer.Mistral: return 'mistral'
-        case LLMTokenizer.Llama: return 'llama'
-        case LLMTokenizer.Llama3: return 'llama3'
-        case LLMTokenizer.NovelAI: return 'novelai'
-        case LLMTokenizer.Claude: return 'claude'
-        case LLMTokenizer.NovelList: return 'novellist'
-        case LLMTokenizer.Gemma:
-        case LLMTokenizer.GoogleCloud: return 'gemma'
-        case LLMTokenizer.Cohere: return 'cohere'
-        case LLMTokenizer.DeepSeek: return 'deepseek'
-        case LLMTokenizer.Local: return undefined
-        default: return 'tik'
-    }
+function getEffectiveRevenantTokenizer(): RevenantTokenizer {
+    return getModelPresetTokenizer(getGenerationModelPreset('model'))
 }
 
 export async function encodeWithTokenizer(data: string, tokenizerType: string): Promise<(number[] | Uint32Array | Int32Array)> {
@@ -111,103 +69,14 @@ export async function encodeWithTokenizer(data: string, tokenizerType: string): 
 }
 
 export async function encode(data:string):Promise<(number[]|Uint32Array|Int32Array)>{
-    const db = getDatabase();
-    const modelInfo = getModelInfo(db.aiModel);
-    const pluginTokenizer = pluginV2.providerOptions.get(db.currentPluginProvider)?.tokenizer ?? "none";
-
-    const cacheKey = getHash(
-        data,
-        db.aiModel,
-        db.customTokenizer,
-        db.currentPluginProvider,
-        modelInfo,
-        pluginTokenizer
-    );
+    const tokenizer = getEffectiveRevenantTokenizer()
+    const cacheKey = getHash(data, tokenizer)
     const cachedResult = encodeCache.get(cacheKey);
     if (cachedResult !== undefined) {
         return cachedResult;
     }
 
-    let result: number[] | Uint32Array | Int32Array;
-
-    if(db.aiModel === 'openrouter' || db.aiModel === 'reverse_proxy'){
-        switch(db.customTokenizer){
-            case 'mistral':
-                result = await tokenizeWebTokenizers(data, 'mistral'); break;
-            case 'llama':
-                result = await tokenizeWebTokenizers(data, 'llama'); break;
-            case 'novelai':
-                result = await tokenizeWebTokenizers(data, 'novelai'); break;
-            case 'claude':
-                result = await tokenizeWebTokenizers(data, 'claude'); break;
-            case 'novellist':
-                result = await tokenizeWebTokenizers(data, 'novellist'); break;
-            case 'llama3':
-                result = await tokenizeWebTokenizers(data, 'llama'); break;
-            case 'gemma':
-                result = await gemmaTokenize(data); break;
-            case 'cohere':
-                result = await tokenizeWebTokenizers(data, 'cohere'); break;
-            case 'deepseek':
-                result = await tokenizeWebTokenizers(data, 'DeepSeek'); break;
-            default:
-                result = await tikJS(data, 'o200k_base'); break;
-        }
-    } else if (db.aiModel === 'custom' && pluginTokenizer) {
-        switch(pluginTokenizer){
-            case 'mistral':
-                result = await tokenizeWebTokenizers(data, 'mistral'); break;
-            case 'llama':
-                result = await tokenizeWebTokenizers(data, 'llama'); break;
-            case 'novelai':
-                result = await tokenizeWebTokenizers(data, 'novelai'); break;
-            case 'claude':
-                result = await tokenizeWebTokenizers(data, 'claude'); break;
-            case 'novellist':
-                result = await tokenizeWebTokenizers(data, 'novellist'); break;
-            case 'llama3':
-                result = await tokenizeWebTokenizers(data, 'llama'); break;
-            case 'gemma':
-                result = await gemmaTokenize(data); break;
-            case 'cohere':
-                result = await tokenizeWebTokenizers(data, 'cohere'); break;
-            case 'o200k_base':
-                result = await tikJS(data, 'o200k_base'); break;
-            case 'cl100k_base':
-                result = await tikJS(data, 'cl100k_base'); break;
-            case 'custom':
-                result = await pluginV2.providerOptions.get(db.currentPluginProvider)?.tokenizerFunc?.(data) ?? [0]; break;
-            default:
-                result = await tikJS(data, 'o200k_base'); break; 
-        }
-    } 
-    
-    // Fallback
-    if (result === undefined) {
-        if(modelInfo.tokenizer === LLMTokenizer.NovelList){
-            result = await tokenizeWebTokenizers(data, 'novellist');
-        } else if(modelInfo.tokenizer === LLMTokenizer.Claude){
-            result = await tokenizeWebTokenizers(data, 'claude');
-        } else if(modelInfo.tokenizer === LLMTokenizer.NovelAI){
-            result = await tokenizeWebTokenizers(data, 'novelai');
-        } else if(modelInfo.tokenizer === LLMTokenizer.Mistral){
-            result = await tokenizeWebTokenizers(data, 'mistral');
-        } else if(modelInfo.tokenizer === LLMTokenizer.Llama){
-            result = await tokenizeWebTokenizers(data, 'llama');
-        } else if(modelInfo.tokenizer === LLMTokenizer.Local){
-            result = await tokenizeGGUFModel(data);
-        } else if(modelInfo.tokenizer === LLMTokenizer.tiktokenO200Base){
-            result = await tikJS(data, 'o200k_base');
-        } else if(modelInfo.tokenizer === LLMTokenizer.Gemma || modelInfo.tokenizer === LLMTokenizer.GoogleCloud){
-            result = await gemmaTokenize(data);
-        } else if(modelInfo.tokenizer === LLMTokenizer.DeepSeek){
-            result = await tokenizeWebTokenizers(data, 'DeepSeek');
-        } else if(modelInfo.tokenizer === LLMTokenizer.Cohere){
-            result = await tokenizeWebTokenizers(data, 'cohere');
-        } else {
-            result = await tikJS(data);
-        }
-    }
+    const result = await encodeWithTokenizer(data, tokenizer)
     encodeCache.set(cacheKey, result);
 
     return result;
@@ -259,31 +128,6 @@ async function tikJS(text:string, model='cl100k_base') {
     }
 
     return (await parserPromise).encode(text)
-}
-
-async function geminiTokenizer(text:string) {
-    const db = getDatabase()
-    const fetchResult = await globalFetch(`https://generativelanguage.googleapis.com/v1beta/${db.aiModel}:countTextTokens`, {
-        "headers": {
-            "content-type": "application/json",
-            "authorization": `Bearer ${db.google.accessToken}`
-        },
-        "body": JSON.stringify({
-            "prompt":{
-                text: text
-            }
-        }),
-        "method": "POST"
-    })
-
-    if(!fetchResult.ok){
-        //fallback to tiktoken
-        return await tikJS(text)
-    }
-
-    const result = fetchResult.data
-
-    return result.tokenCount ?? 0
 }
 
 async function tokenizeWebTokenizers(text:string, type:tokenizerType) {
@@ -413,11 +257,10 @@ export class ChatTokenizer {
     }
 
     tokenizeMultiModal(data:MultiModal){
-        const db = getDatabase()
         if(!supportsInlayImage()){
             return this.chatAdditionalTokens
         }
-        if(db.gptVisionQuality === 'low'){
+        if(getGenerationModelPreset('model')?.gptVisionQuality === 'low'){
             return 87
         }
 

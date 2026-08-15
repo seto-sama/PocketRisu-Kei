@@ -18,7 +18,7 @@ import hljs from 'highlight.js/lib/core'
 import 'highlight.js/styles/atom-one-dark.min.css'
 import { language } from 'src/lang';
 import katex from 'katex'
-import { getModelInfo } from '../model/modellist';
+import { getGenerationModelMetadata, getGenerationModelString } from '../process/models/modelString';
 import { registerCBS, type matcherArg, type RegisterCallback } from '../cbs';
 import cssSelectorParser from 'postcss-selector-parser'
 
@@ -1269,7 +1269,8 @@ function initMatcher(){
         getSelectedCharID: () => {
             return get(selectedCharID)
         },
-        getModelInfo: getModelInfo,
+        getGenerationModelString: getGenerationModelString,
+        getGenerationModelMetadata: getGenerationModelMetadata,
         callInternalFunction: function (args: string[]): string {
             return ''
         },

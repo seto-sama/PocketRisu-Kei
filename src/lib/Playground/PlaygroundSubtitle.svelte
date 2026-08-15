@@ -5,7 +5,7 @@
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
     import Button from "../UI/GUI/Button.svelte";
     import { DBState } from "src/ts/stores.svelte";
-    import { getModelInfo, LLMFlags } from "src/ts/model/modellist";
+    import { getGenerationModelMetadata } from "src/ts/process/models/modelString";
     import { requestChatData } from "src/ts/process/request/request";
     import { asBuffer, selectFileByDom, selectSingleFile, sleep } from "src/ts/util";
     import { alertSelect, notifyError } from "src/ts/alert";
@@ -22,7 +22,7 @@
 
     let selLang = $state(DBState.db.language)
     let prompt = $state(LLMModePrompt)
-    let modelInfo = $derived(getModelInfo(DBState.db.aiModel))
+    let modelMetadata = $derived(getGenerationModelMetadata('model'))
     let outputText = $state('')
     let fileB64 = $state('')
     let vttB64 = $state('')
@@ -460,10 +460,10 @@
     <OptionInput value="whisperLocal">Whisper Local</OptionInput>
 </SelectInput>
 
-{#if !(modelInfo.flags.includes(LLMFlags.hasAudioInput) && modelInfo.flags.includes(LLMFlags.hasVideoInput)) && mode === 'llm'}
+{#if !(modelMetadata.audioInput && modelMetadata.videoInput) && mode === 'llm'}
     <span class="text-draculared text-lg mt-4">{language.subtitlesWarning1}</span>
 {/if}
-{#if !(modelInfo.flags.includes(LLMFlags.hasStreaming) && DBState.db.useStreaming)}
+{#if !modelMetadata.streaming}
     <span class="text-draculared text-lg mt-4">{language.subtitlesWarning2}</span>
 {/if}
 {#if !('gpu' in navigator) && mode === 'whisperLocal'}

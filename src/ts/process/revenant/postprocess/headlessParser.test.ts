@@ -67,4 +67,11 @@ describe('revenant headless CBS parser', () => {
         )
         expect(result.text).toBe('Hello Alice ok')
     })
+
+    it('uses the snapshotted model preset name for model metadata', () => {
+        const input = recipe()
+        input.modelPreset = { name: 'Bound Preset' }
+
+        expect(renderRevenantTemplate('{{metadata::modelname}}', input).text).toBe('Bound Preset')
+    })
 })

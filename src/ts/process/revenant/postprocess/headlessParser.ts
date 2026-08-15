@@ -385,7 +385,44 @@ function createState(recipe: RevenantPostprocessRecipe, chat: Chat): TemplateSta
             return (value >>> 0) / 0x100000000
         },
         getSelectedCharID: () => 0,
-        getModelInfo: model => ({ id: model, name: model, shortName: model, internalID: model, format: 0, provider: 0, tokenizer: 0 } as any),
+        getGenerationModelString: () => {
+            const name = (recipe.modelPreset as { name?: unknown } | null)?.name
+            return typeof name === 'string' ? name : ''
+        },
+        getGenerationModelMetadata: mode => {
+            const rawPreset = mode === 'submodel'
+                ? recipe.auxProviders?.submodel?.modelPreset
+                : recipe.modelPreset
+            const preset = rawPreset as {
+                id?: unknown
+                name?: unknown
+                tokenizerOverride?: unknown
+                profileSnapshot?: {
+                    adapterKind?: unknown
+                    providerBaseId?: unknown
+                    modelId?: unknown
+                    recommendedTokenizer?: unknown
+                }
+            } | null
+            const stringValue = (value: unknown) => typeof value === 'string' ? value : ''
+            const name = stringValue(preset?.name)
+            return {
+                presetId: stringValue(preset?.id),
+                name,
+                shortName: name,
+                internalId: stringValue(preset?.profileSnapshot?.modelId),
+                format: stringValue(preset?.profileSnapshot?.adapterKind),
+                provider: stringValue(preset?.profileSnapshot?.providerBaseId),
+                tokenizer: (stringValue(preset?.tokenizerOverride)
+                    || stringValue(preset?.profileSnapshot?.recommendedTokenizer)
+                    || 'tik') as any,
+                supportsPrefill: preset?.profileSnapshot?.adapterKind === 'anthropic-messages',
+                streaming: false,
+                vision: false,
+                audioInput: false,
+                videoInput: false,
+            }
+        },
         callInternalFunction: () => '',
         isNodeServer: true,
         isMobile: false,

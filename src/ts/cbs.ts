@@ -1,7 +1,7 @@
 import type { Database, character, loreBook } from './storage/database.svelte';
 import type { CbsConditions } from './parser/parser.svelte';
 import type { RisuModule } from './process/modules';
-import type { LLMModel } from './model/modellist';
+import type { GenerationModelMetadata, GenerationModelMode } from './process/models/modelString';
 
 export const defaultCBSRegisterArg: CBSRegisterArg = {
     registerFunction: () => { throw new Error('registerFunction not implemented') },
@@ -32,19 +32,25 @@ export const defaultCBSRegisterArg: CBSRegisterArg = {
     getModuleLorebooks: () => [],
     pickHashRand: () => Math.random(),
     getSelectedCharID: () => 0,
+    getGenerationModelString: () => 'Placeholder Model',
+    getGenerationModelMetadata: () => ({
+        presetId: 'placeholder',
+        name: 'Placeholder Model',
+        shortName: 'Placeholder Model',
+        internalId: 'placeholder',
+        format: 'placeholder',
+        provider: 'placeholder',
+        tokenizer: 'tik',
+        supportsPrefill: false,
+        streaming: false,
+        vision: false,
+        audioInput: false,
+        videoInput: false,
+    }),
     callInternalFunction: (args: string[]) => {return ''},
     isNodeServer: false,
     isMobile: false,
     appVer: '0.0.0',
-    getModelInfo: () => ({
-        id: 'placeholder',
-        name: 'Placeholder Model',
-        shortName: 'Placeholder',
-        internalID: 'placeholder',
-        format: 0,
-        provider: 0,
-        tokenizer: 0
-    } as LLMModel)
 };
 
 export type matcherArg = {
@@ -105,7 +111,8 @@ export type CBSRegisterArg = {
     getModuleLorebooks: () => loreBook[],
     pickHashRand: (seed: number, hash: string) => number,
     getSelectedCharID: () => number,
-    getModelInfo: (model: string) => LLMModel
+    getGenerationModelString: () => string,
+    getGenerationModelMetadata: (mode?: GenerationModelMode) => GenerationModelMetadata,
     callInternalFunction: (args: string[]) => string,
     isNodeServer: boolean,
     isMobile: boolean,
@@ -133,10 +140,11 @@ export function registerCBS(arg:CBSRegisterArg) {
         getModuleLorebooks, 
         pickHashRand, 
         getSelectedCharID, 
+        getGenerationModelString,
+        getGenerationModelMetadata,
         isNodeServer,
         isMobile, 
         appVer, 
-        getModelInfo,
         callInternalFunction
     } = arg;
 
@@ -636,8 +644,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     registerFunction({
         name: 'model',
         callback: (str, matcherArg, args, vars) => {
-            const db = getDatabase()
-            return db.aiModel
+            return getGenerationModelMetadata('model').internalId
         },
         alias: [],
         description: 'Returns the ID/name of the currently selected AI model (e.g., "gpt-4", "claude-3-opus").\n\nUsage:: {{model}}',
@@ -646,8 +653,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     registerFunction({
         name: 'axmodel',
         callback: (str, matcherArg, args, vars) => {
-            const db = getDatabase()
-            return db.subModel
+            return getGenerationModelMetadata('submodel').internalId
         },
         alias: [],
         description: 'Returns the currently selected sub/auxiliary model ID. Used for specialized tasks like embedding or secondary processing.\n\nUsage:: {{axmodel}}',
@@ -1343,8 +1349,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     registerFunction({
         name: 'prefillsupported',
         callback: (str, matcherArg, args, vars) => {
-            const db = getDatabase()
-            return db.aiModel.startsWith('claude') ? '1' : '0'
+            return getGenerationModelMetadata('model').supportsPrefill ? '1' : '0'
         },
         alias: ['prefill_supported', 'prefill'],
         description: 'Returns "1" if the current AI model supports prefill functionality (like Claude models), "0" otherwise. Prefill allows pre-filling the assistant\'s response start.\n\nUsage:: {{prefillsupported}}',
@@ -1880,28 +1885,22 @@ export function registerCBS(arg:CBSRegisterArg) {
                     return navigator.language
                 }
                 case 'modelshortname':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.shortName ?? modelInfo.name ?? modelInfo.id
+                    return getGenerationModelMetadata('model').shortName
                 }
                 case 'modelname':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.name ?? modelInfo.id
+                    return getGenerationModelString()
                 }
                 case 'modelinternalid':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.internalID ?? modelInfo.id
+                    return getGenerationModelMetadata('model').internalId
                 }
                 case 'modelformat':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.format.toString()
+                    return getGenerationModelMetadata('model').format
                 }
                 case 'modelprovider':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.provider.toString()
+                    return getGenerationModelMetadata('model').provider
                 }
                 case 'modeltokenizer':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.tokenizer.toString()
+                    return getGenerationModelMetadata('model').tokenizer
                 }
                 case 'imateapot':{
                     return '🫖'
