@@ -1247,7 +1247,7 @@ export const languageKorean = {
   goCharacterOnImport: "임포트 시 캐릭터로 이동",
   format: "포맷",
   v2Warning:
-    "주의: V2 카드는 더 이상 지원되지 않습니다. 일부 데이터가 누락될 수 있습니다.",
+    "Character Card V2는 이전 버전의 챗봇 프로그램과 호환하기 위한 레거시 포맷입니다. 최신 기능과 일부 에셋은 포함되지 않을 수 있습니다. 가능하면 V3를 사용하세요.",
   applyModule: "모듈 적용",
   successApplyModule: "모듈이 성공적으로 적용되었습니다.",
   font: "폰트",

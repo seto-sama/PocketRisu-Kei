@@ -1163,7 +1163,7 @@ export const languageEnglish = {
     search: "Search",
     goCharacterOnImport: "Go to Character on Realm Import",
     format: "Format",
-    v2Warning: "Warning: V2 card is no longer supported. it may not contain all the data.",
+    v2Warning: "Character Card V2 is a legacy format for compatibility with older chatbot programs. It may not include newer features or some assets. Use V3 when possible.",
     applyModule: "Apply Module",
     successApplyModule: "Module is successfully applied",
     font: "Font",

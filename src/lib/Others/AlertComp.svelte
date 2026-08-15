@@ -99,6 +99,16 @@
         alertStore.set({ type: 'none', msg: input })
     }
 
+    function cancelCardExport() {
+        alertStore.set({
+            type: 'none',
+            msg: JSON.stringify({
+                type: 'cancel',
+                type2: cardExportType2,
+            }),
+        })
+    }
+
     // Register JSON language for syntax highlighting
     if (!hljs.getLanguage('json')) {
         hljs.registerLanguage('json', json)
@@ -420,7 +430,7 @@
 
 {:else if $alertStore.type === 'cardexport'}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="risu-modal-backdrop flex flex-col z-50 items-center justify-center" role="button" tabindex="0" onclick={close}>
+    <div class="risu-modal-backdrop flex flex-col z-50 items-center justify-center" role="button" tabindex="0" onclick={cancelCardExport}>
         <div class="bg-darkbg rounded-md p-4 max-w-full flex flex-col w-2xl" role="button" tabindex="0" onclick={(e) => {
             e.stopPropagation()
         }}>
@@ -428,15 +438,7 @@
                 <span>
                     {language.shareExport}
                 </span>
-                <IconButton size="lg" className="float-right" onclick={() => {
-                    alertStore.set({
-                        type: 'none',
-                        msg: JSON.stringify({
-                            type: 'cancel',
-                            type2: cardExportType2
-                        })
-                    })
-                }}>
+                <IconButton size="lg" className="float-right" onclick={cancelCardExport}>
                     <XIcon />
                 </IconButton>
             </h1>
