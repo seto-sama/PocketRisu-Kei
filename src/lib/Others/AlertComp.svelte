@@ -976,7 +976,12 @@
 <ShDialog
     open={$alertStore.type === 'select'}
     closable={false}
-    closeOnOutsideClick={false}
+    closeOnOutsideClick={$alertStore.closeOnOutsideClick ?? true}
+    onOpenChange={(v) => {
+        if (!v && $alertStore.type === 'select') {
+            alertStore.set({ type: 'none', msg: '-1' })
+        }
+    }}
 >
     {#if $alertStore.type === 'select'}
         {@const hasDisplay = $alertStore.msg.startsWith('__DISPLAY__')}

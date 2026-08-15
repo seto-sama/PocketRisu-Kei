@@ -165,8 +165,19 @@ export async function exportChat(page:number){
     try {
 
         const mode = await alertSelect(['Export as JSON', "Export as TXT", "Export as HTML File", "Export as HTML Embed"])
-        const doTranslate = (mode === '2' || mode === '3') ? (await alertSelect([language.translateContent, language.doNotTranslate])) === '0' : false
-        const anonymous = (mode === '2' || mode === '3') ? ((await alertSelect([language.includePersonaName, language.hidePersonaName])) === '1') : false
+        if(mode === '-1') return
+
+        let doTranslate = false
+        let anonymous = false
+        if(mode === '2' || mode === '3'){
+            const translationMode = await alertSelect([language.translateContent, language.doNotTranslate])
+            if(translationMode === '-1') return
+            doTranslate = translationMode === '0'
+
+            const personaNameMode = await alertSelect([language.includePersonaName, language.hidePersonaName])
+            if(personaNameMode === '-1') return
+            anonymous = personaNameMode === '1'
+        }
         const selectedID = get(selectedCharID)
         const db = getDatabase()
         const char = db.characters[selectedID]

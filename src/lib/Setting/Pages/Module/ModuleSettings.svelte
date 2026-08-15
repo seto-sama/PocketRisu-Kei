@@ -290,7 +290,7 @@
                                     if(sel === 0){
                                         exportModule(rmodule)
                                     }
-                                    else{
+                                    else if(sel === 1){
                                         exportModuleLegacy(rmodule)
                                     }
                                 }}>

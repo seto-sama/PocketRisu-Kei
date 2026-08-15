@@ -37,17 +37,21 @@ export const languageSettingsItems: SettingItem[] = [
                     'Make a new language',
                 ]);
 
-                if (parseInt(j) === 0) {
+                if (parseInt(j) < 0) {
+                    ctx.db.language = 'en';
+                } else if (parseInt(j) === 0) {
                     const langs = ['de', 'ko', 'cn', 'vi', 'zh-Hant'];
                     const lang = parseInt(await alertSelect(langs));
-                    changeLanguage(langs[lang]);
-                    downloadFile(
-                        'lang.json',
-                        new TextEncoder().encode(JSON.stringify(language, null, 4)),
-                    );
-                    alertNormal(
-                        'Downloaded JSON, translate it, and send it to the dev by discord DM and email. I will add it to the next version.',
-                    );
+                    if (lang >= 0) {
+                        changeLanguage(langs[lang]);
+                        downloadFile(
+                            'lang.json',
+                            new TextEncoder().encode(JSON.stringify(language, null, 4)),
+                        );
+                        alertNormal(
+                            'Downloaded JSON, translate it, and send it to the dev by discord DM and email. I will add it to the next version.',
+                        );
+                    }
                 } else {
                     downloadFile(
                         'lang.json',
