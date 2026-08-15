@@ -140,6 +140,7 @@ function resolveEndpointUrl(
     if (snapshot.endpoint.kind === 'cloudflare-ai') {
         return buildCloudflareAiEndpointUrl(
             pickCustomString(snapshot, userValues, CLOUDFLARE_CUSTOM_PATH_ACCOUNT_ID),
+            snapshot.endpoint.path,
         )
     }
     if (snapshot.endpoint.kind === 'amazon-bedrock') {

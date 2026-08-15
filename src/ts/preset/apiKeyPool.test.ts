@@ -87,6 +87,8 @@ describe('apiKeyPool', () => {
             .toEqual(['Cloudflare'])
         expect(listApiKeys('cloudflare-ai-gateway').map((entry) => entry.name))
             .toEqual(['Cloudflare'])
+        expect(listApiKeys('cloudflare-ai-gateway--anthropic').map((entry) => entry.name))
+            .toEqual(['Cloudflare'])
     })
 
     it('filters new-key providers by model provider visibility with explicit exceptions', () => {

@@ -68,7 +68,7 @@ interface ProtocolDefinition {
 
 // Profile-definition revision. Catalog timestamps describe model metadata, so
 // protocol field/UI changes need their own revision when snapshots are refreshed.
-const PROTOCOL_PROFILE_UPDATED_AT = 1785331785494
+const PROTOCOL_PROFILE_UPDATED_AT = 1786723200000
 
 const PROTOCOL_DEFINITIONS: Record<ProfileProtocol, ProtocolDefinition> = {
     'openai-chat': {
@@ -128,9 +128,8 @@ export function buildProtocolProfile(
 ): BuiltProtocolProfile {
     const protocolDefinition = PROTOCOL_DEFINITIONS[protocol]
     const hasGptApiMode = supportsGptApiMode(protocol, facts)
-    // GPT profiles keep editable generation fields in the default Chat
-    // Completions shape even when the catalog route currently says Responses.
-    // The same saved profile can switch wire mode at runtime.
+    // GPT profiles keep one set of editable generation fields and can switch
+    // wire mode at runtime. Their initial mode follows the catalog protocol.
     const settingsProtocol = hasGptApiMode
         ? 'openai-chat'
         : protocol
@@ -138,6 +137,7 @@ export function buildProtocolProfile(
     const request = buildConnectionFields(protocol, connection)
     const profile = buildProfileFields(
         hasGptApiMode,
+        protocol,
         settingsProtocol,
         settingsDefinition,
         facts,
@@ -265,6 +265,7 @@ function buildConnectionFields(
 
 function buildProfileFields(
     hasGptApiMode: boolean,
+    wireProtocol: ProfileProtocol,
     settingsProtocol: ProfileProtocol,
     definition: ProtocolDefinition,
     facts: ProtocolModelFacts,
@@ -280,7 +281,7 @@ function buildProfileFields(
             labelKey: 'modelPresetRequestFormat',
             helpKey: 'modelPresetRequestFormatHelp',
             required: true,
-            default: 'completions',
+            default: wireProtocol === 'openai-responses' ? 'responses' : 'completions',
             enum: [
                 { value: 'completions', label: 'Chat Completions' },
                 { value: 'responses', label: 'Responses' },

@@ -44,6 +44,17 @@ describe('resolveWireModelId', () => {
         expect(resolveWireModelId(preset)).toBe('gpt-5')
     })
 
+    test('normalizes a Cloudflare catalog model at the shared wire boundary', () => {
+        const preset = makePreset({
+            profileSnapshot: makeSnapshot({
+                endpoint: { kind: 'cloudflare-ai', path: 'messages' },
+                modelId: 'anthropic/claude-opus-4-6',
+            }),
+        })
+
+        expect(resolveWireModelId(preset)).toBe('anthropic/claude-opus-4.6')
+    })
+
     test('throws invalid-request when userValues.modelId is an explicit empty string', () => {
         const preset = makePreset({
             userValues: { modelId: '' },
