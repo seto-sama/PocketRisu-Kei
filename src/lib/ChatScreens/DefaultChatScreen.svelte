@@ -1197,7 +1197,7 @@ import { isMobile } from 'src/ts/platform'
         </div>
     {/if}
 
-    {#if showNewMessageButton}
+    {#if showNewMessageButton && DBState.db.newMessageButtonStyle !== 'off'}
         {#if (DBState.db.newMessageButtonStyle === 'bottom-center' || !DBState.db.newMessageButtonStyle)}
             <button class="absolute bottom-16 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />

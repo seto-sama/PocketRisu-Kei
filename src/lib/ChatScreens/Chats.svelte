@@ -5,7 +5,7 @@
     import { getCharImage } from 'src/ts/characters';
     import { createSimpleCharacter, DBState, ReloadChatPointer } from 'src/ts/stores.svelte';
     import { chatFoldedStateMessageIndex } from 'src/ts/globalApi.svelte';
-    import type { ChatScrollController } from './chatScroll';
+    import { didNewResponseStart, type ChatResponseSnapshot, type ChatScrollController } from './chatScroll';
     import { createRevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from 'src/ts/process/revenant/recovery';
 
     let {
@@ -274,16 +274,6 @@
         mountInstances.clear()
     })
 
-    function checkIfAtBottom() {
-        if (!chatBody || !chatBody.parentElement) return true;
-        const sc = chatBody.parentElement;
-        const lastEl = chatBody.firstElementChild;
-        if (!lastEl) return true;
-        const rect = lastEl.getBoundingClientRect();
-        const scRect = sc.getBoundingClientRect();
-        return rect.top <= scRect.bottom + 100;
-    }
-
     function scrollLatestIntoChatScreen() {
         if(!chatBody) return;
         const element = chatBody.firstElementChild as HTMLElement | null;
@@ -298,31 +288,40 @@
         scrollLatestIntoChatScreen();
     }
 
-    let previousLength = 0;
-    let previousChatRoomId: string | null = null;
+    let previousResponseSnapshot: ChatResponseSnapshot | null = null;
 
     $effect(() => {
         void $ReloadChatPointer; // Make $effect track ReloadChatPointer changes
-        const wasAtBottom = checkIfAtBottom();
         updateChatBody()
 
-        const isSameChat = chatRoomId === previousChatRoomId;
+        const roomKey = `${currentCharacter.chaId ?? ''}:${chatRoomId}`
+        const lastMsg = messages[messages.length - 1]
+        const snapshot: ChatResponseSnapshot = {
+            roomKey,
+            messageKey: lastMsg ? getMessageKey(roomKey, lastMsg) : null,
+            messageCount: messages.length,
+            isCharacterResponse: lastMsg?.role === 'char',
+            hasContent: (lastMsg?.recoveryDisplayData ?? lastMsg?.data ?? '').length > 0,
+            isResponding: roomIsStreaming || lastMsg?.isRecovering === true,
+        }
+        const newMessageButtonEnabled = DBState.db.newMessageButtonStyle !== 'off'
 
-        // Only auto-scroll if it's the same chat and new messages were added
-        if(isSameChat && messages.length > previousLength){
-            const lastMsg = messages[messages.length - 1];
-            if(lastMsg && lastMsg.role === 'char' && DBState.db.autoScrollToNewMessage){
-                if(wasAtBottom || DBState.db.alwaysScrollToNewMessage){
-                    setTimeout(() => {
-                        scrollLatestIntoChatScreen();
-                    }, 700);
-                } else {
-                    hasNewUnreadMessage = true;
-                }
+        // Disabling the independent notification button also clears any stale
+        // unread affordance that was already visible.
+        if (!newMessageButtonEnabled) hasNewUnreadMessage = false
+
+        // Move exactly once when the first visible response content arrives.
+        // No delayed callback remains to pull the reader back after they move.
+        if (didNewResponseStart(previousResponseSnapshot, snapshot)) {
+            if (DBState.db.autoScrollToNewMessage) {
+                hasNewUnreadMessage = false
+                scrollLatestIntoChatScreen()
+            }
+            else if (newMessageButtonEnabled) {
+                hasNewUnreadMessage = true
             }
         }
-        previousLength = messages.length;
-        previousChatRoomId = chatRoomId;
+        previousResponseSnapshot = snapshot
     })
 
 </script>

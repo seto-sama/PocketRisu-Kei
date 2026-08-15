@@ -310,7 +310,7 @@ export const helpEn = {
         showTranslationLoading: "Show a loading indicator while message translation is in progress.",
         autoScrollToNewMessage: "Automatically scroll to a newly arrived message.",
         alwaysScrollToNewMessage: "Always scroll down when a new message arrives, even if you have manually scrolled upward.",
-        newMessageButtonStyle: "Choose where and how the \"new message\" button appears.",
+        newMessageButtonStyle: "Disable the \"new message\" button or choose where and how it appears.",
         createFolderOnBranch:
             "Automatically create a folder when branching a chat, grouping the original and branched chats together.",
         hamburgerButtonBottom: "Move the hamburger/menu button to the bottom of the sidebar.",

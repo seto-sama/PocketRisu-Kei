@@ -66,6 +66,40 @@ export type ChatScrollController = {
     destroy(): void
 }
 
+export interface ChatResponseSnapshot {
+    roomKey: string
+    messageKey: string | null
+    messageCount: number
+    isCharacterResponse: boolean
+    hasContent: boolean
+    isResponding: boolean
+}
+
+/** Detect the instant a new assistant response first becomes visible. */
+export function didNewResponseStart(
+    previous: ChatResponseSnapshot | null,
+    current: ChatResponseSnapshot,
+): boolean {
+    if (!previous
+        || previous.roomKey !== current.roomKey
+        || !current.isCharacterResponse
+        || !current.messageKey
+        || !current.hasContent
+        || (!previous.isResponding && !current.isResponding)) {
+        return false
+    }
+
+    // Streaming fills an existing empty placeholder. Non-streaming providers
+    // may instead append an already-populated response.
+    if (previous.messageKey === current.messageKey) {
+        return !previous.hasContent
+    }
+
+    // A continuation can replace the generation id of the current message;
+    // only a larger message list represents a genuinely new response here.
+    return current.messageCount > previous.messageCount
+}
+
 export function createChatScrollController(
     container: HTMLElement,
     rangeSpacer: HTMLElement,

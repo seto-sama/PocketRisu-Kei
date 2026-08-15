@@ -4,8 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
     calculateRangePixelPadding,
     createChatScrollController,
+    didNewResponseStart,
     isColumnReverseScrolledToBottom,
     snapToDevicePixel,
+    type ChatResponseSnapshot,
 } from './chatScroll'
 
 afterEach(() => {
@@ -85,6 +87,69 @@ function pointerEvent(type: string, clientY: number, pointerType = 'touch') {
     })
     return event
 }
+
+function responseSnapshot(
+    overrides: Partial<ChatResponseSnapshot> = {},
+): ChatResponseSnapshot {
+    return {
+        roomKey: 'character:room',
+        messageKey: 'response-1',
+        messageCount: 2,
+        isCharacterResponse: true,
+        hasContent: false,
+        isResponding: true,
+        ...overrides,
+    }
+}
+
+describe('new response auto-scroll timing', () => {
+    it('waits for content instead of scrolling when the empty placeholder appears', () => {
+        const previous = responseSnapshot({
+            messageKey: 'user-1',
+            messageCount: 1,
+            isCharacterResponse: false,
+            hasContent: true,
+        })
+        const placeholder = responseSnapshot()
+
+        expect(didNewResponseStart(previous, placeholder)).toBe(false)
+        expect(didNewResponseStart(placeholder, {
+            ...placeholder,
+            hasContent: true,
+        })).toBe(true)
+    })
+
+    it('recognizes an already-populated non-streaming response', () => {
+        const previous = responseSnapshot({
+            messageKey: 'user-1',
+            messageCount: 1,
+            isCharacterResponse: false,
+            hasContent: true,
+        })
+
+        expect(didNewResponseStart(previous, responseSnapshot({ hasContent: true }))).toBe(true)
+    })
+
+    it('does not repeatedly scroll as more streaming content arrives', () => {
+        const firstToken = responseSnapshot({ hasContent: true })
+        expect(didNewResponseStart(firstToken, firstToken)).toBe(false)
+    })
+
+    it('ignores chat switches, edits, and continuation id changes', () => {
+        const empty = responseSnapshot({ isResponding: false })
+        expect(didNewResponseStart(empty, { ...empty, hasContent: true })).toBe(false)
+
+        const populated = responseSnapshot({ hasContent: true })
+        expect(didNewResponseStart(populated, {
+            ...populated,
+            roomKey: 'character:other-room',
+        })).toBe(false)
+        expect(didNewResponseStart(populated, {
+            ...populated,
+            messageKey: 'continuation-generation',
+        })).toBe(false)
+    })
+})
 
 describe('chat scroll pixel snapping', () => {
     it('snaps positive and negative offsets to the physical-pixel grid', () => {
