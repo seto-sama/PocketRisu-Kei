@@ -296,7 +296,7 @@
         const type = effect.type
 
         if(!checkSupported(type, triggerIndex)){
-            return `<span class="text-red-500">${language.triggerDesc.v2UnsupportedTriggerDesc}</span>`
+            return `<span class="text-draculared">${language.triggerDesc.v2UnsupportedTriggerDesc}</span>`
         }
 
         const txt = (language.triggerDesc[type + 'Desc'] as string || type).replace(/{{(.+?)}}/g, (match, p1) => {

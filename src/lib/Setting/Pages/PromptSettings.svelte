@@ -98,7 +98,7 @@
     </div>
 {/if}
 {#if warns.length > 0 && subMenu === 0}
-    <div class="text-red-500 flex flex-col items-start p-2 rounded-md border-red-500 border mt-4">
+    <div class="text-draculared flex flex-col items-start p-2 rounded-md border-red-500 border mt-4">
         <h2 class="text-xl font-bold">Warning</h2>
         <div class="border-b border-b-red-500 mt-1 mb-2 w-full"></div>
         {#each warns as warn}

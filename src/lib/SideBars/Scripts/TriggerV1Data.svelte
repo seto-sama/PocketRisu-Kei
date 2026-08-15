@@ -332,7 +332,7 @@
                         (value.type !== 'start' && (effect.type === 'systemprompt' || effect.type === 'stop')) ||
                         (value.type !== 'output' && effect.type === 'sendAIprompt')
                     }
-                        <span class="text-red-400 text-sm">{language.invaildTriggerEffect}</span>
+                        <span class="text-draculared text-sm">{language.invaildTriggerEffect}</span>
                     {/if}
                     {#if
                         !lowLevelAble && (
@@ -345,7 +345,7 @@
                             effect.type === 'runAxLLM'
                         )
                     }
-                        <span class="text-red-400 text-sm">{language.triggerLowLevelOnly}</span>
+                        <span class="text-draculared text-sm">{language.triggerLowLevelOnly}</span>
 
                     {/if}
 

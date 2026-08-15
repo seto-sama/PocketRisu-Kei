@@ -1474,7 +1474,7 @@
             {@render renderGuiHtmlPart(renderedGuiHtml)}
         {:else if DBState.db.theme === 'standardRisu' && !blankMessage}
             {@render senderIcon({rounded: DBState.db.roundIcons})}
-            <span class="flex flex-col ml-4 w-full max-w-full min-w-0 text-black">
+            <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
                 <div class="flexium items-center chat-width">
                     {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && !blankMessage && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
                         <span class="chat-width text-xl border-darkborderc flex items-center text-textcolor">
@@ -1499,7 +1499,7 @@
             </span>
         {:else}
             {@render senderIcon({rounded: DBState.db.roundIcons})}
-            <span class="flex flex-col ml-4 w-full max-w-full min-w-0 text-black">
+            <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
                 <div class="flexium items-center chat-width">
                     {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && !blankMessage && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
                         <span class="chat-width text-xl border-darkborderc flex items-center text-textcolor">

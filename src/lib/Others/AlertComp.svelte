@@ -301,8 +301,8 @@
                     <span class="text-amber-500 justify-self-end">{$alertGenerationInfoStore.genInfo.model}</span>
                     <span class="text-green-500">ID</span>
                     <span class="text-green-500 justify-self-end">{DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].chatId ?? "None"}</span>
-                    <span class="text-red-500">GenID</span>
-                    <span class="text-red-500 justify-self-end">{$alertGenerationInfoStore.genInfo.generationId}</span>
+                    <span class="text-draculared">GenID</span>
+                    <span class="text-draculared justify-self-end">{$alertGenerationInfoStore.genInfo.generationId}</span>
                     <span class="text-cyan-500">Saying</span>
                     <span class="text-cyan-500 justify-self-end">{DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].saying}</span>
                     <span class="text-purple-500">Size</span>
@@ -393,7 +393,7 @@
                                     </div>
                                 {/if}
                             </div>
-                            <span class="text-red-500">Prompt Text</span>
+                            <span class="text-draculared">Prompt Text</span>
                             <div class="col-span-2 max-h-80 overflow-y-auto border border-stone-500 rounded-sm p-4 bg-gray-900">
                                 {#if !DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].promptInfo.promptText}
                                     <div class="text-gray-500 italic text-center py-4">{language.promptInfoEmptyText}</div>
@@ -447,19 +447,19 @@
                 {:else if $alertStore.submsg === 'preset'}
                     <span class="text-textcolor2 text-sm">{language.risupresetDesc}</span>
                     {#if cardExportType2 === 'preset' && (DBState.db.botPresets[DBState.db.botPresetsId].image || DBState.db.botPresets[DBState.db.botPresetsId].regex?.length > 0)}
-                        <span class="text-red-500 text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
+                        <span class="text-draculared text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
                     {/if}
                 {:else}
                     <span class="text-textcolor2 text-sm">{language.ccv3Desc}</span>
                     {#if cardExportType2 !== 'charx' && cardExportType2 !== 'charxJpeg' && isCharacterHasAssets(DBState.db.characters[$selectedCharID])}
-                        <span class="text-red-500 text-sm">{language.notCharxWarn}</span>
+                        <span class="text-draculared text-sm">{language.notCharxWarn}</span>
                     {/if}
                 {/if}
             {:else if cardExportType === 'json'}
                 <span class="text-textcolor2 text-sm">{language.jsonDesc}</span>
             {:else if cardExportType === 'ccv2'}
                 <span class="text-textcolor2 text-sm">{language.ccv2Desc}</span>
-                <span class="text-red-500 text-sm">{language.v2Warning}</span>
+                <span class="text-draculared text-sm">{language.v2Warning}</span>
             {/if}
             <div class="flex items-center flex-wrap mt-2">
                 {#if $alertStore.submsg === 'preset'}
