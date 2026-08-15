@@ -193,6 +193,7 @@ describe('chat scroll pixel snapping', () => {
         streamingMessage.className = 'chat-message-container'
         streamingMessage.toggleAttribute('data-streaming-chat-message', true)
         container.appendChild(streamingMessage)
+        container.scrollTop = -100
         const querySelector = vi.spyOn(container, 'querySelector')
         const controller = createController(container)
 
@@ -479,6 +480,26 @@ describe('chat scroll pixel snapping', () => {
 
         expect(container.scrollTop).toBe(-100)
         expect(anchor.getBoundingClientRect().bottom).toBe(180)
+        controller.destroy()
+    })
+
+    it('ignores subpixel drift when one long message spans the viewport', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const anchor = document.createElement('div')
+        anchor.className = 'chat-message-container'
+        container.appendChild(anchor)
+        container.scrollTop = -100.25
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        anchor.getBoundingClientRect = () => new DOMRect(0, -300, 300, 800)
+        const controller = createController(container)
+        observers.flushFrames()
+
+        container.scrollTop = -100.5
+        observers.notifyResize()
+        observers.flushFrames()
+
+        expect(container.scrollTop).toBe(-100.5)
         controller.destroy()
     })
 

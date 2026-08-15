@@ -48,7 +48,7 @@ export function isColumnReverseScrolledToBottom(scrollTop: number) {
 
 type ScrollAnchor = {
     element: HTMLElement
-    edge: 'top' | 'bottom'
+    edge: 'top' | 'bottom' | 'scrollTop'
     position: number
 }
 
@@ -118,6 +118,9 @@ export function createChatScrollController(
 
     const getRatio = () => normalizedDevicePixelRatio(window.devicePixelRatio || 1)
     const isAtBottom = () => isColumnReverseScrolledToBottom(container.scrollTop)
+    const isCorrectableDelta = (delta: number) => (
+        Math.abs(delta) + POSITION_EPSILON >= 1 / getRatio()
+    )
     const findVisibleAnchor = () => {
         const containerRect = container.getBoundingClientRect()
         let best: HTMLElement | null = null
@@ -154,13 +157,23 @@ export function createChatScrollController(
             return false
         }
 
+        if (anchor.edge === 'scrollTop') {
+            if (isCorrectableDelta(container.scrollTop - anchor.position)) {
+                container.scrollTop = anchor.position
+            }
+            return true
+        }
+
         // A second pass absorbs the browser's own scroll-range clamping and
         // layout-unit rounding without spinning indefinitely.
         for (let pass = 0; pass < 2; pass++) {
             const rect = anchor.element.getBoundingClientRect()
             const currentPosition = anchor.edge === 'top' ? rect.top : rect.bottom
             const delta = currentPosition - anchor.position
-            if (Math.abs(delta) <= POSITION_EPSILON) break
+            // Firefox quantizes scrollTop to physical-pixel steps. Writing a
+            // smaller correction rounds to a whole step and can overshoot in
+            // alternating directions as streamed content changes height.
+            if (!isCorrectableDelta(delta)) break
             const previousScrollTop = container.scrollTop
             container.scrollTop = previousScrollTop + delta
             if (Math.abs(container.scrollTop - previousScrollTop) <= POSITION_EPSILON) break
@@ -174,17 +187,32 @@ export function createChatScrollController(
             anchor = null
             return false
         }
+        const containerRect = container.getBoundingClientRect()
+        const elementRect = element.getBoundingClientRect()
+        const bottomIsVisible = elementRect.bottom >= containerRect.top
+            && elementRect.bottom <= containerRect.bottom
+        const topIsVisible = elementRect.top >= containerRect.top
+            && elementRect.top <= containerRect.bottom
+        const edge: ScrollAnchor['edge'] = bottomIsVisible
+            ? 'bottom'
+            : topIsVisible
+                ? 'top'
+                : 'scrollTop'
+        const rawPosition = edge === 'scrollTop'
+            ? container.scrollTop
+            : edge === 'bottom'
+                ? elementRect.bottom
+                : elementRect.top
         anchor = {
             element,
-            // Messages in the column-reverse chat grow upward. Their bottom
-            // edge stays in place while their own body is re-rendered, whereas
-            // anchoring the top would turn the entire height delta into a
-            // scroll jump. Bottom anchoring still preserves ordinary layout
-            // shifts because both edges move by the same amount then.
-            edge: 'bottom',
-            position: snapToPixel
-                ? snapToDevicePixel(element.getBoundingClientRect().bottom, getRatio())
-                : element.getBoundingClientRect().bottom,
+            // Preserve a visible edge. If one long message spans the entire
+            // viewport, neither edge represents what the reader is looking at;
+            // keep the exact scroll offset instead of chasing an off-screen
+            // edge and repeatedly snapping its fractional layout position.
+            edge,
+            position: snapToPixel && edge !== 'scrollTop'
+                ? snapToDevicePixel(rawPosition, getRatio())
+                : rawPosition,
         }
         return true
     }
@@ -264,9 +292,12 @@ export function createChatScrollController(
         if (destroyed || pointerActive || touchActive) return
 
         if (pinnedToBottom) {
-            alignStreamingMessageHeight()
+            // Keep the total range aligned in every scroll state so moving
+            // away from the bottom never changes the rasterization phase. The
+            // browser already holds an idle column-reverse scroller at zero;
+            // only write when layout or touch scrolling actually displaced it.
             alignScrollRange()
-            container.scrollTop = 0
+            if (!isAtBottom()) container.scrollTop = 0
             anchor = null
             return
         }
