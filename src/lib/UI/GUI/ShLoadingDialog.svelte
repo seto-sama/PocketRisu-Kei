@@ -84,7 +84,7 @@
                 <div class="w-full flex flex-col gap-2 mt-2">
                     <div class="w-full h-2 bg-bgcolor border border-darkborderc rounded-md overflow-hidden">
                         <div
-                            class="h-full bg-linear-to-r from-blue-500 to-purple-800 saving-animation transition-[width]"
+                            class="h-full bg-linear-to-r risu-saving-gradient saving-animation transition-[width]"
                             style:width={clampedProgress + '%'}
                         ></div>
                     </div>

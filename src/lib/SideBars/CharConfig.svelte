@@ -42,6 +42,7 @@
     let pkgIncludeChats = $state(true)
     let pkgIncludePersona = $state(true)
     let pkgIncludeInlays = $state(false)
+    let addingCreatorNotesLang = $state(false)
     let viewSubMenu = $state(0)
     let emos:[string, string][] = $state([])
     let tokens = $state({
@@ -597,8 +598,15 @@
     <span class="text-textcolor">{language.CharVersion}</span>
     <ShInput className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalData.character_version}/>
 
-    <span class="text-textcolor">{language.creatorNotes}<Help key="creatorQuotes"/></span>
-    <MultiLangInput bind:value={DBState.db.characters[$selectedCharID].creatorNotes} className="my-2" onInput={() => {
+    <div class="flex w-full items-center justify-between text-textcolor">
+        <span>{language.creatorNotes}<Help key="creatorQuotes"/></span>
+        <button class="risu-interactive-accent" aria-label={language.add} title={language.add} onclick={() => {
+            addingCreatorNotesLang = !addingCreatorNotesLang
+        }}>
+            <PlusIcon size={18} />
+        </button>
+    </div>
+    <MultiLangInput bind:value={DBState.db.characters[$selectedCharID].creatorNotes} bind:addingLang={addingCreatorNotesLang} className="my-2" onInput={() => {
         DBState.db.characters[$selectedCharID].removedQuotes = false
     }}></MultiLangInput>
 

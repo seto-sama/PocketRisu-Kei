@@ -4,8 +4,6 @@ import AudioPlayer from 'src/lib/UI/GUI/AudioPlayer.svelte';
 let domObserver: MutationObserver | null = null;
 const audioPlayerInstances = new Map<HTMLElement, ReturnType<typeof mount>>();
 
-const OBSERVED_HL_ATTR = 'data-risu-observed-hl'
-
 function mountAudioPlayer(node: HTMLElement) {
     if (!node.hasAttribute('data-risu-audio-player') || audioPlayerInstances.has(node)) {
         return
@@ -28,57 +26,7 @@ function mountAudioPlayer(node: HTMLElement) {
 }
 
 function nodeObserve(node:HTMLElement){
-    const hlLang = node.getAttribute('x-hl-lang');
-
     mountAudioPlayer(node)
-
-    if(hlLang && node.getAttribute(OBSERVED_HL_ATTR) !== '1'){
-        node.setAttribute(OBSERVED_HL_ATTR, '1')
-        node.addEventListener('contextmenu', (e)=>{
-            e.preventDefault()
-
-            const prevContextMenu = document.getElementById('code-contextmenu')
-            if(prevContextMenu){
-                prevContextMenu.remove()
-            }
-
-            const menu = document.createElement('div')
-            menu.id = 'code-contextmenu'
-            menu.setAttribute('class', 'fixed z-50 min-w-[160px] py-2 bg-gray-800 rounded-lg border border-gray-700')
-
-            const copyOption = document.createElement('div')
-            copyOption.textContent = 'Copy'
-            copyOption.setAttribute('class', 'px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 cursor-pointer')
-            copyOption.addEventListener('click', ()=>{
-                navigator.clipboard.writeText(node.textContent ?? '')
-                menu.remove()
-            })
-
-            const downloadOption = document.createElement('div');
-            downloadOption.textContent = 'Download';
-            downloadOption.setAttribute('class', 'px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 cursor-pointer')
-            downloadOption.addEventListener('click', ()=>{
-                const a = document.createElement('a')
-                a.href = URL.createObjectURL(new Blob([node.textContent ?? ''], {type: 'text/plain'}))
-                a.download = 'code.' + hlLang
-                a.click()
-                menu.remove()
-            })
-
-            menu.appendChild(copyOption)
-            menu.appendChild(downloadOption)
-
-            menu.style.left = e.clientX + 'px'
-            menu.style.top = e.clientY + 'px'
-
-            document.body.appendChild(menu)
-
-            document.addEventListener('click', ()=>{
-                menu?.remove()
-            }, {once: true})
-        })
-    }
-
 }
 
 function observeNodeTree(node: Node) {
@@ -90,7 +38,7 @@ function observeNodeTree(node: Node) {
         nodeObserve(node)
     }
 
-    node.querySelectorAll<HTMLElement>('[x-hl-lang], [data-risu-audio-player]').forEach((element) => {
+    node.querySelectorAll<HTMLElement>('[data-risu-audio-player]').forEach((element) => {
         nodeObserve(element)
     })
 }
@@ -116,8 +64,8 @@ export async function startObserveDom(){
         return
     }
 
-    // For parsed HTML blocks, scan once and then watch future subtree insertions.
-    document.querySelectorAll<HTMLElement>('[x-hl-lang], [data-risu-audio-player]').forEach((node) => {
+    // Scan parsed audio blocks once and then watch future subtree insertions.
+    document.querySelectorAll<HTMLElement>('[data-risu-audio-player]').forEach((node) => {
         nodeObserve(node)
     })
 
@@ -146,6 +94,6 @@ export async function startObserveDom(){
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['x-hl-lang', 'data-risu-audio-player'],
+        attributeFilter: ['data-risu-audio-player'],
     })
 }

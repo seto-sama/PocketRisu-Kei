@@ -350,7 +350,7 @@
                         {#if profile.profileStatus !== 'current'}
                             <span
                                 class="text-[10px] leading-none px-1.5 py-0.5 rounded shrink-0
-                                {profile.profileStatus === 'deprecated' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-500'}"
+                                {profile.profileStatus === 'deprecated' ? 'bg-red-500/15 text-draculared' : 'bg-amber-500/15 text-amber-500'}"
                             >
                                 {profile.profileStatus === 'deprecated' ? language.profileStatusDeprecated : language.profileStatusOutdated}
                             </span>

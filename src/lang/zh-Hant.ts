@@ -685,8 +685,6 @@ export const languageChineseTraditional = {
     "editDisplay": "修改顯示",
     "textBackgrounds": "自訂文字視窗顏色",
     "textBorder": "文字邊框",
-    "textScreenRound": "圓角化文字視窗",
-    "textScreenBorder": "文字視窗邊框",
     "ttsReadOnlyQuoted": "僅朗讀引號內容",
     "ttsStop": "停止語音合成",
     "replaceGlobalNote": "替換全域備註",

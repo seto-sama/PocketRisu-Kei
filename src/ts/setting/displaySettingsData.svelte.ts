@@ -9,9 +9,10 @@ import { changeFullscreen } from '../util';
 import { updateAnimationSpeed } from '../gui/animation';
 import { updateGuisize } from '../gui/guisize';
 import { updateTextThemeAndCSS } from '../gui/colorscheme';
-import { DEFAULT_TEXT_BORDER_COLOR } from '../gui/textOutline';
+import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/textOutline';
 import { PRODUCT_BASE_NAME } from '../branding';
 import { localFontFamilies } from 'virtual:pocketrisu-local-font-families';
+import { supportsCustomChatBackdrop } from '../storage/database.svelte';
 
 export const displayThemeGeneralSettingsItems: SettingItem[] = [
     {
@@ -59,6 +60,55 @@ export const displayThemeGeneralSettingsItems: SettingItem[] = [
         keywords: ['chat', 'width', 'nodeonly', 'standard'],
     },
     {
+        id: 'display.waifuWidth',
+        type: 'slider',
+        labelKey: 'waifuWidth',
+        helpKey: 'waifuWidth',
+        bindKey: 'waifuWidth',
+        condition: (ctx) => ctx.db.theme === 'waifu',
+        options: {
+            min: 50,
+            max: 200,
+            customText: (value) => `${value}%`,
+        },
+        keywords: ['waifu', 'width'],
+    },
+    {
+        id: 'display.waifuWidth2',
+        type: 'slider',
+        labelKey: 'waifuWidth2',
+        helpKey: 'waifuWidth2',
+        bindKey: 'waifuWidth2',
+        condition: (ctx) => ctx.db.theme === 'waifu',
+        options: {
+            min: 20,
+            max: 150,
+            customText: (value) => `${value}%`,
+        },
+        keywords: ['waifu', 'width'],
+    },
+    {
+        id: 'display.customBackground',
+        type: 'custom',
+        componentId: 'CustomBackgroundToggle',
+        condition: (ctx) => supportsCustomChatBackdrop(ctx.db.theme),
+        keywords: ['custom', 'background'],
+    },
+    {
+        id: 'display.textScreenColor',
+        type: 'custom',
+        componentId: 'NullableTextColorToggle',
+        componentProps: {
+            field: 'textScreenColor',
+            labelKey: 'textBackgrounds',
+            defaultColor: DEFAULT_TEXT_SCREEN_COLOR,
+            helpKey: 'textScreenColor',
+            alwaysEnabled: true,
+        },
+        condition: (ctx) => supportsCustomChatBackdrop(ctx.db.theme),
+        keywords: ['text', 'background', 'color'],
+    },
+    {
         id: 'display.customCSS',
         type: 'textarea',
         labelKey: 'customCSS',
@@ -103,34 +153,6 @@ export const displayThemeGeneralSettingsItems: SettingItem[] = [
             suggestions: localFontFamilies.map(({ family }) => family),
         },
         keywords: ['font', 'custom'],
-    },
-    {
-        id: 'display.waifuWidth',
-        type: 'slider',
-        labelKey: 'waifuWidth',
-        helpKey: 'waifuWidth',
-        bindKey: 'waifuWidth',
-        condition: (ctx) => ctx.db.theme === 'waifu',
-        options: {
-            min: 50,
-            max: 200,
-            customText: (value) => `${value}%`,
-        },
-        keywords: ['waifu', 'width'],
-    },
-    {
-        id: 'display.waifuWidth2',
-        type: 'slider',
-        labelKey: 'waifuWidth2',
-        helpKey: 'waifuWidth2',
-        bindKey: 'waifuWidth2',
-        condition: (ctx) => ctx.db.theme === 'waifu',
-        options: {
-            min: 20,
-            max: 150,
-            customText: (value) => `${value}%`,
-        },
-        keywords: ['waifu', 'width'],
     },
 ];
 
@@ -308,7 +330,19 @@ export const displayOtherHomeItems: SettingItem[] = [
 
 export const displayOtherChatItems: SettingItem[] = [
     { id: 'display.showRequestStatus', type: 'check', labelKey: 'showRequestStatus', helpKey: 'showRequestStatus', bindKey: 'showRequestStatus', keywords: ['request', 'status', 'toast', 'token', 'thinking'] },
-    { id: 'display.customBackground', type: 'custom', componentId: 'CustomBackgroundToggle', keywords: ['custom', 'background'] },
+    {
+        id: 'display.textBorder',
+        type: 'custom',
+        componentId: 'NullableTextColorToggle',
+        componentProps: {
+            field: 'textBorderColor',
+            toggleField: 'textBorder',
+            labelKey: 'textBorder',
+            defaultColor: DEFAULT_TEXT_BORDER_COLOR,
+            helpKey: 'textBorder',
+        },
+        keywords: ['text', 'outline', 'shadow', 'color'],
+    },
     { id: 'display.hideAllImages', type: 'check', labelKey: 'hideAllImages', helpKey: 'hideAllImagesDesc', bindKey: 'hideAllImages', keywords: ['images', 'hide'] },
     {
         id: 'display.assetMaxDifference',
@@ -326,47 +360,6 @@ export const displayOtherChatItems: SettingItem[] = [
     { id: 'display.useAdditionalAssetsPreview', type: 'check', labelKey: 'useAdditionalAssetsPreview', helpKey: 'useAdditionalAssetsPreview', bindKey: 'useAdditionalAssetsPreview', keywords: ['additional', 'assets', 'preview'] },
     { id: 'display.showMemoryLimit', type: 'check', labelKey: 'showMemoryLimit', helpKey: 'showMemoryLimit', bindKey: 'showMemoryLimit', keywords: ['memory', 'limit'] },
     { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
-];
-
-export const displayOtherBubbleItems: SettingItem[] = [
-    {
-        id: 'display.textScreenColor',
-        type: 'custom',
-        componentId: 'NullableTextColorToggle',
-        componentProps: {
-            field: 'textScreenColor',
-            labelKey: 'textBackgrounds',
-            defaultColor: '#121212',
-            helpKey: 'textScreenColor',
-        },
-        keywords: ['text', 'background', 'color'],
-    },
-    {
-        id: 'display.textScreenBorder',
-        type: 'custom',
-        componentId: 'NullableTextColorToggle',
-        componentProps: {
-            field: 'textScreenBorder',
-            labelKey: 'textScreenBorder',
-            defaultColor: '#121212',
-            helpKey: 'textScreenBorder',
-        },
-        keywords: ['text', 'screen', 'border', 'color'],
-    },
-    { id: 'display.textScreenRounded', type: 'check', labelKey: 'textScreenRound', helpKey: 'textScreenRound', bindKey: 'textScreenRounded', keywords: ['text', 'round'] },
-    {
-        id: 'display.textBorder',
-        type: 'custom',
-        componentId: 'NullableTextColorToggle',
-        componentProps: {
-            field: 'textBorderColor',
-            toggleField: 'textBorder',
-            labelKey: 'textBorder',
-            defaultColor: DEFAULT_TEXT_BORDER_COLOR,
-            helpKey: 'textBorder',
-        },
-        keywords: ['text', 'border', 'color'],
-    },
 ];
 
 export const displayOtherQuoteItems: SettingItem[] = [
@@ -478,7 +471,6 @@ export const displaySettingsItems: SettingItem[] = [
     ...displaySizeSettingsItems,
     ...displayOtherHomeItems,
     ...displayOtherChatItems,
-    ...displayOtherBubbleItems,
     ...displayOtherQuoteItems,
     ...displayOtherAdvancedItems,
 ];

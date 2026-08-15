@@ -626,8 +626,6 @@ export const languageChinese = {
     "editDisplay": "修改显示",
     "textBackgrounds": "自定义文本窗口颜色",
     "textBorder": "文字边框",
-    "textScreenRound": "圆角化文本窗口",
-    "textScreenBorder": "文本窗口边框",
     "ttsReadOnlyQuoted": "仅朗读引号内容",
     "ttsStop": "停止语音合成",
     "replaceGlobalNote": "替换全局备注",

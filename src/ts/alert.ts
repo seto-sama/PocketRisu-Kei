@@ -344,10 +344,21 @@ export async function alertCardExport(type:string = ''){
 
     await waitAlert()
 
-    return JSON.parse(get(alertStoreImported).msg) as {
-        type: string,
-        type2: string,
+    const raw = get(alertStoreImported).msg
+    if (!raw) {
+        return { type: 'cancel', type2: '' }
     }
+
+    try {
+        const parsed = JSON.parse(raw) as { type?: unknown, type2?: unknown }
+        if (typeof parsed.type === 'string' && typeof parsed.type2 === 'string') {
+            return { type: parsed.type, type2: parsed.type2 }
+        }
+    } catch {
+        // Treat malformed or legacy empty results as cancellation.
+    }
+
+    return { type: 'cancel', type2: '' }
 }
 
 export async function alertTOS(){

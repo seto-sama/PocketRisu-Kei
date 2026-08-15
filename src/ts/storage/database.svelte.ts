@@ -21,7 +21,7 @@ import type { ApiKeyPoolEntry, ModelBindingFields, ModelBindingSet, ModelPreset,
 import { emptyModelBinding } from '../preset/types';
 import { defaultHotkeys, type Hotkey } from '../defaulthotkeys';
 import { normalizeTextTheme } from '../gui/textTheme';
-import { DEFAULT_TEXT_BORDER_COLOR } from '../gui/textOutline';
+import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/textOutline';
 
 //APP_VERSION_POINT is to locate the app version in the database file for version bumping
 export let appVer = "2026.2.291" //<APP_VERSION_POINT>
@@ -35,6 +35,10 @@ export const nodeOnlyVer: string = typeof __APP_VERSION__ !== 'undefined' ? __AP
 export function normalizeTheme(theme: string | undefined | null): string {
     if (theme === undefined || theme === null || theme === 'custom') return ''
     return theme
+}
+
+export function supportsCustomChatBackdrop(theme: string | undefined | null): boolean {
+    return theme === 'waifu' || theme === 'mobilechat' || theme === 'cardboard'
 }
 
 function normalizePromptRole(role: unknown): 'user'|'bot'|'system'|null {
@@ -181,6 +185,7 @@ export function setDatabase(data:Database){
     if(checkNullish(data.customBackground)){
         data.customBackground = ''
     }
+    data.textScreenColor ??= DEFAULT_TEXT_SCREEN_COLOR
     data.globalCustomCSS ??= ''
     if(checkNullish(data.textgenWebUIStreamURL)){
         data.textgenWebUIStreamURL = 'wss://localhost/api/'
@@ -1122,8 +1127,6 @@ export interface Database{
     textScreenColor?:string
     textBorder?:boolean
     textBorderColor?:string
-    textScreenRounded?:boolean
-    textScreenBorder?:string
     characterOrder:(string|folder)[]
     hordeConfig:hordeConfig,
     novelai:{
@@ -1904,8 +1907,6 @@ export interface themePreset{
     textScreenColor?: string
     textBorder?: boolean
     textBorderColor?: string
-    textScreenRounded?: boolean
-    textScreenBorder?: string
     showSavingIcon: boolean
     showPromptComparison: boolean
     useChatCopy: boolean
@@ -2334,11 +2335,9 @@ export const themePresetTemplate: themePreset = {
     showFolderName: false,
     customBackground: '',
     roundIcons: false,
-    textScreenColor: null,
+    textScreenColor: DEFAULT_TEXT_SCREEN_COLOR,
     textBorder: false,
     textBorderColor: DEFAULT_TEXT_BORDER_COLOR,
-    textScreenRounded: false,
-    textScreenBorder: null,
     showSavingIcon: false,
     showPromptComparison: false,
     useChatCopy: false,
@@ -2697,8 +2696,6 @@ export function saveCurrentThemePreset(){
         textScreenColor: db.textScreenColor,
         textBorder: db.textBorder,
         textBorderColor: db.textBorderColor,
-        textScreenRounded: db.textScreenRounded,
-        textScreenBorder: db.textScreenBorder,
         showSavingIcon: db.showSavingIcon,
         showPromptComparison: db.showPromptComparison,
         useChatCopy: db.useChatCopy,
@@ -2764,11 +2761,9 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.showFolderName = p.showFolderName ?? db.showFolderName
     db.customBackground = p.customBackground ?? db.customBackground
     db.roundIcons = p.roundIcons ?? db.roundIcons
-    db.textScreenColor = p.textScreenColor
+    db.textScreenColor = p.textScreenColor ?? DEFAULT_TEXT_SCREEN_COLOR
     db.textBorder = p.textBorder
     db.textBorderColor = p.textBorderColor ?? DEFAULT_TEXT_BORDER_COLOR
-    db.textScreenRounded = p.textScreenRounded
-    db.textScreenBorder = p.textScreenBorder
     db.showSavingIcon = p.showSavingIcon ?? db.showSavingIcon
     db.showPromptComparison = p.showPromptComparison ?? db.showPromptComparison
     db.useChatCopy = p.useChatCopy ?? db.useChatCopy

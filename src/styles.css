@@ -541,6 +541,8 @@ html {
 }
 
 .chattext {
+  paint-order: stroke fill;
+  -webkit-text-stroke: var(--risu-chat-text-stroke, 0 transparent);
   text-shadow: var(--risu-chat-text-shadow, none);
 }
 
