@@ -27,20 +27,24 @@ export function resolveRequestDiagnosticContext(
 ): RequestDiagnosticContext {
     const hasSwipeSet = Array.isArray(message?.swipes)
     if (message && hasSwipeSet) {
+        const hasSwipeMetadata = Array.isArray(message.swipeMetadata)
         const swipeMetadata = getActiveSwipeMetadata(message)
-        // Legacy swipe sets have only message-level diagnostics. Preserve
-        // those panels exactly as before, but do not use their newest
-        // generation id to look up a log for an older selected swipe.
+        // Upstream's legacy format only stored diagnostics on the message
+        // created for the newest (last) swipe. Swipe navigation changed data
+        // and swipeId without changing those message-level fields.
+        const isLegacyNewestSwipe = !hasSwipeMetadata
+            && (message.swipeId ?? 0) === message.swipes!.length - 1
         const generationInfo = swipeMetadata?.generationInfo
-            ?? message.generationInfo
-            ?? fallbackGenerationInfo
-            ?? {}
+            ?? (isLegacyNewestSwipe
+                ? message.generationInfo ?? fallbackGenerationInfo ?? {}
+                : {})
         return {
             generationInfo,
-            promptInfo: swipeMetadata?.promptInfo ?? message.promptInfo,
+            promptInfo: swipeMetadata?.promptInfo
+                ?? (isLegacyNewestSwipe ? message.promptInfo : undefined),
             swipeMetadata,
             requestKey: swipeMetadata?.chatId ?? swipeMetadata?.generationInfo?.generationId ?? '',
-            time: swipeMetadata?.time ?? message.time,
+            time: swipeMetadata?.time ?? (isLegacyNewestSwipe ? message.time : undefined),
             hasSwipeSet: true,
         }
     }

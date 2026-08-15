@@ -60,6 +60,7 @@ import {
     commitCancelledGenerationProjection,
     ensureGenerationMessageTarget,
     setGenerationMessageContent,
+    setGenerationMessageInfo,
 } from './revenant/recovery';
 
 export { recoverRevenantGenerationsForChat } from "./revenant/recovery";
@@ -2010,8 +2011,17 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 continue: isContinuation,
                 rerollSnapshot,
             }
+            const postprocessChat = safeStructuredClone(currentChat)
+            ensureGenerationMessageTarget(postprocessChat, {
+                messageChatId,
+                characterId: currentChar.chaId,
+                isContinuation,
+                generationInfo,
+                promptInfo,
+                rerollSnapshot,
+            })
             const postprocessCharacter = safeStructuredClone(nowChatroom)
-            postprocessCharacter.chats = [safeStructuredClone(currentChat)]
+            postprocessCharacter.chats = [safeStructuredClone(postprocessChat)]
             postprocessCharacter.chatPage = 0
             const workflowContext:RevenantChatWorkflowContext = {
                 schemaVersion: 1,
@@ -2036,7 +2046,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         otherAx: snapshotAuxProvider('otherAx'),
                     },
                     character: postprocessCharacter,
-                    chat: safeStructuredClone(currentChat),
+                    chat: postprocessChat,
                     database: {
                         presetRegex: safeStructuredClone(DBState.db.presetRegex ?? []),
                         templateDefaultVariables: DBState.db.templateDefaultVariables ?? '',
@@ -2570,9 +2580,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             generationInfo.stageTiming.stage4 = stageTimings.stage4Duration
         }
         
-        const lastMessageIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1
-        if(lastMessageIndex >= 0 && DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo) {
-            DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo = generationInfo
+        const completedTarget = ensureLiveGenerationTarget()
+        if(completedTarget?.message.generationInfo) {
+            setGenerationMessageInfo(completedTarget.message, generationInfo)
         }
         
         doingChat.set(false)
@@ -2834,9 +2844,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         generationInfo.stageTiming.stage4 = stageTimings.stage4Duration
     }
     
-    const lastMessageIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1
-    if(lastMessageIndex >= 0 && DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo) {
-        DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo = generationInfo
+    const completedTarget = ensureLiveGenerationTarget()
+    if(completedTarget?.message.generationInfo) {
+        setGenerationMessageInfo(completedTarget.message, generationInfo)
     }
 
     return await finishSuccessfulWorkflow()

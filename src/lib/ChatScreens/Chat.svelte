@@ -24,7 +24,7 @@
     import ChatBody from './ChatBody.svelte'
     import PopupButton from "../UI/PopupButton.svelte";
     import { createRevenantChatTranslationRecovery, type RevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from "src/ts/process/revenant/recovery";
-    import { getActiveSwipeMetadata } from "src/ts/process/revenant/recovery/chatGenerationTarget";
+    import { resolveRequestDiagnosticContext } from "src/ts/requestDiagnostics";
     import type { RevenantChatMessageTranslationTarget } from "src/ts/process/revenant";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
@@ -628,13 +628,11 @@
                 ? DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx]
                 : undefined}
             {@const diagnosticGenerationInfo = diagnosticMessage
-                ? (diagnosticMessage.swipes
-                    ? getActiveSwipeMetadata(diagnosticMessage)?.generationInfo ?? diagnosticMessage.generationInfo
-                    : diagnosticMessage.generationInfo)
+                ? resolveRequestDiagnosticContext(diagnosticMessage, messageGenerationInfo).generationInfo
                 : messageGenerationInfo}
             {@const modelLabel = diagnosticGenerationInfo?.model
                 ? capitalize(getModelInfo(diagnosticGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))
-                : language.requestDiagnostics.title}
+                : language.requestDiagnostics.unavailable}
             <IconButton
                 expanded
                 className="text-sm"

@@ -3,6 +3,7 @@ import type { Chat, Message } from '../../../storage/database.svelte'
 import {
     ensureGenerationMessageTarget,
     setGenerationMessageContent,
+    setGenerationMessageInfo,
 } from './chatGenerationTarget'
 
 function chat(message: Message[]): Chat {
@@ -157,5 +158,62 @@ describe('ensureGenerationMessageTarget', () => {
             'generation-2',
             'generation-3',
         ])
+    })
+
+    it('maps legacy message diagnostics to the last swipe, not the selected swipe', () => {
+        const original = {
+            role: 'char',
+            data: 'first answer',
+            chatId: 'generation-2',
+            generationInfo: { generationId: 'generation-2', inputTokens: 200 },
+            swipes: ['first answer', 'second answer'],
+            swipeId: 0,
+        } as Message
+        const current = chat([original])
+
+        ensureGenerationMessageTarget(current, {
+            messageChatId: 'generation-3',
+            characterId: 'character-1',
+            isContinuation: false,
+            generationInfo: { generationId: 'generation-3', inputTokens: 300 },
+            rerollSnapshot: {
+                targetMessage: original,
+                targetIndex: 0,
+                trailingMessages: [],
+            },
+        })
+
+        expect(current.message[0].swipeMetadata).toMatchObject([
+            {},
+            { generationInfo: { generationId: 'generation-2', inputTokens: 200 } },
+            { generationInfo: { generationId: 'generation-3', inputTokens: 300 } },
+        ])
+    })
+
+    it('copies completed token metadata only to the selected swipe', () => {
+        const message = {
+            role: 'char',
+            data: 'second answer',
+            swipeId: 1,
+            swipes: ['first answer', 'second answer'],
+            swipeMetadata: [
+                { generationInfo: { generationId: 'generation-1', inputTokens: 100 } },
+                { generationInfo: { generationId: 'generation-2', inputTokens: 0 } },
+            ],
+        } as Message
+        const completed = {
+            generationId: 'generation-2',
+            model: 'resolved-model',
+            inputTokens: 5_539,
+            outputTokens: 8_000,
+            maxContext: 88_000,
+        }
+
+        setGenerationMessageInfo(message, completed)
+
+        expect(message.generationInfo).toEqual(completed)
+        expect(message.swipeMetadata?.[0].generationInfo?.inputTokens).toBe(100)
+        expect(message.swipeMetadata?.[1].generationInfo).toEqual(completed)
+        expect(message.swipeMetadata?.[1].generationInfo).not.toBe(completed)
     })
 })

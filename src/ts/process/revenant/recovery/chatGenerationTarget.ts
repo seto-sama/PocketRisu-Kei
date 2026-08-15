@@ -32,8 +32,9 @@ function metadataFromMessage(message: Message): MessageSwipeMetadata {
 
 /**
  * Builds the diagnostic metadata array that runs alongside a message's
- * regenerated response strings. Legacy messages only have message-level
- * metadata; in that case it is assigned to the currently selected swipe.
+ * regenerated response strings. In the legacy swipe format, message-level
+ * diagnostics belong to the most recently generated (last) swipe; changing
+ * swipeId only changed the displayed text.
  */
 export function buildRerollSwipeMetadata(
     message: Message,
@@ -47,10 +48,7 @@ export function buildRerollSwipeMetadata(
     while (existing.length < swipeCount) existing.push({})
 
     if (!message.swipeMetadata) {
-        const activeIndex = Array.isArray(message.swipes)
-            ? Math.min(Math.max(message.swipeId ?? 0, 0), swipeCount - 1)
-            : 0
-        existing[activeIndex] = metadataFromMessage(message)
+        existing[swipeCount - 1] = metadataFromMessage(message)
     }
 
     existing.push(safeStructuredClone(next))
@@ -60,8 +58,9 @@ export function buildRerollSwipeMetadata(
 export function getActiveSwipeMetadata(message: Message): MessageSwipeMetadata | undefined {
     if (!Array.isArray(message.swipeMetadata) || message.swipeMetadata.length === 0) return undefined
     const index = Array.isArray(message.swipes)
-        ? Math.min(Math.max(message.swipeId ?? 0, 0), message.swipeMetadata.length - 1)
+        ? message.swipeId ?? 0
         : 0
+    if (index < 0 || index >= message.swipeMetadata.length) return undefined
     return message.swipeMetadata[index]
 }
 
@@ -80,6 +79,16 @@ export function setGenerationMessageContent(message: Message, content: string): 
     ) {
         message.swipes[message.swipeId as number] = content
     }
+}
+
+/** Keeps completed diagnostics identical on the message and selected swipe. */
+export function setGenerationMessageInfo(
+    message: Message,
+    generationInfo: MessageGenerationInfo,
+): void {
+    message.generationInfo = generationInfo
+    const metadata = getActiveSwipeMetadata(message)
+    if(metadata) metadata.generationInfo = safeStructuredClone(generationInfo)
 }
 
 /**
