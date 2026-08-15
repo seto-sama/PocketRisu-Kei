@@ -45,6 +45,10 @@ const interactionMocks = vi.hoisted(() => ({
     runTrigger: vi.fn(),
 }))
 
+const alertMocks = vi.hoisted(() => ({
+    alertConfirmMulti: vi.fn(),
+}))
+
 const translatorMocks = vi.hoisted(() => ({
     getLLMCache: vi.fn(async () => null as string | null),
     setLLMCache: vi.fn(async () => {}),
@@ -82,7 +86,7 @@ vi.mock('../../lang', () => ({
 vi.mock('../../ts/alert', () => ({
     alertClear: vi.fn(),
     alertConfirm: vi.fn(),
-    alertConfirmMulti: vi.fn(),
+    alertConfirmMulti: alertMocks.alertConfirmMulti,
     alertInput: vi.fn(),
     alertRequestData: vi.fn(),
     alertWait: vi.fn(),
@@ -129,11 +133,17 @@ vi.mock('src/ts/process/revenant/recovery', () => ({
                 parseMarkdown: (data: string, mode: 'pretranslate') => Promise<string>
             },
         ) => {
-            const display = !options.streaming
-                && Boolean(options.data.trim())
-                && (options.translated || Boolean(storeMocks.DBState.db.autoTranslate))
-            if (display) snapshot.cacheKey = await options.parseMarkdown(options.data, 'pretranslate')
-            return display
+            if (options.streaming || !options.data.trim()) return false
+            const display = options.translated || Boolean(storeMocks.DBState.db.autoTranslate)
+            if (!display) return false
+            const cacheKey = await options.parseMarkdown(options.data, 'pretranslate')
+            snapshot.cacheKey = cacheKey
+            if (
+                storeMocks.DBState.db.autoTranslateCachedOnly
+                && storeMocks.DBState.db.translatorType === 'llm'
+                && !options.translated
+            ) return await translatorMocks.getLLMCache(cacheKey) !== null
+            return true
         },
         waitForResult: async () => {},
         acknowledgeResolved: async () => {},
@@ -420,6 +430,70 @@ describe('Chat editing', () => {
             'Second swipe',
             'Edited first translation',
         )
+    })
+
+    it('restores a cached translation after deleting the selected swipe', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        DBState.db.autoTranslate = true
+        DBState.db.autoTranslateCachedOnly = true
+        const messages: Message[] = [{
+            role: 'char',
+            data: 'Second swipe',
+            chatId: 'message-0',
+            swipes: ['First swipe', 'Second swipe'],
+            swipeId: 1,
+        }]
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            largePortrait: false,
+            chats: [{ id: 'chat-1', message: messages }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+        translatorMocks.getLLMCache.mockImplementation(async (key: string) =>
+            key === 'First swipe' ? 'Translated first swipe' : null
+        )
+        alertMocks.alertConfirmMulti.mockResolvedValue(0)
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chats, {
+            target,
+            props: {
+                messages,
+                currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                onDeleteSwipe: () => {
+                    const message = messages[0]
+                    message.swipes!.splice(message.swipeId!, 1)
+                    message.swipeId = 0
+                    message.data = message.swipes![0]
+                    delete message.swipes
+                    delete message.swipeId
+                    storeMocks.ReloadChatPointer.set({ 0: 1 })
+                },
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 1,
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+        expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(false)
+
+        translatorMocks.getLLMCache.mockClear()
+        target.querySelector<HTMLButtonElement>('.button-icon-remove')?.click()
+
+        await vi.waitFor(() => {
+            expect(messages[0].data).toBe('First swipe')
+            expect(translatorMocks.getLLMCache).toHaveBeenCalledWith('First swipe')
+            expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(true)
+        })
     })
 
     it('does not automatically retranslate content changed by an internal Lua button', async () => {

@@ -162,7 +162,10 @@
         }
         const action = selectedAction.id
         if(action === 'swipe'){
-            onDeleteSwipe()
+            // Deleting the selected swipe also navigates to the response that
+            // takes its place. Use the same transition as the arrow controls
+            // so cached-only auto translation inspects the new source text.
+            changeSwipe(onDeleteSwipe)
             return
         }
         let msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
