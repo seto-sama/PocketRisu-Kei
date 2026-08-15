@@ -160,6 +160,21 @@ export function rmCharEmotion(charId:number, emotionId:number) {
     db.characters[charId] = dbChar
 }
 
+function getCurrentExportTheme() {
+    const styles = getComputedStyle(document.documentElement)
+    const read = (token:string) => styles.getPropertyValue(token).trim()
+
+    return {
+        background: read('--risu-theme-bgcolor'),
+        surface: read('--risu-theme-darkbg'),
+        text: read('--risu-theme-textcolor'),
+        mutedText: read('--risu-theme-textcolor2'),
+        border: read('--risu-theme-darkborderc'),
+        accentBorder: read('--risu-theme-borderc'),
+        primary: read('--risu-theme-primary'),
+    }
+}
+
 
 export async function exportChat(page:number){
     try {
@@ -224,6 +239,7 @@ export async function exportChat(page:number){
     
         }
         else if(mode === '2'){
+            const theme = getCurrentExportTheme()
 
             let chatContentHTML = ''
 
@@ -247,8 +263,13 @@ export async function exportChat(page:number){
                                 font-family: Arial, sans-serif;
                                 display: flex;
                                 justify-content: center;
+                                min-height: 100vh;
+                                margin: 0;
+                                background: ${theme.background};
+                                color: ${theme.text};
                             }
                             .container{
+                                width: 100%;
                                 max-width: 800px;
                                 padding: 1rem;
                                 border-radius: 10px;
@@ -257,7 +278,9 @@ export async function exportChat(page:number){
                                 gap: 1rem;
                             }
                             .chat{
-                                background: #f0f0f0;
+                                background: ${theme.surface};
+                                color: ${theme.text};
+                                border: 1px solid ${theme.border};
                                 padding: 1rem;
                                 border-radius: 10px;
                                 display: flex;
@@ -268,10 +291,39 @@ export async function exportChat(page:number){
                             }
                             h2{
                                 margin: 0;
+                                color: ${theme.text};
                             }
-                            .chat div{
+                            .chat > div{
                                 margin-top: 0.5rem;
-                                break-word: break-all;
+                                overflow-wrap: anywhere;
+                            }
+                            a{
+                                color: ${theme.primary};
+                            }
+                            blockquote{
+                                margin-left: 0;
+                                padding-left: 1rem;
+                                border-left: 3px solid ${theme.accentBorder};
+                                color: ${theme.mutedText};
+                            }
+                            code, pre{
+                                background: ${theme.background};
+                                color: ${theme.text};
+                            }
+                            pre{
+                                padding: 0.75rem;
+                                overflow-x: auto;
+                            }
+                            table{
+                                border-collapse: collapse;
+                            }
+                            th, td{
+                                border: 1px solid ${theme.border};
+                                padding: 0.5rem;
+                            }
+                            img{
+                                max-width: 100%;
+                                height: auto;
                             }
                         </style>
                     </head>
@@ -289,12 +341,15 @@ export async function exportChat(page:number){
                             JSON.stringify(chat).replace(/</g, '&lt;').replace(/>/g, '&gt;')
                         }</div>
                     </body>
+                </html>
             `
 
 
             await downloadFile(`${char.name}_${date}_chat`.replace(/[<>:"/\\|?*\.\,]/g, "") + '.html', Buffer.from(doc, 'utf-8'))
         }
         else if(mode === '3'){
+            const theme = getCurrentExportTheme()
+            const cellStyle = `padding: 0.75rem; border: 1px solid ${theme.border}; vertical-align: top; text-align: left;`
             //create a html table
             let chatContentHTML = ''
 
@@ -303,24 +358,26 @@ export async function exportChat(page:number){
                 alertWait(`Translating... ${i++}/${chat.message.length}`)
                 const name = v.saying ? findCharacterbyId(v.saying).name : v.role === 'char' ? char.name : anonymous ? '×××' : getUserName()
                 chatContentHTML += `<tr>
-                    <td>${name}</td>
-                    <td>${await htmlChatParse(v.data)}</td>
+                    <td style="${cellStyle}">${name}</td>
+                    <td style="${cellStyle}">${await htmlChatParse(v.data)}</td>
                 </tr>`
             }
 
             const template = `
-                <table>
+                <div style="font-family: Arial, sans-serif; max-width: 800px; padding: 1rem; background: ${theme.background}; color: ${theme.text};">
+                <table style="width: 100%; border-collapse: collapse; background: ${theme.surface}; color: ${theme.text}; border: 1px solid ${theme.border};">
                     <tr>
-                        <th>Character</th>
-                        <th>Message</th>
+                        <th style="${cellStyle} background: ${theme.background}; color: ${theme.text};">Character</th>
+                        <th style="${cellStyle} background: ${theme.background}; color: ${theme.text};">Message</th>
                     </tr>
                     <tr>
-                        <td>${char.name}</td>
-                        <td>${await htmlChatParse(char.firstMessage)}</td>
+                        <td style="${cellStyle}">${char.name}</td>
+                        <td style="${cellStyle}">${await htmlChatParse(char.firstMessage)}</td>
                     </tr>
                     ${chatContentHTML}
                 </table>
-                <p>Chat from ${PRODUCT_NAME}</p>
+                <p style="color: ${theme.mutedText};">Chat from ${PRODUCT_NAME}</p>
+                </div>
             `
 
             //copy to clipboard
