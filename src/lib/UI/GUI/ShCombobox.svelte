@@ -5,6 +5,7 @@
 <script lang="ts">
     import { tick } from 'svelte';
     import TextInput from './TextInput.svelte';
+    import Portal from './Portal.svelte';
 
     interface Props {
         value: string;
@@ -135,7 +136,8 @@
     }
 
     function handlePointerDown(event: PointerEvent) {
-        if (open && rootEl && !rootEl.contains(event.target as Node)) {
+        const target = event.target as Node;
+        if (open && rootEl && !rootEl.contains(target) && !dropdownEl?.contains(target)) {
             closeDropdown();
         }
     }
@@ -175,6 +177,7 @@
     />
 
     {#if listVisible}
+        <Portal>
         <div
             bind:this={dropdownEl}
             id={listboxId}
@@ -198,5 +201,6 @@
                 </button>
             {/each}
         </div>
+        </Portal>
     {/if}
 </div>

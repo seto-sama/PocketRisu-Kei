@@ -2,6 +2,7 @@
     import { XIcon } from "@lucide/svelte";
     import { language } from "../../lang";
     import { DBState } from 'src/ts/stores.svelte';
+    import Portal from "../UI/GUI/Portal.svelte";
 
     interface Props {
         close?: () => void;
@@ -10,6 +11,7 @@
     let { close = () => {} }: Props = $props();
 </script>
 
+<Portal>
 <div class="risu-modal-backdrop z-40 flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-96 max-h-full overflow-y-auto">
         <div class="flex items-center text-textcolor mb-4">
@@ -32,6 +34,7 @@
         {/each}
     </div>
 </div>
+</Portal>
 
 <style>
     .break-any{

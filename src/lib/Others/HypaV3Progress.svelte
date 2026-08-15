@@ -1,5 +1,6 @@
 <script lang="ts">
   import { hypaV3ProgressStore } from "src/ts/stores.svelte";
+  import Portal from "../UI/GUI/Portal.svelte";
 
   let isExpanded = $state(false);
 
@@ -8,6 +9,7 @@
   };
 </script>
 
+<Portal>
 {#if isExpanded}
   <div
     class="absolute w-full h-full z-40 flex justify-center items-center pointer-events-none"
@@ -53,3 +55,4 @@
     </div>
   </button>
 {/if}
+</Portal>

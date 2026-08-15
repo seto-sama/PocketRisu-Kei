@@ -2,6 +2,7 @@
     import { XIcon } from "@lucide/svelte"
     import { getDatabase, type PromptDiffPrefs } from "../../ts/storage/database.svelte"
     import type { PromptItem, PromptItemPlain, PromptItemChatML, PromptItemTyped, PromptItemAuthorNote, PromptItemChat } from "src/ts/process/prompt.ts";
+    import Portal from "../UI/GUI/Portal.svelte";
 
     interface Props {
         firstPresetId: number;
@@ -1580,6 +1581,7 @@
 {/snippet}
 
 
+<Portal>
 <div class="risu-modal-backdrop z-50 flex justify-center items-center p-4">
   <div class="bg-darkbg rounded-md w-full max-w-4xl max-h-full overflow-hidden flex flex-col">
     
@@ -1839,6 +1841,7 @@
 
   </div>
 </div>
+</Portal>
 
 <style>
   :global(.diff-empty-pattern) {

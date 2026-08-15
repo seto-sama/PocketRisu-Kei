@@ -9,6 +9,7 @@
     import TextInput from "../UI/GUI/TextInput.svelte";
     import { v4 as uuidv4 } from "uuid";
     import ShSortableList from "../UI/GUI/ShSortableList.svelte";
+    import Portal from "../UI/GUI/Portal.svelte";
 
     let editMode = $state(false)
 
@@ -51,6 +52,7 @@
     }
 </script>
 
+<Portal>
 <div class="risu-modal-backdrop z-40 flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-124 max-h-full overflow-y-auto">
         <div class="flex items-center text-textcolor mb-4">
@@ -149,6 +151,7 @@
         </div>
     </div>
 </div>
+</Portal>
 
 <style>
     .break-any{

@@ -8,6 +8,7 @@
     import ShButton from 'src/lib/UI/GUI/ShButton.svelte';
     import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte';
     import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte';
+    import Portal from 'src/lib/UI/GUI/Portal.svelte';
     import {
         findAllOriginalRangesFromHtml,
         findAllOriginalRangesFromText,
@@ -692,6 +693,7 @@
 </script>
 
 {#snippet MatchSelectionModal(mode: MatchingMode, matches: RangeResultWithContext[], title: string)}
+    <Portal>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="partial-edit-overlay" onclick={(e) => { if (e.target === e.currentTarget) cancelMatchSelection(); }}>
@@ -731,10 +733,12 @@
             </div>
         </div>
     </div>
+    </Portal>
 {/snippet}
 
 <!-- Match failed modal -->
 {#if showMatchFailedModal}
+    <Portal>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="partial-edit-overlay" onclick={(e) => { if (e.target === e.currentTarget) showMatchFailedModal = false; }}>
@@ -751,10 +755,12 @@
             </div>
         </div>
     </div>
+    </Portal>
 {/if}
 
 <!-- Delete confirmation modal -->
 {#if isConfirmingDelete}
+    <Portal>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="partial-edit-overlay" onclick={(e) => { if (e.target === e.currentTarget) handleCancelDelete(); }}>
@@ -788,6 +794,7 @@
             </div>
         </div>
     </div>
+    </Portal>
 {/if}
 
 <!-- Match selection modal (shared for edit/delete) -->

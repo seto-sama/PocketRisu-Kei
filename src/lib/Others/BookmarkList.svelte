@@ -7,6 +7,7 @@
     import { createSimpleCharacter, bookmarkListOpen, DBState, selectedCharID, ScrollToMessageStore } from "src/ts/stores.svelte";
     import { language } from "src/lang";
     import { alertInput } from "src/ts/alert";
+    import Portal from "../UI/GUI/Portal.svelte";
 
     const close = () => $bookmarkListOpen = false;
     let chara = $derived(DBState.db.characters[$selectedCharID]);
@@ -114,6 +115,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
+<Portal>
 <div
     class="risu-modal-backdrop z-30 flex justify-center items-center"
     onclick={(event) => {
@@ -197,3 +199,4 @@
         {/if}
     </div>
 </div>
+</Portal>

@@ -55,6 +55,7 @@ import { isMobile } from 'src/ts/platform'
     import PartialEditManager from './PartialEditManager.svelte';
     import Button from '../UI/GUI/Button.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
+    import Portal from '../UI/GUI/Portal.svelte';
 
     const loadPlaygroundMenu = () => import('../Playground/PlaygroundMenu.svelte').then(m => m.default);
 
@@ -1686,6 +1687,7 @@ import { isMobile } from 'src/ts/platform'
 </div>
 
 {#if additionalFloatingActionButtons.length > 0}
+    <Portal>
     <div class="fixed top-4 right-4 flex flex-col gap-3 z-50">
         {#each additionalFloatingActionButtons as button}
             <button class="bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={() => {
@@ -1695,9 +1697,11 @@ import { isMobile } from 'src/ts/platform'
             </button>
         {/each}
     </div>
+    </Portal>
 {/if}
 
 {#if composerFullscreen}
+    <Portal>
     <div class="fixed inset-0 z-50 bg-bgcolor flex flex-col p-4">
         <div class="mx-auto w-full max-w-3xl flex flex-col flex-1 min-h-0">
             <div class="flex items-center justify-between mb-2">
@@ -1723,6 +1727,7 @@ import { isMobile } from 'src/ts/platform'
             </div>
         </div>
     </div>
+    </Portal>
 {/if}
 <style>
 

@@ -2,6 +2,7 @@
     import { popupStore } from "src/ts/stores.svelte";
     import { sleep } from "src/ts/util";
     import { onDestroy, onMount } from "svelte";
+    import Portal from "./GUI/Portal.svelte";
 
     let styleString = $derived.by(() => {
         let styleString = '';
@@ -39,7 +40,9 @@
 </script>
 
 {#if popupStore.children}
+    <Portal>
     <div class="bg-darkbg border-darkborderc border rounded-md p-4 gap-2 flex flex-col fixed z-50 items-start" style={styleString}>
         {@render popupStore.children()}
     </div>
+    </Portal>
 {/if}
