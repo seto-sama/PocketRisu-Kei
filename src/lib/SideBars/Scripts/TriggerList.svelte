@@ -118,7 +118,7 @@
     {:catch error}
         <div class="mt-2 flex items-center gap-2 text-sm text-draculared">
             <span>{String(error)}</span>
-            <button class="rounded-md border border-darkborderc px-2 py-1 text-textcolor hover:border-borderc" onclick={retryTriggerV2Load}>
+            <button class="rounded-md border border-darkborderc px-2 py-1 text-textcolor risu-interactive-border" onclick={retryTriggerV2Load}>
                 {retryLabel}
             </button>
         </div>

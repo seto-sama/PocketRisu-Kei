@@ -796,13 +796,13 @@
         height: var(--partial-edit-icon-size);
     }
 
-    :global(.partial-edit-btn-edit:hover) {
+    :global(.partial-edit-btn-edit:is(:hover, :focus-visible)) {
         background: color-mix(in srgb, var(--risu-theme-primary) 15%, var(--risu-theme-textcolor));
         border-color: var(--risu-theme-primary);
         color: var(--risu-theme-primary);
     }
 
-    :global(.partial-edit-btn-delete:hover) {
+    :global(.partial-edit-btn-delete:is(:hover, :focus-visible)) {
         background: color-mix(in srgb, var(--risu-theme-draculared) 15%, var(--risu-theme-textcolor));
         border-color: var(--risu-theme-draculared);
         color: var(--risu-theme-draculared);
@@ -1006,7 +1006,7 @@
         transition: all 0.15s ease;
     }
 
-    .match-item:hover {
+    .match-item:is(:hover, :focus-visible) {
         background: var(--risu-theme-bgcolor);
         border-color: var(--risu-theme-borderc);
         box-shadow: 0 2px 8px color-mix(in srgb, var(--risu-theme-primary) 20%, transparent);

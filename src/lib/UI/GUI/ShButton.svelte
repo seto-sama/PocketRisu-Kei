@@ -38,16 +38,15 @@
     // for dense areas. See .agent/guide/ui.md.
     const base =
         "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-base font-medium shrink-0 " +
-        "transition-colors select-none outline-none " +
-        "focus-visible:border-borderc " +
+        "transition-colors select-none " +
         "disabled:opacity-50 disabled:pointer-events-none " +
         "[&_svg]:shrink-0 [&_svg]:pointer-events-none";
 
     const variantClasses: Record<ShButtonVariant, string> = {
-        default:     'bg-darkbutton text-textcolor border border-darkborderc hover:bg-selected',
-        outline:     'bg-transparent text-textcolor border border-darkborderc hover:bg-selected/30',
-        secondary:   'bg-darkbg text-textcolor border border-darkborderc hover:bg-selected',
-        ghost:       'bg-transparent text-textcolor border border-transparent hover:bg-selected/30',
+        default:     'bg-darkbutton text-textcolor border border-darkborderc risu-interactive-surface-solid',
+        outline:     'bg-transparent text-textcolor border border-darkborderc risu-interactive-surface',
+        secondary:   'bg-darkbg text-textcolor border border-darkborderc risu-interactive-surface-solid',
+        ghost:       'bg-transparent text-textcolor border border-transparent risu-interactive-surface',
         destructive: 'bg-draculared/20 text-draculared border border-draculared/40 hover:bg-draculared/30',
         success:     'bg-success/20 text-success border border-success/40 hover:bg-success/30',
         // Primary: filled-solid (shadcn vega original pattern, NOT muted).
@@ -55,7 +54,7 @@
         // so the visual weight matches when both appear in the same form. text
         // uses textcolor; primary hues per theme are picked dark enough that the
         // theme textcolor (mostly off-white) stays readable.
-        primary:     'bg-primary text-textcolor border border-transparent hover:bg-primary/90',
+        primary:     'bg-primary text-textcolor border border-transparent risu-interactive-primary',
         link:        'bg-transparent text-borderc border border-transparent underline-offset-4 hover:underline',
     };
 

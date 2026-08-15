@@ -632,7 +632,7 @@
                     {#each DBState.db.modelPresets as preset, i (preset.id)}
                         <button
                             data-sortable-key={preset.id}
-                            class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors text-left"
+                            class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left"
                             onclick={() => {
                                 if (suppressPresetClick) return;
                                 editingId = preset.id;
@@ -651,7 +651,7 @@
                                 {/if}
                             </div>
                             <div class="no-sort flex gap-2 shrink-0 ml-2">
-                                <div class="text-textcolor2 hover:text-primary cursor-pointer" role="button" tabindex="0" onclick={(e) => {
+                                <div class="text-textcolor2 risu-interactive-accent cursor-pointer" role="button" tabindex="0" onclick={(e) => {
                                     e.stopPropagation()
                                     duplicate(i)
                                 }} onkeydown={(e) => {
@@ -661,7 +661,7 @@
                                 }} aria-label="duplicate">
                                     <CopyIcon size={18}/>
                                 </div>
-                                <div class="text-textcolor2 hover:text-draculared cursor-pointer" role="button" tabindex="0" onclick={(e) => {
+                                <div class="text-textcolor2 risu-interactive-danger cursor-pointer" role="button" tabindex="0" onclick={(e) => {
                                     e.stopPropagation()
                                     remove(i)
                                 }} onkeydown={(e) => {

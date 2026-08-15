@@ -152,7 +152,7 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
             data-sortable-key={pluginKey(plugin, index)}
-            class="mt-2 flex items-center text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors text-left cursor-grab active:cursor-grabbing"
+            class="mt-2 flex items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
             role="button"
             tabindex="0"
             onclick={() => {
@@ -192,7 +192,7 @@
                             href={link.link}
                             target="_blank"
                             rel="nofollow noopener noreferrer"
-                            class="inline-flex size-6 shrink-0 items-center justify-center text-textcolor2 hover:text-primary"
+                            class="inline-flex size-6 shrink-0 items-center justify-center text-textcolor2 risu-interactive-accent"
                             title={link.hoverText}
                             onclick={(e) => { e.stopPropagation() }}
                         >

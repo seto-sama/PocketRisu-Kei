@@ -73,7 +73,7 @@
       <div class="flex items-center gap-2">
         <button
           type="button"
-          class="flex-1 flex items-center gap-2 rounded border border-transparent text-2xl font-bold text-left outline-none focus-visible:border-borderc transition-colors"
+          class="flex-1 flex items-center gap-2 rounded border border-transparent text-2xl font-bold text-left transition-colors"
           aria-expanded={realmOpen}
           aria-controls="main-realm-section"
           onclick={() => (realmOpen = !realmOpen)}
@@ -84,13 +84,14 @@
             class="shrink-0 transition-transform duration-150 {realmOpen ? 'rotate-180' : ''}"
           />
         </button>
-        <button
-          type="button"
-          class="text-base font-medium p-1 bg-darkbg rounded-md hover:ring-3"
+        <ShButton
+          variant="ghost"
+          size="sm"
+          className="bg-darkbg"
           onclick={() => {
             $OpenRealmStore = true
           }}
-        >Get More</button>
+        >Get More</ShButton>
       </div>
       <div
         id="main-realm-section"
@@ -128,7 +129,7 @@
         Related Links
       </h1>
         <div class="grid w-full grid-cols-1 gap-4 p-2 md:grid-cols-2">
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://github.com/seto-sama/PocketRisu-Kei")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -141,7 +142,7 @@
               <GithubIcon class={relatedLinkIconClass} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://github.com/seto-sama/PocketRisu-Kei/issues/new")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -154,7 +155,7 @@
               <SendIcon class={relatedLinkIconClass} strokeWidth={1} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://github.com/seto-sama")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -167,7 +168,7 @@
               <GithubIcon class={relatedLinkIconClass} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://arca.live/b/characterai")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -184,7 +185,7 @@
 
       {:else}
         <div class="flex items-center mt-4">
-          <button class="mr-2 text-textcolor2 hover:text-primary" onclick={() => ($OpenRealmStore = false)}>
+          <button class="mr-2 text-textcolor2 risu-interactive-accent" onclick={() => ($OpenRealmStore = false)}>
             <ArrowLeft/>
           </button>
         </div>

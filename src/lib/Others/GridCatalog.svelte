@@ -291,7 +291,7 @@
                             </div>
                             {#if char.desc.trim()}
                                 <details class="group/notes border-t border-darkborderc">
-                                    <summary class="flex h-8 cursor-pointer list-none items-center justify-between px-3 text-sm font-medium text-textcolor2 transition-colors hover:text-textcolor">
+                                    <summary class="flex h-8 cursor-pointer list-none items-center justify-between px-3 text-sm font-medium text-textcolor2 transition-colors risu-interactive-foreground">
                                         {language.creatorNotes}
                                         <ChevronDownIcon class="transition-transform group-open/notes:rotate-180" size={16} />
                                     </summary>

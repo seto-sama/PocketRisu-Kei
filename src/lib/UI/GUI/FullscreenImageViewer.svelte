@@ -85,7 +85,7 @@
                     {#if info}
                         <button
                             type="button"
-                            class="w-9 h-9 rounded-full border border-darkborderc bg-darkbutton hover:bg-selected flex items-center justify-center text-textcolor transition-colors"
+                            class="w-9 h-9 rounded-full border border-darkborderc bg-darkbutton risu-interactive-surface-solid flex items-center justify-center text-textcolor transition-colors"
                             onclick={() => (infoOpen = !infoOpen)}
                             title={infoLabel}
                         >
@@ -95,7 +95,7 @@
                     {#if onDownload}
                         <button
                             type="button"
-                            class="w-9 h-9 rounded-full border border-darkborderc bg-darkbutton hover:bg-selected flex items-center justify-center text-textcolor transition-colors"
+                            class="w-9 h-9 rounded-full border border-darkborderc bg-darkbutton risu-interactive-surface-solid flex items-center justify-center text-textcolor transition-colors"
                             onclick={onDownload}
                             title={downloadLabel}
                         >
@@ -104,7 +104,7 @@
                     {/if}
                     <button
                         type="button"
-                        class="w-9 h-9 rounded-full border border-darkborderc bg-darkbutton hover:bg-selected flex items-center justify-center text-textcolor transition-colors"
+                        class="w-9 h-9 rounded-full border border-darkborderc bg-darkbutton risu-interactive-surface-solid flex items-center justify-center text-textcolor transition-colors"
                         onclick={onClose}
                         title={closeLabel}
                     >
@@ -116,7 +116,7 @@
             {#if canGoPrev}
                 <button
                     type="button"
-                    class="absolute left-3 z-10 w-11 h-11 rounded-full border border-darkborderc bg-darkbutton hover:bg-selected flex items-center justify-center text-textcolor transition-colors"
+                    class="absolute left-3 z-10 w-11 h-11 rounded-full border border-darkborderc bg-darkbutton risu-interactive-surface-solid flex items-center justify-center text-textcolor transition-colors"
                     onclick={onPrev}
                     aria-label={previousLabel}
                 >
@@ -147,7 +147,7 @@
             {#if canGoNext}
                 <button
                     type="button"
-                    class="absolute right-3 z-10 w-11 h-11 rounded-full border border-darkborderc bg-darkbutton hover:bg-selected flex items-center justify-center text-textcolor transition-colors"
+                    class="absolute right-3 z-10 w-11 h-11 rounded-full border border-darkborderc bg-darkbutton risu-interactive-surface-solid flex items-center justify-center text-textcolor transition-colors"
                     onclick={onNext}
                     aria-label={nextLabel}
                 >
@@ -166,7 +166,7 @@
                     <span class="text-textcolor text-sm font-semibold">{infoLabel}</span>
                     <button
                         type="button"
-                        class="text-textcolor2 hover:text-textcolor transition-colors"
+                        class="text-textcolor2 risu-interactive-foreground transition-colors"
                         onclick={() => (infoOpen = false)}
                         aria-label={closeLabel}
                     >

@@ -185,7 +185,7 @@
                     onOpenChange={(v) => { requestExpanded = { ...requestExpanded, [log.id]: v } }}
                 >
                     <Collapsible.Trigger class="w-full text-left group">
-                        <SettingLayout variant="item" className="gap-2 hover:bg-selected/30 group-focus-visible:bg-selected/30">
+                        <SettingLayout variant="item" className="gap-2 risu-interactive-surface group-focus-visible:bg-selected/30">
                         <span class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-medium font-mono shrink-0 {log.success ? 'bg-success/20 text-success border-success/40' : 'bg-draculared/20 text-draculared border-draculared/40'}">
                             {log.status ?? (log.success ? 'OK' : 'ERR')}
                         </span>

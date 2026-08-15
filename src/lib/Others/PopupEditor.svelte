@@ -81,7 +81,7 @@
         <textarea
             bind:value={popUpEditorStore.value}
             wrap={wordWrap ? 'soft' : 'off'}
-            class="min-h-0 w-full flex-1 resize-none overflow-auto rounded-md border border-darkborderc bg-black/40 p-3 font-mono leading-relaxed text-textcolor outline-none focus-visible:border-borderc"
+            class="risu-field-border min-h-0 w-full flex-1 resize-none overflow-auto rounded-md bg-black/40 p-3 font-mono leading-relaxed text-textcolor outline-none"
             class:text-xs={$textAreaTextSize === 0}
             class:text-sm={$textAreaTextSize === 1}
             class:text-md={$textAreaTextSize === 2}

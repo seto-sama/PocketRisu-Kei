@@ -4,7 +4,7 @@
 {#if hideText}
      <!-- new-password disables autofill -->
     <input 
-        class={"border border-darkborderc peer focus:border-borderc rounded-md shadow-xs text-textcolor bg-transparent focus:outline-hidden transition-colors duration-200" + ((className) ? (' ' + className) : '')}
+        class={"risu-field-border peer rounded-md shadow-xs text-textcolor bg-transparent" + ((className) ? (' ' + className) : '')}
         class:text-sm={size === 'sm'}
         class:text-md={size === 'md'}
         class:text-lg={size === 'lg'}
@@ -43,7 +43,7 @@
 {:else}
 
     <input 
-        class={"border border-darkborderc peer focus:border-borderc rounded-md shadow-xs text-textcolor bg-transparent focus:outline-hidden transition-colors duration-200" + ((className) ? (' ' + className) : '')}
+        class={"risu-field-border peer rounded-md shadow-xs text-textcolor bg-transparent" + ((className) ? (' ' + className) : '')}
         list={list}
         class:text-sm={size === 'sm'}
         class:text-md={size === 'md'}

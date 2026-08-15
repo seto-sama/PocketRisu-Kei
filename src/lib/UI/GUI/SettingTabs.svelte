@@ -25,7 +25,7 @@
             class="relative px-4 py-2 text-sm whitespace-nowrap shrink-0 transition-colors
                 {selected === tab.value
                     ? 'text-textcolor'
-                    : 'text-textcolor2 hover:text-textcolor'}"
+                    : 'text-textcolor2 risu-interactive-foreground'}"
             onclick={() => selected = tab.value}
         >
             {tab.label}

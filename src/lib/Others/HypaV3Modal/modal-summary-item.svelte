@@ -613,7 +613,7 @@
   <div class="mt-2 sm:mt-4">
     <div class="flex items-center justify-between">
       <button
-        class="flex items-center gap-2 text-sm text-textcolor2 transition-colors hover:text-textcolor"
+        class="flex items-center gap-2 text-sm text-textcolor2 transition-colors risu-interactive-foreground"
         tabindex="-1"
         onclick={toggleSummaryCollapse}
       >
@@ -651,7 +651,7 @@
       {#key summary.chatMemos.length}
         {#each summary.chatMemos as chatMemo, memoIndex (chatMemo)}
           <button
-            class="rounded-md border border-darkborderc bg-darkbg/40 px-2 py-1.5 text-xs text-textcolor2 transition-colors hover:bg-selected/30 {isMessageExpanded(
+            class="rounded-md border border-darkborderc bg-darkbg/40 px-2 py-1.5 text-xs text-textcolor2 transition-colors risu-interactive-surface {isMessageExpanded(
               chatMemo
             )
               ? 'ring-2 ring-borderc'

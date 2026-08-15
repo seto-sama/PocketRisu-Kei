@@ -696,11 +696,11 @@
                         <span class="text-xs text-textcolor2 tabular-nums">{fmtBytes(snap.size)}</span>
                     </div>
                     {#snippet control()}
-                        <button class="text-textcolor2 hover:text-primary cursor-pointer" title={language.backupSnapshotRestore} aria-label={language.backupSnapshotRestore}
+                        <button class="text-textcolor2 risu-interactive-accent cursor-pointer" title={language.backupSnapshotRestore} aria-label={language.backupSnapshotRestore}
                             onclick={() => restoreSnapshot(snap)}>
                             <RotateCcwIcon size={18}/>
                         </button>
-                        <button class="text-textcolor2 hover:text-red-400 cursor-pointer" title={language.backupSnapshotDelete} aria-label={language.backupSnapshotDelete}
+                        <button class="text-textcolor2 risu-interactive-danger cursor-pointer" title={language.backupSnapshotDelete} aria-label={language.backupSnapshotDelete}
                             onclick={() => deleteSnapshot(snap)}>
                             <TrashIcon size={18}/>
                         </button>
@@ -727,11 +727,11 @@
                         <span class="text-xs text-textcolor2 tabular-nums">{fmtBytes(snap.size)}</span>
                     </div>
                     {#snippet control()}
-                        <button class="text-textcolor2 hover:text-primary cursor-pointer" title={language.backupSnapshotRestore} aria-label={language.backupSnapshotRestore}
+                        <button class="text-textcolor2 risu-interactive-accent cursor-pointer" title={language.backupSnapshotRestore} aria-label={language.backupSnapshotRestore}
                             onclick={() => restoreManualSnapshot(snap)}>
                             <RotateCcwIcon size={18}/>
                         </button>
-                        <button class="text-textcolor2 hover:text-red-400 cursor-pointer" title={language.backupSnapshotDelete} aria-label={language.backupSnapshotDelete}
+                        <button class="text-textcolor2 risu-interactive-danger cursor-pointer" title={language.backupSnapshotDelete} aria-label={language.backupSnapshotDelete}
                             onclick={() => deleteManualSnapshot(snap)}>
                             <TrashIcon size={18}/>
                         </button>

@@ -501,7 +501,7 @@
                             <button
                                 {...props}
                                 type="button"
-                                class="text-textcolor2 hover:text-primary cursor-pointer shrink-0 leading-none"
+                                class="text-textcolor2 risu-interactive-accent cursor-pointer shrink-0 leading-none"
                                 aria-label={row.label}
                                 onclick={() => openRowDetails(row.label, row.desc, row.size)}
                             >

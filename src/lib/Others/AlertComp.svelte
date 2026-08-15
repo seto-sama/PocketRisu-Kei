@@ -463,15 +463,15 @@
             {/if}
             <div class="flex items-center flex-wrap mt-2">
                 {#if $alertStore.submsg === 'preset'}
-                    <button class="bg-bgcolor px-2 py-4 rounded-lg flex-1" class:ring-1={cardExportType === ''} onclick={() => {cardExportType = ''}}>Risupreset</button>
+                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>Risupreset</ShButton>
                 {:else if $alertStore.submsg === 'module'}
-                    <button class="bg-bgcolor px-2 py-4 rounded-lg flex-1" class:ring-1={cardExportType === ''} onclick={() => {cardExportType = ''}}>RisuM</button>
+                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>RisuM</ShButton>
                 {:else}
-                    <button class="bg-bgcolor px-2 py-4 rounded-lg flex-1" class:ring-1={cardExportType === ''} onclick={() => {
+                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === ''} onclick={() => {
                         cardExportType = ''
                         cardExportType2 = 'charxJpeg'
-                    }}>Character Card V3</button>
-                    <button class="bg-bgcolor px-2 py-4 rounded-lg ml-2 flex-1" class:ring-1={cardExportType === 'ccv2'} onclick={() => {cardExportType = 'ccv2'}}>Character Card V2</button>
+                    }}>Character Card V3</ShButton>
+                    <ShButton variant={cardExportType === 'ccv2' ? 'primary' : 'outline'} className="ml-2 h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === 'ccv2' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === 'ccv2'} onclick={() => {cardExportType = 'ccv2'}}>Character Card V2</ShButton>
                 {/if}
             </div>
             {#if $alertStore.submsg === '' && cardExportType === ''}
@@ -662,7 +662,7 @@
                                                 <div class="flex items-center justify-between mb-2">
                                                     <span class="text-textcolor text-sm font-semibold">URL</span>
                                                     <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-url` ? 'text-green-500' : 'text-textcolor2 hover:text-textcolor'}"
+                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-url` ? 'text-green-500' : 'text-textcolor2 risu-interactive-foreground'}"
                                                         onclick={(e) => { e.stopPropagation(); copyToClipboard(log.url, `${i}-url`) }}
                                                         title="Copy"
                                                     >
@@ -679,7 +679,7 @@
                                                 <div class="flex items-center justify-between mb-2">
                                                     <span class="text-textcolor text-sm font-semibold">Request Body</span>
                                                     <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-body` ? 'text-green-500' : 'text-textcolor2 hover:text-textcolor'}"
+                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-body` ? 'text-green-500' : 'text-textcolor2 risu-interactive-foreground'}"
                                                         onclick={(e) => { e.stopPropagation(); copyToClipboard(log.body, `${i}-body`) }}
                                                         title="Copy"
                                                     >
@@ -696,7 +696,7 @@
                                                 <div class="flex items-center justify-between mb-2">
                                                     <span class="text-textcolor text-sm font-semibold">Request Header</span>
                                                     <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-header` ? 'text-green-500' : 'text-textcolor2 hover:text-textcolor'}"
+                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-header` ? 'text-green-500' : 'text-textcolor2 risu-interactive-foreground'}"
                                                         onclick={(e) => { e.stopPropagation(); copyToClipboard(log.header, `${i}-header`) }}
                                                         title="Copy"
                                                     >
@@ -713,7 +713,7 @@
                                                 <div class="flex items-center justify-between mb-2">
                                                     <span class="text-textcolor text-sm font-semibold">Response</span>
                                                     <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-response` ? 'text-green-500' : 'text-textcolor2 hover:text-textcolor'}"
+                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-response` ? 'text-green-500' : 'text-textcolor2 risu-interactive-foreground'}"
                                                         onclick={(e) => { e.stopPropagation(); copyToClipboard(responseBody, `${i}-response`) }}
                                                         title="Copy"
                                                     >
@@ -1142,7 +1142,7 @@
                     <div class="flex flex-col gap-1">
                         {#each filteredPresets as {preset, index: i}}
                             <div class="flex items-center border border-darkborderc rounded-md hover:ring-1 hover:ring-borderc/50 transition-shadow">
-                                <button class="flex-1 min-w-0 p-2 text-left cursor-pointer text-textcolor truncate hover:bg-selected/30 rounded-l-md transition-colors" onclick={async () => {
+                                <button class="flex-1 min-w-0 p-2 text-left cursor-pointer text-textcolor truncate risu-interactive-surface rounded-l-md transition-colors" onclick={async () => {
                                     const name = preset.name
                                     const isMismatch = preset.promptPresetName !== currentPromptPresetName
                                     const msg = isMismatch ? language.togglePresetMismatchConfirm : language.togglePresetApplyConfirm
@@ -1347,13 +1347,8 @@
             color 150ms ease;
     }
 
-    .add-character-option:hover {
+    .add-character-option:is(:hover, :focus-visible) {
         background-color: color-mix(in srgb, var(--risu-theme-selected) 30%, transparent);
-    }
-
-    .add-character-option:focus-visible {
-        outline: 2px solid color-mix(in srgb, var(--risu-theme-borderc) 65%, transparent);
-        outline-offset: 1px;
     }
 
     .add-character-option :global(svg) {
@@ -1403,7 +1398,7 @@
         transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
     }
 
-    .stack-trace-copy:hover {
+    .stack-trace-copy:is(:hover, :focus-visible) {
         background-color: var(--risu-theme-bgcolor);
         color: var(--risu-theme-textcolor);
     }

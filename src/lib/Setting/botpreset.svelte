@@ -177,7 +177,7 @@
                 <span class="min-w-0 grow truncate">{preset.name}</span>
             {/if}
             {#if DBState.db.showPromptComparison}
-                <button type="button" class="ml-3 shrink-0 {selectedDiffPreset === index ? 'text-green-500' : 'text-textcolor2 hover:text-primary'} cursor-pointer" onclick={(e) => {
+                <button type="button" class="ml-3 shrink-0 {selectedDiffPreset === index ? 'text-green-500' : 'text-textcolor2 risu-interactive-accent'} cursor-pointer" onclick={(e) => {
                     e.stopPropagation()
                     handleDiffMode(index)
                 }}>

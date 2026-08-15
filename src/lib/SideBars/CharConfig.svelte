@@ -248,7 +248,7 @@
 
         <div class="flex w-full items-center justify-between text-textcolor">
             <span>{language.altGreet}</span>
-            <button class="hover:text-primary" onclick={() => {
+            <button class="risu-interactive-accent" onclick={() => {
                 if(DBState.db.characters[$selectedCharID].type === 'character'){
                     let alternateGreetings = DBState.db.characters[$selectedCharID].alternateGreetings
                     alternateGreetings.push('')
@@ -268,13 +268,13 @@
                         <TextAreaInput highlight bind:value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} placeholder="..." fullwidth />
                     </div>
                     <div class="flex flex-col items-center text-textcolor2">
-                        <button class="p-1 hover:text-primary disabled:opacity-30" onclick={() => moveAlternateGreetingUp(i)} disabled={i === 0}>
+                        <button class="p-1 risu-interactive-accent disabled:opacity-30" onclick={() => moveAlternateGreetingUp(i)} disabled={i === 0}>
                             <ArrowUp size={16} />
                         </button>
-                        <button class="p-1 hover:text-primary disabled:opacity-30" onclick={() => moveAlternateGreetingDown(i)} disabled={i === DBState.db.characters[$selectedCharID].alternateGreetings.length - 1}>
+                        <button class="p-1 risu-interactive-accent disabled:opacity-30" onclick={() => moveAlternateGreetingDown(i)} disabled={i === DBState.db.characters[$selectedCharID].alternateGreetings.length - 1}>
                             <ArrowDown size={16} />
                         </button>
-                        <button class="p-1 hover:text-draculared" onclick={() => {
+                        <button class="p-1 risu-interactive-danger" onclick={() => {
                             if(DBState.db.characters[$selectedCharID].type === 'character'){
                                 DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex = -1
                                 let alternateGreetings = DBState.db.characters[$selectedCharID].alternateGreetings
@@ -392,7 +392,7 @@
                     {/each}
                 {/if}
                 <button
-                    class="w-full rounded-md cursor-pointer border-darkborderc border border-dashed flex justify-center items-center text-textcolor2 opacity-75 hover:bg-selected/30 hover:opacity-100 transition-[background-color,opacity] {(DBState.db.characters[$selectedCharID] as character).largePortrait ? 'aspect-[9/16]' : 'aspect-square'}"
+                    class="w-full rounded-md cursor-pointer border-darkborderc border border-dashed flex justify-center items-center text-textcolor2 opacity-75 risu-interactive-surface risu-interactive-reveal transition-[background-color,opacity] {(DBState.db.characters[$selectedCharID] as character).largePortrait ? 'aspect-[9/16]' : 'aspect-square'}"
                     onclick={async () => {await selectCharImg($selectedCharID);}}
                 >
                     <PlusIcon />

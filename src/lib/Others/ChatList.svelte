@@ -40,7 +40,7 @@
                     <span>{chat.name}</span>
                 {/if}
                 <div class="grow flex justify-end">
-                    <div class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
+                    <div class="text-textcolor2 risu-interactive-accent mr-2 cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
                         e.stopPropagation()
                         exportChat(i)
                     }} onkeydown={() => {
@@ -48,7 +48,7 @@
                     }}>
                         <DownloadIcon size={18}/>
                     </div>
-                    <div class="text-textcolor2 hover:text-red-400 cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
+                    <div class="text-textcolor2 risu-interactive-danger cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
                         e.stopPropagation()
                         if(DBState.db.characters[$selectedCharID].chats.length === 1){
                             notifyError(language.errors.onlyOneChat)

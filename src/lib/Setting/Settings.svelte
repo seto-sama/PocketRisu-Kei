@@ -80,11 +80,11 @@
                 <IconButtonGroup
                     size="lg"
                     direction="vertical"
-                    className="w-full gap-2 [&>button]:w-full [&>button]:justify-start [&>button]:gap-[var(--icon-label-gap)] [&>div]:w-full"
+                    className="w-full gap-2 [&>button]:w-full [&>button]:rounded-md [&>button]:justify-start [&>button]:gap-[var(--icon-label-gap)] [&>div]:w-full"
                 >
                 {#each ($isLite ? primaryMenuItems.filter((item) => item.index === 10) : primaryMenuItems) as item (item.index)}
                     <button
-                        class="flex items-center hover:text-textcolor"
+                        class="flex items-center risu-interactive-foreground"
                         class:text-textcolor={$SettingsMenuIndex === item.index}
                         class:text-textcolor2={$SettingsMenuIndex !== item.index}
                         onclick={() => selectMenu(item.index)}
@@ -96,7 +96,7 @@
                 {#if !$isLite}
                     {#each secondaryMenuItems as item (item.index)}
                         <button
-                            class="flex items-center hover:text-textcolor"
+                            class="flex items-center risu-interactive-foreground"
                             class:text-textcolor={$SettingsMenuIndex === item.index}
                             class:text-textcolor2={$SettingsMenuIndex !== item.index}
                             onclick={() => selectMenu(item.index)}
@@ -106,7 +106,7 @@
                         </button>
                     {/each}
                     {#if devPanelEnabled}
-                        <button class="flex items-center hover:text-textcolor"
+                        <button class="flex items-center risu-interactive-foreground"
                             class:text-textcolor={$SettingsMenuIndex === 99}
                             class:text-textcolor2={$SettingsMenuIndex !== 99}
                             onclick={() => {
@@ -122,7 +122,7 @@
                         </div>
                     {/if}
                     {#each additionalSettingsMenu as menu}
-                        <button class="flex items-center hover:text-textcolor text-textcolor2"
+                        <button class="flex items-center risu-interactive-foreground text-textcolor2"
                             onclick={() => {
                                 menu.callback()
                         }}>
@@ -134,7 +134,7 @@
                 {/if}
                 </IconButtonGroup>
                 {#if window.innerWidth < 700 && !$MobileGUI}
-                    <button class="absolute top-2 right-2 hover:text-primary text-textcolor" onclick={() => {
+                    <button class="absolute top-2 right-2 risu-interactive-accent text-textcolor" onclick={() => {
                         settingsOpen.set(false)
                     }}> <CircleXIcon size={DBState.db.settingsCloseButtonSize} /> </button>
                 {/if}
@@ -183,7 +183,7 @@
             </div>
             {/key}
             {#if !$MobileGUI}
-                <button class="absolute top-2 right-2 hover:text-primary text-textcolor" onclick={() => {
+                <button class="absolute top-2 right-2 risu-interactive-accent text-textcolor" onclick={() => {
                     if(window.innerWidth >= 700){
                         settingsOpen.set(false)
                     }

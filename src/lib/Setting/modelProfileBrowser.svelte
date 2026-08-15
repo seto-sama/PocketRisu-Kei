@@ -314,7 +314,7 @@
         <div class="flex items-center text-textcolor mb-4 shrink-0">
             <h2 class="mt-0 mb-0">{language.selectProfile}</h2>
             <div class="grow flex justify-end">
-                <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer items-center" onclick={close}>
+                <button class="text-textcolor2 risu-interactive-accent mr-2 cursor-pointer items-center" onclick={close}>
                     <XIcon size={20}/>
                 </button>
             </div>
@@ -332,7 +332,7 @@
 
         {#if activeTab === 'custom'}
             <button
-                class="shrink-0 w-full flex items-center justify-center gap-2 mb-3 p-2 rounded-md border border-darkborderc bg-darkbutton hover:bg-selected text-sm"
+                class="shrink-0 w-full flex items-center justify-center gap-2 mb-3 p-2 rounded-md border border-darkborderc bg-darkbutton risu-interactive-surface-solid text-sm"
                 onclick={importProfile}
             >
                 <UploadIcon size={16} class="shrink-0" />
@@ -343,7 +343,7 @@
         {#snippet profileCard(entry: Entry)}
             {@const { profile, baseProvider } = entry}
             {@const localizedDesc = localizeDescription(profile)}
-            <div class="flex items-start text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors">
+            <div class="flex items-start text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors">
                 <button class="flex flex-col min-w-0 grow cursor-pointer text-left" onclick={() => selectProfile(entry)}>
                     <div class="flex items-center gap-2">
                         <span class="text-sm text-textcolor truncate">{localizeDisplayName(profile)}</span>
@@ -373,11 +373,11 @@
                     {/if}
                 </button>
                 <div class="flex gap-2 shrink-0 ml-2">
-                    <button class="text-textcolor2 hover:text-primary cursor-pointer" title={language.profileExport} onclick={() => exportProfile(profile, baseProvider)}>
+                    <button class="text-textcolor2 risu-interactive-accent cursor-pointer" title={language.profileExport} onclick={() => exportProfile(profile, baseProvider)}>
                         <DownloadIcon size={18}/>
                     </button>
                     {#if activeTab === 'custom'}
-                        <button class="text-textcolor2 hover:text-red-400 cursor-pointer" title={language.profileDelete} onclick={() => deleteCustom(profile)}>
+                        <button class="text-textcolor2 risu-interactive-danger cursor-pointer" title={language.profileDelete} onclick={() => deleteCustom(profile)}>
                             <TrashIcon size={18}/>
                         </button>
                     {/if}
@@ -394,7 +394,7 @@
                 {#each groupedByProvider as group (group.id)}
                     <section class="flex flex-col gap-1 mt-2 first:mt-0">
                         <button
-                            class="flex items-center gap-1.5 px-1 py-1 text-textcolor2 hover:text-textcolor transition-colors cursor-pointer"
+                            class="flex items-center gap-1.5 px-1 py-1 text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
                             onclick={() => toggleProvider(group.id)}
                         >
                             {#if isProviderExpanded(group.id)}

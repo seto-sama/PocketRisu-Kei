@@ -487,9 +487,9 @@ import { isMobile } from 'src/ts/platform'
                     chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
                 }
 
-                element.classList.add('ring-2', 'ring-blue-500')
+                element.classList.add('ring-2')
                 setTimeout(() => {
-                    element.classList.remove('ring-2', 'ring-blue-500')
+                    element.classList.remove('ring-2')
                 }, 2000)
             }
         } finally {
@@ -1166,7 +1166,7 @@ import { isMobile } from 'src/ts/platform'
         >
             {#if DBState.db.nodeOnlyScrollButtonType === 'four'}
                 <button
-                    class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                    class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                     onclick={() => { bumpScrollNav(); scrollToLoadedTop() }}
                 >
                     <ChevronsUpIcon size={18} />
@@ -1174,14 +1174,14 @@ import { isMobile } from 'src/ts/platform'
                 <div class="border-t border-darkborderc border-opacity-30"></div>
             {/if}
             <button
-                class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                 onclick={() => { bumpScrollNav(); navigateMessage('prev') }}
             >
                 <ChevronUpIcon size={18} />
             </button>
             <div class="border-t border-darkborderc border-opacity-30"></div>
             <button
-                class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                 onclick={() => { bumpScrollNav(); navigateMessage('next') }}
             >
                 <ChevronDownIcon size={18} />
@@ -1189,7 +1189,7 @@ import { isMobile } from 'src/ts/platform'
             {#if DBState.db.nodeOnlyScrollButtonType === 'four'}
                 <div class="border-t border-darkborderc border-opacity-30"></div>
                 <button
-                    class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                    class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                     onclick={() => { bumpScrollNav(); scrollToLoadedBottom() }}
                 >
                     <ChevronsDownIcon size={18} />
@@ -1200,41 +1200,41 @@ import { isMobile } from 'src/ts/platform'
 
     {#if showNewMessageButton}
         {#if (DBState.db.newMessageButtonStyle === 'bottom-center' || !DBState.db.newMessageButtonStyle)}
-            <button class="absolute bottom-16 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute bottom-16 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-right'}
-            <button class="absolute bottom-20 right-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute bottom-20 right-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-left'}
-            <button class="absolute bottom-20 left-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute bottom-20 left-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'floating-circle'}
-            <button class="absolute bottom-36 right-4 bg-primary text-white w-12 h-12 rounded-full shadow-lg z-50 flex items-center justify-center hover:bg-primary/90 transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
+            <button class="absolute bottom-36 right-4 bg-primary text-white w-12 h-12 rounded-full shadow-lg z-50 flex items-center justify-center risu-interactive-primary transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
                 <ArrowDown size={20} />
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'right-center'}
-            <button class="absolute top-1/2 right-2 -translate-y-1/2 bg-primary text-white px-2 py-3 rounded-l-lg shadow-lg z-50 flex flex-col items-center gap-1 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute top-1/2 right-2 -translate-y-1/2 bg-primary text-white px-2 py-3 rounded-l-lg shadow-lg z-50 flex flex-col items-center gap-1 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={12} />
                 <span class="text-xs writing-mode-vertical">{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'top-bar'}
-            <button class="absolute top-2 left-1/2 -translate-x-1/2 bg-primary text-white px-6 py-1.5 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors text-sm" onclick={scrollToBottom}>
+            <button class="absolute top-2 left-1/2 -translate-x-1/2 bg-primary text-white px-6 py-1.5 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors text-sm" onclick={scrollToBottom}>
                 <ArrowDown size={12} />
                 <span>{language.newMessage}</span>
             </button>
@@ -1268,14 +1268,14 @@ import { isMobile } from 'src/ts/platform'
                      plugins that locate the composer via div[class*="items-stretch"] (e.g. gemini-cache-keeper)
                      relied on the pre-redesign container class. Keep it so they can still find/anchor their UI,
                      and it scopes the timer re-flow rules in <style> below. -->
-                <IconButtonGroup size="lg" className="flex-wrap gap-1 rounded-3xl border border-darkborderc bg-bgcolor px-2 py-1.5 transition-colors focus-within:border-textcolor plugin-compat-items-stretch">
+                <IconButtonGroup size="lg" className="risu-field-border flex-wrap gap-1 rounded-3xl bg-bgcolor px-2 py-1.5 plugin-compat-items-stretch">
                 {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
                     <ShDropdownMenu bind:open={openMenu}>
                         <ShDropdownMenuTrigger>
                             {#snippet child({ props })}
                                 <button {...props}
                                         aria-label="menu"
-                                        class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors">
+                                        class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors">
                                     <MenuIcon />
                                 </button>
                             {/snippet}
@@ -1339,7 +1339,7 @@ import { isMobile } from 'src/ts/platform'
                         })
                         DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
                     }}
-                         class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit text-textcolor hover:bg-primary/20 transition-colors cursor-pointer"
+                         class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit text-textcolor risu-interactive-primary-soft transition-colors cursor-pointer"
                     >
                         <Plus />
                     </button>
@@ -1347,7 +1347,7 @@ import { isMobile } from 'src/ts/platform'
 
                 {#if DBState.db.useChatSticker}
                     <button type="button" onclick={()=>{toggleStickers = !toggleStickers}}
-                         class={"shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit hover:bg-primary/20 transition-colors cursor-pointer "+(toggleStickers ? 'text-green-500':'text-textcolor')}>
+                         class={"shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit risu-interactive-primary-soft transition-colors cursor-pointer "+(toggleStickers ? 'text-green-500':'text-textcolor')}>
                         <Laugh />
                     </button>
                 {/if}
@@ -1420,7 +1420,7 @@ import { isMobile } from 'src/ts/platform'
                 <button
                         onclick={() => composerFullscreen = true}
                         aria-label={language.chatInputExpandTitle}
-                        class="composer-expand-btn order-1 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors"
+                        class="composer-expand-btn order-1 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors"
                         class:ml-auto={multiline}
                 >
                     <Maximize2 />
@@ -1430,7 +1430,7 @@ import { isMobile } from 'src/ts/platform'
                     <button
                             aria-labelledby="cancel"
                             disabled={workflowCancelInFlight}
-                            class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors disabled:opacity-50" onclick={abortChat}
+                            class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors disabled:opacity-50" onclick={abortChat}
                     >
                         <div class="loadmove chat-process-stage-{$chatProcessStage}"></div>
                     </button>
@@ -1455,7 +1455,7 @@ import { isMobile } from 'src/ts/platform'
                     <label for='messageInputTranslate' class="text-textcolor ml-4">
                         <LanguagesIcon size={20} />
                     </label>
-                    <textarea id = 'messageInputTranslate' class="text-textcolor rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 border-darkbutton resize-none focus:bg-selected overflow-y-hidden overflow-x-hidden max-w-full"
+                    <textarea id = 'messageInputTranslate' class="risu-field-border text-textcolor rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 resize-none outline-hidden overflow-y-hidden overflow-x-hidden max-w-full"
                               bind:value={messageInputTranslate}
                               bind:this={inputTranslateEle}
                               onkeydown={(e) => {
@@ -1498,7 +1498,7 @@ import { isMobile } from 'src/ts/platform'
                                 {:else}
                                     <div class="max-w-24 max-h-24">{file}</div>
                                 {/if}
-                                <button class="absolute -right-1 -top-1 p-1 bg-darkbg text-textcolor rounded-md transition-colors hover:text-draculared focus:text-draculared" onclick={() => {
+                                <button class="absolute -right-1 -top-1 p-1 bg-darkbg text-textcolor rounded-md transition-colors risu-interactive-danger" onclick={() => {
                                     fileInput.splice(i, 1)
                                     updateInputSizeAll()
                                 }}>
@@ -1688,7 +1688,7 @@ import { isMobile } from 'src/ts/platform'
 {#if additionalFloatingActionButtons.length > 0}
     <div class="fixed top-4 right-4 flex flex-col gap-3 z-50">
         {#each additionalFloatingActionButtons as button}
-            <button class="bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={() => {
+            <button class="bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={() => {
                 button.callback()
             }}>
                 <PluginDefinedIcon ico={button} />
@@ -1703,7 +1703,7 @@ import { isMobile } from 'src/ts/platform'
             <div class="flex items-center justify-between mb-2">
                 <span class="text-textcolor text-sm">{language.chatInputExpandTitle}</span>
                 <button onclick={exitFullscreen} aria-label="minimize"
-                        class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors">
+                        class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors">
                     <Minimize2 size={18} />
                 </button>
             </div>
@@ -1712,7 +1712,7 @@ import { isMobile } from 'src/ts/platform'
                     bind:this={fullscreenEle}
                     onblur={persistDraftNow}
                     placeholder={language.enterMessageToPersona(activePersonaName)}
-                    class="flex-1 min-h-0 w-full resize-none rounded-md border border-darkborderc bg-transparent p-3 text-textcolor text-base outline-hidden overflow-y-auto focus:border-textcolor transition-colors"
+                    class="risu-field-border flex-1 min-h-0 w-full resize-none rounded-md bg-transparent p-3 text-textcolor text-base outline-hidden overflow-y-auto"
             ></textarea>
             <div class="flex justify-end mt-3">
                 <button onclick={sendFullscreen} aria-label="send"

@@ -129,7 +129,7 @@
                             if(e.key === 'Enter'){
                                 e.currentTarget.click()
                             }
-                        }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
+                        }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
                             e.stopPropagation()
                             const remoteVisibilityLabel = folder.localOnly
                                 ? language.showFolderOnRemoteAccess
@@ -152,7 +152,7 @@
                             if(e.key === 'Enter'){
                                 e.currentTarget.click()
                             }
-                        }} class="text-textcolor2 hover:text-red-400 cursor-pointer" onclick={async (e) => {
+                        }} class="text-textcolor2 risu-interactive-danger cursor-pointer" onclick={async (e) => {
                             e.stopPropagation()
                             const d = await alertConfirm(`${language.removeConfirm}${folder.name}`)
                             if (d) {
@@ -203,7 +203,7 @@
                                 if(e.key === 'Enter'){
                                     e.currentTarget.click()
                                 }
-                            }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
+                            }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
                                 e.stopPropagation()
                                 const confirmed = await alertConfirm(`${language.copyChatConfirm}${chat.name}`)
                                 if(!confirmed) return
@@ -230,7 +230,7 @@
                                 if(e.key === 'Enter'){
                                     e.currentTarget.click()
                                 }
-                            }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
+                            }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
                                 e.stopPropagation()
                                 exportChat(chara.chats.indexOf(chat))
                             }}>
@@ -240,7 +240,7 @@
                                 if(e.key === 'Enter'){
                                     e.currentTarget.click()
                                 }
-                            }} class="text-textcolor2 hover:text-red-400 cursor-pointer" onclick={async (e) => {
+                            }} class="text-textcolor2 risu-interactive-danger cursor-pointer" onclick={async (e) => {
                                 e.stopPropagation()
                                 if(chara.chats.length === 1){
                                     notifyError(language.errors.onlyOneChat)
@@ -296,7 +296,7 @@
                         if(e.key === 'Enter'){
                             e.currentTarget.click()
                         }
-                    }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
+                    }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
                         e.stopPropagation()
                         const confirmed = await alertConfirm(`${language.copyChatConfirm}${chat.name}`)
                         if(!confirmed) return
@@ -322,7 +322,7 @@
                         if(e.key === 'Enter'){
                             e.currentTarget.click()
                         }
-                    }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
+                    }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
                         e.stopPropagation()
                         exportChat(i)
                     }}>
@@ -332,7 +332,7 @@
                         if(e.key === 'Enter'){
                             e.currentTarget.click()
                         }
-                    }} class="text-textcolor2 hover:text-red-400 cursor-pointer" onclick={async (e) => {
+                    }} class="text-textcolor2 risu-interactive-danger cursor-pointer" onclick={async (e) => {
                         e.stopPropagation()
                         if(chara.chats.length === 1){
                             notifyError(language.errors.onlyOneChat)

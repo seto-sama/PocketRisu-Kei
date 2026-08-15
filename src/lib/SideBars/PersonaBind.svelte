@@ -70,7 +70,7 @@
     <ShButton
         className={`flex-1 min-w-0 justify-start ${isPersonaBound
             ? 'border-selected text-textcolor'
-            : 'text-textcolor2 opacity-75 hover:opacity-100'}`}
+            : 'text-textcolor2 opacity-75 risu-interactive-reveal'}`}
         onclick={handlePersonaBindClick}
     >
         {#if isPersonaBound}

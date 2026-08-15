@@ -377,6 +377,7 @@
 {:else}
 <div
   class="h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative rs-sidebar"
+  class:sidebar-menu-bottom={DBState.db.hamburgerButtonBottom}
   class:max-xs:hidden={$leftBarCollapsed}
   class:editMode
   class:risu-sub-sidebar={$sideBarClosing}
@@ -384,42 +385,31 @@
   class:hidden={hidden}
   class:flex={!hidden}
 >
-  <div
-    class="flex w-full flex-col items-center"
-    class:order-last={DBState.db.hamburgerButtonBottom}
-    class:flex-col-reverse={DBState.db.hamburgerButtonBottom}
-  >
-    <IconButtonGroup size="xl" direction="vertical" className="w-full">
-    <button
-      class="flex h-8 min-h-8 w-14 min-w-14 cursor-pointer text-white items-center justify-center rounded-md bg-textcolor2 transition-colors hover:bg-primary"
-      class:mt-2={!DBState.db.hamburgerButtonBottom}
-      class:my-2={DBState.db.hamburgerButtonBottom}
-      class:max-xs:hidden={$leftBarCollapsed}
-      onclick={() => {
-        menuMode = 1 - menuMode;
-      }}
-    >
-      <ListIcon />
-    </button>
-
-    {#if !DBState.db.hideLeftBarCollapseButton}
+  <div class="sidebar-controls">
+    <IconButtonGroup size="xl" direction="vertical" className="sidebar-control-buttons w-full">
       <button
-        class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer mt-2 items-center justify-center rounded-md border border-borderc text-textcolor transition-colors hover:border-primary hover:text-primary"
-        aria-label="Collapse sidebar"
-        onclick={() => leftBarCollapsed.set(true)}
+        class="flex h-8 min-h-8 w-14 min-w-14 cursor-pointer text-white items-center justify-center rounded-md bg-textcolor2 transition-colors hover:bg-primary"
+        class:max-xs:hidden={$leftBarCollapsed}
+        onclick={() => {
+          menuMode = 1 - menuMode;
+        }}
       >
-        <ChevronsLeft />
+        <ListIcon />
       </button>
-    {/if}
 
-    <div class="w-full relative text-white" class:max-xs:hidden={$leftBarCollapsed}>
+      {#if !DBState.db.hideLeftBarCollapseButton}
+        <button
+          class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer items-center justify-center rounded-md border border-borderc text-textcolor transition-colors hover:border-primary risu-interactive-accent"
+          aria-label="Collapse sidebar"
+          onclick={() => leftBarCollapsed.set(true)}
+        >
+          <ChevronsLeft />
+        </button>
+      {/if}
+
       {#if menuMode === 1}
         <div
-          class="absolute w-20 min-w-20 flex bg-bgcolor flex-col items-center z-20 py-4 max-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto hamburger-menu"
-          class:bottom-full={DBState.db.hamburgerButtonBottom}
-          class:top-0={!DBState.db.hamburgerButtonBottom}
-          class:rounded-t-md={DBState.db.hamburgerButtonBottom}
-          class:rounded-b-md={!DBState.db.hamburgerButtonBottom}
+          class="absolute left-0 w-20 min-w-20 flex bg-bgcolor flex-col items-center gap-2 z-20 py-4 max-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto hamburger-menu"
         >
           <BarIcon
             onClick={() => {
@@ -434,7 +424,6 @@
           >
             <Settings />
           </BarIcon>
-          <div class="mt-2"></div>
           <BarIcon
             onClick={() => {
               reseter();
@@ -445,7 +434,6 @@
           >
             <HomeIcon />
           </BarIcon>
-          <div class="mt-2"></div>
           <BarIcon
             onClick={() => {
               reseter()
@@ -459,7 +447,6 @@
           >
             <ShellIcon />
           </BarIcon>
-          <div class="mt-2"></div>
           <BarIcon
             onClick={() => {
               reseter();
@@ -469,9 +456,8 @@
             <LayoutGridIcon />
           </BarIcon>
           {#if additionalHamburgerMenu.length > 0}
-            <div class="mt-2 h-px w-10 bg-selected shrink-0"></div>
+            <div class="h-px w-10 bg-selected shrink-0"></div>
             {#each additionalHamburgerMenu as menu}
-              <div class="mt-2"></div>
               <BarIcon
                 onClick={() => {
                   reseter();
@@ -484,7 +470,6 @@
           {/if}
         </div>
       {/if}
-    </div>
     </IconButtonGroup>
   </div>
   <div class="character-list flex grow w-full flex-col items-center overflow-x-hidden overflow-y-auto pr-0" class:max-xs:hidden={$leftBarCollapsed}>
@@ -771,7 +756,7 @@
   </button>
   {#if $leftBarCollapsed}
     <button
-      class="hidden max-xs:flex absolute top-3 left-0 h-12 w-12 border-r border-b border-t border-borderc rounded-r-md bg-darkbg hover:border-neutral-200 transition-colors items-center justify-center text-textcolor opacity-50 hover:opacity-90 z-20"
+      class="hidden max-xs:flex absolute top-3 left-0 h-12 w-12 border-r border-b border-t border-darkborderc rounded-r-md bg-darkbg risu-interactive-border transition-colors items-center justify-center text-textcolor opacity-50 hover:opacity-90 z-20"
       aria-label="Expand sidebar"
       onclick={() => leftBarCollapsed.set(false)}
     >
@@ -797,7 +782,7 @@
           {#each recentChars.slice(0, recentVisible) as rc (rc.index)}
             <button
               type="button"
-              class="group flex items-center gap-2.5 rounded-md border border-borderc/10 bg-darkbg p-2 text-left transition-colors hover:border-borderc/30 hover:bg-selected/50"
+              class="group flex items-center gap-2.5 rounded-md border border-borderc/10 bg-darkbg p-2 text-left transition-colors risu-interactive-border-subtle risu-interactive-surface-strong"
               onclick={() => changeChar(rc.index, {reseter})}
             >
               <div class="shrink-0">
@@ -818,7 +803,7 @@
           {#if recentVisible < recentChars.length}
             <button
               type="button"
-              class="w-full rounded-md border border-borderc/10 bg-darkbg p-2 text-center text-sm text-textcolor2 transition-colors hover:border-borderc/30 hover:bg-selected/50 hover:text-textcolor"
+              class="w-full rounded-md border border-borderc/10 bg-darkbg p-2 text-center text-sm text-textcolor2 transition-colors risu-interactive-border-subtle risu-interactive-surface-strong risu-interactive-foreground"
               onclick={() => recentVisible += 10}
             >
               {language.loadMore}
@@ -935,7 +920,7 @@
     transition: color 150ms ease;
   }
 
-  .sidebar-mode-button:hover:not(.active) {
+  .sidebar-mode-button:is(:hover, :focus-visible):not(.active) {
     color: var(--risu-theme-textcolor);
   }
 
@@ -958,12 +943,6 @@
     height: 2px;
     background: var(--risu-theme-primary);
     box-shadow: 0 -4px 12px color-mix(in srgb, var(--risu-theme-primary) 38%, transparent);
-  }
-
-  .sidebar-mode-button:focus-visible {
-    z-index: 1;
-    outline: 2px solid var(--risu-theme-primary);
-    outline-offset: -3px;
   }
 
   .sidebar-mode-button :global(svg) {
@@ -1104,8 +1083,39 @@
     background-color: rgba(0,0,0,0)
   }
   .hamburger-menu {
+    top: calc(100% - var(--sidebar-control-scroll-gap));
+    border-radius: 0 0 0.375rem 0.375rem;
     scrollbar-width: none;
     overscroll-behavior: none;
+  }
+  .sidebar-controls {
+    --sidebar-control-edge-gap: 0.5rem;
+    --sidebar-control-button-gap: 0.5rem;
+    --sidebar-control-scroll-gap: 1rem;
+    position: relative;
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--sidebar-control-edge-gap) 0 var(--sidebar-control-scroll-gap);
+  }
+  .sidebar-menu-bottom .sidebar-controls {
+    order: 9999;
+    padding: var(--sidebar-control-scroll-gap) 0 var(--sidebar-control-edge-gap);
+  }
+  :global(.sidebar-control-buttons) {
+    gap: var(--sidebar-control-button-gap);
+  }
+  .sidebar-menu-bottom :global(.sidebar-control-buttons) {
+    flex-direction: column-reverse;
+  }
+  .sidebar-menu-bottom .hamburger-menu {
+    top: auto;
+    bottom: calc(100% - var(--sidebar-control-scroll-gap));
+    border-radius: 0.375rem 0.375rem 0 0;
+  }
+  .rs-sidebar:not(.sidebar-menu-bottom) :global(.sidebar-character-root) {
+    padding-top: 0;
   }
   .hamburger-menu::-webkit-scrollbar {
     display: none;

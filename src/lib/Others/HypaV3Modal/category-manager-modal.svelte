@@ -128,7 +128,7 @@
         <button
           class="flex min-h-11 w-full items-center gap-3 rounded-md border border-darkborderc px-3 py-1 text-left text-textcolor transition-colors {filterState.selectedCategoryFilter === 'all'
             ? 'bg-selected'
-            : 'bg-bgcolor/50 hover:bg-selected/30'}"
+            : 'bg-bgcolor/50 risu-interactive-surface'}"
           onclick={() => selectCategory('all')}
         >
           <span class="flex-1 text-sm">{language.hypaV3Modal.allCategories} ({hypaV3Data.summaries.length})</span>
@@ -140,7 +140,7 @@
           <div
             class="flex min-h-11 items-center gap-3 rounded-md border border-darkborderc px-3 py-1 text-textcolor transition-colors {filterState.selectedCategoryFilter === category.id
               ? 'bg-selected'
-              : 'bg-bgcolor/50 hover:bg-selected/30'}"
+              : 'bg-bgcolor/50 risu-interactive-surface'}"
           >
             {#if categoryManagerState.editingCategory?.id === category.id}
               <ShInput

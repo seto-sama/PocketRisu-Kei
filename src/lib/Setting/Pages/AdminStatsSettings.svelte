@@ -462,7 +462,7 @@
                         onOpenChange={(v) => { expanded = { ...expanded, [entry.id]: v } }}
                     >
                         <Collapsible.Trigger class="w-full text-left group">
-                            <SettingLayout variant="item" className="gap-2 hover:bg-selected/30 group-focus-visible:bg-selected/30">
+                            <SettingLayout variant="item" className="gap-2 risu-interactive-surface group-focus-visible:bg-selected/30">
                             <!-- Level icon + badge -->
                             <ShBadge variant={levelVariant(entry.level)} className="shrink-0">
                                 {#if entry.level === 'error'}

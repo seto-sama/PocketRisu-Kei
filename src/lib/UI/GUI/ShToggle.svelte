@@ -33,18 +33,17 @@
     // text-base: 16px constant, mirroring ShButton. xs/sm sizes override below.
     const base =
         'inline-flex items-center justify-center gap-1.5 rounded-md text-base font-medium shrink-0 ' +
-        'whitespace-nowrap border border-transparent transition-colors cursor-pointer outline-none select-none ' +
-        'focus-visible:border-borderc ' +
+        'whitespace-nowrap border border-transparent transition-colors cursor-pointer select-none ' +
         'disabled:opacity-50 disabled:pointer-events-none ' +
         '[&_svg]:pointer-events-none [&_svg]:shrink-0';
 
     const variantClasses: Record<ShToggleVariant, string> = {
         default:
-            'bg-darkbg text-textcolor2 hover:bg-selected/30 hover:text-textcolor ' +
+            'bg-darkbg text-textcolor2 risu-interactive-surface risu-interactive-foreground ' +
             'data-[state=on]:bg-selected data-[state=on]:text-textcolor',
         outline:
             'border border-darkborderc bg-transparent text-textcolor2 ' +
-            'hover:bg-selected/30 hover:text-textcolor ' +
+            'risu-interactive-surface risu-interactive-foreground ' +
             'data-[state=on]:bg-selected data-[state=on]:text-textcolor data-[state=on]:border-borderc',
     };
 

@@ -57,7 +57,7 @@
     <div class="flex flex-col gap-1 max-h-[50vh] overflow-y-auto pr-1">
         {#each bundledSoundIds as id}
             {@const selected = value === id || (!value && id === 'default')}
-            <div class="flex items-center gap-2 rounded-md px-3 py-2 transition-colors {selected ? 'bg-selected' : 'hover:bg-selected/50'}">
+            <div class="flex items-center gap-2 rounded-md px-3 py-2 transition-colors {selected ? 'bg-selected' : 'risu-interactive-surface-strong'}">
                 {#if selected}
                     <CheckIcon size={16} class="text-primary shrink-0" />
                 {:else}
@@ -66,7 +66,7 @@
                 <button class="flex-1 text-left truncate" onclick={() => select(id)}>
                     {presetLabel(id)}
                 </button>
-                <button class="shrink-0 hover:text-primary" onclick={() => playSoundPreview(id, volume)} aria-label={language.preview}>
+                <button class="shrink-0 risu-interactive-accent" onclick={() => playSoundPreview(id, volume)} aria-label={language.preview}>
                     <PlayIcon size={18} />
                 </button>
             </div>
@@ -74,7 +74,7 @@
 
         {#each DBState.db.customSounds ?? [] as s (s.id)}
             {@const selected = value === s.path}
-            <div class="flex items-center gap-2 rounded-md px-3 py-2 transition-colors {selected ? 'bg-selected' : 'hover:bg-selected/50'}">
+            <div class="flex items-center gap-2 rounded-md px-3 py-2 transition-colors {selected ? 'bg-selected' : 'risu-interactive-surface-strong'}">
                 {#if selected}
                     <CheckIcon size={16} class="text-primary shrink-0" />
                 {:else}
@@ -83,10 +83,10 @@
                 <button class="flex-1 text-left truncate" onclick={() => select(s.path)} title={s.name}>
                     {s.name}
                 </button>
-                <button class="shrink-0 hover:text-primary" onclick={() => playSoundPreview(s.path, volume)} aria-label={language.preview}>
+                <button class="shrink-0 risu-interactive-accent" onclick={() => playSoundPreview(s.path, volume)} aria-label={language.preview}>
                     <PlayIcon size={18} />
                 </button>
-                <button class="shrink-0 text-textcolor2 hover:text-red-500" onclick={() => removeCustom(s)} aria-label={language.remove}>
+                <button class="shrink-0 text-textcolor2 risu-interactive-danger" onclick={() => removeCustom(s)} aria-label={language.remove}>
                     <Trash2Icon size={18} />
                 </button>
             </div>

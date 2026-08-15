@@ -20,7 +20,7 @@
     import { getCurrentCharacter, getCurrentChat, normalizeChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
-    import AutoresizeArea from "../UI/GUI/TextAreaResizable.svelte"
+    import TextAreaInput from "../UI/GUI/TextAreaInput.svelte"
     import ChatBody from './ChatBody.svelte'
     import PopupButton from "../UI/PopupButton.svelte";
     import { createRevenantChatTranslationRecovery, type RevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from "src/ts/process/revenant/recovery";
@@ -43,6 +43,7 @@
     let partialEditRoot: HTMLDivElement | null = $state(null)
     let activeTranslationTasks = 0
     let cancelTranslationRequest: (() => void) | null = $state(null)
+    let messageEditTextAreaStyle = $derived(`font-size:${0.875 * (DBState.db.zoomsize / 100)}rem;line-height:${(DBState.db.lineHeight ?? 1.25) * (DBState.db.zoomsize / 100)}rem`)
     const translationDisabledClasses = 'disabled:opacity-50 disabled:cursor-not-allowed'
     interface Props {
         message?: string;
@@ -539,59 +540,73 @@
 
 
 {#snippet genInfo()}
-    <div class="flex flex-col items-end" class:standard-risu-gen-info={DBState.db.theme === 'standardRisu'}>
+    <IconButtonGroup
+        size="lg"
+        className={`chat-generation-info flex-wrap justify-end gap-1 ${DBState.db.theme === 'standardRisu' ? 'flex-row-reverse' : ''}`}
+        style="min-height:var(--icon-cell-size)"
+    >
         {#if messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())}
-            <button class="text-sm p-1 text-textcolor2 float-end mr-2 my-1
-                    rounded-md hover:text-primary transition-colors flex justify-center items-center"
-                    onclick={() => {
-                        const currentGenerationInfo = idx >= 0 ? 
-                            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx].generationInfo :
-                            messageGenerationInfo
+            {@const modelLabel = capitalize(getModelInfo(messageGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))}
+            <IconButton
+                expanded
+                className="text-sm"
+                aria-label={modelLabel}
+                title={modelLabel}
+                onclick={() => {
+                    const currentGenerationInfo = idx >= 0 ?
+                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx].generationInfo :
+                        messageGenerationInfo
 
-                        alertRequestData({
-                            genInfo: currentGenerationInfo,
-                            idx: idx,
-                        })
-                    }}
+                    alertRequestData({
+                        genInfo: currentGenerationInfo,
+                        idx: idx,
+                    })
+                }}
             >
-                <BotIcon size={20} />
-                <span class="ml-1 max-w-[288px] truncate">
-                    {capitalize(getModelInfo(messageGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))}
+                <BotIcon />
+                <span class="hidden max-w-[288px] truncate sm:inline">
+                    {modelLabel}
                 </span>
-            </button>
+            </IconButton>
         {/if}
         {#if DBState.db.translatorType === 'llm' && translated}
-            <button class="text-sm p-1 text-textcolor2 float-end mr-2 my-1
-                            rounded-md hover:text-primary transition-colors flex justify-center items-center
-                            {translationDisabledClasses} disabled:hover:text-textcolor2"
-                    disabled={isTranslationControlBusy()}
-                    onclick={requestRetranslation}
+            <IconButton
+                expanded
+                className="text-sm"
+                disabled={isTranslationControlBusy()}
+                aria-label={language.retranslate}
+                title={language.retranslate}
+                onclick={requestRetranslation}
             >
-                <RefreshCcwIcon size={20} />
-                <span class="ml-1">
-                    {language.retranslate}
-                </span>
-            </button>
-            <button class={"text-sm p-1 float-end mr-2 my-1 rounded-md hover:text-primary transition-colors flex justify-center items-center " + translationDisabledClasses + " " + ((editTranslationMode || editTranslationKeyMode) ? 'text-primary' : 'text-textcolor2')}
-                    disabled={isTranslationControlBusy()}
-                    onclick={toggleTranslationEdit}
+                <RefreshCcwIcon />
+                <span>{language.retranslate}</span>
+            </IconButton>
+            <IconButton
+                expanded
+                className="text-sm"
+                active={editTranslationMode || editTranslationKeyMode}
+                activeColor="primary"
+                disabled={isTranslationControlBusy()}
+                aria-label={editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
+                title={editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
+                onclick={toggleTranslationEdit}
             >
-                <PencilIcon size={20} />
-                <span class="ml-1">
+                <PencilIcon />
+                <span>
                     {editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
                 </span>
-            </button>
+            </IconButton>
         {/if}
-    </div>
+    </IconButtonGroup>
 {/snippet}
 
 {#snippet textBox()}
     {#if editTranslationMode}
-        <AutoresizeArea bind:value={editTranslationText} handleLongPress={() => {
+        <TextAreaInput bind:value={editTranslationText} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             saveTranslationEdit()
         }} />
     {:else if editMode}
-        <AutoresizeArea bind:value={editDraft} handleLongPress={() => {
+        <TextAreaInput bind:value={editDraft} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             editMode = false
             editTranslationKeyMode = false
             originalEditTranslationKey = null
@@ -1347,7 +1362,7 @@
                     {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
                         <span class="text-lg sm:text-xl text-textcolor flex items-center">
                             <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
-                            <button class="ml-2 text-textcolor2 hover:text-textcolor" onclick={() => {
+                            <button class="ml-2 text-textcolor2 risu-interactive-foreground" onclick={() => {
                                 DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'user' : 'char'
                                 ReloadChatPointer.update((v) => {
                                     v[idx] = (v[idx] ?? 0) + 1
@@ -1448,7 +1463,7 @@
                     {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && !blankMessage && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
                         <span class="chat-width text-xl border-darkborderc flex items-center text-textcolor">
                             <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
-                            <button class="ml-2 text-textcolor2 hover:text-textcolor" onclick={() => {
+                            <button class="ml-2 text-textcolor2 risu-interactive-foreground" onclick={() => {
                                 DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'user' : 'char'
                                 ReloadChatPointer.update((v) => {
                                     v[idx] = (v[idx] ?? 0) + 1
@@ -1473,7 +1488,7 @@
                     {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && !blankMessage && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
                         <span class="chat-width text-xl border-darkborderc flex items-center text-textcolor">
                             <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
-                            <button class="ml-2 text-textcolor2 hover:text-textcolor" onclick={() => {
+                            <button class="ml-2 text-textcolor2 risu-interactive-foreground" onclick={() => {
                                 DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'user' : 'char'
                                 ReloadChatPointer.update((v) => {
                                     v[idx] = (v[idx] ?? 0) + 1
@@ -1503,9 +1518,3 @@
     "border-warning": disabled === 'allBefore',
 }}></div>
 {/if}
-
-<style>
-    .standard-risu-gen-info {
-        flex-direction: row-reverse;
-    }
-</style>

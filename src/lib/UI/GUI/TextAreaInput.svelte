@@ -1,5 +1,5 @@
 <div
-    class={"border border-darkborderc relative flex flex-col n-scroll focus-within:border-borderc rounded-md shadow-xs text-textcolor focus-within:outline-hidden transition-colors duration-200 z-20 focus-within:z-40"
+    class={"risu-field-border relative flex flex-col n-scroll rounded-md shadow-xs text-textcolor focus-within:outline-hidden z-20 focus-within:z-40"
         + (margin === 'top' ? ' mt-4' : margin === 'bottom' ? ' mb-4' : margin === 'both' ? ' mt-2 mb-2' : '')
         + ((className) ? (' ' + className) : '')}
     class:text-sm={size === 'sm' || (size === 'default' && $textAreaTextSize === 1)}
@@ -31,6 +31,7 @@
     class:min-h-64={height === 'default' && $textAreaSize === 3}
     class:min-h-72={height === 'default' && $textAreaSize === 4}
     class:min-h-80={height === 'default' && $textAreaSize === 5}
+    style={autoResize ? `${style};height:${autoHeight};min-height:44px` : (style || undefined)}
     bind:this={highlightDom}
     onfocusout={() => {
         hideAutoComplete()
@@ -39,7 +40,7 @@
     <div class="relative flex-1 min-h-0 w-full">
     {#if !highlight || $disableHighlight}
         <textarea
-            class="w-full h-full bg-transparent focus-within:outline-hidden resize-none absolute top-0 left-0 z-50 overflow-y-auto"
+            class="w-full h-full bg-transparent resize-none absolute top-0 left-0 z-50 {autoResize ? 'overflow-y-hidden' : 'overflow-y-auto'} {contentClassName}"
             class:px-4={padding}
             class:py-2={padding}
             {autocomplete}
@@ -62,6 +63,7 @@
                     value = e.currentTarget.value
                     onInput()
                 }
+                scheduleAutoResize()
             }}
             onchange={(e) => {
                 if(optimaizedInput){
@@ -74,22 +76,23 @@
                 handlePopupEditorHotkey(e)
             }}
             oncontextmenu={(e) => {
-                if(!readonly && DBState.db.longPressToPopupEditor){
+                if(!onLongPress && !readonly && DBState.db.longPressToPopupEditor){
                     e.preventDefault()
                     openPopupEditor()
                 }
             }}
+            use:optionalLongpress
 ></textarea>
 {:else}
     <div
-        class="w-full h-full bg-transparent focus-within:outline-hidden resize-none absolute top-0 left-0 z-50 overflow-y-auto px-4 py-2 wrap-break-word whitespace-pre-wrap"
+        class="w-full h-full bg-transparent resize-none absolute top-0 left-0 z-50 {autoResize ? 'overflow-y-hidden' : 'overflow-y-auto'} px-4 py-2 wrap-break-word whitespace-pre-wrap {contentClassName}"
         contenteditable="true"
         bind:textContent={value}
         onkeydown={(e) => {
             if (!handlePopupEditorHotkey(e)) handleKeyDown(e)
         }}
         oncontextmenu={(e) => {
-            if(!readonly && DBState.db.longPressToPopupEditor){
+            if(!onLongPress && !readonly && DBState.db.longPressToPopupEditor){
                 e.preventDefault()
                 openPopupEditor()
             }
@@ -100,11 +103,13 @@
             value = e.currentTarget.textContent ?? ''
             onInput()
             autoComplete()
+            scheduleAutoResize()
         }}
         onchange={(e) => {
             onchange()
         }}
         bind:this={inputDom}
+        use:optionalLongpress
         translate="no"
     >{value ?? ''}</div>
 {/if}
@@ -141,7 +146,7 @@
 <script lang="ts">
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
     import { highlighter, getNewHighlightId, removeHighlight, AllCBS } from 'src/ts/gui/highlight'
-    import { onDestroy, onMount } from 'svelte';
+    import { onDestroy, onMount, tick } from 'svelte';
   import { DBState, disableHighlight, showPopupEditor } from 'src/ts/stores.svelte';
   import { isMobile } from 'src/ts/platform'
     import { Maximize2, CopyIcon, CheckIcon, RefreshCwIcon } from '@lucide/svelte'
@@ -151,6 +156,7 @@
     import IconButton from './IconButton.svelte'
     import IconButtonGroup from './IconButtonGroup.svelte'
     import { hotkeyMatches } from 'src/ts/defaulthotkeys'
+    import { longpress } from 'src/ts/gui/longtouch'
     interface Props {
         size?: 'xs'|'sm'|'md'|'lg'|'xl'|'default';
         autocomplete?: 'on'|'off';
@@ -171,6 +177,10 @@
         tabindex?: number;
         textareaRef?: HTMLTextAreaElement;
         onfocus?: (event: FocusEvent & { currentTarget: HTMLTextAreaElement }) => void;
+        autoResize?: boolean;
+        onLongPress?: (event: MouseEvent) => void;
+        contentClassName?: string;
+        style?: string;
     }
 
     let {
@@ -193,6 +203,10 @@
         tabindex = undefined,
         textareaRef = $bindable(),
         onfocus = undefined,
+        autoResize = false,
+        onLongPress = undefined,
+        contentClassName = '',
+        style = '',
     }: Props = $props();
     // `actionBar` prop overrides per-field; otherwise follow the accessibility toggle.
     const showActionBar = $derived(actionBar ?? DBState.db.showInputActionBar ?? true)
@@ -209,6 +223,32 @@
     let autoCompleteDom: HTMLDivElement = $state()
     let autocompleteContents:string[] = $state([])
     let inputDom: HTMLDivElement = $state()
+    let autoHeight = $state('44px')
+
+    const scheduleAutoResize = () => {
+        if(!autoResize) return
+        // Collapse before measuring so the frame can shrink as content is removed.
+        autoHeight = '44px'
+        tick().then(() => {
+            const target = textareaRef ?? inputDom
+            if(!target) return
+            autoHeight = `${Math.max(target.scrollHeight, 44)}px`
+        })
+    }
+
+    function optionalLongpress(node: HTMLElement) {
+        const action = onLongPress ? longpress(node, onLongPress) : undefined
+        return {
+            destroy: () => action?.destroy(),
+        }
+    }
+
+    $effect(() => {
+        if(autoResize){
+            void value
+            scheduleAutoResize()
+        }
+    })
 
     const autoComplete = () => {
         if(isMobile){
@@ -351,6 +391,7 @@
 
     onMount(() => {
         highlighter(highlightDom, highlightId)
+        scheduleAutoResize()
     })
 
     onDestroy(() => {

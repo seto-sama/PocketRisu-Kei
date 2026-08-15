@@ -20,16 +20,16 @@
             role="button"
             tabindex="0"
             aria-label={`${name} ${language.showHelp}`.trim()}
-            class="relative help ml-1 inline-flex size-4 shrink-0 items-center justify-center cursor-help hover:text-primary"
+            class="relative help ml-1 inline-flex size-4 shrink-0 items-center justify-center cursor-help risu-interactive-accent"
             style="vertical-align: -2px;"
             onclick={(event) => event.stopPropagation()}
         >
             {#if key === "experimental"}
-                <span class="text-draculared hover:text-primary">
+                <span class="text-draculared risu-interactive-accent">
                     <FlaskConicalIcon size={16} />
                 </span>
             {:else if unrecommended}
-                <span class="text-draculared hover:text-primary">
+                <span class="text-draculared risu-interactive-accent">
                     <TriangleAlert size={12} />
                 </span>
             {:else}

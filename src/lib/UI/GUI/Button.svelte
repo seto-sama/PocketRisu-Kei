@@ -2,10 +2,10 @@
     onclick={onclick}
     {disabled}
     class="{
-        styled === 'primary' ? ((selected ? 'bg-bg-selected' : 'bg-darkbutton') + " hover:bg-selected focus:border-selected border-darkborderc")
-        : styled === 'outlined' ? 'bg-transparent hover:bg-darkbg focus:border-selected border-darkborderc text-textcolor2'
-        : ((selected ? 'bg-red-800' : 'bg-red-700') + ' hover:bg-red-500 focus:border-red-400 border-red-600')
-    } border text-textcolor rounded-md shadow-xs focus:outline-hidden transition-colors duration-200{className ? (" " + className) : ""}"
+        styled === 'primary' ? ((selected ? 'bg-bg-selected' : 'bg-darkbutton') + " risu-interactive-surface-solid border-darkborderc")
+        : styled === 'outlined' ? 'bg-transparent hover:bg-darkbg border-darkborderc text-textcolor2'
+        : ((selected ? 'bg-red-800' : 'bg-red-700') + ' hover:bg-red-500 border-red-600')
+    } border text-textcolor rounded-md shadow-xs transition-colors duration-200{className ? (" " + className) : ""}"
     class:opacity-50={disabled}
     class:cursor-not-allowed={disabled}
     class:px-4 = {size == "md"}

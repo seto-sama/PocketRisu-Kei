@@ -344,6 +344,55 @@ describe('Chat editing', () => {
         expect(translatorMocks.translateHTML).toHaveBeenCalledTimes(1)
     })
 
+    it('reserves one toolbar row when generation and translation controls are absent', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'First message',
+                name: 'Character',
+                role: 'char',
+                idx: -1,
+                firstMessage: true,
+                totalLength: 1,
+                isLastMemory: false,
+            },
+        })
+        mountedComponents.push(component)
+        await tick()
+
+        const generationInfo = target.querySelector('.chat-generation-info')
+        expect(generationInfo?.getAttribute('data-icon-size')).toBe('lg')
+        expect((generationInfo as HTMLElement | null)?.style.minHeight).toBe('var(--icon-cell-size)')
+    })
+
+    it('hides the model label on mobile while retaining its icon', async () => {
+        DBState.db.requestInfoInsideChat = true
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'Model response',
+                name: 'Character',
+                role: 'char',
+                idx: -1,
+                messageGenerationInfo: { model: 'test-model' },
+                totalLength: 1,
+                isLastMemory: false,
+            },
+        })
+        mountedComponents.push(component)
+        await tick()
+
+        const modelButton = target.querySelector<HTMLButtonElement>('.chat-generation-info button')
+        const modelLabel = modelButton?.querySelector('span')
+        expect(modelButton?.querySelector('svg')).not.toBeNull()
+        expect(modelLabel?.classList.contains('hidden')).toBe(true)
+        expect(modelLabel?.classList.contains('sm:inline')).toBe(true)
+    })
+
     it('updates every non-final editor independently in a four-message blank chat', async () => {
         const messages: Message[] = [
             { role: 'user', data: '', chatId: 'message-0' },

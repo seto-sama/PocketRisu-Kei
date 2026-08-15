@@ -59,17 +59,17 @@
                 
                 <div class="border-l-selected border-l ml-1 mr-1"></div>
                 {#if openedData.hasEmotion}
-                    <button class="text-textcolor2 hover:text-primary transition-colors" onclick={((e) => {
+                    <button class="text-textcolor2 risu-interactive-accent transition-colors" onclick={((e) => {
                         notifyInfo("This character includes emotion images")
                     })}><SmileIcon /></button>
                 {/if}
                 {#if openedData.hasAsset}
-                    <button class="text-textcolor2 hover:text-primary transition-colors" onclick={((e) => {
+                    <button class="text-textcolor2 risu-interactive-accent transition-colors" onclick={((e) => {
                         notifyInfo("This character includes additional Assets")
                     })}><ImageIcon /></button>
                 {/if}
                 {#if openedData.hasLore}
-                    <button class="text-textcolor2 hover:text-primary transition-colors" onclick={((e) => {
+                    <button class="text-textcolor2 risu-interactive-accent transition-colors" onclick={((e) => {
                         notifyInfo("This character includes lorebook")
                     })}><BookIcon /></button>
                 {/if}
@@ -78,7 +78,7 @@
         </div>
 
         <div class="flex flex-row-reverse gap-2">
-            <button class="text-textcolor2 hover:text-red-500" onclick={(async (e) => {
+            <button class="text-textcolor2 risu-interactive-danger" onclick={(async (e) => {
                 e.stopPropagation()
                 const conf = await alertConfirm('Report this character?')
                 if(conf){
@@ -96,7 +96,7 @@
                 <FlagIcon />
             </button>
             {#if (DBState.db.account?.token?.split('-') ?? [])[1] === openedData.creator}
-                <button class="text-textcolor2 hover:text-red-500" onclick={(async (e) => {
+                <button class="text-textcolor2 risu-interactive-danger" onclick={(async (e) => {
                     e.stopPropagation()
                     const conf = await alertConfirm('Do you want to remove this character from Realm?')
                     if(conf){
@@ -113,7 +113,7 @@
                     <TrashIcon />
                 </button>
             {/if}
-            <button class="text-textcolor2 hover:text-primary" onclick={(async (e) => {
+            <button class="text-textcolor2 risu-interactive-accent" onclick={(async (e) => {
                 e.stopPropagation()
                 await navigator.clipboard.writeText(`https://realm.risuai.net/character/${openedData.id}`)
                 notifyInfo(language.clipboardSuccess)

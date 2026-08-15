@@ -56,7 +56,7 @@
         <div class="flex items-center text-textcolor mb-4">
             <h2 class="mt-0 mb-0">{language.modelPresets}</h2>
             <div class="grow flex justify-end">
-                <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer items-center" onclick={close}>
+                <button class="text-textcolor2 risu-interactive-accent mr-2 cursor-pointer items-center" onclick={close}>
                     <XIcon size={20}/>
                 </button>
             </div>
@@ -114,7 +114,7 @@
                     {/if}
                 {/if}
                 <div class="no-sort grow flex justify-end">
-                    <div class="text-textcolor2 hover:text-primary cursor-pointer mr-2" role="button" tabindex="0" onclick={(e) => {
+                    <div class="text-textcolor2 risu-interactive-accent cursor-pointer mr-2" role="button" tabindex="0" onclick={(e) => {
                         e.stopPropagation()
                         duplicatePreset(i)
                     }} onkeydown={(e) => {
@@ -124,7 +124,7 @@
                     }}>
                         <CopyIcon size={18}/>
                     </div>
-                    <div class="text-textcolor2 hover:text-red-400 cursor-pointer" role="button" tabindex="0" onclick={(e) => {
+                    <div class="text-textcolor2 risu-interactive-danger cursor-pointer" role="button" tabindex="0" onclick={(e) => {
                         e.stopPropagation()
                         deletePreset(i)
                     }} onkeydown={(e) => {
@@ -141,7 +141,7 @@
 
         <div class="flex mt-2 items-center">
             <!-- "+ 새로 만들기" — P2에서 registry profile browser 모달로 교체 -->
-            <button class="text-textcolor2 hover:text-primary cursor-pointer" onclick={() => {
+            <button class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={() => {
                 editMode = !editMode
             }} aria-label="Toggle edit mode">
                 <PencilIcon size={18}/>
@@ -155,7 +155,7 @@
         word-break: normal;
         overflow-wrap: anywhere;
     }
-    .draggable-preset:hover {
+    .draggable-preset:is(:hover, :focus-visible) {
         cursor: grab;
     }
     .draggable-preset:active {

@@ -441,7 +441,7 @@
                                 {#each getFilteredTriggers() as type}
                                     <button
                                         type="button"
-                                        class="block w-full border-b border-darkborderc p-2 text-left text-sm text-textcolor2 last:border-b-0 hover:bg-selected hover:text-textcolor"
+                                        class="block w-full border-b border-darkborderc p-2 text-left text-sm text-textcolor2 last:border-b-0 risu-interactive-surface-solid risu-interactive-foreground"
                                         class:opacity-60={effectCategories.Deprecated.includes(type)}
                                         onclick={() => addEffect(i, type)}
                                     >

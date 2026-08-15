@@ -24,7 +24,7 @@
 
 <div class="relative" class:w-full={fullwidth}>
     <input
-        class={"border border-darkborderc peer focus:border-borderc rounded-md shadow-xs text-textcolor bg-transparent focus:outline-hidden transition-colors duration-200 px-4 py-2 pr-10 w-full" + (className ? (' ' + className) : '')}
+        class={"risu-field-border peer rounded-md shadow-xs text-textcolor bg-transparent px-4 py-2 pr-10 w-full" + (className ? (' ' + className) : '')}
         class:text-textcolor2={disabled}
         autocomplete="new-password"
         {placeholder}
@@ -34,7 +34,7 @@
     />
     <button
         type="button"
-        class="absolute right-2 top-1/2 -translate-y-1/2 text-textcolor2 hover:text-textcolor transition-colors"
+        class="absolute right-2 top-1/2 -translate-y-1/2 text-textcolor2 risu-interactive-foreground transition-colors"
         title={revealed ? 'hide' : 'show'}
         onclick={() => { revealed = !revealed }}
         tabindex="-1"

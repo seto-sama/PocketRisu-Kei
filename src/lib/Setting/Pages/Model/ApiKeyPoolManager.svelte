@@ -158,7 +158,7 @@
             {#each entries as entry, i (entry.id)}
                 <div
                     data-sortable-key={entry.id}
-                    class="flex items-center border border-darkborderc rounded-md p-3 gap-2 hover:bg-selected/30 transition-colors"
+                    class="flex items-center border border-darkborderc rounded-md p-3 gap-2 risu-interactive-surface transition-colors"
                     class:hidden={formOpen && editId === entry.id}
                     role="listitem"
                 >
@@ -169,10 +169,10 @@
                         </span>
                     </div>
                     <div class="no-sort flex gap-2 shrink-0">
-                        <button class="text-textcolor2 hover:text-primary" title={language.edit} onclick={() => openEdit(entry.id)}>
+                        <button class="text-textcolor2 risu-interactive-accent" title={language.edit} onclick={() => openEdit(entry.id)}>
                             <PencilIcon size={18} />
                         </button>
-                        <button class="text-textcolor2 hover:text-red-400" title={language.remove} onclick={() => remove(entry.id, entry.name)}>
+                        <button class="text-textcolor2 risu-interactive-danger" title={language.remove} onclick={() => remove(entry.id, entry.name)}>
                             <TrashIcon size={18} />
                         </button>
                     </div>
