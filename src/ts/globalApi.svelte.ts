@@ -34,8 +34,11 @@ import {
     deleteServerFetchLog as deleteServerFetchLogRequest,
     formatFetchLogValue,
     getServerFetchLogByChatId as getServerFetchLogByChatIdRequest,
+    getServerFetchLogById as getServerFetchLogByIdRequest,
     getServerFetchLogs as getServerFetchLogsRequest,
     type FetchLog,
+    type FetchLogPage,
+    type FetchLogSummary,
 } from "./requestLogStore";
 import { type RevenantGenerationRequest } from "./process/revenant";
 import {
@@ -49,7 +52,7 @@ configureRevenantGenerationClient({
     getSyncClientId,
 })
 
-export type { FetchLog } from "./requestLogStore";
+export type { FetchLog, FetchLogPage, FetchLogSummary } from "./requestLogStore";
 
 let fetchLog: FetchLog[] = $state([])
 
@@ -1760,8 +1763,12 @@ export function deleteFetchLog(id: string) {
     fetchLog = fetchLog.filter(log => log.id !== id)
 }
 
-export async function getServerFetchLogs(): Promise<FetchLog[]> {
-    return getServerFetchLogsRequest(() => forageStorage.createAuth())
+export async function getServerFetchLogs(options: { limit?: number; beforeId?: string } = {}): Promise<FetchLogPage> {
+    return getServerFetchLogsRequest(() => forageStorage.createAuth(), options)
+}
+
+export async function getServerFetchLogById(id: string): Promise<FetchLog> {
+    return getServerFetchLogByIdRequest(id, () => forageStorage.createAuth())
 }
 
 export async function clearServerFetchLogs() {

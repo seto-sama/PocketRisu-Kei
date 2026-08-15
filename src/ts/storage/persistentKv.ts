@@ -65,9 +65,20 @@ export async function removePersistentKey(storageKey: string): Promise<void> {
     await forageStorage.removeItem(storageKey);
 }
 
-export async function listPersistentKeys(prefix = ""): Promise<string[]> {
+export async function listPersistentKeys(
+    prefix = "",
+    options?: { order?: 'updated-desc'; limit?: number; offset?: number },
+): Promise<string[]> {
     await ensureStorageReady();
-    return await forageStorage.keys(prefix);
+    return await forageStorage.keys(prefix, options);
+}
+
+export async function listPersistentKeyPage(
+    prefix = "",
+    options?: { order?: 'updated-desc'; limit?: number; offset?: number },
+): Promise<{ keys: string[]; total: number }> {
+    await ensureStorageReady();
+    return await forageStorage.keyPage(prefix, options);
 }
 
 export async function clearPersistentPrefix(prefix: string): Promise<void> {

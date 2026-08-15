@@ -37,6 +37,8 @@
         estimatedCostUsd?: number
     }
 
+    type UsageSummaryEntry = Omit<UsageEntry, 'jobId' | 'chatId'>
+
     interface UsageTotals {
         requests: number
         promptTokens: number
@@ -71,7 +73,11 @@
     })
 
     let entries = $state<UsageEntry[]>([])
+    let summaryEntries = $state<UsageSummaryEntry[]>([])
+    let totalCount = $state(0)
     let loading = $state(false)
+    let loadingMore = $state(false)
+    let hasMore = $state(false)
     let loadError = $state<string | null>(null)
     let entrySearch = $state('')
     let period = $state<UsagePeriod>('week')
@@ -147,11 +153,11 @@
             entry.jobId,
         ].join(' ').toLowerCase().includes(needle))
     })
-    const displayedEntries = $derived(filteredEntries.slice(0, LIST_LIMIT))
+    const displayedEntries = $derived(filteredEntries)
 
     const totals = $derived.by(() => {
         const result = emptyTotals()
-        for (const entry of rangeEntries) {
+        for (const entry of summaryEntries) {
             result.requests += 1
             result.promptTokens += entry.promptTokens ?? 0
             result.completionTokens += entry.completionTokens ?? 0
@@ -202,7 +208,7 @@
             })
         }
 
-        for (const entry of rangeEntries) {
+        for (const entry of summaryEntries) {
             const index = hourly
                 ? Math.floor((entry.timestamp - bucketStart) / unitMs)
                 : localDayOrdinal(entry.timestamp) - localDayOrdinal(bucketStart)
@@ -245,25 +251,99 @@
         return `$${roundedUp.toFixed(5).replace(/0+$/, '').replace(/\.$/, '')}`
     }
 
-    async function loadUsage() {
+    async function fetchUsagePage(
+        targetRange: { start: number; end: number },
+        beforeId?: string,
+    ) {
+        const auth = await forageStorage.createAuth()
+        const params = new URLSearchParams({
+            limit: String(LIST_LIMIT),
+            start: String(targetRange.start),
+            end: String(targetRange.end),
+        })
+        if (beforeId) params.set('before_id', beforeId)
+        const response = await fetch(`/api/usage?${params.toString()}`, {
+            headers: { 'risu-auth': auth },
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const json = await response.json()
+        return {
+            entries: (json.content ?? []) as UsageEntry[],
+            total: Number(json.total) || 0,
+        }
+    }
+
+    async function fetchUsageSummary(targetRange: { start: number; end: number }) {
+        const auth = await forageStorage.createAuth()
+        const params = new URLSearchParams({
+            start: String(targetRange.start),
+            end: String(targetRange.end),
+        })
+        const response = await fetch(`/api/usage/summary?${params.toString()}`, {
+            headers: { 'risu-auth': auth },
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const json = await response.json()
+        return (json.content ?? []) as UsageSummaryEntry[]
+    }
+
+    let usageFetchGeneration = 0
+
+    async function loadUsage(targetRange: { start: number; end: number }) {
+        const generation = ++usageFetchGeneration
         loading = true
         loadError = null
         try {
-            const auth = await forageStorage.createAuth()
-            const response = await fetch(`/api/usage?ts=${Date.now()}`, {
-                headers: { 'risu-auth': auth },
-            })
-            if (!response.ok) throw new Error(`HTTP ${response.status}`)
-            const json = await response.json()
-            const catalog = await getModelsDevCatalog()
-            entries = (json.content ?? []).map((entry: UsageEntry) => ({
+            const [page, summary, catalog] = await Promise.all([
+                fetchUsagePage(targetRange),
+                fetchUsageSummary(targetRange),
+                getModelsDevCatalog(),
+            ])
+            if (generation !== usageFetchGeneration) return
+            entries = page.entries.map(entry => ({
                 ...entry,
                 estimatedCostUsd: estimateModelsDevUsageCost(catalog, entry),
             }))
+            summaryEntries = summary.map(entry => ({
+                ...entry,
+                estimatedCostUsd: estimateModelsDevUsageCost(catalog, entry),
+            }))
+            totalCount = page.total
+            hasMore = page.entries.length > 0 && page.entries.length < page.total
         } catch (error) {
+            if (generation !== usageFetchGeneration) return
             loadError = error instanceof Error ? error.message : String(error)
         } finally {
-            loading = false
+            if (generation === usageFetchGeneration) loading = false
+        }
+    }
+
+    async function loadMoreUsage() {
+        if (loadingMore || !hasMore || entries.length === 0) return
+        loadingMore = true
+        loadError = null
+        const targetRange = range
+        const generation = usageFetchGeneration
+        try {
+            const [page, catalog] = await Promise.all([
+                fetchUsagePage(targetRange, entries[entries.length - 1].jobId),
+                getModelsDevCatalog(),
+            ])
+            if (generation !== usageFetchGeneration) return
+            const existing = new Set(entries.map(entry => entry.jobId))
+            const fresh = page.entries
+                .filter(entry => !existing.has(entry.jobId))
+                .map(entry => ({
+                    ...entry,
+                    estimatedCostUsd: estimateModelsDevUsageCost(catalog, entry),
+                }))
+            entries = [...entries, ...fresh]
+            totalCount = page.total
+            hasMore = fresh.length > 0 && entries.length < page.total
+        } catch (error) {
+            notifyError(error)
+        } finally {
+            loadingMore = false
         }
     }
 
@@ -280,6 +360,9 @@
             })
             if (!response.ok) throw new Error(`HTTP ${response.status}`)
             entries = []
+            summaryEntries = []
+            totalCount = 0
+            hasMore = false
         } catch (error) {
             notifyError(error)
         }
@@ -298,13 +381,15 @@
             })
             if (!response.ok) throw new Error(`HTTP ${response.status}`)
             entries = entries.filter(item => item.jobId !== entry.jobId)
+            await loadUsage(range)
         } catch (error) {
             notifyError(error)
         }
     }
 
     $effect(() => {
-        loadUsage()
+        const targetRange = { start: range.start, end: range.end }
+        loadUsage(targetRange)
     })
 </script>
 
@@ -486,14 +571,14 @@
             <SettingLayout variant="search">
                 <ShInput bind:value={entrySearch} placeholder={language.usageSearchPlaceholder} />
                 {#snippet control()}
-                    <ShButton variant="destructive" size="default" onclick={clearUsage} disabled={entries.length === 0}>
+                    <ShButton variant="destructive" size="default" onclick={clearUsage} disabled={loading || loadingMore}>
                         <Trash2Icon />
                         {language.systemLogsClearAll}
                     </ShButton>
                 {/snippet}
             </SettingLayout>
 
-            <SettingLayout variant="status" shownCount={displayedEntries.length} totalCount={filteredEntries.length} className="mt-3" />
+            <SettingLayout variant="status" shownCount={displayedEntries.length} {totalCount} className="mt-3" />
 
             {#if displayedEntries.length === 0}
                 <div class="flex flex-col items-center justify-center text-center py-12 bg-darkbg/30">
@@ -540,6 +625,14 @@
                         </SettingLayout>
                     {/each}
                 </SettingLayout>
+            {/if}
+
+            {#if hasMore}
+                <div class="flex justify-center mt-3">
+                    <ShButton variant="outline" size="default" disabled={loadingMore} onclick={loadMoreUsage}>
+                        {loadingMore ? language.systemLogsLoading : language.systemLogsLoadMore}
+                    </ShButton>
+                </div>
             {/if}
         </SettingLayout>
     {/if}

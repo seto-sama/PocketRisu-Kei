@@ -7,7 +7,6 @@
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import Help from "src/lib/Others/Help.svelte";
     import { language } from "src/lang";
-    import { onDestroy } from "svelte";
     import { alertClear, alertConfirm, alertError, alertNormal, alertStore, alertWait, notifyError, notifySuccess } from "src/ts/alert";
     import { clearLLMCache, deleteLLMCache, exportLLMCacheAsJSON, importLLMCacheFromJSON, setLLMCache } from "src/ts/translator/translator";
     import { listLLMCacheEntries, loadLLMCacheEntriesInBackground } from "./translationCacheEntries";
@@ -22,24 +21,23 @@
         value: string;
     };
 
-    const CACHE_DISPLAY_LIMIT = 20;
+    const CACHE_PAGE_SIZE = 100;
     const cacheEditorHeight = $derived(`${(10 + $textAreaSize) * 2}rem`);
 
     let cacheAllEntries = $state<TranslationCacheEntry[]>([]);
     let cacheSearch = $state('');
     let cacheInitialized = $state(false);
     let cacheLoading = $state(false);
-    let cacheBackgroundLoading = $state(false);
-    let cacheBackgroundLoaded = $state(false);
-    let cacheLoadError = $state<string | null>(null);
+    let cacheLoadingMore = $state(false);
+    let cacheHasMore = $state(false);
+    let cacheNextOffset = $state(0);
     let cacheTotal = $state(0);
+    let cacheLoadError = $state<string | null>(null);
     let expandedCacheEntries = $state<Record<string, boolean>>({});
     let originalVisibleCacheEntries = $state<Record<string, boolean>>({});
     let editingCacheKey = $state<string | null>(null);
     let editingCacheValue = $state('');
     let cacheLoadRequestId = 0;
-    let cacheBackgroundRequestId = 0;
-    let cacheBackgroundAbortController: AbortController | null = null;
 
     function resetTranslationCacheEditState() {
         editingCacheKey = null;
@@ -55,26 +53,25 @@
 
         return cacheAllEntries.filter((entry) => entry.key.toLowerCase().includes(normalizedSearch) || entry.value.toLowerCase().includes(normalizedSearch));
     });
-    let displayedCacheEntries = $derived(filteredCacheEntries.slice(0, CACHE_DISPLAY_LIMIT));
-    let cacheIsPending = $derived(!cacheInitialized || cacheLoading || cacheBackgroundLoading || !cacheBackgroundLoaded);
+    let displayedCacheEntries = $derived(filteredCacheEntries);
+    let cacheIsPending = $derived(!cacheInitialized || cacheLoading);
 
     async function loadTranslationCacheEntries() {
         const requestId = ++cacheLoadRequestId;
         cacheInitialized = true;
         cacheLoading = true;
         cacheLoadError = null;
-        const initialLimit = 100;
-
         try {
             const result = await listLLMCacheEntries({
-                limit: initialLimit,
+                limit: CACHE_PAGE_SIZE,
             });
             if (requestId !== cacheLoadRequestId) {
                 return;
             }
             cacheAllEntries = result.entries;
+            cacheHasMore = result.hasMore;
+            cacheNextOffset = result.nextOffset;
             cacheTotal = result.total;
-            startBackgroundTranslationCacheLoad();
         } catch (error) {
             if (requestId !== cacheLoadRequestId) {
                 return;
@@ -87,33 +84,26 @@
         }
     }
 
-    function startBackgroundTranslationCacheLoad() {
-        const requestId = ++cacheBackgroundRequestId;
-        cacheBackgroundAbortController?.abort();
-        cacheBackgroundAbortController = new AbortController();
-        cacheBackgroundLoading = true;
-        cacheBackgroundLoaded = false;
-
-        void loadLLMCacheEntriesInBackground({
-            batchSize: 200,
-            signal: cacheBackgroundAbortController.signal,
-            onProgress: ({ entries, total, done }) => {
-                if (requestId !== cacheBackgroundRequestId) {
-                    return;
-                }
-
-                cacheAllEntries = entries;
-                cacheTotal = total;
-                cacheBackgroundLoading = !done;
-                cacheBackgroundLoaded = done;
-            },
-        }).catch((error) => {
-            if (requestId !== cacheBackgroundRequestId) {
-                return;
-            }
+    async function loadMoreTranslationCacheEntries() {
+        if (cacheLoadingMore || !cacheHasMore) return;
+        cacheLoadingMore = true;
+        cacheLoadError = null;
+        try {
+            const result = await listLLMCacheEntries({
+                limit: CACHE_PAGE_SIZE,
+                offset: cacheNextOffset,
+            });
+            const existing = new Set(cacheAllEntries.map((entry) => entry.key));
+            const fresh = result.entries.filter((entry) => !existing.has(entry.key));
+            cacheAllEntries = [...cacheAllEntries, ...fresh];
+            cacheHasMore = result.hasMore;
+            cacheNextOffset = result.nextOffset;
+            cacheTotal = result.total;
+        } catch (error) {
             cacheLoadError = error instanceof Error ? error.message : String(error);
-            cacheBackgroundLoading = false;
-        });
+        } finally {
+            cacheLoadingMore = false;
+        }
     }
 
     async function copyTranslationCacheEntry(entry: TranslationCacheEntry) {
@@ -131,16 +121,10 @@
         }
 
         try {
-            const shouldContinueBackgroundLoad = !cacheBackgroundLoaded;
             await deleteLLMCache(entry.key);
-            cacheBackgroundAbortController?.abort();
-            cacheBackgroundRequestId++;
-            cacheBackgroundLoading = false;
             cacheAllEntries = cacheAllEntries.filter((cacheEntry) => cacheEntry.key !== entry.key);
+            cacheNextOffset = Math.max(0, cacheNextOffset - 1);
             cacheTotal = Math.max(0, cacheTotal - 1);
-            if (shouldContinueBackgroundLoad) {
-                startBackgroundTranslationCacheLoad();
-            }
             const nextExpanded = { ...expandedCacheEntries };
             delete nextExpanded[entry.key];
             expandedCacheEntries = nextExpanded;
@@ -177,6 +161,7 @@
                 ? { ...entry, value: editingCacheValue }
                 : entry);
             resetTranslationCacheEditState();
+            await loadTranslationCacheEntries();
             notifySuccess(language.translationCacheEntrySaved);
         } catch (error) {
             notifyError(error);
@@ -211,6 +196,7 @@
             if (!await alertConfirm(language.importTranslationCacheConfirm)) return;
             alertWait(language.loading);
             const { count, failed } = await importLLMCacheFromJSON(data);
+            if (count > 0) await loadTranslationCacheEntries();
             if (failed) {
                 alertError(language.importTranslationCacheFailed.replace("{0}", String(count)).replace("{1}", String(failed)));
             } else {
@@ -226,6 +212,13 @@
         alertWait(language.loading);
         try {
             await clearLLMCache();
+            cacheAllEntries = [];
+            cacheHasMore = false;
+            cacheNextOffset = 0;
+            cacheTotal = 0;
+            expandedCacheEntries = {};
+            originalVisibleCacheEntries = {};
+            resetTranslationCacheEditState();
             alertNormal(language.clearTranslationCacheSuccess);
         } catch (error: any) {
             alertError(error?.message ?? String(error));
@@ -298,6 +291,7 @@
                 setCleanupProgress(language.cleanupUnusedTranslationCacheProgressDeleting(index + 1, unusedEntries.length), 70 + (index + 1) / unusedEntries.length * 30);
                 await deleteLLMCache(unusedEntries[index].key);
             }
+            await loadTranslationCacheEntries();
             notifySuccess(language.cleanupUnusedTranslationCacheSuccess(unusedEntries.length));
         } catch (error) {
             notifyError(error);
@@ -305,11 +299,6 @@
             alertClear();
         }
     }
-
-    onDestroy(() => {
-        cacheBackgroundAbortController?.abort();
-        cacheBackgroundRequestId++;
-    });
 
     $effect(() => {
         if (!cacheInitialized) {
@@ -353,18 +342,18 @@
         <SettingLayout variant="search">
             <ShInput bind:value={cacheSearch} placeholder={language.translationCacheSearchPlaceholder} />
                 {#snippet control()}
-                    <ShButton variant="destructive" size="default" onclick={clearCache} disabled={cacheLoading || cacheBackgroundLoading || cacheAllEntries.length === 0}>
+                    <ShButton variant="destructive" size="default" onclick={clearCache} disabled={cacheLoading || cacheTotal === 0}>
                         <Trash2Icon />
                         {language.systemLogsClearAll}
                     </ShButton>
                 {/snippet}
             </SettingLayout>
 
-        <SettingLayout variant="status" shownCount={displayedCacheEntries.length} totalCount={filteredCacheEntries.length} className="mt-3"
-            loading={!cacheInitialized || cacheLoading || cacheBackgroundLoading} loadingLabel={language.loading} error={cacheLoadError} />
+        <SettingLayout variant="status" shownCount={displayedCacheEntries.length} totalCount={cacheTotal} className="mt-3"
+            loading={!cacheInitialized || cacheLoading} loadingLabel={language.loading} error={cacheLoadError} />
 
         {#if displayedCacheEntries.length > 0}
-            <SettingLayout variant="list">
+            <SettingLayout variant="list" scrollable>
                 {#each displayedCacheEntries as entry (entry.key)}
                     <Collapsible.Root
                         open={expandedCacheEntries[entry.key] === true}
@@ -447,6 +436,14 @@
             <div class="flex flex-col items-center justify-center text-center py-16 bg-darkbg/30">
                 <ScrollTextIcon size={48} class="text-textcolor2 mb-3 opacity-50" />
                 <div class="text-textcolor font-medium mb-1">{cacheIsPending ? language.loading : cacheSearch.trim() ? language.noData : language.exportTranslationCacheEmpty}</div>
+            </div>
+        {/if}
+
+        {#if cacheHasMore}
+            <div class="flex justify-center mt-3">
+                <ShButton variant="outline" size="default" disabled={cacheLoadingMore} onclick={loadMoreTranslationCacheEntries}>
+                    {cacheLoadingMore ? language.systemLogsLoading : language.systemLogsLoadMore}
+                </ShButton>
             </div>
         {/if}
     </SettingLayout>

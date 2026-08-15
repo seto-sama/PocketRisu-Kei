@@ -5,6 +5,8 @@ const { encoding_for_model, get_encoding } = require('@dqbd/tiktoken');
 const path = require('path');
 const fs = require('fs');
 
+const USAGE_LIST_LIMIT = 100;
+
 const saveDir = path.join(process.cwd(), 'save');
 if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
 
@@ -84,10 +86,55 @@ const stmtList = db.prepare(`
         cache_read_tokens AS cacheReadTokens,
         cache_creation_tokens AS cacheCreationTokens,
         reasoning_tokens AS reasoningTokens,
-        service_tier AS serviceTier, gateway_cost AS gatewayCost,
-        usage_json AS usageJson
+        service_tier AS serviceTier, gateway_cost AS gatewayCost
     FROM generation_usage
-    ORDER BY timestamp DESC
+    WHERE timestamp >= ? AND timestamp <= ?
+    ORDER BY timestamp DESC, rowid DESC
+    LIMIT ?
+`);
+const stmtListBefore = db.prepare(`
+    SELECT
+        current.job_id AS jobId, current.timestamp, current.chat_id AS chatId,
+        current.provider, current.model,
+        current.prompt_tokens AS promptTokens,
+        current.completion_tokens AS completionTokens,
+        current.total_tokens AS totalTokens,
+        current.cached_tokens AS cachedTokens,
+        current.cache_read_tokens AS cacheReadTokens,
+        current.cache_creation_tokens AS cacheCreationTokens,
+        current.reasoning_tokens AS reasoningTokens,
+        current.service_tier AS serviceTier,
+        current.gateway_cost AS gatewayCost
+    FROM generation_usage AS current
+    JOIN generation_usage AS boundary ON boundary.job_id = ?
+    WHERE current.timestamp >= ? AND current.timestamp <= ?
+        AND (
+            current.timestamp < boundary.timestamp
+            OR (current.timestamp = boundary.timestamp AND current.rowid < boundary.rowid)
+        )
+    ORDER BY current.timestamp DESC, current.rowid DESC
+    LIMIT ?
+`);
+const stmtCountRange = db.prepare(`
+    SELECT COUNT(*) AS total
+    FROM generation_usage
+    WHERE timestamp >= ? AND timestamp <= ?
+`);
+const stmtSummaryRange = db.prepare(`
+    SELECT
+        timestamp, provider, model,
+        prompt_tokens AS promptTokens,
+        completion_tokens AS completionTokens,
+        total_tokens AS totalTokens,
+        cached_tokens AS cachedTokens,
+        cache_read_tokens AS cacheReadTokens,
+        cache_creation_tokens AS cacheCreationTokens,
+        reasoning_tokens AS reasoningTokens,
+        service_tier AS serviceTier,
+        gateway_cost AS gatewayCost
+    FROM generation_usage
+    WHERE timestamp >= ? AND timestamp <= ?
+    ORDER BY timestamp ASC, rowid ASC
 `);
 const stmtTotals = db.prepare(`
     SELECT
@@ -352,14 +399,35 @@ function recordReportedUsage(arg) {
     }
 }
 
-function listUsage() {
-    return stmtList.all().map(row => {
-        const usage = JSON.parse(row.usageJson);
-        return {
-            ...row,
-            usage,
-        };
-    });
+function normalizeUsageRange(options = {}) {
+    const start = Number(options.start);
+    const end = Number(options.end);
+    return {
+        start: Number.isFinite(start) ? start : Number.MIN_SAFE_INTEGER,
+        end: Number.isFinite(end) ? end : Number.MAX_SAFE_INTEGER,
+    };
+}
+
+function listUsage(options = {}) {
+    if (typeof options === 'number') options = { limit: options };
+    const range = normalizeUsageRange(options);
+    const limit = Math.min(
+        Math.max(Number(options.limit) || USAGE_LIST_LIMIT, 1),
+        USAGE_LIST_LIMIT,
+    );
+    return options.beforeId
+        ? stmtListBefore.all(String(options.beforeId).slice(0, 128), range.start, range.end, limit)
+        : stmtList.all(range.start, range.end, limit);
+}
+
+function countUsage(options = {}) {
+    const range = normalizeUsageRange(options);
+    return stmtCountRange.get(range.start, range.end).total;
+}
+
+function summarizeUsage(options = {}) {
+    const range = normalizeUsageRange(options);
+    return stmtSummaryRange.all(range.start, range.end);
 }
 
 function getUsageTotals() {
@@ -378,7 +446,30 @@ function installUsageRoutes(app, { checkAuth, requireSyncClientId }) {
     app.get('/api/usage', async (req, res, next) => {
         if (!await checkAuth(req, res)) return;
         try {
-            res.send({ success: true, content: listUsage(), totals: getUsageTotals() });
+            const range = { start: req.query.start, end: req.query.end };
+            res.send({
+                success: true,
+                content: listUsage({
+                    limit: req.query.limit,
+                    beforeId: req.query.before_id,
+                    ...range,
+                }),
+                total: countUsage(range),
+            });
+        } catch (error) {
+            next(error);
+        }
+    });
+    app.get('/api/usage/summary', async (req, res, next) => {
+        if (!await checkAuth(req, res)) return;
+        try {
+            res.send({
+                success: true,
+                content: summarizeUsage({
+                    start: req.query.start,
+                    end: req.query.end,
+                }),
+            });
         } catch (error) {
             next(error);
         }
@@ -422,6 +513,8 @@ module.exports = {
     recordGenerationUsage,
     recordReportedUsage,
     listUsage,
+    countUsage,
+    summarizeUsage,
     getUsageTotals,
     clearUsage,
     deleteUsage,

@@ -122,7 +122,7 @@
             if (gen !== fetchGen) return
             entries = data.rows
             totalCount = data.total
-            hasMore = data.rows.length >= LIST_LIMIT && data.rows.length < data.total
+            hasMore = data.rows.length > 0 && data.rows.length < data.total
             expanded = {}
         } catch (err) {
             if (gen !== fetchGen) return
@@ -147,7 +147,7 @@
             const fresh = data.rows.filter(r => !existing.has(r.id))
             entries = [...entries, ...fresh]
             totalCount = data.total
-            hasMore = fresh.length >= LIST_LIMIT && entries.length < data.total
+            hasMore = fresh.length > 0 && entries.length < data.total
         } catch (err) {
             if (gen !== fetchGen) return
             loadError = err instanceof Error ? err.message : String(err)
@@ -279,7 +279,7 @@
             return hay.includes(needle)
         })
     })
-    const displayed = $derived(filtered.slice(0, LIST_LIMIT))
+    const displayed = $derived(filtered)
 
     // Active filter count = number of tags the user has *deselected* from the
     // default (all-on) state. The `explicitOnly` toggle is a mode, not a tag —

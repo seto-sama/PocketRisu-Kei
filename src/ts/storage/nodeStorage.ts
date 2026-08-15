@@ -264,11 +264,20 @@ export class NodeStorage{
 
         return data
     }
-    async keys(prefix: string = ''):Promise<string[]>{
+    async keyPage(prefix: string = '', options?: { order?: 'updated-desc'; limit?: number; offset?: number }):Promise<{ keys: string[]; total: number }>{
         const headers: Record<string, string> = {
         }
         if (prefix) {
             headers['key-prefix'] = prefix
+        }
+        if (options?.order === 'updated-desc') {
+            headers['key-order'] = options.order
+        }
+        if (options?.limit && Number.isSafeInteger(options.limit) && options.limit > 0) {
+            headers['key-limit'] = String(options.limit)
+        }
+        if (options?.offset && Number.isSafeInteger(options.offset) && options.offset > 0) {
+            headers['key-offset'] = String(options.offset)
         }
         const da = await this.authFetch('/api/list', {
             method: "GET",
@@ -281,7 +290,13 @@ export class NodeStorage{
         if(data.error){
             throw data.error
         }
-        return data.content
+        return {
+            keys: data.content,
+            total: Number(data.total) || data.content.length,
+        }
+    }
+    async keys(prefix: string = '', options?: { order?: 'updated-desc'; limit?: number; offset?: number }):Promise<string[]>{
+        return (await this.keyPage(prefix, options)).keys
     }
     async removeItem(key:string){
         const da = await this.authFetch('/api/remove', {

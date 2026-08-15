@@ -21,7 +21,7 @@ const getVips = () => {
     }
     return _vipsPromise
 }
-const { kvGet, kvSet, kvDel, kvList,
+const { kvGet, kvSet, kvDel, kvList, kvCount,
         kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue, clearEntities, checkpointWal,
         gcChunks, reclaimableChunkBytes, isDbBlobChunked, snapshotFootprint, db: sqliteDb } = require('./db.cjs');
 const {
@@ -3453,6 +3453,19 @@ app.get('/api/list', async (req, res, next) => {
     }
     try {
         const keyPrefix = req.headers['key-prefix'] || '';
+        const requestedLimit = Number(req.headers['key-limit']);
+        const requestedOffset = Number(req.headers['key-offset']);
+        const listOptions = req.headers['key-order'] === 'updated-desc'
+            && Number.isSafeInteger(requestedLimit)
+            && requestedLimit > 0
+            ? {
+                order: 'updated-desc',
+                limit: Math.min(requestedLimit, 5000),
+                offset: Number.isSafeInteger(requestedOffset) && requestedOffset > 0
+                    ? requestedOffset
+                    : 0,
+            }
+            : undefined;
         let data;
         if (keyPrefix === 'inlay/') {
             const fileKeys = (await listInlayFiles()).map((entry) => `inlay/${entry.id}`);
@@ -3461,9 +3474,13 @@ app.get('/api/list', async (req, res, next) => {
                 ...kvList('inlay/'),
             ])];
         } else {
-            data = kvList(keyPrefix || undefined);
+            data = kvList(keyPrefix || undefined, listOptions);
         }
-        res.send({ success: true, content: data });
+        res.send({
+            success: true,
+            content: data,
+            total: keyPrefix === 'inlay/' ? data.length : kvCount(keyPrefix || undefined),
+        });
     } catch (error) {
         next(error);
     }

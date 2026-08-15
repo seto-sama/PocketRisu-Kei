@@ -2105,7 +2105,7 @@ export const languageEnglish = {
     requestLogs: "Request Logs",
     requestLogsDesc: "View request logs stored on the server.",
     requestLogsEmptyDesc: "Request logs are stored on the server and appear here after requests are made.",
-    requestLogsSearchPlaceholder: "Search URL, body, response, header, device, or status",
+    requestLogsSearchPlaceholder: "Search URL, device, status, or chat ID",
     requestLogsClearConfirm: "Delete all request logs stored on the server? This cannot be undone.",
     requestLogsKept: (shown: number, filtered: number, total: number) => `Showing ${shown} of ${total} total request logs. (${filtered} search results total).`,
     usage: "Usage",

@@ -1926,7 +1926,7 @@ export const languageKorean = {
     "서버에 보관된 리퀘스트 로그를 확인합니다.",
   requestLogsEmptyDesc:
     "리퀘스트가 발생하면 서버에 보관되어 여기에 표시됩니다.",
-  requestLogsSearchPlaceholder: "URL, 본문, 응답, 헤더, 기기, 상태 검색",
+  requestLogsSearchPlaceholder: "URL, 기기, 상태, 채팅 ID 검색",
   requestLogsClearConfirm:
     "서버에 보관된 모든 리퀘스트 로그를 삭제할까요? 되돌릴 수 없습니다.",
   requestLogsKept: (

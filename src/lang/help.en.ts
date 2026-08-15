@@ -12,7 +12,7 @@
 
 export const helpEn = {
         "usageEntryTokens": "Input is shown as total input (cache read | cache creation), and output as total output (reasoning). When no cache is created, only cache read is shown.",
-        "translationCacheSearchLimit": "Only the first 20 entries matching the search criteria are displayed.",
+        "translationCacheSearchLimit": "Loads translation cache entries 100 at a time, newest first, and searches the entries loaded so far.",
         "banCharacterset": "Automatically regenerates the response if it contains any character from a selected character set.",
         model: "Model option is a main model used in chat.",
         submodel: "Auxiliary Model is used for tasks such as emotion analysis, translation, and summarization. A smaller model is recommended.",
