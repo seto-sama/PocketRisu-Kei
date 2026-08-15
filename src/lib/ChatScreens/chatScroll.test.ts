@@ -453,6 +453,35 @@ describe('chat scroll pixel snapping', () => {
         controller.destroy()
     })
 
+    it('does not scroll when the visible message itself grows upward', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const anchor = document.createElement('div')
+        anchor.className = 'chat-message-container'
+        container.appendChild(anchor)
+        container.scrollTop = -100
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        const anchorLayoutBottom = 80
+        let anchorHeight = 100
+        anchor.getBoundingClientRect = () => new DOMRect(
+            0,
+            anchorLayoutBottom - anchorHeight - container.scrollTop,
+            300,
+            anchorHeight,
+        )
+        const controller = createController(container)
+        observers.flushFrames()
+
+        expect(anchor.getBoundingClientRect().bottom).toBe(180)
+        anchorHeight = 500
+        observers.notifyResize()
+        observers.flushFrames()
+
+        expect(container.scrollTop).toBe(-100)
+        expect(anchor.getBoundingClientRect().bottom).toBe(180)
+        controller.destroy()
+    })
+
     it('keeps the pre-edit message anchor through intermediate layout scroll events', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')

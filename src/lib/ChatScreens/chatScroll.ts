@@ -48,7 +48,8 @@ export function isColumnReverseScrolledToBottom(scrollTop: number) {
 
 type ScrollAnchor = {
     element: HTMLElement
-    top: number
+    edge: 'top' | 'bottom'
+    position: number
 }
 
 type ScrollElementOptions = {
@@ -156,8 +157,9 @@ export function createChatScrollController(
         // A second pass absorbs the browser's own scroll-range clamping and
         // layout-unit rounding without spinning indefinitely.
         for (let pass = 0; pass < 2; pass++) {
-            const currentTop = anchor.element.getBoundingClientRect().top
-            const delta = currentTop - anchor.top
+            const rect = anchor.element.getBoundingClientRect()
+            const currentPosition = anchor.edge === 'top' ? rect.top : rect.bottom
+            const delta = currentPosition - anchor.position
             if (Math.abs(delta) <= POSITION_EPSILON) break
             const previousScrollTop = container.scrollTop
             container.scrollTop = previousScrollTop + delta
@@ -174,9 +176,15 @@ export function createChatScrollController(
         }
         anchor = {
             element,
-            top: snapToPixel
-                ? snapToDevicePixel(element.getBoundingClientRect().top, getRatio())
-                : element.getBoundingClientRect().top,
+            // Messages in the column-reverse chat grow upward. Their bottom
+            // edge stays in place while their own body is re-rendered, whereas
+            // anchoring the top would turn the entire height delta into a
+            // scroll jump. Bottom anchoring still preserves ordinary layout
+            // shifts because both edges move by the same amount then.
+            edge: 'bottom',
+            position: snapToPixel
+                ? snapToDevicePixel(element.getBoundingClientRect().bottom, getRatio())
+                : element.getBoundingClientRect().bottom,
         }
         return true
     }
@@ -473,7 +481,11 @@ export function createChatScrollController(
             pinnedToBottom = false
             anchor = {
                 element,
-                top: element.getBoundingClientRect().top,
+                // Explicit editor transitions preserve the element's top;
+                // unlike automatic chat anchoring, callers intentionally ask
+                // to hold this exact element in place while its UI changes.
+                edge: 'top',
+                position: element.getBoundingClientRect().top,
             }
         }
 
