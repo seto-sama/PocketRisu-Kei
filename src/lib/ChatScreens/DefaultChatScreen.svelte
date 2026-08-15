@@ -1,7 +1,6 @@
 <script lang="ts">
 
-    import Suggestion from './Suggestion.svelte';
-    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, Plus, RefreshCcwIcon, ReplyIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, ZapIcon, Maximize2, Minimize2 } from "@lucide/svelte";
+    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, Plus, RefreshCcwIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, ZapIcon, Maximize2, Minimize2 } from "@lucide/svelte";
     import ShDropdownMenu from 'src/lib/UI/GUI/ShDropdownMenu.svelte';
     import ShDropdownMenuTrigger from 'src/lib/UI/GUI/ShDropdownMenuTrigger.svelte';
     import ShDropdownMenuContent from 'src/lib/UI/GUI/ShDropdownMenuContent.svelte';
@@ -1528,13 +1527,6 @@ import { isMobile } from 'src/ts/platform'
                 </div>
             {/if}
 
-            {#if DBState.db.useAutoSuggestions}
-                <Suggestion messageInput={(msg)=>messageInput=(
-                    (DBState.db.subModel === "textgen_webui" || DBState.db.subModel === "mancer" || DBState.db.subModel.startsWith('local_')) && DBState.db.autoSuggestClean
-                    ? msg.replace(/ +\(.+?\) *$| - [^"'*]*?$/, '')
-                    : msg
-                )} {send}/>
-            {/if}
         {/snippet}
 
         <div class="h-full w-full flex flex-col-reverse overflow-y-auto relative default-chat-screen"

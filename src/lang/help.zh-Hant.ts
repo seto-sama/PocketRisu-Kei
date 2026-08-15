@@ -8,12 +8,11 @@
 
 export const helpZhHant = {
         "model": "此模型是對話時使用的主要模型。",
-        "submodel": "輔助模型是一個用於分析情緒立繪、生成自動建議等的模型。",
+        "submodel": "輔助模型用於情緒分析、翻譯和摘要等工作，建議選擇較小的模型。",
         "oaiapikey": "OpenAI 的 API 金鑰，可在 https://platform.openai.com/account/api-keys 取得。",
         "mainprompt": "主要提示詞用於決定模型的預設行為。",
         "jailbreak": "啟用角色越獄後，將使用越獄提示詞。",
         "globalNote": "一個對模型行為有強烈影響的備註（也稱為 UJB），適用於所有角色。",
-        "autoSuggest": "用於自動建議使用者回應時生成選項的提示詞。",
         "formatOrder": "提示詞的排列順序：越靠下的區塊對模型的影響越大。",
         "forceUrl": "此欄位不為空時，請求將被發送到您所輸入的網址。",
         "tempature": "較低的數值會使角色更緊密地遵循提示詞，但會使回應顯得生硬且機械化。\n較高的數值則會增強角色的創意表現，但回應可能會變得不穩定。",

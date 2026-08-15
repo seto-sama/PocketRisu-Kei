@@ -8,12 +8,11 @@
 
 export const helpDe = {
         "model": "Das Hauptmodell, das im Chat verwendet wird",
-        "submodel": "Ein Hilfsmodell ist ein Modell, das zur Analyse von Emotionen und automatischen Vorschlägen usw. verwendet wird, um die die Konversation dynamischer zu gestalten. GPT-3.5 wird hier empfohlen.",
+        "submodel": "Ein Hilfsmodell wird für Aufgaben wie Emotionsanalyse, Übersetzung und Zusammenfassung verwendet. Ein kleineres Modell wird empfohlen.",
         "oaiapikey": "API-Schlüssel für OpenAI. Sie können sich unter platform.openai.com unter -> account -> api-keys einen API-Schlüssel erstellen",
         "mainprompt": "Die Option für den Hauptanstoß legt das Standardverhalten des Modells fest",
         "jailbreak": "Die Option für die Jailbreak Anweisung wird aktiviert, wenn der Jailbreak-Umschalter im Charakter eingeschaltet ist",
         "globalNote": "Eine Notiz, die das Modellverhalten stark beeinflusst, auch bekannt als UJB. Funktioniert bei allen Charakteren",
-        "autoSuggest": "Anweisungen, die verwendet werden, um Optionen zur automatischen Vorschlagsgenerierung für Benutzerantworten zu generieren",
         "formatOrder": "Formatierungsreihenfolge der Anweisungen. Weiter unten vorkommende Blöcke wirken sich stärker auf das Modell aus",
         "forceUrl": "Wenn es nicht leer ist, wird die Anfrage an die eingegebene URL gesendet",
         "tempature": "Niedrigere Werte führen dazu, dass der Charakter den Anweisungen eng folgt, aber eher maschinenähnlicher reagiert.\nHöhere Werte führen zu kreativem Verhalten, aber die Antwort des Charakters kann leichter inkohärent werden.",

@@ -3,7 +3,6 @@
     import ShAccordion from "src/lib/UI/GUI/ShAccordion.svelte";
     import SettingRenderer from "../../SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
-    import { defaultAutoSuggestPrompt } from "src/ts/storage/defaultPrompts";
 
     const promptPresetLegacyItems: SettingItem[] = [
         { id: 'promptPreset.legacy.postEndInnerFormat', type: 'text', labelKey: 'postEndInnerFormat', bindPath: 'promptSettings.postEndInnerFormat' },
@@ -14,10 +13,6 @@
         },
         { id: 'promptPreset.legacy.utilOverride', type: 'check', labelKey: 'utilOverride', bindPath: 'promptSettings.utilOverride' },
         { id: 'promptPreset.legacy.maxThoughtTagDepth', type: 'number', labelKey: 'maxThoughtTagDepth', bindPath: 'promptSettings.maxThoughtTagDepth' },
-        {
-            id: 'promptPreset.legacy.autoSuggestPrompt', type: 'textarea', labelKey: 'autoSuggest', helpKey: 'autoSuggest', bindKey: 'autoSuggestPrompt',
-            options: { placeholder: defaultAutoSuggestPrompt },
-        },
         { id: 'promptPreset.legacy.predictedOutput', type: 'textarea', labelKey: 'predictedOutput', bindKey: 'OAIPrediction' },
         { id: 'promptPreset.legacy.outputImageModal', type: 'check', labelKey: 'outputImageModal', bindKey: 'outputImageModal' },
     ];

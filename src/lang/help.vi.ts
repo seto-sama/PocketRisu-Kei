@@ -8,12 +8,11 @@
 
 export const helpVi = {
         "model": "Tùy chọn mô hình là mô hình chính được sử dụng trong trò chuyện.",
-        "submodel": "Mô hình phụ trợ là mô hình được sử dụng để phân tích hình ảnh cảm xúc và đề xuất tự động, v.v. Nên sử dụng gpt3.5.",
+        "submodel": "Mô hình phụ trợ được dùng cho các tác vụ như phân tích cảm xúc, dịch thuật và tóm tắt. Nên chọn một mô hình nhỏ hơn.",
         "oaiapikey": "Khóa Api cho OpenAI. bạn có thể lấy nó ở https://platform.openai.com/account/api-keys",
         "mainprompt": "Tùy chọn lời nhắc chính đặt hành vi mô hình mặc định.",
         "jailbreak": "Tùy chọn lời nhắc jailbreak kích hoạt khi nút chuyển đổi jailbreak được bật.",
         "globalNote": "một lưu ý có tác động mạnh mẽ đến hành vi của mô hình, còn được gọi là UJB. hoạt động ở tất cả các ký tự.",
-        "autoSuggest": "Lời nhắc được sử dụng để tạo các tùy chọn khi tự động đề xuất phản hồi của người dùng.",
         "formatOrder": "thứ tự hình thành của lời nhắc. các khối thấp hơn sẽ có hiệu quả hơn đối với mô hình.",
         "forceUrl": "nếu nó không trống, yêu cầu sẽ chuyển đến url mà bạn đã nhập.",
         "tempature": "giá trị thấp hơn làm cho nhân vật tuân theo lời nhắc một cách chặt chẽ, nhưng nó sẽ có nhiều khả năng phản hồi giống như một cái máy hơn.\nGiá trị cao hơn sẽ dẫn đến hành vi sáng tạo, nhưng phản ứng của nhân vật có thể dễ dàng bị phá vỡ hơn.",

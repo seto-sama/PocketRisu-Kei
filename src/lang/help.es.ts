@@ -8,12 +8,11 @@
 
 export const helpEs = {
         "model": "La opción de modelo es el modelo principal usado en el chat.",
-        "submodel": "El Modelo Auxiliar es un modelo que se utiliza para analizar imágenes de emociones, auto sugerencias, etc. Se recomienda GPT-3.5.",
+        "submodel": "El Modelo Auxiliar se utiliza para tareas como análisis de emociones, traducción y resumen. Se recomienda un modelo más pequeño.",
         "oaiapikey": "Clave API para OpenAI. Puedes obtenerla en https://platform.openai.com/account/api-keys",
         "mainprompt": "La opción de prompt principal establece el comportamiento predeterminado del modelo.",
         "jailbreak": "La opción de prompt jailbreak se activa cuando el interruptor jailbreak está activado en el personaje.",
         "globalNote": "Una nota que afecta fuertemente el comportamiento del modelo, también conocida como UJB. Funciona en todos los personajes.",
-        "autoSuggest": "Prompts usados para generar opciones cuando se sugieren automáticamente respuestas al usuario.",
         "formatOrder": "Orden de formateo del prompt. Los bloques inferiores tienen más efecto en el modelo.",
         "forceUrl": "Si no está en blanco, la solicitud se enviará a la URL que hayas ingresado.",
         "tempature": "Valores más bajos hacen que el personaje siga los prompts de cerca, pero es más probable que responda como una máquina.\nValores más altos resultarán en un comportamiento creativo, pero la respuesta del personaje puede descomponerse más fácilmente.",

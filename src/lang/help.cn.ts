@@ -8,12 +8,11 @@
 
 export const helpCn = {
         "model": "此模型是指聊天中使用的主控模型。",
-        "submodel": "辅助模型是一个用于分析情感图像、产生自动建议等的模型，推荐使用 GPT-3.5。",
+        "submodel": "辅助模型用于情感分析、翻译和摘要等任务，建议选择较小的模型。",
         "oaiapikey": "OpenAI 的 API 密钥（Key），可在 https://platform.openai.com/account/api-keys 获取。",
         "mainprompt": "主提示词设置用于决定模型的默认行为。",
         "jailbreak": "当角色中的越狱开关被激活后，越狱提示词将被使用。",
         "globalNote": "一个对模型行为有强烈影响的备注（也称为 UJB），适用于所有角色。",
-        "autoSuggest": "用于自动建议用户回应时生成选项的提示词。",
         "formatOrder": "提示词的排列顺序：越靠下的区块对模型的影响越大。",
         "forceUrl": "此字段不为空时，请求将被发送到你所输入的网址。",
         "tempature": "较低的数值会使角色更紧密地遵循提示词，但会使回应更制式与机械化。\n较高的数值则会增强角色的创意表现，但回应可能会变得不稳定。",

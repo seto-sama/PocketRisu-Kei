@@ -381,7 +381,6 @@ export const prebuiltPresets: Record<string, botPreset> = {
     ],
     "NAIadventure": false,
     "NAIappendName": true,
-    "autoSuggestPrompt": "",
     "customProxyRequestModel": "claude-3-5-sonnet-20240620",
     "reverseProxyOobaArgs": {
       "mode": "instruct"

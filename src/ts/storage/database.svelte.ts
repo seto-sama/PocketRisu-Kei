@@ -5,7 +5,7 @@ import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, no
 import type { RisuPlugin } from '../plugins/plugins.svelte';
 import type {triggerscript as triggerscriptMain} from '../process/triggers';
 import { downloadFile, saveAsset as saveImageGlobal } from '../globalApi.svelte';
-import { defaultAutoSuggestPrompt, defaultJailbreak, defaultMainPrompt } from './defaultPrompts';
+import { defaultJailbreak, defaultMainPrompt } from './defaultPrompts';
 import { notifySuccess } from '../alert';
 import type { NAISettings } from '../process/models/nai';
 import { prebuiltNAIpresets, prebuiltPresets } from '../process/templates/templates';
@@ -458,10 +458,7 @@ export function setDatabase(data:Database){
     data.sendWithEnter ??= true
     data.sendKeyPC ??= 'enter'
     data.sendKeyMobile ??= 'ctrl-enter'
-    data.autoSuggestPrompt ??= defaultAutoSuggestPrompt
-    data.autoSuggestPrefix ??= ""
     data.OAIPrediction ??= ''
-    data.autoSuggestClean ??= true
     data.imageCompression ??= true
     data.inlayImageLossless ??= false
     data.inlayImagePriority ??= true
@@ -1148,10 +1145,6 @@ export interface Database{
     enableBlockPartialEdit: boolean
     enableDragPartialEdit: boolean
     koboldURL:string
-    useAutoSuggestions:boolean
-    autoSuggestPrompt:string
-    autoSuggestPrefix:string
-    autoSuggestClean:boolean
     claudeAPIKey:string,
     useChatCopy:boolean,
     novellistAPI:string,
@@ -1786,9 +1779,6 @@ export interface botPreset{
     ainconfig: AINsettings
     koboldURL?: string
     NAISettings?: NAISettings
-    autoSuggestPrompt?: string
-    autoSuggestPrefix?: string
-    autoSuggestClean?: boolean
     promptTemplate?:PromptItem[]
     NAIadventure?: boolean
     NAIappendName?: boolean
@@ -2084,7 +2074,6 @@ export interface Chat{
     name:string
     localLore: loreBook[]
     sdData?:string
-    suggestMessages?:string[]
     isStreaming?:boolean
     scriptstate?:{[key:string]:string|number|boolean}
     modules?:string[]
@@ -2488,7 +2477,6 @@ export function saveCurrentPreset(){
         NAIadventure: db.NAIadventure ?? false,
         NAIappendName: db.NAIappendName ?? false,
         localStopStrings: db.localStopStrings,
-        autoSuggestPrompt: db.autoSuggestPrompt,
         customProxyRequestModel: db.customProxyRequestModel,
         reverseProxyOobaArgs: safeStructuredClone(db.reverseProxyOobaArgs) ?? null,
         top_p: db.top_p ?? 1,
@@ -2598,9 +2586,6 @@ export function setPreset(db:Database, newPres: botPreset){
     db.openrouterRequestModel = newPres.openrouterRequestModel ?? db.openrouterRequestModel
     db.proxyRequestModel = newPres.proxyRequestModel ?? db.proxyRequestModel
     db.NAIsettings = newPres.NAISettings ?? db.NAIsettings
-    db.autoSuggestPrompt = newPres.autoSuggestPrompt ?? db.autoSuggestPrompt
-    db.autoSuggestPrefix = newPres.autoSuggestPrefix ?? db.autoSuggestPrefix
-    db.autoSuggestClean = newPres.autoSuggestClean ?? db.autoSuggestClean
     db.promptTemplate = normalizePromptTemplate(newPres.promptTemplate)
     db.NAIadventure = newPres.NAIadventure
     db.NAIappendName = newPres.NAIappendName

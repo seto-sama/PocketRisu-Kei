@@ -15,12 +15,11 @@ export const helpEn = {
         "translationCacheSearchLimit": "Only the first 20 entries matching the search criteria are displayed.",
         "banCharacterset": "Automatically regenerates the response if it contains any character from a selected character set.",
         model: "Model option is a main model used in chat.",
-        submodel: "Auxiliary Model is a model that used in analyzing emotion images and auto suggestions and etc. gpt3.5 is recommended.",
+        submodel: "Auxiliary Model is used for tasks such as emotion analysis, translation, and summarization. A smaller model is recommended.",
         oaiapikey: "API key for OpenAI. you can get it in https://platform.openai.com/account/api-keys",
         mainprompt: "The main prompt option sets the default model behavior.",
         jailbreak: "The jailbreak prompt option activates when jailbreak toggle is on in character.",
         globalNote: "A note that strongly affects model behavior, also known as UJB. Works in all characters.",
-        autoSuggest: "Prompts used to generate options when automatically suggesting user responses.",
         formatOrder: "formating order of prompt. lower blocks does more effect to the model.",
         forceUrl: "if it is not blank, the request will go to the url that you had inputed.",
         tempature:
