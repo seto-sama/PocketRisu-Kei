@@ -1,7 +1,6 @@
 <script lang="ts">
     import {
         ActivityIcon,
-        BotIcon,
         BracesIcon,
         Clock3Icon,
         FileTextIcon,
@@ -43,9 +42,8 @@
 
     const tabs = $derived([
         { label: language.requestDiagnostics.overview, value: 0 },
-        { label: language.requestDiagnostics.metadata, value: 1 },
-        { label: language.requestDiagnostics.requestLog, value: 2 },
-        { label: language.requestDiagnostics.prompt, value: 3 },
+        { label: language.requestDiagnostics.requestLog, value: 1 },
+        { label: language.requestDiagnostics.prompt, value: 2 },
     ])
 
     const message = $derived.by(() => {
@@ -57,8 +55,6 @@
     const generationInfo = $derived(diagnosticContext.generationInfo)
     const promptInfo = $derived(diagnosticContext.promptInfo)
     const requestKey = $derived(diagnosticContext.requestKey)
-    const swipeCount = $derived(message?.swipes?.length ?? 1)
-    const swipeIndex = $derived(message?.swipes ? (message.swipeId ?? 0) : 0)
     const inputTokens = $derived(Math.max(0, generationInfo.inputTokens ?? 0))
     const maxContext = $derived(Math.max(0, generationInfo.maxContext ?? 0))
     const remainingTokens = $derived(Math.max(0, maxContext - inputTokens))
@@ -89,18 +85,9 @@
         },
     ])
 
-    function interpolate(template: string, values: Record<string, string | number>): string {
-        return Object.entries(values).reduce(
-            (result, [key, value]) => result.replaceAll(`{${key}}`, String(value)),
-            template,
-        )
-    }
-
-    function formatBytes(value: unknown): string {
-        const bytes = new TextEncoder().encode(JSON.stringify(value ?? {})).byteLength
-        if (bytes < 1024) return `${bytes} B`
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-        return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    function formatBytes(value: string | undefined): string {
+        const bytes = new TextEncoder().encode(value ?? '').byteLength
+        return `${bytes.toLocaleString()} Byte`
     }
 
     function formatDuration(milliseconds: number): string {
@@ -147,7 +134,7 @@
     }
 
     $effect(() => {
-        if (open && selectedTab === 2) void loadRequestLog()
+        if (open && selectedTab === 1) void loadRequestLog()
     })
 
     $effect(() => {
@@ -173,96 +160,89 @@
     {onOpenChange}
 >
     {#snippet title()}
-        <span class="flex flex-wrap items-center gap-2">
-            <span>{language.requestDiagnostics.title}</span>
-            {#if generationInfo.model}<ShBadge variant="secondary"><BotIcon size={12} />{generationInfo.model}</ShBadge>{/if}
-            {#if swipeCount > 1}
-                <ShBadge variant="info">
-                    {interpolate(language.requestDiagnostics.swipe, { current: swipeIndex + 1, total: swipeCount })}
-                </ShBadge>
-            {/if}
-        </span>
+        {language.requestDiagnostics.title}
     {/snippet}
-    {#snippet description()}{language.requestDiagnostics.description}{/snippet}
 
     <SettingTabs tabs={tabs} bind:selected={selectedTab} className="mb-3" />
 
     <div class="max-h-[65vh] min-h-80 overflow-y-auto pr-1">
         {#if selectedTab === 0}
             <div class="flex flex-col gap-4">
-                <section class="rounded-md border border-darkborderc bg-bgcolor/30 p-4">
+                <section>
+                    <h2 class="mb-2 mt-0 flex items-center gap-2 text-sm font-semibold text-textcolor">
+                        <InfoIcon size={16} />
+                        {language.requestDiagnostics.metadata}
+                    </h2>
+                    <dl class="m-0 overflow-hidden rounded-md border border-darkborderc bg-bgcolor/30 py-0.5">
+                        {#each [
+                            [language.requestDiagnostics.messageIndex, String(info?.idx ?? '—')],
+                            [language.requestDiagnostics.model, generationInfo.model ?? '—'],
+                            [language.requestDiagnostics.requestId, requestKey || '—'],
+                            [language.requestDiagnostics.size, formatBytes(message?.data)],
+                            [language.requestDiagnostics.createdAt, diagnosticContext.time
+                                ? new Date(diagnosticContext.time).toLocaleString()
+                                : '—'],
+                        ] as item}
+                            <div class="grid grid-cols-[minmax(8rem,auto)_minmax(0,1fr)] items-start gap-4 px-3 py-1.5 text-sm">
+                                <dt class="text-left text-textcolor2">{item[0]}</dt>
+                                <dd class="m-0 break-all text-right font-mono text-textcolor">{item[1]}</dd>
+                            </div>
+                        {/each}
+                        <div class="grid grid-cols-[minmax(8rem,auto)_minmax(0,1fr)] items-start gap-4 px-3 py-1.5 text-sm">
+                            <dt class="text-left text-textcolor2">{language.requestDiagnostics.contentTokens}</dt>
+                            <dd class="m-0 text-right font-mono text-textcolor">
+                                {#if message}
+                                    {#await tokenize(message.data)}…{:then count}{count.toLocaleString()}{:catch}—{/await}
+                                {:else}—{/if}
+                            </dd>
+                        </div>
+                    </dl>
+                </section>
+
+                <section>
                     <div class="mb-3 flex items-center justify-between gap-3">
                         <h2 class="m-0 flex items-center gap-2 text-sm font-semibold text-textcolor">
                             <GaugeIcon size={16} />
                             {language.requestDiagnostics.contextUsage}
                         </h2>
-                        <span class="text-xs tabular-nums text-textcolor2">{inputTokens.toLocaleString()} / {maxContext ? maxContext.toLocaleString() : '?'}</span>
+                        <span class="text-xs tabular-nums text-textcolor2">
+                            {language.requestDiagnostics.responseLimit}: {generationInfo.outputTokens?.toLocaleString() ?? '?'}
+                        </span>
                     </div>
                     <div class="flex h-3 overflow-hidden rounded-full bg-selected/40" aria-label={language.requestDiagnostics.contextUsage}>
                         <span class="bg-primary" style:width={`${inputPercent}%`}></span>
                     </div>
                     <div class="mt-4 grid gap-2 sm:grid-cols-3">
-                        <div class="rounded-md border border-primary/30 bg-primary/10 p-3">
+                        <div class="rounded-md border border-darkborderc bg-bgcolor/30 p-3">
+                            <div class="text-xs text-textcolor2">{language.maxContextSize}</div>
+                            <div class="mt-1 text-xl font-semibold tabular-nums text-textcolor">{generationInfo.maxContext?.toLocaleString() ?? '?'}</div>
+                        </div>
+                        <div class="rounded-md border border-darkborderc bg-bgcolor/30 p-3">
                             <div class="text-xs text-textcolor2">{language.inputTokens}</div>
                             <div class="mt-1 text-xl font-semibold tabular-nums text-textcolor">{generationInfo.inputTokens?.toLocaleString() ?? '?'}</div>
                         </div>
-                        <div class="rounded-md border border-darkborderc bg-darkbg/60 p-3">
+                        <div class="rounded-md border border-darkborderc bg-bgcolor/30 p-3">
                             <div class="text-xs text-textcolor2">{language.requestDiagnostics.availableContext}</div>
                             <div class="mt-1 text-xl font-semibold tabular-nums text-textcolor">{maxContext ? remainingTokens.toLocaleString() : '?'}</div>
                         </div>
-                        <div class="rounded-md border border-success/30 bg-success/10 p-3">
-                            <div class="text-xs text-textcolor2">{language.requestDiagnostics.responseLimit}</div>
-                            <div class="mt-1 text-xl font-semibold tabular-nums text-textcolor">{generationInfo.outputTokens?.toLocaleString() ?? '?'}</div>
-                        </div>
                     </div>
-                    <p class="mb-0 mt-3 text-xs leading-relaxed text-textcolor2">{language.requestDiagnostics.responseLimitDesc}</p>
                 </section>
 
                 <ShAlert variant="info">
                     {#snippet icon()}<InfoIcon />{/snippet}
                     {language.tokenWarning}
                 </ShAlert>
-            </div>
-        {:else if selectedTab === 1}
-            <div class="flex flex-col gap-4">
-                <section class="grid gap-2 sm:grid-cols-2">
-                    {#each [
-                        [language.requestDiagnostics.messageIndex, String(info?.idx ?? '—')],
-                        [language.requestDiagnostics.model, generationInfo.model ?? '—'],
-                        [language.requestDiagnostics.requestId, requestKey || '—'],
-                        [language.requestDiagnostics.size, formatBytes(message)],
-                        [language.requestDiagnostics.createdAt, diagnosticContext.time
-                            ? new Date(diagnosticContext.time).toLocaleString()
-                            : '—'],
-                    ] as item}
-                        <div class="min-w-0 rounded-md border border-darkborderc bg-bgcolor/30 p-3">
-                            <div class="text-xs text-textcolor2">{item[0]}</div>
-                            <div class="mt-1 break-all font-mono text-sm text-textcolor">{item[1]}</div>
-                        </div>
-                    {/each}
-                    <div class="min-w-0 rounded-md border border-darkborderc bg-bgcolor/30 p-3">
-                        <div class="text-xs text-textcolor2">{language.requestDiagnostics.contentTokens}</div>
-                        <div class="mt-1 font-mono text-sm text-textcolor">
-                            {#if message}
-                                {#await tokenize(message.data)}…{:then count}{count.toLocaleString()}{:catch}—{/await}
-                            {:else}—{/if}
-                        </div>
-                    </div>
-                </section>
 
                 {#if totalTiming > 0}
-                    <section class="rounded-md border border-darkborderc bg-bgcolor/30 p-4">
+                    <section>
                         <div class="mb-3 flex items-center justify-between gap-3">
                             <h2 class="m-0 flex items-center gap-2 text-sm font-semibold text-textcolor"><Clock3Icon size={16} />{language.requestDiagnostics.timing}</h2>
-                            <span class="font-mono text-sm text-textcolor">{formatDuration(totalTiming)}</span>
+                            <span class="text-xs tabular-nums text-textcolor2">{formatDuration(totalTiming)}</span>
                         </div>
                         <div class="grid gap-2 sm:grid-cols-4">
-                            {#each timingDetails as stage, index}
-                                <div class="rounded-md bg-darkbg/60 p-3 text-center">
-                                    <div class="flex items-center justify-center gap-1.5 text-xs text-textcolor2">
-                                        <span>{index + 1}</span>
-                                        <span>{stage.label}</span>
-                                    </div>
+                            {#each timingDetails as stage}
+                                <div class="rounded-md border border-darkborderc bg-bgcolor/30 p-3 text-center">
+                                    <div class="text-xs text-textcolor2">{stage.label}</div>
                                     <div class="mt-1 font-mono text-textcolor">{formatDuration(stage.duration)}</div>
                                 </div>
                             {/each}
@@ -270,7 +250,7 @@
                     </section>
                 {/if}
             </div>
-        {:else if selectedTab === 2}
+        {:else if selectedTab === 1}
             {#if requestLogLoading}
                 <div class="flex min-h-64 items-center justify-center gap-2 text-sm text-textcolor2">
                     <RefreshCwIcon size={16} class="animate-spin" />
@@ -298,7 +278,7 @@
                     <div class="mt-1 max-w-md text-sm text-textcolor2">{language.requestDiagnostics.noRequestLogDesc}</div>
                 </div>
             {/if}
-        {:else if selectedTab === 3}
+        {:else if selectedTab === 2}
             {#if !promptInfo || Object.keys(promptInfo).length === 0}
                 <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-bgcolor/20 px-6 text-center">
                     <FileTextIcon size={40} class="mb-3 text-textcolor2 opacity-60" />
@@ -318,7 +298,10 @@
                         {:else}
                             <div class="flex flex-wrap gap-2 rounded-md border border-darkborderc bg-bgcolor/30 p-3">
                                 {#each promptInfo.promptToggles ?? [] as toggle}
-                                    <ShBadge variant="secondary"><span class="font-medium text-textcolor">{toggle.key}</span><span>{toggle.value}</span></ShBadge>
+                                    <ShBadge variant="secondary" className="gap-3 px-2.5 py-1 text-sm">
+                                        <span class="font-medium text-textcolor">{toggle.key}</span>
+                                        <span>{toggle.value}</span>
+                                    </ShBadge>
                                 {/each}
                             </div>
                         {/if}
