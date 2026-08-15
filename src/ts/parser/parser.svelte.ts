@@ -303,11 +303,8 @@ async function renderHighlightableMarkdown(data:string) {
             //import language if not already loaded
             //we do not refactor this to a function because we want to keep vite to only import the languages that are needed
             let languageModule: typeof import('highlight.js/lib/languages/*')|null = null
-            let fileExt = ''
-
             switch(lang){
                 case 'bash':{
-                    fileExt = 'sh'
                     lang = 'bash'
                     if(!hljs.getLanguage('bash')){
                         languageModule = await import('highlight.js/lib/languages/bash')
@@ -316,7 +313,6 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'c':
                 case 'cpp':{
-                    fileExt = lang
                     lang = 'cpp'
                     if(!hljs.getLanguage('cpp')){
                         languageModule = await import('highlight.js/lib/languages/cpp')
@@ -325,7 +321,6 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'cs':
                 case 'csharp':{
-                    fileExt = 'cs'
                     lang = 'csharp'
                     if(!hljs.getLanguage('csharp')){
                         languageModule = await import('highlight.js/lib/languages/csharp')
@@ -333,7 +328,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'css':{
-                    fileExt = 'css'
                     lang = 'css'
                     if(!hljs.getLanguage('css')){
                         languageModule = await import('highlight.js/lib/languages/css')
@@ -341,7 +335,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'dart':{
-                    fileExt = 'dart'
                     lang = 'dart'
                     if(!hljs.getLanguage('dart')){
                         languageModule = await import('highlight.js/lib/languages/dart')
@@ -351,7 +344,6 @@ async function renderHighlightableMarkdown(data:string) {
                 case 'html':
                 case 'svg':
                 case 'xml':{
-                    fileExt = lang
                     lang = 'xml'
                     if(!hljs.getLanguage('xml')){
                         languageModule = await import('highlight.js/lib/languages/xml')
@@ -359,7 +351,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'java':{
-                    fileExt = 'java'
                     lang = 'java'
                     if(!hljs.getLanguage('java')){
                         languageModule = await import('highlight.js/lib/languages/java')
@@ -369,7 +360,6 @@ async function renderHighlightableMarkdown(data:string) {
                 case 'js':
                 case 'jsx':
                 case 'javascript':{
-                    fileExt = 'js'
                     lang = 'javascript'
                     if(!hljs.getLanguage('javascript')){
                         languageModule = await import('highlight.js/lib/languages/javascript')
@@ -377,7 +367,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'json':{
-                    fileExt = 'json'
                     lang = 'json'
                     if(!hljs.getLanguage('json')){
                         languageModule = await import('highlight.js/lib/languages/json')
@@ -385,7 +374,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'lua':{
-                    fileExt = 'lua'
                     lang = 'lua'
                     if(!hljs.getLanguage('lua')){
                         languageModule = await import('highlight.js/lib/languages/lua')
@@ -394,7 +382,6 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'markdown':
                 case 'md':{
-                    fileExt = 'md'
                     lang = 'markdown'
                     if(!hljs.getLanguage('markdown')){
                         languageModule = await import('highlight.js/lib/languages/markdown')
@@ -403,7 +390,6 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'py':
                 case 'python':{
-                    fileExt = 'py'
                     lang = 'python'
                     if(!hljs.getLanguage('python')){
                         languageModule = await import('highlight.js/lib/languages/python')
@@ -411,7 +397,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'rust':{
-                    fileExt = 'rs'
                     lang = 'rust'
                     if(!hljs.getLanguage('rust')){
                         languageModule = await import('highlight.js/lib/languages/rust')
@@ -419,7 +404,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'shell':{
-                    fileExt = 'sh'
                     lang = 'shell'
                     if(!hljs.getLanguage('shell')){
                         languageModule = await import('highlight.js/lib/languages/shell')
@@ -429,7 +413,6 @@ async function renderHighlightableMarkdown(data:string) {
                 case 'ts':
                 case 'tsx':
                 case 'typescript':{
-                    fileExt = 'ts'
                     lang = 'typescript'
                     if(!hljs.getLanguage('typescript')){
                         languageModule = await import('highlight.js/lib/languages/typescript')
@@ -438,7 +421,6 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'txt':
                 case 'vtt':{
-                    fileExt = lang
                     lang = 'plaintext'
                     if(!hljs.getLanguage('plaintext')){
                         languageModule = await import('highlight.js/lib/languages/plaintext')
@@ -446,7 +428,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'yaml':{
-                    fileExt = 'yml'
                     lang = 'yaml'
                     if(!hljs.getLanguage('yaml')){
                         languageModule = await import('highlight.js/lib/languages/yaml')
@@ -455,12 +436,10 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'risuerror':{
                     lang = 'error'
-                    fileExt = 'error'
                     break
                 }
                 default:{
                     lang = 'none'
-                    fileExt = 'none'
                 }
             }
             if(languageModule){
@@ -477,7 +456,7 @@ async function renderHighlightableMarkdown(data:string) {
                     language: lang,
                     ignoreIllegals: true
                 }).value
-                rendered = rendered.replace(placeholder, `<pre class="hljs" x-hl-lang="${fileExt}"><code>${highlighted}</code></pre>`)   
+                rendered = rendered.replace(placeholder, `<pre class="hljs"><code>${highlighted}</code></pre>`)
             }
         } catch (error) {
             
@@ -1056,7 +1035,7 @@ export function trimMarkdown(data:string){
     }
     cached = decodeStyle(DOMPurify.sanitize(data, {
         ADD_TAGS: ["iframe", "style", "risu-style", "x-em", 'annotation', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt'],
-        ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-lang', 'x-hl-text', 'data-inlay-id', 'data-inlay-type'],
+        ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-text', 'data-inlay-id', 'data-inlay-type'],
     }))
     if (trimCache.size >= TRIM_CACHE_MAX) {
         // evict oldest entry
