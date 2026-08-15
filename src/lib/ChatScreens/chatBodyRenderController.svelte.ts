@@ -29,9 +29,13 @@ function notifySharedTranslationTasks() {
     sharedTranslationTaskListeners.forEach(listener => listener())
 }
 
-function subscribeSharedTranslationTasks(listener: () => void) {
+export function subscribeSharedTranslationTaskChanges(listener: () => void) {
     sharedTranslationTaskListeners.add(listener)
     return () => sharedTranslationTaskListeners.delete(listener)
+}
+
+export function hasSharedTranslationTask(translationTaskKey: string): boolean {
+    return Boolean(translationTaskKey && sharedTranslationTasks.has(translationTaskKey))
 }
 
 export const translationLoadingHTML = `<div style="display:flex;justify-content:center;align-items:center;height:48px;"><div style="animation: spin 1s linear infinite; border-radius: 50%; height: 32px; width: 32px; border: 2px solid #3b82f6; border-top: 2px solid transparent;"></div></div><style>@keyframes spin { to { transform: rotate(360deg); } }</style>`
@@ -52,7 +56,7 @@ export function createChatBodyRenderController(
         persistOnDispose: boolean
     }>()
     const trackSharedTranslationTasks = createSubscriber((update) =>
-        subscribeSharedTranslationTasks(update)
+        subscribeSharedTranslationTaskChanges(update)
     )
 
     function cancelTranslations(includePersistent = true) {
@@ -291,7 +295,7 @@ export function createChatBodyRenderController(
         return activeTranslationTasks > 0
             || translationPending
             || retranslate
-            || Boolean(translationTaskKey && sharedTranslationTasks.has(translationTaskKey))
+            || hasSharedTranslationTask(translationTaskKey)
     }
 
     function getActiveTranslationCacheKey(translationTaskKey: string): string | null {

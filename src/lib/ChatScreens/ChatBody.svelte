@@ -32,6 +32,7 @@
         translationTaskKey?: string
         revenantTranslationRecovery: RevenantChatTranslationRecovery
         revenantTranslationRecoverySnapshot: RevenantChatTranslationRecoverySnapshot
+        translationPending?: boolean
     }
 
     let {
@@ -53,6 +54,7 @@
         translationTaskKey = '',
         revenantTranslationRecovery,
         revenantTranslationRecoverySnapshot,
+        translationPending = false,
     }: Props =  $props()
 
     // svelte-ignore non_reactive_update
@@ -611,7 +613,7 @@
 </script>
 
 {#await markParsingResult}
-    {@html addMetadataToElement(trimMarkdown(DBState.db.showTranslationLoading && (renderController.isTranslationBusy(revenantTranslationRecoverySnapshot.pending, retranslate, translationTaskKey) || (translated && !lastParsedTranslated)) ? translationLoadingHTML : lastParsed), modelShortName)}
+    {@html addMetadataToElement(trimMarkdown(DBState.db.showTranslationLoading && (translationPending || retranslate || (translated && !lastParsedTranslated)) ? translationLoadingHTML : lastParsed), modelShortName)}
 {:then md}
     {@html addMetadataToElement(trimMarkdown(md), modelShortName)}
 {/await}
