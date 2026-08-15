@@ -265,6 +265,73 @@ describe('chat scroll pixel snapping', () => {
         controller.destroy()
     })
 
+    it('does not rewrite fractional scrollTop when a wheel interaction settles', () => {
+        vi.useFakeTimers()
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const anchor = document.createElement('div')
+        anchor.className = 'chat-message-container'
+        container.appendChild(anchor)
+        container.scrollTop = -100
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        const anchorLayoutTop = -80
+        anchor.getBoundingClientRect = () => new DOMRect(
+            0,
+            anchorLayoutTop - container.scrollTop,
+            300,
+            100,
+        )
+        const controller = createController(container)
+        observers.flushFrames()
+
+        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -0.25 }))
+        container.scrollTop = -125.25
+        container.dispatchEvent(new Event('scroll'))
+        vi.advanceTimersByTime(120)
+        observers.flushFrames()
+        // Firefox may deliver this after the fallback timer already settled.
+        container.dispatchEvent(new Event('scrollend'))
+        observers.flushFrames()
+
+        expect(container.scrollTop).toBe(-125.25)
+        controller.destroy()
+    })
+
+    it('does not relatch the bottom when an upward wheel move is published late', () => {
+        vi.useFakeTimers()
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const anchor = document.createElement('div')
+        anchor.className = 'chat-message-container'
+        container.appendChild(anchor)
+        container.scrollTop = 0
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        const anchorLayoutTop = -80
+        anchor.getBoundingClientRect = () => new DOMRect(
+            0,
+            anchorLayoutTop - container.scrollTop,
+            300,
+            100,
+        )
+        const controller = createController(container)
+        observers.flushFrames()
+
+        // Firefox can expose the wheel event before its async scroll position.
+        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -24 }))
+        vi.advanceTimersByTime(120)
+        observers.flushFrames()
+        container.scrollTop = -24
+        container.dispatchEvent(new Event('scroll'))
+
+        // The next streaming resize must accept the late user position instead
+        // of applying the old bottom latch and writing scrollTop back to zero.
+        observers.notifyResize()
+        observers.flushFrames()
+
+        expect(container.scrollTop).toBe(-24)
+        controller.destroy()
+    })
+
     it('snaps programmatic scroll targets derived from fractional DOMRects', () => {
         const container = document.createElement('div')
         const element = document.createElement('div')

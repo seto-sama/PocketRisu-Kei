@@ -83,6 +83,7 @@ export function createChatScrollController(
     let lastPointerY: number | null = null
     let pointerActive = false
     let touchActive = false
+    let wheelInteraction = false
     const observedChildren = new Set<Element>()
 
     const getRatio = () => normalizedDevicePixelRatio(window.devicePixelRatio || 1)
@@ -137,16 +138,23 @@ export function createChatScrollController(
         return true
     }
 
-    const establishAnchor = () => {
+    const captureAnchor = (snapToPixel: boolean) => {
         const element = findVisibleAnchor()
         if (!element) {
             anchor = null
-            return
+            return false
         }
         anchor = {
             element,
-            top: snapToDevicePixel(element.getBoundingClientRect().top, getRatio()),
+            top: snapToPixel
+                ? snapToDevicePixel(element.getBoundingClientRect().top, getRatio())
+                : element.getBoundingClientRect().top,
         }
+        return true
+    }
+
+    const establishAnchor = () => {
+        if (!captureAnchor(true)) return
         alignAnchor()
     }
 
@@ -235,8 +243,31 @@ export function createChatScrollController(
         else establishAnchor()
     }
 
-    const settleAtCurrentPosition = () => {
+    const settleAtCurrentPosition = (preserveWheelPosition = false) => {
         if (destroyed) return
+        // Firefox may keep sub-pixel wheel movement in its async scrolling
+        // pipeline before exposing a new integer scrollTop. Writing scrollTop
+        // here—even to an apparently equivalent value—drops that accumulated
+        // movement. On fractional line boxes, repeated slow wheel gestures can
+        // therefore appear completely stuck. Wheel settling only needs to
+        // remember the current anchor; layout observers perform any later
+        // correction when the content actually changes.
+        if (preserveWheelPosition) {
+            const atBottom = isAtBottom()
+            const departurePending = userMovingAwayFromBottom && atBottom
+            // The last wheel direction is the user's current intent. A bottom
+            // position observed before Firefox publishes the async wheel move
+            // must not keep the stream latched to scrollTop=0; the next chunk
+            // would otherwise pull the reader back to their pre-scroll edge.
+            pinnedToBottom = !userMovingAwayFromBottom
+                && (bottomReachedDuringInteraction || atBottom)
+            bottomReachedDuringInteraction = false
+            if (pinnedToBottom || departurePending) anchor = null
+            else captureAnchor(false)
+            userMovingAwayFromBottom = false
+            lastPointerY = null
+            return
+        }
         pinnedToBottom = bottomReachedDuringInteraction || isAtBottom()
         bottomReachedDuringInteraction = false
         if (pinnedToBottom) {
@@ -254,23 +285,25 @@ export function createChatScrollController(
         lastPointerY = null
     }
 
-    const scheduleAlignment = (settlePosition = false) => {
+    const scheduleAlignment = (settlePosition = false, preserveWheelPosition = false) => {
         if (destroyed || interactionMode !== 'idle') return
         cancelAnimationFrame(alignmentFrame)
         alignmentFrame = requestAnimationFrame(() => {
             alignmentFrame = 0
-            if (settlePosition) settleAtCurrentPosition()
+            if (settlePosition) settleAtCurrentPosition(preserveWheelPosition)
             else preserveAfterLayout()
         })
     }
 
     const finishInteraction = () => {
+        const preserveWheelPosition = wheelInteraction
         interactionMode = 'idle'
+        wheelInteraction = false
         if (interactionEndTimer) {
             clearTimeout(interactionEndTimer)
             interactionEndTimer = null
         }
-        scheduleAlignment(true)
+        scheduleAlignment(true, preserveWheelPosition)
     }
 
     const deferInteractionEnd = () => {
@@ -286,6 +319,7 @@ export function createChatScrollController(
 
     const startInteraction = (mode: Exclude<ScrollInteractionMode, 'idle'>) => {
         interactionMode = mode
+        wheelInteraction = false
         bottomReachedDuringInteraction = isAtBottom()
         userMovingAwayFromBottom = false
         lastPointerY = null
@@ -344,6 +378,7 @@ export function createChatScrollController(
     const handleWheel = (event: WheelEvent) => {
         pointerActive = false
         startInteraction('user')
+        wheelInteraction = true
         userMovingAwayFromBottom = event.deltaY < 0
         deferInteractionEnd()
     }
@@ -359,6 +394,11 @@ export function createChatScrollController(
         }
     }
     const handleScrollEnd = () => {
+        // Firefox can report scrollend after the fallback timer has already
+        // finished the wheel interaction. Re-settling an idle controller here
+        // would replace the exact wheel anchor with a snapped one and write
+        // scrollTop back into the async scrolling pipeline.
+        if (interactionMode === 'idle') return
         if (interactionMode === 'user' && (pointerActive || touchActive)) return
         // Samsung Browser can emit a scrollend from the button's pointer
         // sequence immediately after a new smooth programmatic scroll starts.
