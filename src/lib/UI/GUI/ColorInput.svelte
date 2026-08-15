@@ -1,35 +1,65 @@
 <script lang="ts">
     import ColorPicker from 'svelte-awesome-color-picker';
+    import { ColorSchemeTypeStore } from 'src/ts/gui/colorscheme';
+
     interface Props {
-        value?: string;
+        value?: string | null;
         nullable?: boolean;
         oninput?: () => void;
     }
 
-    let { value = $bindable('#000000'), nullable = false, oninput }: Props = $props();
-
-    $effect(() => {
-        //this is for updating
-        value
-
-        oninput?.()
-    });
+    let { value = $bindable(), nullable = false, oninput }: Props = $props();
+    let pickerValue = $derived(value === undefined ? '#000000' : value);
 </script>
 
-<div class="cl rounded-full bg-white">
+<div class="cl" class:dark={$ColorSchemeTypeStore === 'dark'}>
     <ColorPicker
-        label="" bind:hex={value}
+        label="" hex={pickerValue}
         nullable={nullable}
+        onInput={({ hex }) => {
+            value = hex;
+            oninput?.();
+        }}
     />
 </div>
 
 <style>
     .cl{
+        --input-size: 2rem;
         --cp-bg-color: var(--risu-theme-bgcolor);
         --cp-border-color: var(--risu-theme-darkborderc);
         --cp-text-color: var(--risu-theme-textcolor);
-        --cp-input-color: #555;
-        --cp-button-hover-color: #777;
+        --focus-color: var(--risu-theme-primary);
+        --swatch-border-color: var(--color-black);
+        --cp-input-color: var(--risu-theme-darkbg);
+        --cp-button-hover-color: var(--risu-theme-selected);
+    }
+
+    .cl.dark {
+        --swatch-border-color: var(--color-white);
+    }
+
+    .cl :global(label) {
+        height: 2rem;
+        margin: 0;
+        border-radius: 0.25rem;
+    }
+
+    .cl :global(label .container),
+    .cl :global(label .alpha),
+    .cl :global(label .color) {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 0.25rem;
+        box-sizing: border-box;
+    }
+
+    .cl :global(label .alpha) {
+        clip-path: none;
+    }
+
+    .cl :global(label .color) {
+        border: 2px solid var(--swatch-border-color);
     }
 
     /*

@@ -4,7 +4,7 @@
 </script>
 
 {#if $loadingOverlayStore.active}
-    <div class="fixed inset-0 z-[60] bg-black/50 flex justify-center items-center">
+    <div class="risu-modal-backdrop z-[60] flex justify-center items-center">
         <div class="flex flex-col items-center gap-3">
             <svg class="animate-spin h-8 w-8 text-white" style="will-change: transform;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>

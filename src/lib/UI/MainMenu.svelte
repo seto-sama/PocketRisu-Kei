@@ -14,6 +14,7 @@
     import { isSecureContext } from "src/ts/secureContext";
     import { openSettings, SettingsRoute } from "src/ts/routing";
     import ShButton from "./GUI/ShButton.svelte";
+    import ShAlert from "./GUI/ShAlert.svelte";
 
     let realmOpen = $state(!DBState.db.hideRealm);
 
@@ -25,11 +26,10 @@
       <Title />
       <h3 class="text-textcolor2 mt-1">v{getVersionString()}</h3>
       {#if $updateInfoStore?.hasUpdate}
-        <button
-          class="mt-1.5 px-3 py-1 rounded-full text-sm font-medium transition-colors
-            {$updateInfoStore.severity === 'optional'
-              ? 'bg-green-900/30 text-green-400 border border-green-800/50 hover:bg-green-900/50'
-              : 'bg-red-900/30 text-red-400 border border-red-800/50 hover:bg-red-900/50'}"
+        <ShButton
+          variant={$updateInfoStore.severity === 'optional' ? 'success' : 'destructive'}
+          size="sm"
+          className="mt-1.5 rounded-full"
           onclick={() => updatePopupStore.set($updateInfoStore)}
         >
           {#if $updateInfoStore.severity === 'outdated'}
@@ -39,7 +39,7 @@
           {:else}
             {language.updateAvailable.replace('{{version}}', $updateInfoStore.latestVersion)}
           {/if}
-        </button>
+        </ShButton>
       {/if}
       {#if $publicStatsStore}
       <div class="mt-3 flex gap-2 flex-wrap justify-center">
@@ -56,18 +56,16 @@
     <div class="w-full flex p-4 flex-col text-textcolor max-w-4xl">
       {#if !$OpenRealmStore}
       {#if !isSecureContext}
-        <div class="mt-4 w-full bg-yellow-900/30 border border-yellow-700/40 rounded-md px-4 py-3 flex items-center justify-between gap-3 flex-wrap text-yellow-300">
-          <div class="flex items-start gap-2.5 min-w-0 flex-1">
-            <TriangleAlertIcon class="size-4 shrink-0 mt-0.5 text-yellow-400" />
-            <div class="flex flex-col min-w-0">
-              <span class="font-medium text-sm">{language.httpInsecureWarningTitle}</span>
-              <span class="leading-relaxed text-sm opacity-90">{language.httpInsecureWarningBody}</span>
-            </div>
-          </div>
-          <ShButton variant="outline" size="sm" onclick={() => openSettings(SettingsRoute.RemoteAccess)}>
-            {language.httpInsecureOpenRemoteAccess}
-          </ShButton>
-        </div>
+        <ShAlert variant="warning" className="mt-4 w-full">
+          {#snippet icon()}<TriangleAlertIcon />{/snippet}
+          {#snippet title()}{language.httpInsecureWarningTitle}{/snippet}
+          {language.httpInsecureWarningBody}
+          {#snippet action()}
+            <ShButton variant="outline" size="sm" onclick={() => openSettings(SettingsRoute.RemoteAccess)}>
+              {language.httpInsecureOpenRemoteAccess}
+            </ShButton>
+          {/snippet}
+        </ShAlert>
       {/if}
       <div class="mt-4 mb-4 w-full border-t border-t-selected"></div>
       <div class="flex items-center gap-2">

@@ -163,7 +163,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="fixed inset-0 z-50 bg-black/50 flex justify-center items-center" role="button" tabindex="0" onclick={close}>
+<div class="risu-modal-backdrop z-50 flex justify-center items-center" role="button" tabindex="0" onclick={close}>
 <div
     class="bg-darkbg break-any rounded-md flex flex-col w-[min(56rem,calc(100%-1rem))] h-[min(44rem,calc(100%-1rem))] overflow-hidden border border-darkborderc"
     role="button"

@@ -24,6 +24,7 @@
         onPrev?: () => void;
         onNext?: () => void;
         onDownload?: () => void | Promise<void>;
+        viewerContent?: Snippet;
         info?: Snippet;
         statusOverlay?: Snippet;
     }
@@ -50,6 +51,7 @@
         onPrev,
         onNext,
         onDownload,
+        viewerContent,
         info,
         statusOverlay,
     }: Props = $props();
@@ -65,6 +67,10 @@
         else if(event.key === 'ArrowRight' && canGoNext){
             event.preventDefault()
             onNext?.()
+        }
+        else if(event.key === 'Escape'){
+            event.preventDefault()
+            onClose()
         }
     }
 </script>
@@ -134,6 +140,8 @@
                     </div>
                 {:else if error}
                     <p class="text-draculared text-sm">{error}</p>
+                {:else if viewerContent}
+                    {@render viewerContent()}
                 {:else if src}
                     <img
                         {src}

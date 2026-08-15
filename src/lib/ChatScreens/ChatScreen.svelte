@@ -11,6 +11,7 @@
     import BackgroundDom from "./BackgroundDom.svelte";
     import SideBarArrow from "../UI/GUI/SideBarArrow.svelte";
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
+    import { DEFAULT_TEXT_BORDER_COLOR, getTextOutlineStyle } from 'src/ts/gui/textOutline';
     let openChatList = $state(false)
     let openModuleList = $state(false)
 
@@ -22,11 +23,14 @@
     })
 
     const wallPaper = `background: url(${defaultWallpaper})`
-    const externalStyles = 
+    const textOutlineStyle = $derived(`--risu-chat-text-shadow: ${DBState.db.textBorder
+        ? getTextOutlineStyle(DBState.db.textBorderColor ?? DEFAULT_TEXT_BORDER_COLOR)
+        : 'none'};`)
+    const externalStyles = $derived(
             ("background: " + (DBState.db.textScreenColor ? (DBState.db.textScreenColor + '80') : "rgba(0,0,0,0.8)") + ';\n')
-        +   (DBState.db.textBorder ? "text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;" : '')
+        +   textOutlineStyle
         +   (DBState.db.textScreenRounded ? "border-radius: 2rem; padding: 1rem;" : '')
-        +   (DBState.db.textScreenBorder ? `border: 0.3rem solid ${DBState.db.textScreenBorder};` : '')
+        +   (DBState.db.textScreenBorder ? `border: 0.3rem solid ${DBState.db.textScreenBorder};` : ''))
     let bgImg= $state('')
     let lastBg = $state('')
     $effect.pre(() => {
@@ -82,7 +86,7 @@
                     <ResizeBox />
                 {/if}
             {/if}
-            <DefaultChatScreen customStyle={bgImg.length > 2 ? `${externalStyles}`: ''} bind:openChatList bind:openModuleList/>
+            <DefaultChatScreen customStyle={bgImg.length > 2 ? externalStyles : textOutlineStyle} bind:openChatList bind:openModuleList/>
         </div>
     </div>
 {/if}

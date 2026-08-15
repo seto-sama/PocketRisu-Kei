@@ -19,7 +19,7 @@
     import PlaygroundTranslation from "./PlaygroundTranslation.svelte";
     import PlaygroundMcp from "./PlaygroundMCP.svelte";
     import PlaygroundDocs from "./PlaygroundDocs.svelte";
-    import PlaygroundInlayExplorer from './PlaygroundInlayExplorer.svelte';
+    import { openSettings, SettingsRoute } from 'src/ts/routing';
 
     let easterEggTouch = $state(0)
 
@@ -115,9 +115,9 @@
                 <h1 class="text-2xl font-bold text-start">MCP</h1>
             </button>
             <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
-                PlaygroundStore.set(14)
+                openSettings(SettingsRoute.InlayImageGallery)
             }}>
-                <h1 class="text-2xl font-bold text-start">{language.playground.inlayExplorer}</h1>
+                <h1 class="text-2xl font-bold text-start">{language.playground.inlayImageGallery}</h1>
             </button>
             <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
                 PlaygroundStore.set(101)
@@ -185,9 +185,6 @@
             {/if}
             {#if $PlaygroundStore === 13}
                 <PlaygroundDocs/>
-            {/if}
-            {#if $PlaygroundStore === 14}
-                <PlaygroundInlayExplorer/>
             {/if}
             {#if $PlaygroundStore === 101}
                 <ToolConversion/>

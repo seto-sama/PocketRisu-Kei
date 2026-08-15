@@ -1408,11 +1408,11 @@
                     {@render senderIcon({rounded: true})}
                 {/if}
                 <div
-                    class="bg-gray-100 rounded-lg p-3 max-w-[70%] mx-2"
+                    class="bg-darkbg rounded-lg p-3 max-w-[70%] mx-2"
                     class:rounded-tl-none={role !== 'user'}
                     class:rounded-tr-none={role === 'user'}
                 >
-                    <p class="text-gray-800">{@render textBox()}</p>
+                    <p class="text-textcolor">{@render textBox()}</p>
                     {#if DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.time}
                         <span class="text-xs text-textcolor2 mt-1 block">
                             {new Intl.DateTimeFormat(undefined, {
@@ -1432,17 +1432,17 @@
             </div>
         {:else if DBState.db.theme === 'cardboard' && !blankMessage}
             <div class="w-full flex flex-col px-0 sm:px-4 py-4 relative">
-                <div class="bg-linear-to-b from-gray-100 to-gray-200 rounded-lg shadow-lg border-gray-400 border p-4 flex flex-col">
+                <div class="bg-linear-to-b from-bgcolor to-darkbg rounded-lg shadow-lg border-darkborderc border p-4 flex flex-col">
                     <div class="flex gap-4 mt-2 flex-col sm:flex-row">
                         <div class="flex flex-col items-center">
                             <div class="sm:h-96 sm:w-72 sm:min-w-72 w-48 h-64">
                                 {@render senderIcon({rounded: false, styleFix:'height:100%;width:100%;'})}
                             </div>
-                            <h2 class="text-base font-bold text-gray-500 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
+                            <h2 class="text-base font-bold text-textcolor2 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
 
                         </div>
                         {#if editMode}
-                            <textarea class="grow h-138 sm:h-96 overflow-y-auto bg-transparent text-black p-2 mb-2 resize-none message-edit-area" bind:value={editDraft}></textarea>
+                            <textarea class="grow h-138 sm:h-96 overflow-y-auto bg-transparent text-textcolor p-2 mb-2 resize-none message-edit-area" bind:value={editDraft}></textarea>
                         {:else}
                             <div class="grow h-138 sm:h-96 overflow-y-auto p-2 mb-2 sm:mb-0">
                                 {@render textBox()}
@@ -1450,7 +1450,7 @@
                         {/if}
                     </div>
                 </div>
-                <div class="absolute bottom-0 right-0 bg-linear-to-b from-gray-200 to-gray-300 p-2 rounded-md border border-gray-400 text-gray-400">
+                <div class="absolute bottom-0 right-0 bg-darkbg p-2 rounded-md border border-darkborderc text-textcolor2">
                     {@render iconButtons({applyTextColors: false})}
                 </div>
             </div>
