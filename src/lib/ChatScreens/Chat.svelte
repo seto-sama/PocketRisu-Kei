@@ -39,6 +39,7 @@
     let editTranslationMode = $state(false)
     let editTranslationKeyMode = $state(false)
     let editTranslationText = $state('')
+    let editTranslationCacheKey = $state<string | null>(null)
     let translationRevision = $state(0)
     let originalEditTranslationKey = $state<string | null>(null)
     let bodyRoot:HTMLElement|null = $state(null)
@@ -310,14 +311,17 @@
     async function loadTranslationForEdit() {
         const key = await getTranslationCacheKey()
         const cached = await getLLMCache(key)
+        editTranslationCacheKey = key
         editTranslationText = cached ?? ''
         editTranslationMode = true
     }
 
     async function saveTranslationEdit() {
-        const key = await getTranslationCacheKey()
+        const key = editTranslationCacheKey
+        if (key === null) return
         await setLLMCache(key, editTranslationText)
         editTranslationMode = false
+        editTranslationCacheKey = null
     }
 
     function isTranslationBusy() {
@@ -327,6 +331,19 @@
     function isTranslationControlBusy() {
         return isTranslationBusy() || !revenantTranslationInspectionReady
     }
+
+    const currentTextEditActive = $derived(editMode || editTranslationMode)
+    const controlDisabled = $derived.by(() => ({
+        translationToggle: currentTextEditActive
+            || (isTranslationControlBusy() && cancelTranslationRequest === null),
+        translationAction: currentTextEditActive || isTranslationControlBusy(),
+        swipe: currentTextEditActive || isTranslationBusy(),
+        edit: isTranslationBusy()
+            || (translated
+                && DBState.db.translatorType === 'llm'
+                && !revenantTranslationInspectionReady),
+        partialEdit: currentTextEditActive || isTranslationBusy() || isStreamingDisplay,
+    }))
 
     function updateTranslationTasks(delta:1|-1) {
         activeTranslationTasks = Math.max(0, activeTranslationTasks + delta)
@@ -343,6 +360,7 @@
     }
 
     function handleTranslationButton() {
+        if (currentTextEditActive) return
         if (isTranslationBusy()) {
             cancelTranslationRequest?.()
             resetTranslationState()
@@ -352,26 +370,32 @@
     }
 
     function requestRetranslation() {
-        if (!isTranslationControlBusy()) retranslate = true
+        if (!controlDisabled.translationAction) retranslate = true
     }
 
     function changeSwipe(change: () => void) {
+        if (controlDisabled.swipe) return
         resetTranslationState()
         change()
         translationRevision += 1
     }
 
-    function toggleTranslationEdit() {
-        if (isTranslationControlBusy()) return
+    async function toggleCurrentTextEdit() {
+        if (isTranslationBusy()) return
+        if (editTranslationMode) {
+            await saveTranslationEdit()
+            return
+        }
         if (editMode) {
-            editTranslationKeyMode = !editTranslationKeyMode
+            await saveOriginalEdit()
+            return
         }
-        else if (editTranslationMode) {
-            saveTranslationEdit()
+        if (translated && DBState.db.translatorType === 'llm') {
+            if (isTranslationControlBusy()) return
+            await loadTranslationForEdit()
+            return
         }
-        else {
-            loadTranslationForEdit()
-        }
+        await enterEditMode()
     }
 
     function displaya(message:string){
@@ -588,28 +612,13 @@
             <IconButton
                 expanded
                 className="text-sm"
-                disabled={isTranslationControlBusy()}
+                disabled={controlDisabled.translationAction}
                 aria-label={language.retranslate}
                 title={language.retranslate}
                 onclick={requestRetranslation}
             >
                 <RefreshCcwIcon />
                 <span>{language.retranslate}</span>
-            </IconButton>
-            <IconButton
-                expanded
-                className="text-sm"
-                active={editTranslationMode || editTranslationKeyMode}
-                activeColor="primary"
-                disabled={isTranslationControlBusy()}
-                aria-label={editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
-                title={editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
-                onclick={toggleTranslationEdit}
-            >
-                <PencilIcon />
-                <span>
-                    {editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
-                </span>
             </IconButton>
         {/if}
     </IconButtonGroup>
@@ -665,7 +674,7 @@
             class:prose-invert={$ColorSchemeTypeStore === 'dark'}
             bind:this={bodyRoot}
             onclick={async () => {
-            if(DBState.db.clickToEdit && idx > -1 && !editMode && !editTranslationMode && !isTranslationBusy()){
+            if(DBState.db.clickToEdit && idx > -1 && !controlDisabled.partialEdit){
                 await enterEditMode()
             }
         }}
@@ -1014,9 +1023,9 @@
             expanded={showNames}
             active={translated}
             activeColor="primary"
-            tone={cancelTranslationRequest ? 'destructive' : 'default'}
-            className={"button-icon-translate " + translationDisabledClasses + (translationPending ? ' translating' : '')}
-            disabled={isTranslationControlBusy() && cancelTranslationRequest === null}
+             tone={cancelTranslationRequest ? 'destructive' : 'default'}
+             className={"button-icon-translate " + translationDisabledClasses + (translationPending ? ' translating' : '')}
+             disabled={controlDisabled.translationToggle}
             aria-label={cancelTranslationRequest ? language.cancel : language.translate}
             title={cancelTranslationRequest ? language.cancel : language.translate}
             onclick={handleTranslationButton}>
@@ -1030,24 +1039,13 @@
         <IconButton
             size="lg"
             expanded={showNames}
-            active={editMode}
+            active={currentTextEditActive}
             activeColor="primary"
             className={"button-icon-edit " + translationDisabledClasses}
-            disabled={isTranslationBusy()}
-            onclick={async () => {
-            if(isTranslationBusy()){
-                return
-            }
-            if(editTranslationMode){
-                return
-            }
-            if(!editMode){
-                await enterEditMode()
-            }
-            else{
-                await saveOriginalEdit()
-            }
-        }}>
+            disabled={controlDisabled.edit}
+            aria-label={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
+            title={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
+            onclick={toggleCurrentTextEdit}>
             <PencilIcon />
 
             {#if showNames}
@@ -1059,7 +1057,7 @@
 
 {#snippet rerolls()}
     {#if (rerollIcon || altGreeting) && role !== 'user'}
-        <fieldset class="contents" disabled={isTranslationBusy()}>
+        <fieldset class="contents" disabled={controlDisabled.swipe}>
         {#if altGreeting}
             <!-- First message: ← counter → -->
             <IconButton size="lg" className="button-icon-unreroll" onclick={() => changeSwipe(unReroll)}>
@@ -1361,7 +1359,7 @@
      bind:this={partialEditRoot}
      data-chat-index={idx}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
-     data-partial-edit-disabled={editMode || editTranslationMode || isTranslationBusy() || isStreamingDisplay}
+     data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid rgba(98, 114, 164, 0.7);` : ''}
      onclickcapture={handleButtonTriggerWithin}>
@@ -1413,7 +1411,7 @@
      bind:this={partialEditRoot}
      data-chat-index={idx}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
-     data-partial-edit-disabled={editMode || editTranslationMode || isTranslationBusy() || isStreamingDisplay}
+     data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid rgba(98, 114, 164, 0.7);` : ''}
      onclickcapture={handleButtonTriggerWithin}>

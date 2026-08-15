@@ -23,6 +23,14 @@ const storeMocks = vi.hoisted(() => {
 })
 
 vi.mock('src/ts/stores.svelte', () => storeMocks)
+vi.mock('src/ts/alert', () => ({ alertConfirm: vi.fn() }))
+vi.mock('src/ts/gui/guisize', async () => {
+    const { writable } = await import('svelte/store')
+    return {
+        textAreaSize: writable(0),
+        textAreaTextSize: writable(0),
+    }
+})
 
 import { mount, tick, unmount } from 'svelte'
 import { get } from 'svelte/store'
@@ -168,6 +176,86 @@ describe('PartialEditManager', () => {
         expect(DBState.db.characters[0].chats[0].message[1].swipes?.[0]).toBe('updated message')
         expect(get(ReloadChatPointer)).toEqual({ 1: 1 })
         expect(target.querySelector('.partial-edit-overlay')).toBeNull()
+    })
+
+    it('does not treat the chat body root as an editable content block', async () => {
+        const messages: Message[] = [
+            { role: 'char', data: 'message body', chatId: 'message-0' },
+        ]
+        DBState.db.characters[0].chats[0].message = messages
+        const screenRoot = createChatScreen(messages)
+        const bodyRoot = screenRoot.querySelector<HTMLElement>('.chattext')!
+        vi.spyOn(document, 'elementFromPoint').mockReturnValue(bodyRoot)
+
+        renderManager(screenRoot, messages, { dragEditEnabled: false })
+        await tick()
+        document.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 110 }))
+        await tick()
+
+        expect(document.body.querySelector('.partial-edit-btn-wrapper')).toBeNull()
+    })
+
+    it('positions block controls immediately after the last rendered character', async () => {
+        const messages: Message[] = [
+            { role: 'char', data: 'message body', chatId: 'message-0' },
+        ]
+        DBState.db.characters[0].chats[0].message = messages
+        const screenRoot = createChatScreen(messages)
+        const paragraph = screenRoot.querySelector('p')!
+        vi.spyOn(document, 'elementFromPoint').mockReturnValue(paragraph)
+        vi.spyOn(document, 'createRange').mockReturnValue({
+            selectNodeContents: vi.fn(),
+            getClientRects: () => [new DOMRect(100, 120, 8, 16)],
+        } as unknown as Range)
+
+        renderManager(screenRoot, messages, { dragEditEnabled: false })
+        await tick()
+        document.dispatchEvent(new MouseEvent('mousemove', { clientX: 30, clientY: 110 }))
+        await tick()
+
+        const controls = document.body.querySelector<HTMLElement>('.partial-edit-btn-wrapper')
+        expect(controls?.style.left).toBe('108px')
+        expect(controls?.style.top).toBe('116px')
+        expect(controls?.style.paddingLeft).toBe('4px')
+        expect(controls?.style.paddingTop).toBe('0px')
+    })
+
+    it('positions drag-selection controls after the final selected line', async () => {
+        const messages: Message[] = [
+            { role: 'char', data: 'message body', chatId: 'message-0' },
+        ]
+        DBState.db.characters[0].chats[0].message = messages
+        const screenRoot = createChatScreen(messages)
+        const paragraph = screenRoot.querySelector('p')!
+        const textNode = paragraph.firstChild!
+        const range = {
+            commonAncestorContainer: textNode,
+            startContainer: textNode,
+            endContainer: textNode,
+            getBoundingClientRect: () => new DOMRect(20, 100, 160, 36),
+            getClientRects: () => [
+                new DOMRect(20, 100, 160, 16),
+                new DOMRect(20, 120, 60, 16),
+            ],
+        } as unknown as Range
+        vi.spyOn(window, 'getSelection').mockReturnValue({
+            isCollapsed: false,
+            rangeCount: 1,
+            toString: () => 'message body',
+            getRangeAt: () => range,
+        } as unknown as Selection)
+
+        renderManager(screenRoot, messages, { blockEditEnabled: false })
+        await tick()
+        document.dispatchEvent(new Event('selectionchange'))
+        await vi.waitFor(() => {
+            expect(document.body.querySelector('.partial-edit-drag-btn-wrapper')).not.toBeNull()
+        })
+
+        const controls = document.body.querySelector<HTMLElement>('.partial-edit-drag-btn-wrapper')
+        expect(controls?.style.left).toBe('80px')
+        expect(controls?.style.top).toBe('136px')
+        expect(controls?.style.paddingTop).toBe('4px')
     })
 
     it('edits the active translation cache without mutating the original message', async () => {

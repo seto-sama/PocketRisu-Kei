@@ -47,6 +47,7 @@ const interactionMocks = vi.hoisted(() => ({
 
 const translatorMocks = vi.hoisted(() => ({
     getLLMCache: vi.fn(async () => null as string | null),
+    setLLMCache: vi.fn(async () => {}),
     translateHTML: vi.fn(async (value: string) => value),
 }))
 
@@ -100,7 +101,7 @@ vi.mock('../../ts/parser/parser.svelte', () => ({
 vi.mock('../../ts/translator/translator', () => ({
     getLLMCache: translatorMocks.getLLMCache,
     getLLMTranslationCacheRevision: () => 0,
-    setLLMCache: vi.fn(),
+    setLLMCache: translatorMocks.setLLMCache,
     subscribeLLMTranslationCache: () => () => {},
     translateHTML: translatorMocks.translateHTML,
 }))
@@ -150,6 +151,7 @@ const mountedComponents: unknown[] = []
 
 beforeEach(() => {
     clearChatBodyRenderCache()
+    parserMocks.ParseMarkdown.mockImplementation(async (value: string) => value)
     translatorMocks.getLLMCache.mockResolvedValue(null)
     translatorMocks.translateHTML.mockImplementation(async (value: string) => value)
     DBState.db = {
@@ -295,6 +297,129 @@ describe('Chat editing', () => {
 
         expect(DBState.db.characters[0].chats[0].message[0].data).toBe('Edited user message')
         expect(target.querySelector('.message-edit-area')).toBeNull()
+    })
+
+    it('uses the shared pencil button to edit the visible LLM translation', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        translatorMocks.getLLMCache.mockResolvedValue('Translated user message')
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                isLastMemory: false,
+                renderCacheKey: 'room:translated-edit',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await waitForTranslationButtonState(target, true)
+
+        expect(target.querySelectorAll('.chat-generation-info button')).toHaveLength(1)
+        const editButton = target.querySelector<HTMLButtonElement>('.button-icon-edit')
+        expect(editButton?.getAttribute('aria-label')).toBe('editTranslation')
+        editButton?.click()
+        await vi.waitFor(() => {
+            expect(target.querySelector('.message-edit-area')).not.toBeNull()
+        })
+
+        const editor = target.querySelector<HTMLTextAreaElement>('.message-edit-area')
+        expect(editor?.value).toBe('Translated user message')
+        editor!.value = 'Edited translation'
+        editor!.dispatchEvent(new Event('input', { bubbles: true }))
+        await tick()
+        target.querySelector<HTMLButtonElement>('.button-icon-edit')?.click()
+        await vi.waitFor(() => {
+            expect(translatorMocks.setLLMCache).toHaveBeenCalledWith('User message', 'Edited translation')
+            expect(target.querySelector('.message-edit-area')).toBeNull()
+        })
+
+        expect(DBState.db.characters[0].chats[0].message[0].data).toBe('User message')
+    })
+
+    it('keeps a translation edit scoped to its original swipe', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        DBState.db.characters[0].chats[0].message[0] = {
+            role: 'char',
+            data: 'First swipe',
+            chatId: 'message-0',
+            swipes: ['First swipe', 'Second swipe'],
+            swipeId: 0,
+        }
+        translatorMocks.getLLMCache.mockResolvedValue('Translated first swipe')
+        const onNextSwipe = vi.fn()
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'First swipe',
+                name: 'Character',
+                role: 'char',
+                idx: 0,
+                totalLength: 1,
+                isLastMemory: false,
+                rerollIcon: true,
+                currentPage: 1,
+                totalPages: 2,
+                onNextSwipe,
+                renderCacheKey: 'room:swipe-edit',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await waitForTranslationButtonState(target, true)
+        target.querySelector<HTMLButtonElement>('.button-icon-edit')?.click()
+        await vi.waitFor(() => {
+            expect(target.querySelector('.message-edit-area')).not.toBeNull()
+        })
+
+        const editor = target.querySelector<HTMLTextAreaElement>('.message-edit-area')!
+        editor.value = 'Edited first translation'
+        editor.dispatchEvent(new Event('input', { bubbles: true }))
+        await tick()
+
+        const nextSwipeButton = target.querySelector<HTMLButtonElement>('.button-icon-reroll')!
+        const translationButton = target.querySelector<HTMLButtonElement>('.button-icon-translate')!
+        const retranslationButton = target.querySelector<HTMLButtonElement>('.chat-generation-info button')!
+        expect(nextSwipeButton.closest('fieldset')?.disabled).toBe(true)
+        expect(translationButton.disabled).toBe(true)
+        expect(retranslationButton.disabled).toBe(true)
+        nextSwipeButton.click()
+        translationButton.click()
+        expect(onNextSwipe).not.toHaveBeenCalled()
+        expect(translationButton.classList.contains('text-primary')).toBe(true)
+
+        // Even if the rendered source changes outside these controls, saving
+        // must use the cache key captured when the editor was opened.
+        parserMocks.ParseMarkdown.mockResolvedValue('Second swipe')
+        target.querySelector<HTMLButtonElement>('.button-icon-edit')?.click()
+        await vi.waitFor(() => {
+            expect(translatorMocks.setLLMCache).toHaveBeenCalledWith(
+                'First swipe',
+                'Edited first translation',
+            )
+            expect(target.querySelector('.message-edit-area')).toBeNull()
+        })
+        expect(translatorMocks.setLLMCache).not.toHaveBeenCalledWith(
+            'Second swipe',
+            'Edited first translation',
+        )
     })
 
     it('does not automatically retranslate content changed by an internal Lua button', async () => {

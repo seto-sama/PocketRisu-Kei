@@ -53,6 +53,8 @@
     const SELECTOR = EDITABLE_BLOCK_SELECTORS.join(', ');
     const PARTIAL_EDIT_ICON_SIZE = iconButtonSizeValues.xs.icon;
     const PARTIAL_EDIT_BUTTON_CELL_SIZE = iconButtonSizeValues.default.cell;
+    const PARTIAL_EDIT_BUTTON_GAP = 4;
+    const PARTIAL_EDIT_VIEWPORT_GUTTER = 4;
 
     let isEditing = $state(false);
     let editText = $state('');
@@ -89,6 +91,8 @@
     let dragButtonWrapper: HTMLDivElement | null = null;
     let currentDragSelectedText = '';
     let rafId: number | null = null;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
     let selectionTimer: ReturnType<typeof setTimeout> | null = null;
     let focusTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -188,6 +192,16 @@
         };
     }
 
+    function resolveEditableBlockAtPoint(mouseX: number, mouseY: number) {
+        const block = document.elementFromPoint(mouseX, mouseY)?.closest<HTMLElement>(SELECTOR);
+        if (!block) return null;
+
+        const target = resolveTarget(block);
+        if (!target || block === target.bodyRoot || !hasTextContent(block)) return null;
+
+        return { block, target };
+    }
+
     function getCurrentMessage(target: PartialEditTarget): Message | null {
         const character = DBState.db.characters[target.characterIndex];
         const chat = character?.chats?.[target.chatPage];
@@ -216,6 +230,66 @@
         messageData = target.messageData;
     }
 
+    function getLastRangeRect(range: Range): DOMRect | null {
+        const rects = range.getClientRects();
+        for (let i = rects.length - 1; i >= 0; i--) {
+            if (rects[i].width || rects[i].height) return rects[i];
+        }
+        return null;
+    }
+
+    function getLastContentRect(block: HTMLElement): DOMRect {
+        try {
+            const range = document.createRange();
+            range.selectNodeContents(block);
+            const rect = getLastRangeRect(range);
+            if (rect) return rect;
+        } catch {
+            // Some custom-rendered blocks cannot be represented by a Range.
+        }
+
+        const rect = block.getBoundingClientRect();
+        return new DOMRect(rect.right, rect.bottom, 0, 0);
+    }
+
+    function prepareEditButtons(button: HTMLElement, paddingTop: number) {
+        button.style.display = 'flex';
+        button.style.paddingLeft = `${PARTIAL_EDIT_BUTTON_GAP}px`;
+        button.style.paddingTop = `${paddingTop}px`;
+
+        const width = button.offsetWidth || PARTIAL_EDIT_BUTTON_CELL_SIZE * 2 + PARTIAL_EDIT_BUTTON_GAP * 2;
+        const height = button.offsetHeight || PARTIAL_EDIT_BUTTON_CELL_SIZE + paddingTop;
+        const maxLeft = Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, window.innerWidth - width - PARTIAL_EDIT_VIEWPORT_GUTTER);
+        const maxTop = Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, window.innerHeight - height - PARTIAL_EDIT_VIEWPORT_GUTTER);
+
+        return { width, height, maxLeft, maxTop };
+    }
+
+    function applyEditButtonPosition(
+        anchor: DOMRect,
+        button: HTMLElement,
+        left: number,
+        top: number,
+        layout: ReturnType<typeof prepareEditButtons>,
+    ) {
+        if (left > layout.maxLeft) left = anchor.right - layout.width;
+        if (top > layout.maxTop) top = anchor.top - layout.height;
+
+        button.style.left = `${Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, Math.min(left, layout.maxLeft))}px`;
+        button.style.top = `${Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, Math.min(top, layout.maxTop))}px`;
+    }
+
+    function positionBlockButtons(anchor: DOMRect, button: HTMLElement) {
+        const layout = prepareEditButtons(button, 0);
+        const top = anchor.top + (anchor.height - layout.height) / 2;
+        applyEditButtonPosition(anchor, button, anchor.right, top, layout);
+    }
+
+    function positionDragButtons(anchor: DOMRect, button: HTMLElement) {
+        const layout = prepareEditButtons(button, PARTIAL_EDIT_BUTTON_GAP);
+        applyEditButtonPosition(anchor, button, anchor.right, anchor.bottom, layout);
+    }
+
     function showBlockButton(block: HTMLElement, target: PartialEditTarget) {
         if (currentHoveredBlock === block && blockButtonWrapper?.style.display === 'flex') return;
         setActiveTarget(target);
@@ -234,13 +308,10 @@
             document.body.appendChild(blockButtonWrapper);
         }
 
-        const rect = block.getBoundingClientRect();
         blockButtonWrapper.style.position = 'fixed';
-        blockButtonWrapper.style.top = `${rect.top - 36}px`;
-        blockButtonWrapper.style.left = `${rect.left}px`;
-        blockButtonWrapper.style.display = 'flex';
-        blockButtonWrapper.style.gap = '4px';
+        blockButtonWrapper.style.gap = `${PARTIAL_EDIT_BUTTON_GAP}px`;
         blockButtonWrapper.style.zIndex = '1000';
+        positionBlockButtons(getLastContentRect(block), blockButtonWrapper);
     }
 
     function hideBlockButton() {
@@ -249,7 +320,7 @@
         if (!hasOpenInteraction() && !currentDragSelectedText) activeTarget = null;
     }
 
-    function showDragButton(rect: DOMRect, target: PartialEditTarget) {
+    function showDragButton(anchor: DOMRect, target: PartialEditTarget) {
         setActiveTarget(target);
         if (!dragButtonWrapper) {
             dragButtonWrapper = createButton(
@@ -260,13 +331,10 @@
             document.body.appendChild(dragButtonWrapper);
         }
 
-        const centerX = (rect.left + rect.right) / 2;
         dragButtonWrapper.style.position = 'fixed';
-        dragButtonWrapper.style.top = `${rect.bottom + 4}px`;
-        dragButtonWrapper.style.left = `${centerX - 36}px`;
-        dragButtonWrapper.style.display = 'flex';
-        dragButtonWrapper.style.gap = '4px';
+        dragButtonWrapper.style.gap = `${PARTIAL_EDIT_BUTTON_GAP}px`;
         dragButtonWrapper.style.zIndex = '1000';
+        positionDragButtons(anchor, dragButtonWrapper);
     }
 
     function hideDragButton() {
@@ -485,9 +553,16 @@
         return mouseX >= rect.left && mouseX <= rect.right && mouseY >= rect.top && mouseY <= rect.bottom;
     }
 
-    function isMouseInButtonZone(mouseX: number, mouseY: number, block: HTMLElement): boolean {
-        const rect = block.getBoundingClientRect();
-        return mouseX >= rect.left && mouseX <= rect.right && mouseY >= rect.top - 44 && mouseY < rect.top;
+    function updateBlockHover(mouseX: number, mouseY: number) {
+        if (isMouseOnBlockButton(mouseX, mouseY)) return;
+
+        const resolved = resolveEditableBlockAtPoint(mouseX, mouseY);
+        if (!resolved) {
+            hideBlockButton();
+            return;
+        }
+
+        showBlockButton(resolved.block, resolved.target);
     }
 
     function handleMove(e: MouseEvent) {
@@ -497,22 +572,14 @@
             hideBlockButton();
             return;
         }
-        const mouseX = e.clientX;
-        const mouseY = e.clientY;
+
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
         if (rafId !== null) return;
+
         rafId = requestAnimationFrame(() => {
             rafId = null;
-            if (isMouseOnBlockButton(mouseX, mouseY)) return;
-            if (currentHoveredBlock && isMouseInButtonZone(mouseX, mouseY, currentHoveredBlock)) return;
-
-            const elementAtPoint = document.elementFromPoint(mouseX, mouseY);
-            const block = elementAtPoint?.closest(SELECTOR) as HTMLElement | null;
-            const target = resolveTarget(block);
-            if (block && target && target.bodyRoot.contains(block) && hasTextContent(block)) {
-                showBlockButton(block, target);
-                return;
-            }
-            hideBlockButton();
+            updateBlockHover(lastMouseX, lastMouseY);
         });
     }
 
@@ -543,7 +610,7 @@
                 return;
             }
             currentDragSelectedText = selectedText;
-            showDragButton(rect, target);
+            showDragButton(getLastRangeRect(range) ?? rect, target);
         }, 150);
     }
 
@@ -719,11 +786,24 @@
     <ShDialog
         bind:open={isEditing}
         size="default"
+        closable={false}
         closeOnEscape={true}
         onOpenChange={(open) => { if (!open) handleCancel(); }}
         contentClass="gap-3"
     >
-        {#snippet title()}{language.partialEdit.editModalTitle}{/snippet}
+        {#snippet title()}
+            <div class="partial-edit-header">
+                <span>{language.partialEdit.editModalTitle}</span>
+                <span
+                    class="partial-match-confidence"
+                    class:high-confidence={matchingState.selectedRange.confidence >= 0.95}
+                    class:medium-confidence={matchingState.selectedRange.confidence >= 0.7 && matchingState.selectedRange.confidence < 0.95}
+                    class:low-confidence={matchingState.selectedRange.confidence < 0.7}
+                >
+                    {language.partialEdit.matchConfidence(Math.round(matchingState.selectedRange.confidence * 100))}
+                </span>
+            </div>
+        {/snippet}
         <div use:attachPartialEditTextarea>
             <TextAreaInput
                 bind:value={editText}
@@ -735,16 +815,6 @@
         </div>
         {#snippet footer()}
             <div class="partial-edit-footer">
-                <div class="partial-match-meta">
-                    <span
-                        class="partial-match-confidence"
-                        class:high-confidence={matchingState.selectedRange.confidence >= 0.95}
-                        class:medium-confidence={matchingState.selectedRange.confidence >= 0.7 && matchingState.selectedRange.confidence < 0.95}
-                        class:low-confidence={matchingState.selectedRange.confidence < 0.7}
-                    >
-                        {language.partialEdit.matchConfidence(Math.round(matchingState.selectedRange.confidence * 100))}
-                    </span>
-                </div>
                 <div class="partial-edit-buttons">
                     <ShButton
                         variant="outline"
@@ -904,6 +974,14 @@
     }
 
     .partial-edit-footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .partial-edit-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
