@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import type { RequestDataArgumentExtended } from './request'
+import type { OpenAIChat } from '../index.svelte'
 import {
     getRevenantOperationJobType,
     type RevenantGenerationRequest,
@@ -12,6 +13,21 @@ import {
 } from '../revenant/workflow'
 
 export type { ModelModeExtended } from '../revenant'
+
+/**
+ * A chat message is request-worthy when it carries model-visible text or
+ * non-text payload. Metadata alone (role, name, cache flags, etc.) does not
+ * make an otherwise empty message meaningful.
+ */
+export function hasMessagePayload(message: OpenAIChat): boolean {
+    if (message.content.trim().length > 0) return true
+    if ((message.multimodals?.length ?? 0) > 0) return true
+    return message.thoughts?.some((thought) => thought.trim().length > 0) ?? false
+}
+
+export function removeEmptyChatMessages(messages: OpenAIChat[]): OpenAIChat[] {
+    return messages.filter(hasMessagePayload)
+}
 
 export function ensureRequestGenerationId(
     arg: Pick<RequestDataArgumentExtended, 'chatId' | 'revenantRequestId'>,

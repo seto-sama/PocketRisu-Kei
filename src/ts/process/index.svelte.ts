@@ -23,6 +23,7 @@ import { runInlayScreen } from "./inlayScreen";
 import { runImageEmbedding } from "./transformers";
 import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
 import { applyPromptPresetParams, resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
+import { hasMessagePayload } from "./request/shared";
 import { type RevenantChatWorkflowContext, type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant";
 import {
     cancelRevenantGeneration,
@@ -1610,9 +1611,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             v.content = `<Previous Conversation>${v.content}</Previous Conversation>`
         }
         return v
-    }).filter((v) => {
-        return v.content.trim() !== '' || (v.multimodals && v.multimodals.length > 0)
-    })
+    }).filter(hasMessagePayload)
 
     for(const depthPrompt of depthPrompts){
         const chat:OpenAIChat = {
@@ -1663,7 +1662,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     function pushPrompts(cha:OpenAIChat[]){
         for(const chat of cha){
-            if(!chat.content.trim() && !(chat.multimodals && chat.multimodals.length > 0)){
+            // Drop payload-less turns before system merging and cache-depth
+            // accounting; the shared request boundary repeats this after all
+            // prompt/trigger transforms as a final safety net.
+            if(!hasMessagePayload(chat)){
                 continue
             }
             if(!mergesAdjacentSystemPrompts){
@@ -1953,9 +1955,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
             pointer++
         }
-        formated = formated.filter((v) => {
-            return v.content !== ''  || (v.multimodals && v.multimodals.length > 0)
-        })
+        formated = formated.filter(hasMessagePayload)
     }
 
     //estimate tokens

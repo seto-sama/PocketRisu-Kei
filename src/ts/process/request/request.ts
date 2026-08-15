@@ -12,7 +12,7 @@ import { getTools, callTool, encodeToolCall, decodeToolCall } from "../mcp/mcp";
 import type { MCPTool, RPCToolCallContent } from "../mcp/mcplib";
 import { getGeneralJSONSchema } from "../templates/jsonSchema";
 import { runTrigger } from "../triggers";
-import { buildGenerationRequest, collectStreamingText, ensureRequestGenerationId, getRequestStatusNavigationId, type ModelModeExtended } from './shared';
+import { buildGenerationRequest, collectStreamingText, ensureRequestGenerationId, getRequestStatusNavigationId, removeEmptyChatMessages, type ModelModeExtended } from './shared';
 import {
     ModelPresetAdapterError,
     runToolLoop,
@@ -360,6 +360,11 @@ export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[]){
 
 
 export async function requestChatDataMain(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
+    // Normalize at the shared request boundary so main and auxiliary callers
+    // behave consistently. Structured tool-call follow-up turns are created
+    // later by the adapter loop and are therefore intentionally unaffected.
+    arg.formated = removeEmptyChatMessages(arg.formated)
+
     const currentChat = getCurrentChat()
     const binding = resolveChatModelBinding(currentChat, model)
     if(binding.kind === 'modelPreset'){

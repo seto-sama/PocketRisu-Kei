@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import type { OpenAIChat } from '../index.svelte'
 
 const { workflowState } = vi.hoisted(() => ({
     workflowState: { workflow: undefined as undefined | { workflowId: string } },
@@ -14,10 +15,66 @@ vi.mock('../revenant/workflow', () => ({
     getRevenantWorkflowStepKey: (jobType: string) => jobType === 'model' ? 'model.main' : `job.${jobType}`,
 }))
 
-import { buildGenerationRequest, collectStreamingText, ensureRequestGenerationId, getRequestStatusNavigationId } from './shared'
+import {
+    buildGenerationRequest,
+    collectStreamingText,
+    ensureRequestGenerationId,
+    getRequestStatusNavigationId,
+    hasMessagePayload,
+    removeEmptyChatMessages,
+} from './shared'
 
 afterEach(() => {
     workflowState.workflow = undefined
+})
+
+describe('chat message payload filtering', () => {
+    test.each(['system', 'user', 'assistant', 'function'] as const)(
+        'drops a payload-less %s message',
+        (role) => {
+            expect(hasMessagePayload({ role, content: ' \n\t ' })).toBe(false)
+        },
+    )
+
+    test('keeps text, multimodal, and thought payloads', () => {
+        expect(hasMessagePayload({ role: 'assistant', content: 'answer' })).toBe(true)
+        expect(hasMessagePayload({
+            role: 'user',
+            content: '',
+            multimodals: [{ type: 'image', base64: 'image-data' }],
+        })).toBe(true)
+        expect(hasMessagePayload({
+            role: 'assistant',
+            content: '',
+            thoughts: ['reasoning'],
+        })).toBe(true)
+    })
+
+    test('does not treat empty non-text arrays as payload', () => {
+        expect(hasMessagePayload({ role: 'user', content: '', multimodals: [] })).toBe(false)
+        expect(hasMessagePayload({ role: 'assistant', content: '', thoughts: ['', '  '] })).toBe(false)
+    })
+
+    test('removes only payload-less messages without mutating the input', () => {
+        const messages: OpenAIChat[] = [
+            { role: 'system', content: 'instructions' },
+            { role: 'assistant', content: '' },
+            { role: 'user', content: 'question' },
+        ]
+
+        expect(removeEmptyChatMessages(messages)).toEqual([
+            { role: 'system', content: 'instructions' },
+            { role: 'user', content: 'question' },
+        ])
+        expect(messages).toHaveLength(3)
+    })
+
+    test('keeps persisted tool-call markers for adapter expansion', () => {
+        expect(hasMessagePayload({
+            role: 'assistant',
+            content: '<tool_call>persisted-id</tool_call>',
+        })).toBe(true)
+    })
 })
 
 // collectStreamingText underpins per-preset decoupled streaming: the wire stays

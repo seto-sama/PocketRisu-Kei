@@ -72,7 +72,11 @@ describe('runToolLoop', () => {
         expect(executeTool).toHaveBeenCalledTimes(2)
         const convo = seen[1]
         // assistant turn carries both calls, followed by both tool results in order.
-        expect(convo[1]).toMatchObject({ role: 'assistant', toolCalls: [{ id: 'a' }, { id: 'b' }] })
+        expect(convo[1]).toMatchObject({
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'a' }, { id: 'b' }],
+        })
         expect(convo[2]).toMatchObject({ role: 'tool', toolCallId: 'a', content: 'R:alpha' })
         expect(convo[3]).toMatchObject({ role: 'tool', toolCallId: 'b', content: 'R:beta' })
     })
