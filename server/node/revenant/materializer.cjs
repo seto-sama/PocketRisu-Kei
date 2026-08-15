@@ -1,5 +1,7 @@
 'use strict';
 
+const { applyRevenantStageTimingToMessage } = require('./generationTiming.cjs');
+
 class RevenantMaterializationError extends Error {
     constructor(status, message) {
         super(message);
@@ -10,7 +12,7 @@ class RevenantMaterializationError extends Error {
 
 function completedServerChat(workflow) {
     if (!workflow) return undefined;
-    for (const key of ['postprocess', 'igp', 'trigger.output', 'output.transform']) {
+    for (const key of ['message.materialize', 'postprocess', 'igp', 'trigger.output', 'output.transform']) {
         const step = workflow.steps?.find(item => item.key === key && item.status === 'completed');
         if (step?.metadata?.chat?.id && Array.isArray(step.metadata.chat.message)) {
             return structuredClone(step.metadata.chat);
@@ -74,6 +76,7 @@ function createRevenantMaterializer(options) {
         getGenerationWorkflow,
         listRecoverableGenerationJobs,
         markGenerationMaterialized,
+        updateGenerationWorkflowStep,
     } = repository;
     const {
         queueStorageOperation,
@@ -134,6 +137,15 @@ function createRevenantMaterializer(options) {
             if (!materializedMessage || typeof materializedMessage.data !== 'string') {
                 throw new RevenantMaterializationError(409, 'Server postprocess result is not ready');
             }
+            applyRevenantStageTimingToMessage(
+                materializedMessage,
+                workflow,
+                job.completedAt || job.updatedAt,
+            );
+            updateGenerationWorkflowStep(workflow.workflowId, 'message.materialize', {
+                status: 'running',
+                metadata: { schemaVersion: 1, chat },
+            });
 
             const hypaMemory = workflow?.steps
                 ?.find(step => step.key === 'memory.hypav3' && step.status === 'completed')

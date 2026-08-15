@@ -347,7 +347,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 const workflow = await getRevenantWorkflow(workflowId)
                 if(workflow.status === 'completed'){
                     updateWaiter.cancel()
-                    const canonicalChat = ['postprocess', 'igp', 'trigger.output', 'output.transform']
+                    const canonicalChat = ['message.materialize', 'postprocess', 'igp', 'trigger.output', 'output.transform']
                         .map(key => workflow.steps.find(step => step.key === key)?.metadata?.chat)
                         .find(chat => chat && typeof chat === 'object' && Array.isArray((chat as Chat).message)) as Chat | undefined
                     if(canonicalChat?.id === DBState.db.characters[selectedChar]?.chats?.[selectedChat]?.id){
