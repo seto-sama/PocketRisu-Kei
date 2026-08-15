@@ -3,7 +3,6 @@
 // prevents an alignment pass from fighting a button-triggered smooth scroll.
 
 const POSITION_EPSILON = 0.0001
-const INTERACTION_SETTLE_MS = 120
 const MESSAGE_NAVIGATION_THRESHOLD = 30
 const POINTER_DIRECTION_EPSILON = 0.5
 
@@ -51,8 +50,6 @@ type ScrollAnchor = {
     element: HTMLElement
     top: number
 }
-
-type ScrollInteractionMode = 'idle' | 'user' | 'programmatic'
 
 type ScrollElementOptions = {
     block: 'start' | 'end'
@@ -105,24 +102,19 @@ export function createChatScrollController(
     rangeSpacer: HTMLElement,
 ): ChatScrollController {
     let destroyed = false
-    let interactionMode: ScrollInteractionMode = 'idle'
-    let interactionEndTimer: ReturnType<typeof setTimeout> | null = null
     let alignmentFrame = 0
     let anchor: ScrollAnchor | null = null
     let pinnedToBottom = isColumnReverseScrolledToBottom(container.scrollTop)
     let streamingMessage: HTMLElement | null = null
     let streamingHeightSpacer: HTMLDivElement | null = null
-    let bottomReachedDuringInteraction = false
     let userMovingAwayFromBottom = false
     let lastPointerY: number | null = null
     let pointerActive = false
     let touchActive = false
-    let wheelInteraction = false
     const observedChildren = new Set<Element>()
 
     const getRatio = () => normalizedDevicePixelRatio(window.devicePixelRatio || 1)
     const isAtBottom = () => isColumnReverseScrolledToBottom(container.scrollTop)
-
     const findVisibleAnchor = () => {
         const containerRect = container.getBoundingClientRect()
         let best: HTMLElement | null = null
@@ -256,10 +248,10 @@ export function createChatScrollController(
     }
 
     const preserveAfterLayout = () => {
-        // Never write scrollTop while a wheel, touch/kinetic gesture, or smooth
-        // programmatic scroll is active. Mobile scrolling runs off the main
-        // thread, so layout correction here would fight the native scroller.
-        if (destroyed || interactionMode !== 'idle') return
+        // Direct manipulation can run off the main thread on mobile. Defer
+        // writes until the finger or scrollbar thumb is released; wheel and
+        // programmatic movement instead rebase from every emitted scroll.
+        if (destroyed || pointerActive || touchActive) return
 
         if (pinnedToBottom) {
             alignStreamingMessageHeight()
@@ -274,101 +266,31 @@ export function createChatScrollController(
         if (hadAnchor) alignAnchor()
         alignScrollRange()
         if (hadAnchor) alignAnchor()
-        else establishAnchor()
+        // Firefox can publish an upward wheel position after the next layout
+        // frame. Do not establish a pre-wheel anchor during that short gap.
+        else if (!userMovingAwayFromBottom) establishAnchor()
     }
 
-    const settleAtCurrentPosition = (preserveWheelPosition = false) => {
+    const scheduleAlignment = () => {
         if (destroyed) return
-        // Firefox may keep sub-pixel wheel movement in its async scrolling
-        // pipeline before exposing a new integer scrollTop. Writing scrollTop
-        // here—even to an apparently equivalent value—drops that accumulated
-        // movement. On fractional line boxes, repeated slow wheel gestures can
-        // therefore appear completely stuck. Wheel settling only needs to
-        // remember the current anchor; layout observers perform any later
-        // correction when the content actually changes.
-        if (preserveWheelPosition) {
-            const atBottom = isAtBottom()
-            const departurePending = userMovingAwayFromBottom && atBottom
-            // The last wheel direction is the user's current intent. A bottom
-            // position observed before Firefox publishes the async wheel move
-            // must not keep the stream latched to scrollTop=0; the next chunk
-            // would otherwise pull the reader back to their pre-scroll edge.
-            pinnedToBottom = !userMovingAwayFromBottom
-                && (bottomReachedDuringInteraction || atBottom)
-            bottomReachedDuringInteraction = false
-            if (pinnedToBottom || departurePending) anchor = null
-            else captureAnchor(false)
-            userMovingAwayFromBottom = false
-            lastPointerY = null
-            return
-        }
-        pinnedToBottom = bottomReachedDuringInteraction || isAtBottom()
-        bottomReachedDuringInteraction = false
-        if (pinnedToBottom) {
-            alignStreamingMessageHeight()
-            alignScrollRange()
-            container.scrollTop = 0
-            anchor = null
-        }
-        else {
-            alignStreamingMessageHeight()
-            alignScrollRange()
-            establishAnchor()
-        }
-        userMovingAwayFromBottom = false
-        lastPointerY = null
-    }
-
-    const scheduleAlignment = (settlePosition = false, preserveWheelPosition = false) => {
-        if (destroyed || interactionMode !== 'idle') return
         cancelAnimationFrame(alignmentFrame)
         alignmentFrame = requestAnimationFrame(() => {
             alignmentFrame = 0
-            if (settlePosition) settleAtCurrentPosition(preserveWheelPosition)
-            else preserveAfterLayout()
+            preserveAfterLayout()
         })
     }
 
-    const finishInteraction = () => {
-        const preserveWheelPosition = wheelInteraction
-        interactionMode = 'idle'
-        wheelInteraction = false
-        if (interactionEndTimer) {
-            clearTimeout(interactionEndTimer)
-            interactionEndTimer = null
-        }
-        scheduleAlignment(true, preserveWheelPosition)
-    }
-
-    const deferInteractionEnd = () => {
-        if (interactionEndTimer) clearTimeout(interactionEndTimer)
-        // A pause between touch movements is not the end of the gesture. Wait
-        // for pointerup before using the timer to cover kinetic scrolling.
-        if (interactionMode === 'user' && (pointerActive || touchActive)) {
-            interactionEndTimer = null
-            return
-        }
-        interactionEndTimer = setTimeout(finishInteraction, INTERACTION_SETTLE_MS)
-    }
-
-    const startInteraction = (mode: Exclude<ScrollInteractionMode, 'idle'>) => {
-        interactionMode = mode
-        wheelInteraction = false
-        bottomReachedDuringInteraction = isAtBottom()
+    const prepareForMovement = () => {
         userMovingAwayFromBottom = false
         lastPointerY = null
         anchor = null
         cancelAnimationFrame(alignmentFrame)
         alignmentFrame = 0
-        if (interactionEndTimer) {
-            clearTimeout(interactionEndTimer)
-            interactionEndTimer = null
-        }
     }
 
     const startPointerGesture = (event: PointerEvent) => {
-        startInteraction('user')
         pointerActive = true
+        userMovingAwayFromBottom = false
         lastPointerY = event.clientY
     }
 
@@ -377,7 +299,7 @@ export function createChatScrollController(
     }
 
     const handlePointerMove = (event: PointerEvent) => {
-        if (interactionMode !== 'user') return
+        if (!pointerActive) return
         if (lastPointerY !== null) {
             const deltaY = event.clientY - lastPointerY
             if (Math.abs(deltaY) > POINTER_DIRECTION_EPSILON) {
@@ -387,62 +309,64 @@ export function createChatScrollController(
                 userMovingAwayFromBottom = event.pointerType === 'mouse'
                     ? deltaY < 0
                     : deltaY > 0
+                if (userMovingAwayFromBottom) {
+                    pinnedToBottom = false
+                    anchor = null
+                }
             }
         }
         lastPointerY = event.clientY
     }
 
-    const startProgrammaticScroll = () => {
-        pointerActive = false
-        startInteraction('programmatic')
-        // Instant/no-op scrolls may not emit scrollend; ordinary scroll events
-        // keep extending this fallback while a smooth scroll is in progress.
-        deferInteractionEnd()
-    }
-
     const endPointerGesture = () => {
         pointerActive = false
         lastPointerY = null
-        if (interactionMode === 'user') deferInteractionEnd()
+        if (!touchActive) {
+            userMovingAwayFromBottom = false
+            scheduleAlignment()
+        }
     }
     const endTouchGesture = () => {
         touchActive = false
-        if (interactionMode === 'user') deferInteractionEnd()
+        if (!pointerActive) {
+            userMovingAwayFromBottom = false
+            scheduleAlignment()
+        }
     }
     const handleWheel = (event: WheelEvent) => {
-        pointerActive = false
-        startInteraction('user')
-        wheelInteraction = true
+        cancelAnimationFrame(alignmentFrame)
+        alignmentFrame = 0
+        anchor = null
         userMovingAwayFromBottom = event.deltaY < 0
-        deferInteractionEnd()
+        if (userMovingAwayFromBottom) pinnedToBottom = false
     }
+
     const handleScroll = () => {
-        if (interactionMode === 'user') {
-            if (isAtBottom()) bottomReachedDuringInteraction = true
-            else if (userMovingAwayFromBottom) bottomReachedDuringInteraction = false
-            deferInteractionEnd()
-        }
-        else if (interactionMode === 'programmatic') {
-            if (isAtBottom()) bottomReachedDuringInteraction = true
-            deferInteractionEnd()
-        }
-    }
-    const handleScrollEnd = () => {
-        // Firefox can report scrollend after the fallback timer has already
-        // finished the wheel interaction. Re-settling an idle controller here
-        // would replace the exact wheel anchor with a snapped one and write
-        // scrollTop back into the async scrolling pipeline.
-        if (interactionMode === 'idle') return
-        if (interactionMode === 'user' && (pointerActive || touchActive)) return
-        // Samsung Browser can emit a scrollend from the button's pointer
-        // sequence immediately after a new smooth programmatic scroll starts.
-        // Wait for the last real scroll event instead of restoring the anchor
-        // on that stale event, which would cancel the animation at frame one.
-        if (interactionMode === 'programmatic') {
-            deferInteractionEnd()
+        const atBottom = isAtBottom()
+        if (atBottom) {
+            // An upward wheel can precede Firefox APZ's first off-bottom
+            // position. Preserve that intent rather than latching a stale 0.
+            pinnedToBottom = !userMovingAwayFromBottom
+            anchor = null
             return
         }
-        finishInteraction()
+
+        // A reverse scroller can move because bottom content grew while a
+        // finger is resting. Keep the bottom latch unless the gesture itself
+        // has actually moved towards history.
+        if ((pointerActive || touchActive)
+            && pinnedToBottom
+            && !userMovingAwayFromBottom) {
+            anchor = null
+            return
+        }
+
+        // Every native or programmatic scroll position is authoritative. This
+        // also rebases after browser-native anchoring, so a later observer pass
+        // cannot restore an older point from the same gesture.
+        pinnedToBottom = false
+        captureAnchor(false)
+        if (!pointerActive && !touchActive) userMovingAwayFromBottom = false
     }
 
     const scrollToElement = (element: HTMLElement, options: ScrollElementOptions) => {
@@ -453,14 +377,16 @@ export function createChatScrollController(
             ? elementRect.top - containerRect.top
             : elementRect.bottom - containerRect.bottom
         const top = snapToDevicePixel(container.scrollTop + offset, getRatio())
-        startProgrammaticScroll()
+        prepareForMovement()
+        pinnedToBottom = isColumnReverseScrolledToBottom(top)
         // scrollIntoView would also scroll ancestors such as documentElement.
         container.scrollTo({ top, behavior: options.behavior })
     }
 
     const scrollToEdge = (edge: 'top' | 'bottom', behavior: ScrollBehavior) => {
         if (destroyed) return
-        startProgrammaticScroll()
+        prepareForMovement()
+        pinnedToBottom = edge === 'bottom'
         // The chat uses column-reverse: the latest-message edge is 0 and the
         // oldest-message edge is negative. Let the browser clamp the oversized
         // negative target to the exact fractional upper boundary.
@@ -556,8 +482,7 @@ export function createChatScrollController(
     window.addEventListener('touchcancel', endTouchGesture, { passive: true })
     container.addEventListener('wheel', handleWheel, { passive: true })
     container.addEventListener('scroll', handleScroll, { passive: true })
-    container.addEventListener('scrollend', handleScrollEnd)
-    scheduleAlignment(true)
+    scheduleAlignment()
 
     return {
         scrollToElement,
@@ -570,7 +495,6 @@ export function createChatScrollController(
             mutationObserver?.disconnect()
             observedChildren.clear()
             cancelAnimationFrame(alignmentFrame)
-            if (interactionEndTimer) clearTimeout(interactionEndTimer)
             container.removeEventListener('pointerdown', startPointerGesture)
             container.removeEventListener('touchstart', startTouchGesture)
             window.removeEventListener('pointermove', handlePointerMove)
@@ -580,7 +504,6 @@ export function createChatScrollController(
             window.removeEventListener('touchcancel', endTouchGesture)
             container.removeEventListener('wheel', handleWheel)
             container.removeEventListener('scroll', handleScroll)
-            container.removeEventListener('scrollend', handleScrollEnd)
             streamingHeightSpacer?.remove()
             rangeSpacer.style.height = '0px'
         },

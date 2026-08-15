@@ -131,7 +131,17 @@ export function createChatBodyRenderController(
         // await boundary before mutating task state.
         await Promise.resolve()
         currentCacheKey = cacheKey
-        const needsTranslation = DBState.db.translatorType !== 'llm'
+        const sharedTask = DBState.db.translatorType === 'llm' && translationTaskKey
+            ? sharedTranslationTasks.get(translationTaskKey)
+            : undefined
+        const matchingSharedTask = sharedTask?.cacheKey === cacheKey
+            ? sharedTask
+            : undefined
+        // An in-flight retranslation supersedes the older durable cache. A
+        // remounted body must rejoin it instead of rendering that stale value
+        // and dropping its loading state.
+        const needsTranslation = matchingSharedTask !== undefined
+            || DBState.db.translatorType !== 'llm'
             || regenerate
             || cacheKey === null
             || await getLLMCache(cacheKey) === null
@@ -144,12 +154,6 @@ export function createChatBodyRenderController(
         // which were already started are handled separately in dispose() so
         // they can finish and populate the translation cache.
         if (disposed) renderAbortController.signal.throwIfAborted()
-        const sharedTask = DBState.db.translatorType === 'llm' && translationTaskKey
-            ? sharedTranslationTasks.get(translationTaskKey)
-            : undefined
-        const matchingSharedTask = sharedTask?.cacheKey === cacheKey
-            ? sharedTask
-            : undefined
         const abortController = matchingSharedTask?.abortController ?? new AbortController()
         translationAbortControllers.set(abortController, {
             persistOnDispose: DBState.db.translatorType === 'llm',

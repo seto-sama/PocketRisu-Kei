@@ -227,7 +227,6 @@ describe('chat scroll pixel snapping', () => {
     })
 
     it('does not write scrollTop while streaming layout grows during touch scrolling', () => {
-        vi.useFakeTimers()
         const observers = installLayoutObservers()
         const container = document.createElement('div')
         const anchor = document.createElement('div')
@@ -250,9 +249,8 @@ describe('chat scroll pixel snapping', () => {
         container.scrollTop = -125
         container.dispatchEvent(new Event('scroll'))
         // Native panning may cancel Pointer Events before the finger lifts.
-        // touchActive must still prevent the fallback timer from settling.
+        // touchActive must still prevent layout correction until touchend.
         window.dispatchEvent(new Event('pointercancel'))
-        vi.advanceTimersByTime(1000)
         anchorLayoutTop -= 30
         observers.notifyResize()
         observers.flushFrames()
@@ -278,7 +276,6 @@ describe('chat scroll pixel snapping', () => {
 
         expect(container.scrollTop).toBe(-24)
         window.dispatchEvent(new Event('pointerup'))
-        container.dispatchEvent(new Event('scrollend'))
         observers.flushFrames()
         expect(container.scrollTop).toBe(0)
         controller.destroy()
@@ -304,7 +301,6 @@ describe('chat scroll pixel snapping', () => {
 
         expect(container.scrollTop).toBe(-24)
         window.dispatchEvent(new Event('pointerup'))
-        container.dispatchEvent(new Event('scrollend'))
         observers.flushFrames()
         expect(container.scrollTop).toBe(0)
         controller.destroy()
@@ -324,14 +320,12 @@ describe('chat scroll pixel snapping', () => {
         observers.flushFrames()
 
         window.dispatchEvent(new Event('pointerup'))
-        container.dispatchEvent(new Event('scrollend'))
         observers.flushFrames()
         expect(container.scrollTop).toBe(-24)
         controller.destroy()
     })
 
-    it('does not rewrite fractional scrollTop when a wheel interaction settles', () => {
-        vi.useFakeTimers()
+    it('keeps the exact fractional position published by a wheel scroll', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
         const anchor = document.createElement('div')
@@ -352,10 +346,7 @@ describe('chat scroll pixel snapping', () => {
         container.dispatchEvent(new WheelEvent('wheel', { deltaY: -0.25 }))
         container.scrollTop = -125.25
         container.dispatchEvent(new Event('scroll'))
-        vi.advanceTimersByTime(120)
-        observers.flushFrames()
-        // Firefox may deliver this after the fallback timer already settled.
-        container.dispatchEvent(new Event('scrollend'))
+        observers.notifyResize()
         observers.flushFrames()
 
         expect(container.scrollTop).toBe(-125.25)
@@ -363,7 +354,6 @@ describe('chat scroll pixel snapping', () => {
     })
 
     it('does not relatch the bottom when an upward wheel move is published late', () => {
-        vi.useFakeTimers()
         const observers = installLayoutObservers()
         const container = document.createElement('div')
         const anchor = document.createElement('div')
@@ -383,7 +373,8 @@ describe('chat scroll pixel snapping', () => {
 
         // Firefox can expose the wheel event before its async scroll position.
         container.dispatchEvent(new WheelEvent('wheel', { deltaY: -24 }))
-        vi.advanceTimersByTime(120)
+        // A stream chunk in that gap must not create a stale bottom anchor.
+        observers.notifyResize()
         observers.flushFrames()
         container.scrollTop = -24
         container.dispatchEvent(new Event('scroll'))
@@ -394,6 +385,107 @@ describe('chat scroll pixel snapping', () => {
         observers.flushFrames()
 
         expect(container.scrollTop).toBe(-24)
+        controller.destroy()
+    })
+
+    it('rebases the anchor at every position emitted during wheel scrolling', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const anchor = document.createElement('div')
+        anchor.className = 'chat-message-container'
+        container.appendChild(anchor)
+        container.scrollTop = -100
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        let anchorLayoutTop = -80
+        anchor.getBoundingClientRect = () => new DOMRect(
+            0,
+            anchorLayoutTop - container.scrollTop,
+            300,
+            100,
+        )
+        const controller = createController(container)
+        observers.flushFrames()
+
+        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -24 }))
+        container.scrollTop = -110
+        container.dispatchEvent(new Event('scroll'))
+
+        // Firefox can preserve the visible position while layout and APZ each
+        // publish another value. The final scroll must replace the intermediate
+        // anchor before the observer is allowed to correct anything.
+        anchorLayoutTop -= 15
+        container.scrollTop = -125
+        container.dispatchEvent(new Event('scroll'))
+        observers.notifyResize()
+        observers.flushFrames()
+
+        expect(container.scrollTop).toBe(-125)
+        expect(anchor.getBoundingClientRect().top).toBe(30)
+        controller.destroy()
+    })
+
+    it('preserves an anchor after layout without relying on a native scroll event', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const anchor = document.createElement('div')
+        anchor.className = 'chat-message-container'
+        container.appendChild(anchor)
+        container.scrollTop = -100
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        let anchorLayoutTop = -80
+        anchor.getBoundingClientRect = () => new DOMRect(
+            0,
+            anchorLayoutTop - container.scrollTop,
+            300,
+            100,
+        )
+        const controller = createController(container)
+        observers.flushFrames()
+
+        // Safari versions without native scroll anchoring do not move
+        // scrollTop or emit scroll here; ResizeObserver must preserve it.
+        anchorLayoutTop -= 30
+        observers.notifyResize()
+        observers.flushFrames()
+
+        expect(container.scrollTop).toBe(-130)
+        expect(anchor.getBoundingClientRect().top).toBe(20)
+        controller.destroy()
+    })
+
+    it('rebases a stale anchor whenever native scrolling publishes a newer position', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const anchor = document.createElement('div')
+        anchor.className = 'chat-message-container'
+        container.appendChild(anchor)
+        container.scrollTop = -100
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        let anchorLayoutTop = -80
+        anchor.getBoundingClientRect = () => new DOMRect(
+            0,
+            anchorLayoutTop - container.scrollTop,
+            300,
+            100,
+        )
+        const controller = createController(container)
+        observers.flushFrames()
+
+        // Firefox APZ can publish another position after a layout-induced
+        // scroll. That newer coordinate must always replace the old anchor.
+        container.scrollTop = -125
+        container.dispatchEvent(new Event('scroll'))
+
+        // Firefox then preserves that new visual position while streaming
+        // content grows. The manual controller must not restore the old anchor.
+        anchorLayoutTop -= 30
+        container.scrollTop = -155
+        container.dispatchEvent(new Event('scroll'))
+        observers.notifyResize()
+        observers.flushFrames()
+
+        expect(container.scrollTop).toBe(-155)
+        expect(anchor.getBoundingClientRect().top).toBe(45)
         controller.destroy()
     })
 
