@@ -665,9 +665,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         presetTokenizer,
     )
     let maxContextTokens = DBState.db.maxContext
-    // Output-token reservation for the context budget. Defaults to the legacy
-    // global db.maxResponse (the "[채팅 봇]" max response size), overridden below
-    // when this chat is bound to a ModelPreset.
+    // Maximum response size sent to the provider. This is deliberately kept
+    // separate from maxContextTokens: the latter is the configured input
+    // (prompt) budget, as described by the settings UI.
     let maxResponseTokens = DBState.db.maxResponse
     // When this chat is bound to a ModelPreset, use the preset's own input
     // budget (preset.maxContext, default 65000) instead of the global
@@ -684,11 +684,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 ? DBState.db.maxContext
                 : (set && set > 0 ? set : defaultBudget)
             maxContextTokens = ctxWindow ? Math.min(budget, ctxWindow) : budget
-            // Reserve output tokens from the preset's own max-output setting
-            // rather than db.maxResponse — the legacy global value can be a
-            // stray figure (e.g. 65535 carried over from an imported prompt
-            // preset) that would eat the whole context window and make even the
-            // first message fail with a false "too much token" error.
+            // Resolve the provider's response limit independently from the
+            // prompt budget. The legacy global value can be a stray figure, so
+            // model presets still use their own max-output setting when set.
             if (!DBState.db.modelPresetPromptPresetFirst) {
                 const presetOut = resolvePresetMaxOutputTokens(mainBinding.preset, DBState.db.modelPresetDefaultMaxResponse)
                 if (presetOut !== undefined) {
@@ -962,7 +960,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     //await tokenize currernt
-    let currentTokens = maxResponseTokens
+    let currentTokens = 0
     let supaMemoryCardUsed = false
     
     //for unexpected error
@@ -1958,18 +1956,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         formated = formated.filter(hasMessagePayload)
     }
 
-    //estimate tokens
-    let outputTokens = maxResponseTokens
-    if(inputTokens + outputTokens > maxContextTokens){
-        outputTokens = maxContextTokens - inputTokens
-    }
     const generationModel = getGenerationModelString()
 
     generationInfo = {
         model: generationModel,
         generationId: messageChatId,
         inputTokens: inputTokens,
-        outputTokens: outputTokens,
+        // Historical field name: this stores the configured response limit,
+        // not actual generated tokens.
+        outputTokens: maxResponseTokens,
         maxContext: maxContextTokens,
         stageTiming: {
             stage1: stageTimings.stage1Duration,

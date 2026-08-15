@@ -2140,6 +2140,8 @@ export interface MessageGenerationInfo{
     model?: string
     generationId?: string
     inputTokens?: number
+    /** Configured maximum response tokens; retained under the legacy field
+     * name for save compatibility. This is not actual generated usage. */
     outputTokens?: number
     maxContext?: number
     stageTiming?: {
