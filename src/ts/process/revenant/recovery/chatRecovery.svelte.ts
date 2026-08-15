@@ -41,7 +41,7 @@ import { commitCancelledGenerationProjection } from './chatCancellation'
 import { serviceRevenantClientActions } from '../workflow/clientActions.svelte'
 import {
     clientActionRecoveryMode,
-    mainRecoveryStatusAction,
+    recoveryStatusAction,
     shouldWaitForMainJobRegistration,
 } from './chatRecoveryPolicy'
 
@@ -210,23 +210,33 @@ function startRecoveryStatus(
     })
 }
 
-function updateAuxiliaryRecoveryStatus(job: RecoverableAuxiliaryJob, chatId: string): void {
-    if (job.status === 'queued') return
+export function updateRevenantAuxiliaryRecoveryStatus(
+    job: RecoverableAuxiliaryJob,
+    chatId: string,
+): void {
     const statusId = requestStatusIdForJob(job)
-    startRecoveryStatus(
-        job.jobId,
-        auxiliaryRequestKind(job.jobType),
-        chatId,
-        job.dispatchedAt ?? Date.now(),
-        statusId,
+    const action = recoveryStatusAction(
+        job.status,
+        notifiedRecoveryJobs.has(job.jobId) || hasRequestStatus(statusId),
+        { startQueued: false },
     )
-    if (job.status === 'generated') {
+    if (action === 'none') return
+    if (action === 'start') {
+        startRecoveryStatus(
+            job.jobId,
+            auxiliaryRequestKind(job.jobType),
+            chatId,
+            job.dispatchedAt ?? Date.now(),
+            statusId,
+        )
+    }
+    else if (action === 'done') {
         endStatus(statusId, 'done', { now: job.completedAt ?? Date.now() })
     }
-    else if (job.status === 'cancelled') {
+    else if (action === 'aborted') {
         endStatus(statusId, 'aborted', { now: job.completedAt ?? Date.now() })
     }
-    else if (!isRevenantJobActive(job.status)) {
+    else {
         endStatus(statusId, 'failed', {
             now: job.completedAt ?? Date.now(),
             error: job.error,
@@ -236,7 +246,7 @@ function updateAuxiliaryRecoveryStatus(job: RecoverableAuxiliaryJob, chatId: str
 
 function updateMainRecoveryStatus(job: RecoverableGenerationJob, chatId: string): void {
     const statusId = requestStatusIdForJob(job)
-    const action = mainRecoveryStatusAction(
+    const action = recoveryStatusAction(
         job.status,
         notifiedRecoveryJobs.has(job.jobId) || hasRequestStatus(statusId),
     )
@@ -335,7 +345,7 @@ function scheduleRevenantAuxiliaryRecovery(character: character, chat: Chat): vo
         if (dependencies.isChatBusy()) return
         jobs
             .filter(job => job.jobType !== 'translate')
-            .forEach(job => updateAuxiliaryRecoveryStatus(job, chat.id))
+            .forEach(job => updateRevenantAuxiliaryRecoveryStatus(job, chat.id))
 
         const recoveredLuaRuns = jobs.some(job => job.jobType === 'otherAx')
             ? await recoverRevenantLuaJobsForChat(character, chat)
@@ -343,7 +353,7 @@ function scheduleRevenantAuxiliaryRecovery(character: character, chat: Chat): vo
         if (recoveredLuaRuns > 0) character.reloadKeys += 1
         const recoveredSummaries = jobs.some(job => job.jobType === 'memory')
             ? await recoverHypaV3SummaryJobs(character, chat, {
-                onJobUpdate: job => updateAuxiliaryRecoveryStatus(job, chat.id),
+                onJobUpdate: job => updateRevenantAuxiliaryRecoveryStatus(job, chat.id),
             })
             : 0
         if (recoveredSummaries > 0) character.reloadKeys += 1

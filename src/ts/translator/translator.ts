@@ -22,7 +22,10 @@ import {
     prepareRevenantTranslationRequest,
     recoverRevenantTranslationJobs,
 } from '../process/revenant/recovery'
-import type { RevenantChatMessageTranslationTarget } from '../process/revenant'
+import type {
+    RecoverableAuxiliaryJob,
+    RevenantChatMessageTranslationTarget,
+} from '../process/revenant'
 
 let cache={
     origin: [''],
@@ -157,10 +160,12 @@ const revenantTranslationCache = {
 export async function recoverAuxiliaryTranslationJobs(
     force = false,
     notifyScope?: { characterId: string, roomId: string },
+    onJobUpdate?: (job: RecoverableAuxiliaryJob) => void,
 ): Promise<number> {
     return recoverRevenantTranslationJobs(revenantTranslationCache, {
         force,
         scope: notifyScope,
+        onJobUpdate,
     })
 }
 
@@ -730,6 +735,10 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
         noMultiGen: true,
         maxTokens: preset.maxResponse,
         revenantOperationContext: revenantRequest.operationContext,
+        // The shared request pipeline discards failed/superseded attempts but
+        // leaves the final success until completeRevenantTranslation has
+        // durably written the translation cache.
+        revenantAuxiliaryResultPolicy: 'retain-success',
         onRevenantJobCreated: jobId => {
             revenantJob.id = jobId
         },

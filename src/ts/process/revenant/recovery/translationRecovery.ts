@@ -30,6 +30,7 @@ export interface RevenantTranslationRecoveryOptions {
         roomId: string
     }
     cacheKey?: string
+    onJobUpdate?: (job: RecoverableAuxiliaryJob) => void
 }
 
 type RecoverableTranslationJob =
@@ -118,13 +119,14 @@ function isMatchingTranslationJob(
 async function recoverTranslationJob(
     cache: RevenantTranslationCache,
     job: RecoverableTranslationJob,
+    onJobUpdate?: (job: RecoverableAuxiliaryJob) => void,
 ): Promise<RecoverableTranslationJob | null> {
     const existing = recoveringTranslationJobs.get(job.jobId)
     if (existing) return await existing
 
     const recovering = (async () => {
         const resolved = (
-            await resolveRecoverableAuxiliaryGeneration(job)
+            await resolveRecoverableAuxiliaryGeneration(job, onJobUpdate)
         ) as RecoverableTranslationJob
         const context = resolved.operationContext
         let recovered = false
@@ -163,7 +165,7 @@ export async function recoverRevenantTranslationJobs(
     const jobs = (await listRecoverableAuxiliaryGenerations(options.force))
         .filter(job => isMatchingTranslationJob(job, options))
     const recovered = await Promise.all(
-        jobs.map(job => recoverTranslationJob(cache, job)),
+        jobs.map(job => recoverTranslationJob(cache, job, options.onJobUpdate)),
     )
     return recovered.filter(Boolean).length
 }

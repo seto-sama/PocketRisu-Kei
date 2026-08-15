@@ -45,9 +45,11 @@ import {
 } from "src/ts/status/requestStatus";
 import type { RevenantOperationContext, RevenantProviderJobSpec } from "../revenant";
 import {
+    auxiliaryResultJobIdsToConsume,
     consumeOnStreamCompletion,
     consumeRevenantAuxiliaryResults,
     reportRevenantGenerationUsage,
+    type RevenantAuxiliaryResultPolicy,
 } from "../revenant/transport";
 import { combineProviderStartedHandlers } from "../revenant/workflow";
 import { MODELS_DEV_REGISTRY_ID } from "src/ts/preset/registry/modelsDev";
@@ -85,6 +87,8 @@ export interface requestDataArgument{
     blockPlugins?: boolean
     /** Persisted data needed to apply an auxiliary result after a reload. */
     revenantOperationContext?:RevenantOperationContext
+    /** Who acknowledges the durable auxiliary result after provider completion. */
+    revenantAuxiliaryResultPolicy?:Exclude<RevenantAuxiliaryResultPolicy, 'automatic'>
     revenantDispatchPolicy?:import('../revenant').RevenantDispatchPolicy
     revenantWorkflowDependency?:import('../revenant').RevenantWorkflowDependency
     /** Room captured when the request was submitted; stable across UI navigation. */
@@ -393,13 +397,19 @@ async function executeModelPresetRequest(
     targ.mode = model
 
     const generationRequest = buildGenerationRequest(targ)
-    const autoConsume = generationRequest?.job.jobType !== 'model'
-        && !targ.revenantOperationContext
-        && !targ.revenantClientAction
-    const consumeCreatedJobs = async () => {
-        if (!autoConsume || createdJobIds.length === 0) return
+    const isAuxiliary = generationRequest !== undefined
+        && generationRequest.job.jobType !== 'model'
+    const resultPolicy:RevenantAuxiliaryResultPolicy = !isAuxiliary
+        ? 'caller'
+        : targ.revenantAuxiliaryResultPolicy
+            ?? (targ.revenantOperationContext || targ.revenantClientAction
+                ? 'caller'
+                : 'automatic')
+    const consumeCreatedJobs = async (jobIds: Iterable<string>) => {
+        const uniqueJobIds = [...new Set(jobIds)]
+        if (uniqueJobIds.length === 0) return
         try {
-            await consumeRevenantAuxiliaryResults(createdJobIds)
+            await consumeRevenantAuxiliaryResults(uniqueJobIds)
         }
         catch (error) {
             // The retained job is pruned by Revenant if acknowledgement is
@@ -410,13 +420,20 @@ async function executeModelPresetRequest(
     }
 
     const response = await requestModelPreset(targ, preset, abortSignal, model)
-    if (response.type === 'streaming' && autoConsume) {
+    if (response.type === 'streaming' && resultPolicy === 'automatic') {
         return {
             ...response,
-            result: consumeOnStreamCompletion(response.result, consumeCreatedJobs),
+            result: consumeOnStreamCompletion(
+                response.result,
+                () => consumeCreatedJobs(createdJobIds),
+            ),
         }
     }
-    await consumeCreatedJobs()
+    await consumeCreatedJobs(auxiliaryResultJobIdsToConsume(
+        resultPolicy,
+        response.type,
+        createdJobIds,
+    ))
     return response
 }
 

@@ -25,13 +25,15 @@ export function clientActionRecoveryMode(
     return recoverableMainJobCount > 0 ? 'background' : 'blocking'
 }
 
-export type MainRecoveryStatusAction = 'start' | 'done' | 'failed' | 'aborted' | 'none'
+export type RecoveryStatusAction = 'start' | 'done' | 'failed' | 'aborted' | 'none'
 
-export function mainRecoveryStatusAction(
+export function recoveryStatusAction(
     status: RevenantJobStatus,
     wasObserved: boolean,
-): MainRecoveryStatusAction {
-    if (status === 'queued' || status === 'generating') return 'start'
+    options: { startQueued?: boolean } = {},
+): RecoveryStatusAction {
+    if (status === 'generating') return 'start'
+    if (status === 'queued') return options.startQueued === false ? 'none' : 'start'
     if (!wasObserved) return 'none'
     if (status === 'generated') return 'done'
     if (status === 'cancelled') return 'aborted'

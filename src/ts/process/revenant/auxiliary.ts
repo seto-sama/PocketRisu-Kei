@@ -276,7 +276,16 @@ export async function resolveRecoverableAuxiliaryGeneration(
     const resolved = isRevenantJobActive(job.status)
         ? await waitForRecoverableAuxiliaryGeneration(job.jobId, onUpdate)
         : job
-    if (!resolved.projection?.content && (resolved.rawBytes ?? 0) > 0) {
+    // Only a generated auxiliary job owns a complete application result.
+    // Terminal failures can still have raw bytes (for example an HTTP 400 JSON
+    // error body), but those bytes are diagnostics, not model output. Trying
+    // to project them through an adapter decoder can throw and prevent the
+    // common consume path from acknowledging the terminal job.
+    if (
+        resolved.status === 'generated'
+        && !resolved.projection?.content
+        && (resolved.rawBytes ?? 0) > 0
+    ) {
         const content = await readRecoverableGenerationContent(resolved)
         resolved.projection = {
             schemaVersion: 1,

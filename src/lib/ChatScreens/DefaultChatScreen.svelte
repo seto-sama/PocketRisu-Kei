@@ -20,7 +20,6 @@
     import { isExpTranslator, recoverAuxiliaryTranslationJobs, translate } from "../../ts/translator/translator";
     import { alertError, alertWait, notifySuccess, notifyError } from "../../ts/alert";
     import { playNotificationSound } from '../../ts/notificationSound'
-    import { endStatus, hasRequestStatus, requestStatusIdForJob, startStatus } from '../../ts/status/requestStatus'
 import { isMobile } from 'src/ts/platform'
     import { processScript } from "src/ts/process/scripts";
     import CreatorQuote from "./CreatorQuote.svelte";
@@ -49,6 +48,7 @@ import { isMobile } from 'src/ts/platform'
     } from 'src/ts/process/revenant/workflow';
     import {
         clearRevenantRecoveryForChat,
+        updateRevenantAuxiliaryRecoveryStatus,
     } from 'src/ts/process/revenant/recovery';
 
     import Chats from './Chats.svelte';
@@ -335,23 +335,14 @@ import { isMobile } from 'src/ts/platform'
                         console.warn('[GenerationJob] Translation recovery list unavailable:', error)
                         return []
                     })
-                detachedTranslationJobs.forEach(job => {
-                    const statusId = requestStatusIdForJob(job)
-                    if (hasRequestStatus(statusId)) return
-                    startStatus(statusId, {
-                        kind: 'translate',
-                        label: '',
-                        chatId: chat.id,
-                        phase: 'connecting',
-                        now: Date.now(),
-                    })
-                })
+                detachedTranslationJobs.forEach(job =>
+                    updateRevenantAuxiliaryRecoveryStatus(job, chat.id))
                 const [recoveredTranslations, recoveredOther] = await Promise.all([
                     detachedTranslationJobs.length > 0
                         ? recoverAuxiliaryTranslationJobs(false, {
                             characterId: char.chaId,
                             roomId: chat.id,
-                        })
+                        }, job => updateRevenantAuxiliaryRecoveryStatus(job, chat.id))
                         : Promise.resolve(0),
                     recoverRevenantGenerationsForChat(char, chat, {
                         onDeferredRecovered: recovered => {
@@ -361,14 +352,6 @@ import { isMobile } from 'src/ts/platform'
                         },
                     }),
                 ])
-                detachedTranslationJobs.forEach(job =>
-                    endStatus(
-                        requestStatusIdForJob(job),
-                        job.status === 'failed' || job.status === 'failed_partial'
-                            ? 'failed'
-                            : 'done',
-                        { now: Date.now(), error: job.error },
-                    ))
                 if (recoveredTranslations + recoveredOther === 0) return
 
                 if (recoveredOther > 0 && DBState.db.playMessage) {
