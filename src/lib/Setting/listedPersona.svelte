@@ -147,7 +147,6 @@
         close();
         openSettings(SettingsRoute.Persona);
     } : undefined}
-    configureLabel={language.edit}
 >
     {#snippet itemContent(index)}
         {@const persona = DBState.db.personas[index]}

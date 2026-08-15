@@ -1,15 +1,15 @@
 <script lang="ts">
     import type { Snippet } from "svelte";
-    import { CircleQuestionMarkIcon, CopyIcon, DownloadIcon, FolderIcon, FolderPlusIcon, PencilIcon, SearchIcon, TrashIcon, XIcon } from "@lucide/svelte";
+    import { CircleQuestionMarkIcon, CopyIcon, DownloadIcon, FolderIcon, FolderPlusIcon, PencilIcon, SearchIcon, SettingsIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { alertConfirm, alertInput } from "src/ts/alert";
     import { v4 as uuidv4 } from "uuid";
-    import ShButton from "./GUI/ShButton.svelte";
     import ShTooltip from "./GUI/ShTooltip.svelte";
     import SettingLayout from "../Setting/Wrappers/SettingLayout.svelte";
     import ShSortableList from "./GUI/ShSortableList.svelte";
     import IconButton from "./GUI/IconButton.svelte";
     import IconButtonGroup from "./GUI/IconButtonGroup.svelte";
+    import Portal from "./GUI/Portal.svelte";
 
     interface PresetFolder {
         id: string;
@@ -26,7 +26,6 @@
         searchQuery?: string;
         close: () => void;
         configure?: () => void;
-        configureLabel?: string;
         onFoldersChange: (folders: PresetFolder[]) => void;
         onAssignItem: (index: number, folderId: string | undefined) => void;
         onDeleteFolder: (folderId: string) => void;
@@ -59,7 +58,6 @@
         searchQuery = $bindable(''),
         close,
         configure,
-        configureLabel = language.edit,
         onFoldersChange,
         onAssignItem,
         onDeleteFolder,
@@ -163,6 +161,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
+<Portal>
 <div class="risu-modal-backdrop z-50 flex justify-center items-center" role="button" tabindex="0" onclick={close}>
 <div
     class="bg-darkbg break-any rounded-md flex flex-col w-[min(56rem,calc(100%-1rem))] h-[min(44rem,calc(100%-1rem))] overflow-hidden border border-darkborderc"
@@ -188,6 +187,11 @@
                 </ShTooltip>
             {/if}
             <div class="grow flex justify-end">
+                {#if configure}
+                    <IconButton size="lg" onclick={configure} title={language.settings} aria-label={language.settings}>
+                        <SettingsIcon />
+                    </IconButton>
+                {/if}
                 <IconButton size="lg" onclick={close}><XIcon /></IconButton>
             </div>
         </div>
@@ -310,15 +314,11 @@
                 </ShSortableList>
             {/if}
             {@render children?.()}
-            {#if configure}
-                <div class="shrink-0 flex justify-start pt-2 max-sm:hidden">
-                    <ShButton variant="primary" size="sm" onclick={configure}>{configureLabel}</ShButton>
-                </div>
-            {/if}
         </section>
     </div>
 </div>
 </div>
+</Portal>
 
 <style>
     /* CSS draws text-overflow ellipses using the truncating element's own

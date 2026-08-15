@@ -377,7 +377,6 @@
                 void requestImmediateSave()
             }}
             configure={openPersonaSettings}
-            configureLabel={language.edit}
         >
             {#snippet itemContent(index)}
                 {@const persona = DBState.db.personas[index]}

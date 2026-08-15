@@ -143,7 +143,6 @@
         void requestImmediateSave();
     }}
     configure={openModuleSettings}
-    configureLabel={language.edit}
 >
     {#snippet itemContent(index)}
         {@const rmodule = DBState.db.modules[index]}

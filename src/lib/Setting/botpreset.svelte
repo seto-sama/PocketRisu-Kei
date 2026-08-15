@@ -148,7 +148,6 @@
                 close()
                 openSettings(SettingsRoute.PromptPreset)
             } : undefined}
-        configureLabel={language.edit}
         onFoldersChange={(next) => { DBState.db.promptPresetFolders = next }}
         onAssignItem={assignPresetToFolder}
         onDeleteFolder={(folderId) => {
