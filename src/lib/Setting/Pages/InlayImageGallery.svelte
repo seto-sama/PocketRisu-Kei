@@ -512,6 +512,14 @@
                 </div>
               {/if}
 
+              {#if !selection.has(item.id)}
+                <span
+                  class="pointer-events-none absolute top-1.5 left-1.5 z-10 size-5 rounded bg-darkbg/50
+                    opacity-0 mix-blend-multiply transition-opacity group-hover:opacity-100"
+                  aria-hidden="true"
+                ></span>
+              {/if}
+
               <div
                 class="absolute top-1.5 left-1.5 z-10 transition-opacity
                   {selection.has(item.id) ? '' : 'opacity-0 group-hover:opacity-100'}"
@@ -519,6 +527,7 @@
               >
                 <CheckInput
                   card
+                  cardUncheckedFill={false}
                   check={selection.has(item.id)}
                   hiddenName
                   margin={false}

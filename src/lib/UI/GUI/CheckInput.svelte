@@ -10,6 +10,7 @@
         className?: string;
         grayText?: boolean;
         card?: boolean;
+        cardUncheckedFill?: boolean;
         children?: import('svelte').Snippet;
     }
 
@@ -23,6 +24,7 @@
         className = "",
         grayText = false,
         card = false,
+        cardUncheckedFill = true,
         children
     }: Props = $props();
 </script>
@@ -50,7 +52,7 @@
     <span 
         class={"w-5 h-5 min-w-5 min-h-5 flex justify-center items-center transition-colors duration-200 "
             + (card
-                ? `rounded border ${check ? 'border-borderc bg-borderc' : 'border-darkborderc bg-black/50'}`
+                ? `rounded border ${check ? 'border-borderc bg-borderc' : `border-darkborderc ${cardUncheckedFill ? 'bg-darkbg/50 mix-blend-multiply' : 'bg-transparent'}`}`
                 : `rounded-md border-2 border-darkborderc ${check ? 'bg-darkborderc' : 'bg-darkbutton'}`)}
         aria-hidden="true"
         aria-describedby="{name} {check ? 'abled' : 'disabled'}"
