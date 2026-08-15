@@ -24,8 +24,9 @@ describe('revenant canonical materializer', () => {
                 roomId: 'room-1', chatId: 'message-1', status: 'generated', createdAt: 1,
             }),
             getGenerationWorkflow: () => ({
+                workflowId: 'workflow-1',
                 steps: [{
-                    key: 'trigger.output',
+                    key: 'postprocess',
                     status: 'completed',
                     metadata: {
                         chat: canonical,
@@ -38,6 +39,7 @@ describe('revenant canonical materializer', () => {
             }),
             listRecoverableGenerationJobs: () => [],
             markGenerationMaterialized: () => { materialized = true; return true },
+            updateGenerationWorkflowStep: vi.fn(),
         }
         const persistDbCacheWithChats = vi.fn()
         const broadcastDatabaseInvalidated = vi.fn()
@@ -65,6 +67,14 @@ describe('revenant canonical materializer', () => {
         expect(persistDbCacheWithChats).toHaveBeenCalledWith('db', 'database/database.bin')
         expect(cachedDatabase.characters[0].desc).toBe('server description')
         expect(cachedDatabase.personaPrompt).toBe('server persona')
+        expect(repository.updateGenerationWorkflowStep).toHaveBeenCalledWith(
+            'workflow-1',
+            'message.materialize',
+            {
+                status: 'running',
+                metadata: { schemaVersion: 1, chat: expect.any(Object) },
+            },
+        )
         expect(materialized).toBe(true)
         expect(broadcastDatabaseInvalidated).toHaveBeenCalledOnce()
     })

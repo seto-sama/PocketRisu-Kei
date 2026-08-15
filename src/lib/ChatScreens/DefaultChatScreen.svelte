@@ -818,6 +818,7 @@ import { isMobile } from 'src/ts/platform'
 
         const swipeIdx = lastMsg.swipeId ?? 0
         lastMsg.swipes.splice(swipeIdx, 1)
+        lastMsg.swipeMetadata?.splice(swipeIdx, 1)
 
         if (swipeIdx >= lastMsg.swipes.length) {
             lastMsg.swipeId = lastMsg.swipes.length - 1
@@ -825,8 +826,16 @@ import { isMobile } from 'src/ts/platform'
         lastMsg.data = lastMsg.swipes[lastMsg.swipeId]
 
         if (lastMsg.swipes.length === 1) {
+            const remainingMetadata = lastMsg.swipeMetadata?.[0]
+            if (remainingMetadata) {
+                lastMsg.chatId = remainingMetadata.chatId ?? lastMsg.chatId
+                lastMsg.time = remainingMetadata.time ?? lastMsg.time
+                lastMsg.generationInfo = remainingMetadata.generationInfo ?? lastMsg.generationInfo
+                lastMsg.promptInfo = remainingMetadata.promptInfo ?? lastMsg.promptInfo
+            }
             delete lastMsg.swipes
             delete lastMsg.swipeId
+            delete lastMsg.swipeMetadata
         }
         DBState.db.characters[$selectedCharID].reloadKeys += 1
     }

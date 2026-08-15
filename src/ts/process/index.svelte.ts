@@ -60,6 +60,7 @@ import {
     commitCancelledGenerationProjection,
     ensureGenerationMessageTarget,
     setGenerationMessageContent,
+    setGenerationMessageInfo,
 } from './revenant/recovery';
 
 export { recoverRevenantGenerationsForChat } from "./revenant/recovery";
@@ -346,7 +347,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 const workflow = await getRevenantWorkflow(workflowId)
                 if(workflow.status === 'completed'){
                     updateWaiter.cancel()
-                    const canonicalChat = ['postprocess', 'igp', 'trigger.output', 'output.transform']
+                    const canonicalChat = ['message.materialize', 'postprocess', 'igp', 'trigger.output', 'output.transform']
                         .map(key => workflow.steps.find(step => step.key === key)?.metadata?.chat)
                         .find(chat => chat && typeof chat === 'object' && Array.isArray((chat as Chat).message)) as Chat | undefined
                     if(canonicalChat?.id === DBState.db.characters[selectedChar]?.chats?.[selectedChat]?.id){
@@ -665,9 +666,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         presetTokenizer,
     )
     let maxContextTokens = DBState.db.maxContext
-    // Output-token reservation for the context budget. Defaults to the legacy
-    // global db.maxResponse (the "[채팅 봇]" max response size), overridden below
-    // when this chat is bound to a ModelPreset.
+    // Maximum response size sent to the provider. This is deliberately kept
+    // separate from maxContextTokens: the latter is the configured input
+    // (prompt) budget, as described by the settings UI.
     let maxResponseTokens = DBState.db.maxResponse
     // When this chat is bound to a ModelPreset, use the preset's own input
     // budget (preset.maxContext, default 65000) instead of the global
@@ -684,11 +685,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 ? DBState.db.maxContext
                 : (set && set > 0 ? set : defaultBudget)
             maxContextTokens = ctxWindow ? Math.min(budget, ctxWindow) : budget
-            // Reserve output tokens from the preset's own max-output setting
-            // rather than db.maxResponse — the legacy global value can be a
-            // stray figure (e.g. 65535 carried over from an imported prompt
-            // preset) that would eat the whole context window and make even the
-            // first message fail with a false "too much token" error.
+            // Resolve the provider's response limit independently from the
+            // prompt budget. The legacy global value can be a stray figure, so
+            // model presets still use their own max-output setting when set.
             if (!DBState.db.modelPresetPromptPresetFirst) {
                 const presetOut = resolvePresetMaxOutputTokens(mainBinding.preset, DBState.db.modelPresetDefaultMaxResponse)
                 if (presetOut !== undefined) {
@@ -962,7 +961,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     //await tokenize currernt
-    let currentTokens = maxResponseTokens
+    let currentTokens = 0
     let supaMemoryCardUsed = false
     
     //for unexpected error
@@ -1958,18 +1957,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         formated = formated.filter(hasMessagePayload)
     }
 
-    //estimate tokens
-    let outputTokens = maxResponseTokens
-    if(inputTokens + outputTokens > maxContextTokens){
-        outputTokens = maxContextTokens - inputTokens
-    }
     const generationModel = getGenerationModelString()
 
     generationInfo = {
         model: generationModel,
         generationId: messageChatId,
         inputTokens: inputTokens,
-        outputTokens: outputTokens,
+        // Historical field name: this stores the configured response limit,
+        // not actual generated tokens.
+        outputTokens: maxResponseTokens,
         maxContext: maxContextTokens,
         stageTiming: {
             stage1: stageTimings.stage1Duration,
@@ -2015,8 +2011,17 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 continue: isContinuation,
                 rerollSnapshot,
             }
+            const postprocessChat = safeStructuredClone(currentChat)
+            ensureGenerationMessageTarget(postprocessChat, {
+                messageChatId,
+                characterId: currentChar.chaId,
+                isContinuation,
+                generationInfo,
+                promptInfo,
+                rerollSnapshot,
+            })
             const postprocessCharacter = safeStructuredClone(nowChatroom)
-            postprocessCharacter.chats = [safeStructuredClone(currentChat)]
+            postprocessCharacter.chats = [safeStructuredClone(postprocessChat)]
             postprocessCharacter.chatPage = 0
             const workflowContext:RevenantChatWorkflowContext = {
                 schemaVersion: 1,
@@ -2041,7 +2046,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         otherAx: snapshotAuxProvider('otherAx'),
                     },
                     character: postprocessCharacter,
-                    chat: safeStructuredClone(currentChat),
+                    chat: postprocessChat,
                     database: {
                         presetRegex: safeStructuredClone(DBState.db.presetRegex ?? []),
                         templateDefaultVariables: DBState.db.templateDefaultVariables ?? '',
@@ -2575,9 +2580,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             generationInfo.stageTiming.stage4 = stageTimings.stage4Duration
         }
         
-        const lastMessageIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1
-        if(lastMessageIndex >= 0 && DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo) {
-            DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo = generationInfo
+        const completedTarget = ensureLiveGenerationTarget()
+        if(completedTarget?.message.generationInfo) {
+            setGenerationMessageInfo(completedTarget.message, generationInfo)
         }
         
         doingChat.set(false)
@@ -2839,9 +2844,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         generationInfo.stageTiming.stage4 = stageTimings.stage4Duration
     }
     
-    const lastMessageIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1
-    if(lastMessageIndex >= 0 && DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo) {
-        DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo = generationInfo
+    const completedTarget = ensureLiveGenerationTarget()
+    if(completedTarget?.message.generationInfo) {
+        setGenerationMessageInfo(completedTarget.message, generationInfo)
     }
 
     return await finishSuccessfulWorkflow()

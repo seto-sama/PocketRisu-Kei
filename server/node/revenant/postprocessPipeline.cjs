@@ -58,8 +58,11 @@ function applyGeneratedMessage(chat, recipe, job, text) {
         const previousSwipes = Array.isArray(snapshot.targetMessage?.swipes)
             ? [...snapshot.targetMessage.swipes]
             : [snapshot.targetMessage?.data ?? ''];
+        const current = targetIndex >= 0
+            ? result.message[targetIndex]
+            : snapshot.targetMessage;
         const message = createGeneratedMessage(job, recipe, text, {
-            ...snapshot.targetMessage,
+            ...current,
             swipes: [...previousSwipes, text],
             swipeId: previousSwipes.length,
         });

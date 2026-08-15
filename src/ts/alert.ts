@@ -45,7 +45,7 @@ export interface NotifyOptions {
     log?: boolean
 }
 
-type AlertGenerationInfoStoreData = {
+export type AlertGenerationInfoStoreData = {
     genInfo: MessageGenerationInfo,
     idx: number
 }
