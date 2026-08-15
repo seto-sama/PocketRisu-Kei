@@ -24,6 +24,7 @@
     import ChatBody from './ChatBody.svelte'
     import PopupButton from "../UI/PopupButton.svelte";
     import { createRevenantChatTranslationRecovery, type RevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from "src/ts/process/revenant/recovery";
+    import { getActiveSwipeMetadata } from "src/ts/process/revenant/recovery/chatGenerationTarget";
     import type { RevenantChatMessageTranslationTarget } from "src/ts/process/revenant";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
@@ -623,19 +624,25 @@
         style="min-height:var(--icon-cell-size)"
     >
         {#if messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())}
-            {@const modelLabel = capitalize(getModelInfo(messageGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))}
+            {@const diagnosticMessage = idx >= 0
+                ? DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx]
+                : undefined}
+            {@const diagnosticGenerationInfo = diagnosticMessage
+                ? (diagnosticMessage.swipes
+                    ? getActiveSwipeMetadata(diagnosticMessage)?.generationInfo ?? diagnosticMessage.generationInfo
+                    : diagnosticMessage.generationInfo)
+                : messageGenerationInfo}
+            {@const modelLabel = diagnosticGenerationInfo?.model
+                ? capitalize(getModelInfo(diagnosticGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))
+                : language.requestDiagnostics.title}
             <IconButton
                 expanded
                 className="text-sm"
                 aria-label={modelLabel}
                 title={modelLabel}
                 onclick={() => {
-                    const currentGenerationInfo = idx >= 0 ?
-                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx].generationInfo :
-                        messageGenerationInfo
-
                     alertRequestData({
-                        genInfo: currentGenerationInfo,
+                        genInfo: diagnosticGenerationInfo ?? {},
                         idx: idx,
                     })
                 }}

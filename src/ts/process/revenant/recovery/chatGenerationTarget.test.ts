@@ -81,6 +81,9 @@ describe('ensureGenerationMessageTarget', () => {
             role: 'char',
             data: 'old answer',
             chatId: 'assistant-1',
+            time: 100,
+            generationInfo: { generationId: 'assistant-1', model: 'old-model' },
+            promptInfo: { promptName: 'old-preset' },
             swipes: ['first answer', 'old answer'],
             swipeId: 1,
         } as Message
@@ -89,6 +92,8 @@ describe('ensureGenerationMessageTarget', () => {
             messageChatId: 'generation-1',
             characterId: 'character-1',
             isContinuation: false,
+            generationInfo: { generationId: 'generation-1', model: 'new-model' },
+            promptInfo: { promptName: 'new-preset' },
             rerollSnapshot: {
                 targetMessage: original,
                 targetIndex: 0,
@@ -104,6 +109,53 @@ describe('ensureGenerationMessageTarget', () => {
             swipes: ['first answer', 'old answer', 'new answer'],
             swipeId: 2,
             chatId: 'generation-1',
+            swipeMetadata: [
+                {},
+                {
+                    chatId: 'assistant-1',
+                    time: 100,
+                    generationInfo: { generationId: 'assistant-1', model: 'old-model' },
+                    promptInfo: { promptName: 'old-preset' },
+                },
+                {
+                    chatId: 'generation-1',
+                    generationInfo: { generationId: 'generation-1', model: 'new-model' },
+                    promptInfo: { promptName: 'new-preset' },
+                },
+            ],
         })
+    })
+
+    it('preserves an existing diagnostic context for every swipe', () => {
+        const original = {
+            role: 'char',
+            data: 'second answer',
+            chatId: 'generation-2',
+            swipes: ['first answer', 'second answer'],
+            swipeId: 1,
+            swipeMetadata: [
+                { chatId: 'generation-1', generationInfo: { generationId: 'generation-1' } },
+                { chatId: 'generation-2', generationInfo: { generationId: 'generation-2' } },
+            ],
+        } as Message
+        const current = chat([original])
+
+        ensureGenerationMessageTarget(current, {
+            messageChatId: 'generation-3',
+            characterId: 'character-1',
+            isContinuation: false,
+            generationInfo: { generationId: 'generation-3' },
+            rerollSnapshot: {
+                targetMessage: original,
+                targetIndex: 0,
+                trailingMessages: [],
+            },
+        })
+
+        expect(current.message[0].swipeMetadata?.map(metadata => metadata.chatId)).toEqual([
+            'generation-1',
+            'generation-2',
+            'generation-3',
+        ])
     })
 })

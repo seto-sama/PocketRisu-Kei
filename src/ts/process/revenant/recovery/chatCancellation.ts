@@ -1,6 +1,7 @@
 import { safeStructuredClone } from '../../../polyfill'
 import type { Chat, Message } from '../../../storage/database.svelte'
 import type { RevenantRerollSnapshot } from '../types'
+import { buildRerollSwipeMetadata } from './chatGenerationTarget'
 
 export interface CancelledGenerationProjection {
     messageChatId: string
@@ -64,6 +65,14 @@ export function commitCancelledGenerationProjection(
             chatId: projection.messageChatId,
             swipes: [...previousSwipes, content],
             swipeId: previousSwipes.length,
+            swipeMetadata: target?.swipeMetadata
+                ? safeStructuredClone(target.swipeMetadata)
+                : buildRerollSwipeMetadata(snapshot.targetMessage, {
+                    chatId: projection.messageChatId,
+                    time: target?.time,
+                    generationInfo: target?.generationInfo,
+                    promptInfo: target?.promptInfo,
+                }),
         }
         clearRecoveryDisplay(committed)
         chat.message.splice(

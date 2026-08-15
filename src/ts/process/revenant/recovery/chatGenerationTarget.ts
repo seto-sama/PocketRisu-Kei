@@ -4,6 +4,7 @@ import type {
     Message,
     MessageGenerationInfo,
     MessagePresetInfo,
+    MessageSwipeMetadata,
 } from '../../../storage/database.svelte'
 import type { RevenantRerollSnapshot } from '../types'
 
@@ -14,6 +15,54 @@ export interface GenerationMessageTargetOptions {
     generationInfo?: MessageGenerationInfo
     promptInfo?: MessagePresetInfo
     rerollSnapshot?: RevenantRerollSnapshot
+}
+
+function metadataFromMessage(message: Message): MessageSwipeMetadata {
+    return {
+        chatId: message.chatId,
+        time: message.time,
+        generationInfo: message.generationInfo
+            ? safeStructuredClone(message.generationInfo)
+            : undefined,
+        promptInfo: message.promptInfo
+            ? safeStructuredClone(message.promptInfo)
+            : undefined,
+    }
+}
+
+/**
+ * Builds the diagnostic metadata array that runs alongside a message's
+ * regenerated response strings. Legacy messages only have message-level
+ * metadata; in that case it is assigned to the currently selected swipe.
+ */
+export function buildRerollSwipeMetadata(
+    message: Message,
+    next: MessageSwipeMetadata,
+): MessageSwipeMetadata[] {
+    const swipeCount = Array.isArray(message.swipes) ? message.swipes.length : 1
+    const existing = Array.isArray(message.swipeMetadata)
+        ? safeStructuredClone(message.swipeMetadata.slice(0, swipeCount))
+        : []
+
+    while (existing.length < swipeCount) existing.push({})
+
+    if (!message.swipeMetadata) {
+        const activeIndex = Array.isArray(message.swipes)
+            ? Math.min(Math.max(message.swipeId ?? 0, 0), swipeCount - 1)
+            : 0
+        existing[activeIndex] = metadataFromMessage(message)
+    }
+
+    existing.push(safeStructuredClone(next))
+    return existing
+}
+
+export function getActiveSwipeMetadata(message: Message): MessageSwipeMetadata | undefined {
+    if (!Array.isArray(message.swipeMetadata) || message.swipeMetadata.length === 0) return undefined
+    const index = Array.isArray(message.swipes)
+        ? Math.min(Math.max(message.swipeId ?? 0, 0), message.swipeMetadata.length - 1)
+        : 0
+    return message.swipeMetadata[index]
 }
 
 /**
@@ -84,6 +133,12 @@ export function ensureGenerationMessageTarget(
             promptInfo: options.promptInfo,
             swipes: [...previousSwipes, ''],
             swipeId: previousSwipes.length,
+            swipeMetadata: buildRerollSwipeMetadata(target, {
+                chatId: options.messageChatId,
+                time: Date.now(),
+                generationInfo: options.generationInfo,
+                promptInfo: options.promptInfo,
+            }),
         }
         insertIndex = Math.min(
             Math.max(0, snapshot.targetIndex),
