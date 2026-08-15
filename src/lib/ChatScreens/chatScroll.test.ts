@@ -453,6 +453,40 @@ describe('chat scroll pixel snapping', () => {
         controller.destroy()
     })
 
+    it('keeps the pre-edit message anchor through intermediate layout scroll events', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const anchor = document.createElement('div')
+        anchor.className = 'chat-message-container'
+        container.appendChild(anchor)
+        container.scrollTop = -100
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        let anchorLayoutTop = -80
+        anchor.getBoundingClientRect = () => new DOMRect(
+            0,
+            anchorLayoutTop - container.scrollTop,
+            300,
+            100,
+        )
+        const controller = createController(container)
+        observers.flushFrames()
+
+        const release = controller.preserveElementPosition(anchor)
+        anchorLayoutTop -= 300
+        // Simulate native scroll anchoring reacting to the temporary 44px
+        // editor before its auto-height measurement has completed.
+        container.scrollTop = -150
+        container.dispatchEvent(new Event('scroll'))
+        observers.notifyResize()
+        observers.flushFrames()
+
+        expect(container.scrollTop).toBe(-400)
+        expect(anchor.getBoundingClientRect().top).toBe(20)
+
+        release()
+        controller.destroy()
+    })
+
     it('rebases a stale anchor whenever native scrolling publishes a newer position', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')

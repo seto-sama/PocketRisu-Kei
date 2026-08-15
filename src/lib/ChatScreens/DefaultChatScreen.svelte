@@ -1587,6 +1587,7 @@ import { isMobile } from 'src/ts/platform'
                     chatId={currentChatSlot?.id ?? null}
                     blockEditEnabled={DBState.db.enableBlockPartialEdit}
                     dragEditEnabled={DBState.db.enableDragPartialEdit}
+                    getScrollController={getChatScrollController}
                 />
             {/if}
 

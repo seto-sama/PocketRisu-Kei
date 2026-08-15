@@ -10,7 +10,7 @@
     import { DBState, ReloadChatPointer, CurrentTriggerIdStore, popupStore } from 'src/ts/stores.svelte'
 
     import { capitalize, getUserIcon, getUserName, sleep } from "src/ts/util"
-    import { onDestroy, onMount } from "svelte"
+    import { onDestroy, onMount, tick } from "svelte"
     import { type Unsubscriber } from "svelte/store"
     import { v4 as uuidv4, v4 } from 'uuid'
     import { language } from "../../lang"
@@ -30,6 +30,7 @@
     import { PRODUCT_NAME } from "src/ts/branding";
     import { createSubscriber } from "svelte/reactivity";
     import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges } from "./chatBodyRenderController.svelte";
+    import type { ChatScrollController } from "./chatScroll";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -76,6 +77,7 @@
         translationRecoveryContext?: RevenantChatTranslationRecoveryContext;
         translationRecoveryScope?: RevenantChatTranslationRecoveryScope | null;
         translationRecoveryTarget?: RevenantChatMessageTranslationTarget | null;
+        getScrollController?: () => ChatScrollController | null;
     }
 
     let {
@@ -106,6 +108,7 @@
         translationRecoveryContext,
         translationRecoveryScope,
         translationRecoveryTarget,
+        getScrollController = () => null,
     }: Props = $props();
 
     let msgDisplay = $state('')
@@ -180,12 +183,31 @@
         }
     }
 
+    async function preservePositionWhileEditing(update: () => void | Promise<void>) {
+        const release = partialEditRoot
+            ? getScrollController()?.preserveElementPosition(partialEditRoot)
+            : undefined
+        try {
+            await update()
+            // The editor first mounts and then measures its scrollHeight on a
+            // following Svelte tick. Keep the old message anchor through both
+            // layouts so the intermediate 44px textarea cannot move the view.
+            await tick()
+            await tick()
+        }
+        finally {
+            release?.()
+        }
+    }
+
     async function enterEditMode() {
         // Keep the editor independent from streaming/recovery prop updates.
         // Otherwise a parent refresh can replace every keystroke with the
         // latest server-owned display value.
-        editDraft = message
-        editMode = true
+        await preservePositionWhileEditing(() => {
+            editDraft = message
+            editMode = true
+        })
         if (translated && DBState.db.translatorType === 'llm') {
             editTranslationKeyMode = true
             originalEditTranslationKey = await getTranslationCacheKey()
@@ -200,10 +222,12 @@
         const oldKey = originalEditTranslationKey
         const shouldMigrateTranslationKey = editTranslationKeyMode
         const nextMessage = editDraft
-        editMode = false
-        editTranslationKeyMode = false
-        await edit(nextMessage)
-        displaya(nextMessage)
+        await preservePositionWhileEditing(async () => {
+            editMode = false
+            editTranslationKeyMode = false
+            await edit(nextMessage)
+            displaya(nextMessage)
+        })
 
         if (shouldMigrateTranslationKey && oldKey) {
             const newKey = await getTranslationCacheKey()
@@ -242,8 +266,10 @@
     async function handlePartialEditTranslationSave(event: Event) {
         const { key, data } = (event as CustomEvent<{ key: string; data: string }>).detail
         await setLLMCache(key, data)
-        if (editTranslationMode) editTranslationText = data
-        if (translated) translationRevision += 1
+        await preservePositionWhileEditing(() => {
+            if (editTranslationMode) editTranslationText = data
+            if (translated) translationRevision += 1
+        })
     }
 
     function getCbsCondition(){
@@ -311,17 +337,29 @@
     async function loadTranslationForEdit() {
         const key = await getTranslationCacheKey()
         const cached = await getLLMCache(key)
-        editTranslationCacheKey = key
-        editTranslationText = cached ?? ''
-        editTranslationMode = true
+        await preservePositionWhileEditing(() => {
+            editTranslationCacheKey = key
+            editTranslationText = cached ?? ''
+            editTranslationMode = true
+        })
     }
 
     async function saveTranslationEdit() {
         const key = editTranslationCacheKey
         if (key === null) return
         await setLLMCache(key, editTranslationText)
-        editTranslationMode = false
-        editTranslationCacheKey = null
+        await preservePositionWhileEditing(() => {
+            editTranslationMode = false
+            editTranslationCacheKey = null
+        })
+    }
+
+    async function cancelOriginalEdit() {
+        await preservePositionWhileEditing(() => {
+            editMode = false
+            editTranslationKeyMode = false
+            originalEditTranslationKey = null
+        })
     }
 
     function isTranslationBusy() {
@@ -631,9 +669,7 @@
         }} />
     {:else if editMode}
         <TextAreaInput bind:value={editDraft} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
-            editMode = false
-            editTranslationKeyMode = false
-            originalEditTranslationKey = null
+            void cancelOriginalEdit()
         }} />
     {:else if isComment}
         <div class="w-full flex justify-center text-textcolor2 italic mb-12">

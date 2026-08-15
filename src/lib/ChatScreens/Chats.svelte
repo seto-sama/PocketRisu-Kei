@@ -183,6 +183,7 @@
                         messageIndex: i,
                         swipeId,
                     },
+                    getScrollController,
                 })
                 const inst = mount(Chat, { target: element, props })
                 entry = { inst, element, props, characterSource: simpleChar, callbackSources }
@@ -216,6 +217,7 @@
                     if (props.disabled !== disabled) props.disabled = disabled
                     if (props.currentPage !== currentPage) props.currentPage = currentPage
                     if (props.totalPages !== totalPages) props.totalPages = totalPages
+                    if (props.getScrollController !== getScrollController) props.getScrollController = getScrollController
                     const recoveryTarget = props.translationRecoveryTarget
                     if (
                         recoveryTarget?.messageChatId !== (message.chatId ?? null)

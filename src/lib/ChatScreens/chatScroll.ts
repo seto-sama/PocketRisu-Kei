@@ -60,6 +60,7 @@ export type ChatScrollController = {
     scrollToElement(element: HTMLElement, options: ScrollElementOptions): void
     scrollToEdge(edge: 'top' | 'bottom', behavior: ScrollBehavior): void
     navigateMessage(direction: 'prev' | 'next', behavior?: ScrollBehavior): void
+    preserveElementPosition(element: HTMLElement): () => void
     destroy(): void
 }
 
@@ -111,6 +112,7 @@ export function createChatScrollController(
     let lastPointerY: number | null = null
     let pointerActive = false
     let touchActive = false
+    const layoutAnchorLocks = new Set<symbol>()
     const observedChildren = new Set<Element>()
 
     const getRatio = () => normalizedDevicePixelRatio(window.devicePixelRatio || 1)
@@ -281,6 +283,7 @@ export function createChatScrollController(
     }
 
     const prepareForMovement = () => {
+        layoutAnchorLocks.clear()
         userMovingAwayFromBottom = false
         lastPointerY = null
         anchor = null
@@ -289,12 +292,14 @@ export function createChatScrollController(
     }
 
     const startPointerGesture = (event: PointerEvent) => {
+        layoutAnchorLocks.clear()
         pointerActive = true
         userMovingAwayFromBottom = false
         lastPointerY = event.clientY
     }
 
     const startTouchGesture = () => {
+        layoutAnchorLocks.clear()
         touchActive = true
     }
 
@@ -334,6 +339,7 @@ export function createChatScrollController(
         }
     }
     const handleWheel = (event: WheelEvent) => {
+        layoutAnchorLocks.clear()
         cancelAnimationFrame(alignmentFrame)
         alignmentFrame = 0
         anchor = null
@@ -342,6 +348,16 @@ export function createChatScrollController(
     }
 
     const handleScroll = () => {
+        // Replacing rendered message content with an auto-sized editor can
+        // make the browser publish an intermediate scroll position. Keep the
+        // pre-edit anchor authoritative until that short layout transaction
+        // has settled. Explicit pointer/wheel/programmatic movement clears the
+        // lock above so user intent always wins.
+        if (layoutAnchorLocks.size > 0) {
+            if (pinnedToBottom) anchor = null
+            return
+        }
+
         const atBottom = isAtBottom()
         if (atBottom) {
             // An upward wheel can precede Firefox APZ's first off-bottom
@@ -444,6 +460,32 @@ export function createChatScrollController(
         if (target) scrollToElement(target.element, { block: 'start', behavior })
     }
 
+    const preserveElementPosition = (element: HTMLElement) => {
+        if (destroyed || !container.contains(element)) return () => {}
+
+        const lock = Symbol('chat-layout-anchor')
+        layoutAnchorLocks.add(lock)
+        if (isAtBottom()) {
+            pinnedToBottom = true
+            anchor = null
+        }
+        else {
+            pinnedToBottom = false
+            anchor = {
+                element,
+                top: element.getBoundingClientRect().top,
+            }
+        }
+
+        let released = false
+        return () => {
+            if (released || destroyed) return
+            released = true
+            layoutAnchorLocks.delete(lock)
+            scheduleAlignment()
+        }
+    }
+
     const resizeObserver = typeof ResizeObserver === 'undefined'
         ? null
         : new ResizeObserver(() => scheduleAlignment())
@@ -488,12 +530,14 @@ export function createChatScrollController(
         scrollToElement,
         scrollToEdge,
         navigateMessage,
+        preserveElementPosition,
         destroy() {
             if (destroyed) return
             destroyed = true
             resizeObserver?.disconnect()
             mutationObserver?.disconnect()
             observedChildren.clear()
+            layoutAnchorLocks.clear()
             cancelAnimationFrame(alignmentFrame)
             container.removeEventListener('pointerdown', startPointerGesture)
             container.removeEventListener('touchstart', startTouchGesture)

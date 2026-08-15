@@ -1,6 +1,6 @@
 <script lang="ts">
     import { CheckIcon, SaveIcon, Trash2Icon, XIcon } from '@lucide/svelte';
-    import { onDestroy, untrack } from 'svelte';
+    import { onDestroy, tick, untrack } from 'svelte';
     import { DBState, ReloadChatPointer } from 'src/ts/stores.svelte';
     import type { Message } from 'src/ts/storage/database.svelte';
     import { language } from 'src/lang';
@@ -16,6 +16,7 @@
         type RangeResult,
         type RangeResultWithContext
     } from 'src/ts/parser/partialEdit';
+    import type { ChatScrollController } from './chatScroll';
 
     interface Props {
         screenRoot: HTMLElement | null;
@@ -25,6 +26,7 @@
         chatId?: string | null;
         blockEditEnabled?: boolean;
         dragEditEnabled?: boolean;
+        getScrollController?: () => ChatScrollController | null;
     }
 
     interface PartialEditTarget {
@@ -47,6 +49,7 @@
         chatId = null,
         blockEditEnabled = false,
         dragEditEnabled = false,
+        getScrollController = () => null,
     }: Props = $props();
 
     const MIN_DRAG_SELECTION_LENGTH = 5;
@@ -477,6 +480,17 @@
         messageData = '';
     }
 
+    async function preserveTargetPosition(target: PartialEditTarget, update: () => void) {
+        const release = getScrollController()?.preserveElementPosition(target.chatRoot);
+        try {
+            update();
+            await tick();
+            await tick();
+        } finally {
+            release?.();
+        }
+    }
+
     function saveNewData(newData: string) {
         if (!ensureValidTarget() || !activeTarget) return;
         const target = activeTarget;
@@ -487,21 +501,23 @@
         }
         const sourceType = matchingState.sourceType;
         const translationKey = matchingState.translationKey;
-        resetInteraction();
-        if (sourceType === 'translation' && translationKey) {
-            target.chatRoot.dispatchEvent(new CustomEvent('risu-partial-edit-translation-save', {
-                detail: { key: translationKey, data: newData },
+        void preserveTargetPosition(target, () => {
+            resetInteraction();
+            if (sourceType === 'translation' && translationKey) {
+                target.chatRoot.dispatchEvent(new CustomEvent('risu-partial-edit-translation-save', {
+                    detail: { key: translationKey, data: newData },
+                }));
+                return;
+            }
+            message.data = newData;
+            if (message.swipes && message.swipeId !== undefined) {
+                message.swipes[message.swipeId] = newData;
+            }
+            ReloadChatPointer.update(value => ({
+                ...value,
+                [target.messageIndex]: (value[target.messageIndex] ?? 0) + 1,
             }));
-            return;
-        }
-        message.data = newData;
-        if (message.swipes && message.swipeId !== undefined) {
-            message.swipes[message.swipeId] = newData;
-        }
-        ReloadChatPointer.update(value => ({
-            ...value,
-            [target.messageIndex]: (value[target.messageIndex] ?? 0) + 1,
-        }));
+        });
     }
 
     function handleSave() {
