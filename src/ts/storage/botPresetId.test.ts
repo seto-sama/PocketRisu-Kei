@@ -39,7 +39,9 @@ const {
     getActiveBotPresetId,
     getBotPresetById,
     getBotPresetIndexById,
+    saveCurrentPreset,
     setDatabase,
+    setPreset,
     setActiveBotPresetById,
     withStableActivePreset,
 } = databaseModule
@@ -85,6 +87,8 @@ describe('empty database initialization', () => {
             modelRegistrySeen: { legacy: 1 },
             useCustomModelRegistry: true,
             modelProfileRegistryBaseUrl: 'https://legacy.example',
+            aiModel: 'legacy-main',
+            subModel: 'legacy-sub',
             botPresets: [{
                 ...makePreset('legacy-preset', 'Legacy'),
                 promptPreprocess: { nested: true },
@@ -102,6 +106,8 @@ describe('empty database initialization', () => {
         expect(db.modelRegistrySeen).toEqual({ legacy: 1 })
         expect(db.useCustomModelRegistry).toBe(true)
         expect(db.modelProfileRegistryBaseUrl).toBe('https://legacy.example')
+        expect(db.aiModel).toBe('legacy-main')
+        expect(db.subModel).toBe('legacy-sub')
         expect(db.botPresets[0].promptPreprocess).toEqual({ nested: true })
     })
 })
@@ -120,6 +126,50 @@ describe('createBotPresetTemplate', () => {
         const b = createBotPresetTemplate()
         a.name = 'Mutated'
         expect(b.name).not.toBe('Mutated')
+    })
+
+    test('does not add legacy main or sub model fields to new prompt presets', () => {
+        const preset = createBotPresetTemplate() as any
+        expect(preset).not.toHaveProperty('aiModel')
+        expect(preset).not.toHaveProperty('subModel')
+    })
+})
+
+describe('legacy prompt-preset model fields', () => {
+    test('does not apply main or sub model selection from a prompt preset', () => {
+        const db: any = {}
+        setDatabase(db)
+        db.aiModel = 'current-main'
+        db.subModel = 'current-sub'
+
+        setPreset(db, {
+            ...makePreset('legacy', 'Legacy'),
+            aiModel: 'legacy-main',
+            subModel: 'legacy-sub',
+        } as any)
+
+        expect(db.aiModel).toBe('current-main')
+        expect(db.subModel).toBe('current-sub')
+    })
+
+    test('preserves unknown serialized fields without replacing their values', () => {
+        const db: any = {
+            botPresets: [{
+                ...makePreset('legacy', 'Legacy'),
+                aiModel: 'legacy-main',
+                subModel: 'legacy-sub',
+                futureField: { enabled: true },
+            }],
+            botPresetsId: 0,
+        }
+        setDatabase(db)
+        db.aiModel = 'current-main'
+        db.subModel = 'current-sub'
+        saveCurrentPreset()
+
+        expect(db.botPresets[0].aiModel).toBe('legacy-main')
+        expect(db.botPresets[0].subModel).toBe('legacy-sub')
+        expect(db.botPresets[0].futureField).toEqual({ enabled: true })
     })
 })
 

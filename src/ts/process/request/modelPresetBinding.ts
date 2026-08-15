@@ -55,8 +55,7 @@ export function resolveChatModelBinding(
     }
 
     // submodel + all aux modes resolve against the sub slot, with aux slots
-    // overriding when separateAux is on (mirrors classic: db.subModel default,
-    // db.seperateModels[task] override).
+    // overriding when separateAux is on.
     const sub = findPreset(set.sub, presets)
 
     if (mode !== 'submodel' && set.separateAux) {

@@ -26,8 +26,6 @@ export const prebuiltPresets: Record<string, botPreset> = {
       "globalNote",
       "personaPrompt"
     ],
-    "aiModel": "novelai_kayra",
-    "subModel": "novelai_kayra",
     "currentPluginProvider": "",
     "textgenWebUIStreamURL": "",
     "textgenWebUIBlockingURL": "",
@@ -241,8 +239,6 @@ export const prebuiltPresets: Record<string, botPreset> = {
       "globalNote",
       "authorNote"
     ],
-    "aiModel": "claude-3-5-sonnet-20240620",
-    "subModel": "gemini-3-flash-preview",
     "currentPluginProvider": "",
     "textgenWebUIStreamURL": "",
     "textgenWebUIBlockingURL": "",

@@ -133,9 +133,6 @@ export function setDatabase(data:Database){
     if(checkNullish(data.PresensePenalty)){
         data.PresensePenalty = 70
     }
-    if(checkNullish(data.aiModel)){
-        data.aiModel = 'gemini-3-flash-preview'
-    }
     if(checkNullish(data.jailbreakToggle)){
         data.jailbreakToggle = false
     }
@@ -226,9 +223,6 @@ export function setDatabase(data:Database){
     data.theme = normalizeTheme(data.theme)
     if(data.nodeOnlyStandardChatWidth !== 'standard' && data.nodeOnlyStandardChatWidth !== 'wide' && data.nodeOnlyStandardChatWidth !== 'full'){
         data.nodeOnlyStandardChatWidth = 'standard'
-    }
-    if(checkNullish(data.subModel)){
-        data.subModel = 'gemini-3-flash-preview'
     }
     if(checkNullish(data.waifuWidth)){
         data.waifuWidth = 100
@@ -526,7 +520,6 @@ export function setDatabase(data:Database){
     data.NAIsettings.mirostat_lr ??= 1
     data.customProxyRequestModel ??= ''
     data.generationSeed ??= -1
-    data.gptVisionQuality ??= 'low'
     data.huggingfaceKey ??= ''
     data.fishSpeechKey ??= ''
     data.presetRegex ??= []
@@ -570,7 +563,6 @@ export function setDatabase(data:Database){
     data.repetition_penalty ??= 1
     data.min_p ??= 0
     data.top_a ??= 0
-    data.customTokenizer ??= 'tik'
     data.instructChatTemplate ??= "chatml"
     // Migration: convert old string type into new provider object
     if (typeof data.openrouterProvider === 'string') {
@@ -1023,7 +1015,6 @@ export interface Database{
     frequencyPenalty: number
     PresensePenalty: number
     formatingOrder: FormatingOrderItem[]
-    aiModel: string
     jailbreakToggle:boolean
     loreBookDepth: number
     loreBookToken: number,
@@ -1065,7 +1056,6 @@ export interface Database{
     iconsize:number
     theme: string
     nodeOnlyStandardChatWidth: 'standard' | 'wide' | 'full'
-    subModel:string
     emotionPrompt: string,
     formatversion:number
     waifuWidth:number
@@ -1216,7 +1206,6 @@ export interface Database{
     localStopStrings?:string[]
     customProxyRequestModel:string
     generationSeed:number
-    gptVisionQuality:string
     reverseProxyOobaMode:boolean
     reverseProxyOobaArgs: OobaChatCompletionRequestParams
     huggingfaceKey:string
@@ -1256,7 +1245,6 @@ export interface Database{
     antiClaudeOverload:boolean
     ollamaURL:string
     ollamaModel:string
-    customTokenizer:string
     instructChatTemplate:string
     JinjaTemplate:string
     openrouterProvider: {
@@ -1767,8 +1755,6 @@ export interface botPreset{
     frequencyPenalty: number
     PresensePenalty: number
     formatingOrder: FormatingOrderItem[]
-    aiModel?: string
-    subModel?:string
     currentPluginProvider?:string
     textgenWebUIStreamURL?:string
     textgenWebUIBlockingURL?:string
@@ -2277,8 +2263,6 @@ export const presetTemplate:botPreset = {
     frequencyPenalty: 70,
     PresensePenalty: 70,
     formatingOrder: ['main', 'description', 'personaPrompt','chats','lastChat', 'jailbreak', 'lorebook', 'globalNote', 'authorNote'],
-    aiModel: "gemini-3-flash-preview",
-    subModel: "gemini-3-flash-preview",
     currentPluginProvider: "",
     textgenWebUIStreamURL: '',
     textgenWebUIBlockingURL: '',
@@ -2443,7 +2427,11 @@ export function saveCurrentPreset(){
     if(db.botPresetsId === -1){
         return
     }
+    const currentPreset = pres[db.botPresetsId]
     const savedPreset:botPreset =  {
+        // Preserve fields unknown to this version so imported presets can be
+        // round-tripped by both database backups and individual preset exports.
+        ...currentPreset,
         id: pres[db.botPresetsId]?.id || uuidv4(),
         name: pres[db.botPresetsId].name,
         folderId: pres[db.botPresetsId]?.folderId,
@@ -2458,8 +2446,6 @@ export function saveCurrentPreset(){
         frequencyPenalty: db.frequencyPenalty,
         PresensePenalty: db.PresensePenalty,
         formatingOrder: db.formatingOrder,
-        aiModel: db.aiModel,
-        subModel: db.subModel,
         currentPluginProvider: db.currentPluginProvider,
         textgenWebUIStreamURL: db.textgenWebUIStreamURL,
         textgenWebUIBlockingURL: db.textgenWebUIBlockingURL,
@@ -2571,8 +2557,6 @@ export function setPreset(db:Database, newPres: botPreset){
     db.frequencyPenalty = newPres.frequencyPenalty ?? db.frequencyPenalty
     db.PresensePenalty = newPres.PresensePenalty ?? db.PresensePenalty
     db.formatingOrder = newPres.formatingOrder ?? db.formatingOrder
-    db.aiModel = newPres.aiModel ?? db.aiModel
-    db.subModel = newPres.subModel ?? db.subModel
     db.currentPluginProvider = newPres.currentPluginProvider ?? db.currentPluginProvider
     db.textgenWebUIStreamURL = newPres.textgenWebUIStreamURL ?? db.textgenWebUIStreamURL
     db.textgenWebUIBlockingURL = newPres.textgenWebUIBlockingURL ?? db.textgenWebUIBlockingURL

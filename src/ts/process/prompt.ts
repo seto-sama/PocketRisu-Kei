@@ -415,8 +415,6 @@ export function promptConvertion(files:{ name: string, content: string, type:str
     }
 
     if(type === 'STCHAT'){
-        preset.aiModel = 'openrouter'
-        preset.subModel = 'openrouter'
         const db = getDatabase()
         db.botPresets.push(preset)
     
@@ -488,8 +486,6 @@ export function promptConvertion(files:{ name: string, content: string, type:str
 
     preset.instructChatTemplate = "jinja"
     preset.JinjaTemplate = jinja
-    preset.aiModel = 'openrouter'
-    preset.subModel = 'openrouter'
     preset.useInstructPrompt = true
 
     preset.name ||= 'Converted from JSON'
