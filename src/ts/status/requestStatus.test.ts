@@ -10,6 +10,7 @@ import {
     isTerminalPhase,
     markPhase,
     recomputeEntry,
+    requestStatusIdForJob,
     requestStatuses,
     setStatusTokenCounter,
     startStatus,
@@ -135,6 +136,14 @@ describe('isTerminalPhase', () => {
 })
 
 describe('publish API', () => {
+    it('uses the shared request id for recovered main and auxiliary jobs', () => {
+        expect(requestStatusIdForJob({
+            jobId: 'server-job',
+            chatId: 'aux-request',
+        })).toBe('aux-request')
+        expect(requestStatusIdForJob({ jobId: 'legacy-job' })).toBe('legacy-job')
+    })
+
     it('startStatus creates an entry', () => {
         startStatus('g1', { kind: 'main', label: 'gpt', chatId: 'c1', now: 100 })
         const e = get(requestStatuses).get('g1')!

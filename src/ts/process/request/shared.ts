@@ -13,6 +13,23 @@ import {
 
 export type { ModelModeExtended } from '../revenant'
 
+export function ensureRequestGenerationId(
+    arg: Pick<RequestDataArgumentExtended, 'chatId' | 'revenantRequestId'>,
+): string {
+    return arg.chatId ?? (arg.revenantRequestId ??= `aux-${uuidv4()}`)
+}
+
+export function getRequestStatusNavigationId(
+    arg: RequestDataArgumentExtended,
+): string | undefined {
+    if (arg.chatId) return arg.chatId
+    const operation = arg.revenantOperationContext
+    if (operation?.kind === 'translation' && operation.target?.messageChatId) {
+        return operation.target.messageChatId
+    }
+    return arg.revenantRoomId
+}
+
 export function buildGenerationRequest(
     arg: RequestDataArgumentExtended,
     usageIdentity?: Pick<
@@ -36,11 +53,12 @@ export function buildGenerationRequest(
     // stable id for the lifetime of this provider attempt. Auxiliary operation
     // metadata routes their result to a separate recovery queue, never to the
     // assistant-message recovery path.
-    const chatId = arg.chatId ?? (arg.revenantRequestId ??= `aux-${uuidv4()}`)
+    const chatId = ensureRequestGenerationId(arg)
 
     const activeChat = arg.currentChar?.chats?.[arg.currentChar.chatPage]
     const characterId = arg.currentChar?.chaId
     const roomId = arg.revenantRoomId ?? activeChat?.id
+    if (roomId && !arg.revenantRoomId) arg.revenantRoomId = roomId
     const workflow = getLocalRevenantWorkflow(characterId, roomId)
     const clientAction = arg.revenantClientAction
     return {

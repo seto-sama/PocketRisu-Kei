@@ -14,7 +14,7 @@ vi.mock('../revenant/workflow', () => ({
     getRevenantWorkflowStepKey: (jobType: string) => jobType === 'model' ? 'model.main' : `job.${jobType}`,
 }))
 
-import { buildGenerationRequest, collectStreamingText } from './shared'
+import { buildGenerationRequest, collectStreamingText, ensureRequestGenerationId, getRequestStatusNavigationId } from './shared'
 
 afterEach(() => {
     workflowState.workflow = undefined
@@ -58,6 +58,60 @@ describe('collectStreamingText', () => {
 })
 
 describe('buildGenerationRequest', () => {
+    test('shares one id between an auxiliary status and its durable job', () => {
+        const arg = {
+            formated: [],
+            bias: {},
+            mode: 'memory' as const,
+            revenantRequestId: undefined as string | undefined,
+        }
+
+        const request = buildGenerationRequest(arg)
+
+        expect(request?.job.chatId).toMatch(/^aux-/)
+        expect(ensureRequestGenerationId(arg)).toBe(request?.job.chatId)
+        expect(buildGenerationRequest(arg)?.job.chatId).toBe(request?.job.chatId)
+    })
+
+    test('captures the submitted room as the auxiliary toast navigation target', () => {
+        const arg = {
+            formated: [],
+            bias: {},
+            mode: 'memory' as const,
+            currentChar: {
+                chaId: 'character-1',
+                chatPage: 0,
+                chats: [{ id: 'submitted-room', message: [] }],
+            },
+        } as any
+
+        buildGenerationRequest(arg)
+
+        expect(arg.revenantRoomId).toBe('submitted-room')
+        expect(getRequestStatusNavigationId(arg)).toBe('submitted-room')
+    })
+
+    test('targets the translated message more precisely than its room', () => {
+        expect(getRequestStatusNavigationId({
+            formated: [],
+            bias: {},
+            revenantRoomId: 'room-1',
+            revenantOperationContext: {
+                kind: 'translation',
+                operationId: 'translation-1',
+                cacheKey: 'cache-1',
+                styleDecodes: [],
+                replaceExisting: false,
+                target: {
+                    kind: 'chat-message',
+                    messageChatId: 'message-1',
+                    messageIndex: 1,
+                    swipeId: 0,
+                },
+            },
+        })).toBe('message-1')
+    })
+
     test('forwards the durable registration lifecycle callbacks', () => {
         const onJobCreated = vi.fn()
         const onJobRegistrationUnavailable = vi.fn()

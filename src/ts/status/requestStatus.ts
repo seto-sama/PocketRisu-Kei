@@ -67,6 +67,14 @@ export interface RequestStatusEntry {
 
 export const requestStatuses = writable<Map<string, RequestStatusEntry>>(new Map())
 
+export function hasRequestStatus(id: string): boolean {
+    return get(requestStatuses).has(id)
+}
+
+export function requestStatusIdForJob(job: { jobId: string, chatId?: string }): string {
+    return job.chatId || job.jobId
+}
+
 // --- tuning ---------------------------------------------------------------
 
 // Injected token counter. request.ts registers the native tokenizer

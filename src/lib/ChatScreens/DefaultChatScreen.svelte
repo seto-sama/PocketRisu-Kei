@@ -20,7 +20,7 @@
     import { isExpTranslator, recoverAuxiliaryTranslationJobs, translate } from "../../ts/translator/translator";
     import { alertError, alertWait, notifySuccess, notifyError } from "../../ts/alert";
     import { playNotificationSound } from '../../ts/notificationSound'
-    import { endStatus, startStatus } from '../../ts/status/requestStatus'
+    import { endStatus, hasRequestStatus, requestStatusIdForJob, startStatus } from '../../ts/status/requestStatus'
 import { isMobile } from 'src/ts/platform'
     import { processScript } from "src/ts/process/scripts";
     import CreatorQuote from "./CreatorQuote.svelte";
@@ -335,13 +335,17 @@ import { isMobile } from 'src/ts/platform'
                         console.warn('[GenerationJob] Translation recovery list unavailable:', error)
                         return []
                     })
-                detachedTranslationJobs.forEach(job => startStatus(job.jobId, {
-                    kind: 'translate',
-                    label: '',
-                    chatId: chat.id,
-                    phase: 'connecting',
-                    now: Date.now(),
-                }))
+                detachedTranslationJobs.forEach(job => {
+                    const statusId = requestStatusIdForJob(job)
+                    if (hasRequestStatus(statusId)) return
+                    startStatus(statusId, {
+                        kind: 'translate',
+                        label: '',
+                        chatId: chat.id,
+                        phase: 'connecting',
+                        now: Date.now(),
+                    })
+                })
                 const [recoveredTranslations, recoveredOther] = await Promise.all([
                     detachedTranslationJobs.length > 0
                         ? recoverAuxiliaryTranslationJobs(false, {
@@ -359,7 +363,7 @@ import { isMobile } from 'src/ts/platform'
                 ])
                 detachedTranslationJobs.forEach(job =>
                     endStatus(
-                        job.jobId,
+                        requestStatusIdForJob(job),
                         job.status === 'failed' || job.status === 'failed_partial'
                             ? 'failed'
                             : 'done',
@@ -424,14 +428,18 @@ import { isMobile } from 'src/ts/platform'
     $effect(() => {
         if(ScrollToMessageStore.value !== -1){
             const index = ScrollToMessageStore.value
+            const exact = ScrollToMessageStore.exact
             ScrollToMessageStore.value = -1
-            scrollToMessage(index)
+            ScrollToMessageStore.exact = false
+            scrollToMessage(index, exact)
         }
     })
 
-    async function scrollToMessage(index: number){
+    async function scrollToMessage(index: number, exact = false){
         // Forces the loading of past messages not rendered on the screen
-        isScrollingToMessage = true
+        // Request-status toast navigation should only move the viewport. The
+        // loading veil and highlight belong to bookmark/history navigation.
+        if (!exact) isScrollingToMessage = true
         try {
             const totalMessages = currentChat.length
             const neededLoadPages = totalMessages - index + 5
@@ -445,8 +453,15 @@ import { isMobile } from 'src/ts/platform'
             // Poll for element existence (max 5 seconds)
             for(let i = 0; i < 50; i++){
                 element = chatScreenRoot?.querySelector(`[data-chat-index="${index}"]`) ?? null
-                if(element) break;
+                if(element && (!exact || chatScrollController)) break;
                 await sleep(100)
+            }
+
+            if (exact) {
+                if (chatScreenRoot && element && chatScrollController) {
+                    chatScrollController.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
+                }
+                return
             }
 
             const chatContainer = chatScreenRoot;
@@ -454,7 +469,7 @@ import { isMobile } from 'src/ts/platform'
             const preElement = chatContainer?.querySelector(`[data-chat-index="${preIndex}"]`)
             // Scroll within the chat container only — raw scrollIntoView climbs to
             // documentElement and, if the root is inflated, shoves the whole page up.
-            if(chatContainer && preElement){
+            if(chatContainer && preElement && !exact){
                 chatScrollController?.scrollToElement(preElement as HTMLElement, { block: 'start', behavior: 'instant' })
             } else if(chatContainer && element){
                 chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
@@ -492,7 +507,7 @@ import { isMobile } from 'src/ts/platform'
                 }, 2000)
             }
         } finally {
-            isScrollingToMessage = false
+            if (!exact) isScrollingToMessage = false
         }
     }
 
