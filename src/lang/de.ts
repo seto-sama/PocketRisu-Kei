@@ -626,8 +626,6 @@ export const languageGerman = {
     "editDisplay": "Anzeige bearbeiten",
     "textBackgrounds": "Benutzerdefinierte Farbe für den Textbereich",
     "textBorder": "Textkonturen",
-    "textScreenRound": "Abgerundeter Textbereich",
-    "textScreenBorder": "Textbildschirmränder",
     "ttsReadOnlyQuoted": "Nur Zitate vorlesen",
     "ttsStop": "TTS stoppen",
     "replaceGlobalNote": "Globalnote ersetzen",

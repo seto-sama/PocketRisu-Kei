@@ -393,15 +393,11 @@ export const helpEn = {
         textScreenColor:
             "Set the message text-area background color used by the Waifulike, Mobile Chat, and CardBoard themes.",
         textBorder:
-            "Draw a subtle outline around message text to improve readability over background images.",
-        textScreenRound:
-            "Round the corners of the message text area. Most visible on themes with text backgrounds or borders.",
+            "Draw the text outline behind the glyph fill so it stays outside the letters and remains readable over background images.",
         showSavingIcon:
             "Show a small saving indicator while data is being saved. Helpful on pages where frequent saves happen.",
         showPromptComparison:
             "Show the built prompt in the prompt-comparison modal. Useful for debugging prompts or reducing token usage.",
-        textScreenBorder:
-            "Set the outline color around the chat text area. Disable it to remove the outline.",
         useChatCopy:
             "Show a copy button next to each message. When off, copy through the message menu instead.",
         useAdditionalAssetsPreview:

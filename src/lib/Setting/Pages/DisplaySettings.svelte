@@ -10,7 +10,6 @@
     import {
         displayOtherHomeItems,
         displayOtherChatItems,
-        displayOtherBubbleItems,
         displayOtherQuoteItems,
         displayOtherAdvancedItems,
         displaySizeSettingsItems,
@@ -49,7 +48,6 @@
 {:else if submenu === 2}
     <SettingLayout variant="section" title={language.sectionHomeList} first><SettingRenderer items={displayOtherHomeItems} layout="row" /></SettingLayout>
     <SettingLayout variant="section" title={language.sectionChatView}><SettingRenderer items={displayOtherChatItems} layout="row" /></SettingLayout>
-    <SettingLayout variant="section" title={language.sectionBubble}><SettingRenderer items={displayOtherBubbleItems} layout="row" /></SettingLayout>
     <SettingLayout variant="section" title={language.sectionQuotes}><SettingRenderer items={displayOtherQuoteItems} layout="row" /></SettingLayout>
     <SettingLayout variant="section" title={language.sectionAdvanced}><SettingRenderer items={displayOtherAdvancedItems} layout="row" /></SettingLayout>
 {:else if submenu === 3}

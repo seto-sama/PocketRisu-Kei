@@ -660,7 +660,7 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
             }
             case 'bg':
                 if(mode === 'back'){
-                    return `<div style="width:100%;height:100%;background: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),url(${p}); background-size: cover;"></div>`
+                    return `<div style="width:100%;height:100%;background: url(${p}); background-size: cover;"></div>`
                 }
                 break
             case 'asset':{

@@ -6,11 +6,11 @@
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte';
 
     interface Props {
-        field: 'textScreenColor' | 'textScreenBorder' | 'textBorderColor';
+        field: 'textScreenColor' | 'textBorderColor';
         toggleField?: 'textBorder';
-        labelKey: 'textBackgrounds' | 'textScreenBorder' | 'textBorder';
+        labelKey: 'textBackgrounds' | 'textBorder';
         defaultColor: string;
-        helpKey?: 'textScreenColor' | 'textScreenBorder' | 'textBorder';
+        helpKey?: 'textScreenColor' | 'textBorder';
         alwaysEnabled?: boolean;
     }
 

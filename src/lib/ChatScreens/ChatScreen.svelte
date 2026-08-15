@@ -24,14 +24,12 @@
     })
 
     const wallPaper = `background: url(${defaultWallpaper})`
-    const textOutlineStyle = $derived(`--risu-chat-text-shadow: ${DBState.db.textBorder
+    const textOutlineStyle = $derived(DBState.db.textBorder
         ? getTextOutlineStyle(DBState.db.textBorderColor ?? DEFAULT_TEXT_BORDER_COLOR)
-        : 'none'};`)
+        : '')
     const externalStyles = $derived(
             `background: ${(DBState.db.textScreenColor ?? DEFAULT_TEXT_SCREEN_COLOR)}80;\n`
-        +   textOutlineStyle
-        +   (DBState.db.textScreenRounded ? "border-radius: 2rem; padding: 1rem;" : '')
-        +   (DBState.db.textScreenBorder ? `border: 0.3rem solid ${DBState.db.textScreenBorder};` : ''))
+        +   textOutlineStyle)
     const usesCustomChatBackdrop = $derived(supportsCustomChatBackdrop(DBState.db.theme))
     let bgImg= $state('')
     let lastBg = $state('')

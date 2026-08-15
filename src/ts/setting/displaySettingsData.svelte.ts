@@ -330,6 +330,19 @@ export const displayOtherHomeItems: SettingItem[] = [
 
 export const displayOtherChatItems: SettingItem[] = [
     { id: 'display.showRequestStatus', type: 'check', labelKey: 'showRequestStatus', helpKey: 'showRequestStatus', bindKey: 'showRequestStatus', keywords: ['request', 'status', 'toast', 'token', 'thinking'] },
+    {
+        id: 'display.textBorder',
+        type: 'custom',
+        componentId: 'NullableTextColorToggle',
+        componentProps: {
+            field: 'textBorderColor',
+            toggleField: 'textBorder',
+            labelKey: 'textBorder',
+            defaultColor: DEFAULT_TEXT_BORDER_COLOR,
+            helpKey: 'textBorder',
+        },
+        keywords: ['text', 'outline', 'shadow', 'color'],
+    },
     { id: 'display.hideAllImages', type: 'check', labelKey: 'hideAllImages', helpKey: 'hideAllImagesDesc', bindKey: 'hideAllImages', keywords: ['images', 'hide'] },
     {
         id: 'display.assetMaxDifference',
@@ -349,34 +362,6 @@ export const displayOtherChatItems: SettingItem[] = [
     { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
 ];
 
-export const displayOtherBubbleItems: SettingItem[] = [
-    {
-        id: 'display.textScreenBorder',
-        type: 'custom',
-        componentId: 'NullableTextColorToggle',
-        componentProps: {
-            field: 'textScreenBorder',
-            labelKey: 'textScreenBorder',
-            defaultColor: '#121212',
-            helpKey: 'textScreenBorder',
-        },
-        keywords: ['text', 'screen', 'border', 'color'],
-    },
-    { id: 'display.textScreenRounded', type: 'check', labelKey: 'textScreenRound', helpKey: 'textScreenRound', bindKey: 'textScreenRounded', keywords: ['text', 'round'] },
-    {
-        id: 'display.textBorder',
-        type: 'custom',
-        componentId: 'NullableTextColorToggle',
-        componentProps: {
-            field: 'textBorderColor',
-            toggleField: 'textBorder',
-            labelKey: 'textBorder',
-            defaultColor: DEFAULT_TEXT_BORDER_COLOR,
-            helpKey: 'textBorder',
-        },
-        keywords: ['text', 'border', 'color'],
-    },
-];
 export const displayOtherQuoteItems: SettingItem[] = [
     { id: 'display.unformatQuotes', type: 'check', labelKey: 'unformatQuotes', helpKey: 'unformatQuotes', bindKey: 'unformatQuotes', keywords: ['quotes'] },
     { id: 'display.blockquoteStyling', type: 'check', labelKey: 'blockquoteStyling', helpKey: 'blockquoteStyling', bindKey: 'blockquoteStyling', keywords: ['blockquote', 'quote'] },
@@ -486,7 +471,6 @@ export const displaySettingsItems: SettingItem[] = [
     ...displaySizeSettingsItems,
     ...displayOtherHomeItems,
     ...displayOtherChatItems,
-    ...displayOtherBubbleItems,
     ...displayOtherQuoteItems,
     ...displayOtherAdvancedItems,
 ];

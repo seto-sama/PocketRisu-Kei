@@ -626,8 +626,6 @@ export const languageVietnamese = {
     "editDisplay": "Sửa đổi hiển thị",
     "textBackgrounds": "Màu màn hình văn bản tùy chỉnh",
     "textBorder": "Đề cương văn bản",
-    "textScreenRound": "Màn hình văn bản tròn",
-    "textScreenBorder": "Viền màn hình văn bản",
     "ttsReadOnlyQuoted": "Chỉ đọc trích dẫn",
     "ttsStop": "Dừng TTS",
     "replaceGlobalNote": "Thay thế ghi chú toàn cầu",

@@ -626,8 +626,6 @@ export const languageSpanish = {
     "editDisplay": "Modificar Visualización",
     "textBackgrounds": "Color Personalizado de la Pantalla de Texto",
     "textBorder": "Contornos de Texto",
-    "textScreenRound": "Pantalla de Texto Redondeada",
-    "textScreenBorder": "Bordes de Pantalla de Texto",
     "ttsReadOnlyQuoted": "Leer Solo Citas",
     "ttsStop": "Detener TTS",
     "replaceGlobalNote": "Reemplazo de Nota Global",

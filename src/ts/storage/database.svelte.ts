@@ -1127,8 +1127,6 @@ export interface Database{
     textScreenColor?:string
     textBorder?:boolean
     textBorderColor?:string
-    textScreenRounded?:boolean
-    textScreenBorder?:string
     characterOrder:(string|folder)[]
     hordeConfig:hordeConfig,
     novelai:{
@@ -1909,8 +1907,6 @@ export interface themePreset{
     textScreenColor?: string
     textBorder?: boolean
     textBorderColor?: string
-    textScreenRounded?: boolean
-    textScreenBorder?: string
     showSavingIcon: boolean
     showPromptComparison: boolean
     useChatCopy: boolean
@@ -2342,8 +2338,6 @@ export const themePresetTemplate: themePreset = {
     textScreenColor: DEFAULT_TEXT_SCREEN_COLOR,
     textBorder: false,
     textBorderColor: DEFAULT_TEXT_BORDER_COLOR,
-    textScreenRounded: false,
-    textScreenBorder: null,
     showSavingIcon: false,
     showPromptComparison: false,
     useChatCopy: false,
@@ -2702,8 +2696,6 @@ export function saveCurrentThemePreset(){
         textScreenColor: db.textScreenColor,
         textBorder: db.textBorder,
         textBorderColor: db.textBorderColor,
-        textScreenRounded: db.textScreenRounded,
-        textScreenBorder: db.textScreenBorder,
         showSavingIcon: db.showSavingIcon,
         showPromptComparison: db.showPromptComparison,
         useChatCopy: db.useChatCopy,
@@ -2772,8 +2764,6 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.textScreenColor = p.textScreenColor ?? DEFAULT_TEXT_SCREEN_COLOR
     db.textBorder = p.textBorder
     db.textBorderColor = p.textBorderColor ?? DEFAULT_TEXT_BORDER_COLOR
-    db.textScreenRounded = p.textScreenRounded
-    db.textScreenBorder = p.textScreenBorder
     db.showSavingIcon = p.showSavingIcon ?? db.showSavingIcon
     db.showPromptComparison = p.showPromptComparison ?? db.showPromptComparison
     db.useChatCopy = p.useChatCopy ?? db.useChatCopy
