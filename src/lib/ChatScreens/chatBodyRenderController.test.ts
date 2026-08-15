@@ -26,7 +26,7 @@ vi.mock('../../ts/util', () => ({
     sleep: async () => {},
 }))
 
-import { createChatBodyRenderController } from './chatBodyRenderController.svelte'
+import { createChatBodyRenderController, hasSharedTranslationTask } from './chatBodyRenderController.svelte'
 
 function createDeferredTranslation() {
     let resolve!: (value: string) => void
@@ -81,6 +81,7 @@ describe('chat body translation task lifetime', () => {
         const controller = createChatBodyRenderController(() => {})
         const result = renderTranslation(controller)
         await vi.waitFor(() => expect(deferred.getSignal()).toBeDefined())
+        expect(hasSharedTranslationTask('room:message:swipe:0')).toBe(true)
 
         controller.dispose()
 
@@ -108,6 +109,7 @@ describe('chat body translation task lifetime', () => {
         deferred.resolve('translated')
         await expect(firstResult).rejects.toMatchObject({ name: 'AbortError' })
         await expect(restoredResult).resolves.toBe('translated')
+        expect(hasSharedTranslationTask('room:message:swipe:0')).toBe(false)
         expect(mocks.translateHTML).toHaveBeenCalledTimes(1)
         expect(taskChanges).toEqual([1, -1])
         restoredController.dispose()

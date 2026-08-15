@@ -28,6 +28,8 @@
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";
+    import { createSubscriber } from "svelte/reactivity";
+    import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges } from "./chatBodyRenderController.svelte";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -113,6 +115,13 @@
             translationRecoveryTarget?.swipeId ?? (firstMessage ? currentPage - 1 : 0),
         ])
         : '')
+    const trackSharedTranslationTasks = createSubscriber((update) =>
+        subscribeSharedTranslationTaskChanges(update)
+    )
+    const sharedTranslationPending = $derived.by(() => {
+        trackSharedTranslationTasks()
+        return hasSharedTranslationTask(translationTaskKey)
+    })
 
     async function rm(){
         const messages = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
@@ -262,22 +271,24 @@
         return await ParseMarkdown(source, character, 'notrim', idx, getCbsCondition())
     }
 
+    function getTranslationTarget(): RevenantChatMessageTranslationTarget | null {
+        if (translationRecoveryTarget !== undefined) {
+            return translationRecoveryTarget
+        }
+        if (idx < 0) return null
+        const currentCharacter = DBState.db.characters[selIdState.selId]
+        const message = currentCharacter?.chats?.[currentCharacter.chatPage]?.message?.[idx]
+        if (!message) return null
+        return {
+            kind: 'chat-message',
+            messageChatId: message.chatId ?? null,
+            messageIndex: idx,
+            swipeId: message.swipeId ?? 0,
+        }
+    }
+
     const revenantTranslationRecovery = createRevenantChatTranslationRecovery({
-        getTarget: () => {
-            if (translationRecoveryTarget !== undefined) {
-                return translationRecoveryTarget
-            }
-            if (idx < 0) return null
-            const currentCharacter = DBState.db.characters[selIdState.selId]
-            const message = currentCharacter?.chats?.[currentCharacter.chatPage]?.message?.[idx]
-            if (!message) return null
-            return {
-                kind: 'chat-message',
-                messageChatId: message.chatId ?? null,
-                messageIndex: idx,
-                swipeId: message.swipeId ?? 0,
-            }
-        },
+        getTarget: getTranslationTarget,
         getScope: () => translationRecoveryScope,
         translationCache: {
             get: getLLMCache,
@@ -287,6 +298,10 @@
     })
     const revenantTranslationRecoverySnapshot = $derived.by(() =>
         revenantTranslationRecovery.capture()
+    )
+    const translationPending = $derived(
+        (DBState.db.translatorType === 'llm' ? sharedTranslationPending : translating)
+        || revenantTranslationRecoverySnapshot.pending
     )
     const revenantTranslationInspectionReady = $derived(
         revenantTranslationRecovery.inspectionReady
@@ -306,7 +321,7 @@
     }
 
     function isTranslationBusy() {
-        return translating || retranslate || revenantTranslationRecoverySnapshot.pending
+        return translationPending || retranslate
     }
 
     function isTranslationControlBusy() {
@@ -671,6 +686,7 @@
                 renderCacheKey={renderCacheKey ? `${renderCacheKey}|${totalLengthPointer}|${chatReloadPointer}` : ''}
                 {revenantTranslationRecovery}
                 {revenantTranslationRecoverySnapshot}
+                {translationPending}
                 modelShortName={
                     messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
                 }
@@ -999,7 +1015,7 @@
             active={translated}
             activeColor="primary"
             tone={cancelTranslationRequest ? 'destructive' : 'default'}
-            className={"button-icon-translate " + translationDisabledClasses + ((translating || revenantTranslationRecoverySnapshot.pending) ? ' translating' : '')}
+            className={"button-icon-translate " + translationDisabledClasses + (translationPending ? ' translating' : '')}
             disabled={isTranslationControlBusy() && cancelTranslationRequest === null}
             aria-label={cancelTranslationRequest ? language.cancel : language.translate}
             title={cancelTranslationRequest ? language.cancel : language.translate}

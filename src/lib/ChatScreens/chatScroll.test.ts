@@ -4,8 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
     calculateRangePixelPadding,
     createChatScrollController,
+    didNewResponseStart,
     isColumnReverseScrolledToBottom,
     snapToDevicePixel,
+    type ChatResponseSnapshot,
 } from './chatScroll'
 
 afterEach(() => {
@@ -85,6 +87,69 @@ function pointerEvent(type: string, clientY: number, pointerType = 'touch') {
     })
     return event
 }
+
+function responseSnapshot(
+    overrides: Partial<ChatResponseSnapshot> = {},
+): ChatResponseSnapshot {
+    return {
+        roomKey: 'character:room',
+        messageKey: 'response-1',
+        messageCount: 2,
+        isCharacterResponse: true,
+        hasContent: false,
+        isResponding: true,
+        ...overrides,
+    }
+}
+
+describe('new response auto-scroll timing', () => {
+    it('waits for content instead of scrolling when the empty placeholder appears', () => {
+        const previous = responseSnapshot({
+            messageKey: 'user-1',
+            messageCount: 1,
+            isCharacterResponse: false,
+            hasContent: true,
+        })
+        const placeholder = responseSnapshot()
+
+        expect(didNewResponseStart(previous, placeholder)).toBe(false)
+        expect(didNewResponseStart(placeholder, {
+            ...placeholder,
+            hasContent: true,
+        })).toBe(true)
+    })
+
+    it('recognizes an already-populated non-streaming response', () => {
+        const previous = responseSnapshot({
+            messageKey: 'user-1',
+            messageCount: 1,
+            isCharacterResponse: false,
+            hasContent: true,
+        })
+
+        expect(didNewResponseStart(previous, responseSnapshot({ hasContent: true }))).toBe(true)
+    })
+
+    it('does not repeatedly scroll as more streaming content arrives', () => {
+        const firstToken = responseSnapshot({ hasContent: true })
+        expect(didNewResponseStart(firstToken, firstToken)).toBe(false)
+    })
+
+    it('ignores chat switches, edits, and continuation id changes', () => {
+        const empty = responseSnapshot({ isResponding: false })
+        expect(didNewResponseStart(empty, { ...empty, hasContent: true })).toBe(false)
+
+        const populated = responseSnapshot({ hasContent: true })
+        expect(didNewResponseStart(populated, {
+            ...populated,
+            roomKey: 'character:other-room',
+        })).toBe(false)
+        expect(didNewResponseStart(populated, {
+            ...populated,
+            messageKey: 'continuation-generation',
+        })).toBe(false)
+    })
+})
 
 describe('chat scroll pixel snapping', () => {
     it('snaps positive and negative offsets to the physical-pixel grid', () => {
@@ -261,6 +326,73 @@ describe('chat scroll pixel snapping', () => {
         window.dispatchEvent(new Event('pointerup'))
         container.dispatchEvent(new Event('scrollend'))
         observers.flushFrames()
+        expect(container.scrollTop).toBe(-24)
+        controller.destroy()
+    })
+
+    it('does not rewrite fractional scrollTop when a wheel interaction settles', () => {
+        vi.useFakeTimers()
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const anchor = document.createElement('div')
+        anchor.className = 'chat-message-container'
+        container.appendChild(anchor)
+        container.scrollTop = -100
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        const anchorLayoutTop = -80
+        anchor.getBoundingClientRect = () => new DOMRect(
+            0,
+            anchorLayoutTop - container.scrollTop,
+            300,
+            100,
+        )
+        const controller = createController(container)
+        observers.flushFrames()
+
+        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -0.25 }))
+        container.scrollTop = -125.25
+        container.dispatchEvent(new Event('scroll'))
+        vi.advanceTimersByTime(120)
+        observers.flushFrames()
+        // Firefox may deliver this after the fallback timer already settled.
+        container.dispatchEvent(new Event('scrollend'))
+        observers.flushFrames()
+
+        expect(container.scrollTop).toBe(-125.25)
+        controller.destroy()
+    })
+
+    it('does not relatch the bottom when an upward wheel move is published late', () => {
+        vi.useFakeTimers()
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const anchor = document.createElement('div')
+        anchor.className = 'chat-message-container'
+        container.appendChild(anchor)
+        container.scrollTop = 0
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        const anchorLayoutTop = -80
+        anchor.getBoundingClientRect = () => new DOMRect(
+            0,
+            anchorLayoutTop - container.scrollTop,
+            300,
+            100,
+        )
+        const controller = createController(container)
+        observers.flushFrames()
+
+        // Firefox can expose the wheel event before its async scroll position.
+        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -24 }))
+        vi.advanceTimersByTime(120)
+        observers.flushFrames()
+        container.scrollTop = -24
+        container.dispatchEvent(new Event('scroll'))
+
+        // The next streaming resize must accept the late user position instead
+        // of applying the old bottom latch and writing scrollTop back to zero.
+        observers.notifyResize()
+        observers.flushFrames()
+
         expect(container.scrollTop).toBe(-24)
         controller.destroy()
     })

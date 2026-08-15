@@ -1813,6 +1813,7 @@ export const languageEnglish = {
     alwaysScrollToNewMessage: "Always scroll to new message (ignore scroll position)",
     newMessage: "New Message",
     newMessageButtonStyle: "New Message Button Style",
+    newMessageButtonDisabled: "Disabled",
     newMessageButtonBottomCenter: "Bottom Center (Default)",
     newMessageButtonBottomRight: "Bottom Right",
     newMessageButtonBottomLeft: "Bottom Left",

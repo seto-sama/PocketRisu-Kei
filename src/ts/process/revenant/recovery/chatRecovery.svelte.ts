@@ -7,7 +7,7 @@ import {
 } from '../../../storage/database.svelte'
 import { DBState, ReloadChatPointer } from '../../../stores.svelte'
 import { saveChatToServer } from '../../../storage/chatStorage'
-import { abortStatusesForChat, endStatus, startStatus, type RequestKind } from '../../../status/requestStatus'
+import { abortStatusesForChat, endStatus, hasRequestStatus, requestStatusIdForJob, startStatus, type RequestKind } from '../../../status/requestStatus'
 import { recoverHypaV3SummaryJobs } from '../../memory/hypav3'
 import { recoverRevenantLuaJobsForChat } from '../../scriptings'
 import {
@@ -156,7 +156,11 @@ export function clearRevenantRecoveryForChat(
         changed = true
         subscription.unsubscribe()
         recoveryStreamSubscriptions.delete(jobId)
-        endStatus(jobId, options.cancelled ? 'aborted' : 'done', { now: Date.now() })
+        endStatus(
+            subscription.messageChatId,
+            options.cancelled ? 'aborted' : 'done',
+            { now: Date.now() },
+        )
     }
     if (chat.isStreaming) {
         chat.isStreaming = false
@@ -189,10 +193,15 @@ function startRecoveryStatus(
     kind: RequestKind,
     chatId: string,
     startedAt = Date.now(),
+    statusId = jobId,
 ): void {
     if (notifiedRecoveryJobs.has(jobId)) return
     notifiedRecoveryJobs.add(jobId)
-    startStatus(jobId, {
+    // Recovery has a server job id in addition to the originating message's
+    // generation id. Reuse a live original status instead of creating a
+    // second toast for the same response.
+    if (hasRequestStatus(statusId)) return
+    startStatus(statusId, {
         kind,
         label: '',
         chatId,
@@ -203,20 +212,22 @@ function startRecoveryStatus(
 
 function updateAuxiliaryRecoveryStatus(job: RecoverableAuxiliaryJob, chatId: string): void {
     if (job.status === 'queued') return
+    const statusId = requestStatusIdForJob(job)
     startRecoveryStatus(
         job.jobId,
         auxiliaryRequestKind(job.jobType),
         chatId,
         job.dispatchedAt ?? Date.now(),
+        statusId,
     )
     if (job.status === 'generated') {
-        endStatus(job.jobId, 'done', { now: job.completedAt ?? Date.now() })
+        endStatus(statusId, 'done', { now: job.completedAt ?? Date.now() })
     }
     else if (job.status === 'cancelled') {
-        endStatus(job.jobId, 'aborted', { now: job.completedAt ?? Date.now() })
+        endStatus(statusId, 'aborted', { now: job.completedAt ?? Date.now() })
     }
     else if (!isRevenantJobActive(job.status)) {
-        endStatus(job.jobId, 'failed', {
+        endStatus(statusId, 'failed', {
             now: job.completedAt ?? Date.now(),
             error: job.error,
         })
@@ -224,12 +235,13 @@ function updateAuxiliaryRecoveryStatus(job: RecoverableAuxiliaryJob, chatId: str
 }
 
 function updateMainRecoveryStatus(job: RecoverableGenerationJob, chatId: string): void {
+    const statusId = requestStatusIdForJob(job)
     const action = mainRecoveryStatusAction(
         job.status,
-        notifiedRecoveryJobs.has(job.jobId),
+        notifiedRecoveryJobs.has(job.jobId) || hasRequestStatus(statusId),
     )
     if (action === 'start') {
-        startRecoveryStatus(job.jobId, 'main', chatId, job.createdAt)
+        startRecoveryStatus(job.jobId, 'main', chatId, job.createdAt, statusId)
         return
     }
     // Do not resurrect a toast for a request which already completed before
@@ -238,13 +250,13 @@ function updateMainRecoveryStatus(job: RecoverableGenerationJob, chatId: string)
     // independently of slower Lua/postprocess work.
     if (action === 'none') return
     if (action === 'done') {
-        endStatus(job.jobId, 'done', { now: job.completedAt ?? Date.now() })
+        endStatus(statusId, 'done', { now: job.completedAt ?? Date.now() })
     }
     else if (action === 'aborted') {
-        endStatus(job.jobId, 'aborted', { now: job.completedAt ?? Date.now() })
+        endStatus(statusId, 'aborted', { now: job.completedAt ?? Date.now() })
     }
     else {
-        endStatus(job.jobId, 'failed', {
+        endStatus(statusId, 'failed', {
             now: job.completedAt ?? Date.now(),
             error: job.finishReason,
         })
@@ -518,7 +530,7 @@ export async function recoverRevenantGenerationsForChat(
                     targetMessage,
                     rerollSnapshot,
                 })
-                endStatus(job.jobId, 'aborted', { now: job.completedAt ?? Date.now() })
+                endStatus(requestStatusIdForJob(job), 'aborted', { now: job.completedAt ?? Date.now() })
                 invalidateRecoveredMessage(character, Math.max(0, msgIndex))
                 recovered++
                 continue

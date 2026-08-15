@@ -12,7 +12,7 @@ import { getTools, callTool, encodeToolCall, decodeToolCall } from "../mcp/mcp";
 import type { MCPTool, RPCToolCallContent } from "../mcp/mcplib";
 import { getGeneralJSONSchema } from "../templates/jsonSchema";
 import { runTrigger } from "../triggers";
-import { buildGenerationRequest, collectStreamingText, type ModelModeExtended } from './shared';
+import { buildGenerationRequest, collectStreamingText, ensureRequestGenerationId, getRequestStatusNavigationId, type ModelModeExtended } from './shared';
 import {
     ModelPresetAdapterError,
     runToolLoop,
@@ -549,13 +549,13 @@ async function requestPluginPreset(
         compiled.features.streaming,
     )
 
-    const genId = arg.chatId ?? `aux-${uuidv4()}`
+    const genId = ensureRequestGenerationId(arg)
     const reportStatus = !arg.previewBody && statusEnabled()
     if (reportStatus) {
         safeStatus(() => startStatus(genId, {
             kind: toRequestKind(mode),
             label: preset.name,
-            chatId: arg.chatId,
+            chatId: getRequestStatusNavigationId(arg),
             phase: 'connecting',
             now: Date.now(),
             abortSignal: abortSignal ?? undefined,
@@ -988,14 +988,10 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     const credential = buildModelPresetCredential(preset)
     const usageIdentity = modelsDevUsageIdentity(preset)
     const fetchImpl = makeModelTransportFetch(arg, preset)
-    // arg.chatId is the per-request generationId for main chat (sendChat passes
-    // it under that name; see generation-state-keying.md §1-bis). Aux requests
-    // (translate/memory/emotion/sub) don't supply one, so mint a per-request key
-    // here purely for the status channel — it's memory-only and never persisted.
-    // Uses uuid v4 (crypto.getRandomValues, available over plain HTTP) NOT
-    // crypto.randomUUID (secure-context only — would throw on remote HTTP and
-    // break the aux request before the try). Reporting is gated by db.showRequestStatus.
-    const genId = arg.chatId ?? `aux-${uuidv4()}`
+    // Main and auxiliary requests share the same identity with the durable
+    // provider job, so reconnect/recovery adopts the existing status instead
+    // of publishing a second toast under the server job id.
+    const genId = ensureRequestGenerationId(arg)
     const statusKind = toRequestKind(mode)
     const reportStatus = statusEnabled() && !!genId
 
@@ -1202,7 +1198,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             const startRequestStatus = (startedAt: number) => safeStatus(() => startStatus(genId, {
                 kind: statusKind,
                 label: preset.name,
-                chatId: arg.chatId,
+                chatId: getRequestStatusNavigationId(arg),
                 phase: 'connecting',
                 now: startedAt,
                 abortSignal: abortSignal ?? undefined,

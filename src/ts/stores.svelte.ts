@@ -84,7 +84,7 @@ export const ReloadGUIPointer = writable(0)
 // invalidate every room's parsed-message cache like a real GUI/script edit.
 export const ChatRoomReloadPointer = writable(0)
 export const ReloadChatPointer = writable({} as Record<number, number>)
-export const ScrollToMessageStore = $state({ value: -1 })
+export const ScrollToMessageStore = $state({ value: -1, exact: false })
 export const OpenRealmStore = writable(false)
 export const RealmInitialOpenChar = writable<null | hubType>(null)
 export const PlaygroundStore = writable(0)

@@ -192,7 +192,7 @@ export const helpKo = {
         "showTranslationLoading": "메시지 번역이 진행 중일 때 로딩 인디케이터를 표시합니다.",
         "autoScrollToNewMessage": "새 메시지가 도착하면 채팅을 그 메시지로 자동 스크롤합니다.",
         "alwaysScrollToNewMessage": "사용자가 위쪽으로 스크롤한 상태라도 새 메시지가 오면 무조건 아래로 스크롤합니다.",
-        "newMessageButtonStyle": "\"새 메시지\" 알림 버튼이 화면 어디에 어떤 모양으로 뜰지 선택합니다.",
+        "newMessageButtonStyle": "\"새 메시지\" 알림 버튼을 사용하지 않거나, 화면 어디에 어떤 모양으로 띄울지 선택합니다.",
         "createFolderOnBranch": "채팅을 분기(branch)할 때 자동으로 폴더를 만들어 원본과 분기본을 묶어 정리합니다.",
         "hamburgerButtonBottom": "메뉴 버튼을 사이드바 하단에 배치합니다.",
         "hideLeftBarCollapseButton": "400px 미만 좁은 화면에서 좌측 캐릭터 그리드 바를 접는 토글 버튼을 숨깁니다.",

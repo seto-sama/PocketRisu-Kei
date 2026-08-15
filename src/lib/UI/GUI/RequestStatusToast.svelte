@@ -13,6 +13,7 @@
     import { requestStatuses, isTerminalPhase, type RequestPhase, type RequestKind } from 'src/ts/status/requestStatus'
     import { language } from 'src/lang'
     import { RotateCwIcon } from '@lucide/svelte'
+    import { navigateToRequestStatusChat } from 'src/ts/status/requestStatusNavigation'
 
     let { id }: { id: string } = $props()
 
@@ -90,12 +91,25 @@
     })
 
     const spinning = $derived(entry ? !isTerminalPhase(entry.phase) && entry.phase !== 'stalled' : false)
+    const actionable = $derived(!!entry?.chatId)
+
+    function openResponse(event: MouseEvent) {
+        event.stopPropagation()
+        if (actionable && entry?.chatId) navigateToRequestStatusChat(entry.chatId)
+    }
 </script>
 
 {#if entry}
     <!-- sonner skips its default chrome for custom-component toasts
          (data-styled=false), so apply the app toast look + left accent bar. -->
-    <div class="rs-card {accentClass(entry.phase)}">
+    <button
+        type="button"
+        class="rs-card {accentClass(entry.phase)}"
+        class:rs-actionable={actionable}
+        disabled={!actionable}
+        aria-label={`${PHASE_LABEL[entry.phase]} ${KIND_LABEL[entry.kind]}`}
+        onclick={openResponse}
+    >
         <div class="rs-body">
             <div class="rs-row1">
                 <span class="rs-dot" class:rs-dot-success={entry.phase === 'done'}
@@ -133,7 +147,7 @@
                 </div>
             {/each}
         </div>
-    </div>
+    </button>
 {/if}
 
 <style>
@@ -146,7 +160,12 @@
         border-radius: 0.5rem;
         overflow: hidden;
         font-size: 0.875rem;
+        padding: 0;
+        text-align: left;
+        font-family: inherit;
     }
+    .rs-card:disabled { opacity: 1; }
+    .rs-actionable { cursor: pointer; }
     /* left accent bar via left border */
     .rs-card { border-left-width: 4px; }
     .rs-accent-primary { border-left-color: var(--risu-theme-primary); }
