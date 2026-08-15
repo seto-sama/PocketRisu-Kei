@@ -11,12 +11,17 @@
         labelKey: 'textBackgrounds' | 'textScreenBorder' | 'textBorder';
         defaultColor: string;
         helpKey?: 'textScreenColor' | 'textScreenBorder' | 'textBorder';
+        alwaysEnabled?: boolean;
     }
 
-    let { field, toggleField, labelKey, defaultColor, helpKey }: Props = $props();
+    let { field, toggleField, labelKey, defaultColor, helpKey, alwaysEnabled = false }: Props = $props();
     let currentValue = $derived(DBState.db[field]);
-    let enabled = $derived(toggleField ? !!DBState.db[toggleField] : !!currentValue);
+    let enabled = $derived(alwaysEnabled || (toggleField ? !!DBState.db[toggleField] : !!currentValue));
     const helpText = $derived(helpKey ? (language.help as any)[helpKey] : undefined);
+
+    $effect(() => {
+        if (alwaysEnabled && !DBState.db[field]) DBState.db[field] = defaultColor;
+    });
 </script>
 
 <SettingLayout variant="row" title={language[labelKey]} description={helpText}>
@@ -25,17 +30,19 @@
         {#if enabled}
             <ColorInput bind:value={DBState.db[field]} />
         {/if}
-        <ShSwitch
-            checked={enabled}
-            onCheckedChange={(v) => {
-                if (toggleField) {
-                    DBState.db[toggleField] = v;
-                    if (v) DBState.db[field] ??= defaultColor;
-                } else {
-                    DBState.db[field] = v ? defaultColor : null;
-                }
-            }}
-        />
+        {#if !alwaysEnabled}
+            <ShSwitch
+                checked={enabled}
+                onCheckedChange={(v) => {
+                    if (toggleField) {
+                        DBState.db[toggleField] = v;
+                        if (v) DBState.db[field] ??= defaultColor;
+                    } else {
+                        DBState.db[field] = v ? defaultColor : null;
+                    }
+                }}
+            />
+        {/if}
     </div>
     {/snippet}
 </SettingLayout>

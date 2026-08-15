@@ -358,8 +358,8 @@ export const helpEn = {
         themePresets:
             "Bundle the current Sound & Display settings (layout, color/font, sizes, sound toggles, etc.) as a preset and switch between them. The active preset auto-syncs with edits you make below; clicking opens the preset list to add, switch, rename, or delete.",
         theme: "Overall chat layout theme.",
-        waifuWidth: "Width of the character illustration in the Waifulike theme.",
-        waifuWidth2: "Width of the second character or secondary visual in the Waifulike theme.",
+        waifuWidth: "Width of the chat area in the Waifulike theme.",
+        waifuWidth2: "Size of the character illustration in the Waifulike theme.",
         nodeOnlyStandardChatWidth: "Maximum chat card width in the PocketRisu Standard theme.",
         colorScheme: "Color palette used across the Risu UI.",
         colorSchemeTransferDesc: "Import or export a color palette JSON file.",
@@ -385,13 +385,13 @@ export const helpEn = {
             "Show folder names on folder icons in the character grid. Makes large folder collections easier to scan.",
         showRequestStatus:
             "Show a floating toast during model-preset requests with the live phase (connecting / thinking / responding / stalled), thinking and response token counts, and tokens-per-second. Memory-only; turning it off stops the display entirely.",
-        customBackground: "A custom image used as the chat background.",
+        customBackground: "A custom chat background used by the Waifulike, Mobile Chat, and CardBoard themes.",
         playMessageOnTranslateEnd:
             "Play a separate notification sound when translation finishes. Useful when automatic translation is enabled and you want an audible completion cue.",
         roundIcons:
             "Display character and persona icons as circles instead of squares.",
         textScreenColor:
-            "Set a background color behind the message text area. Disable it to make the text area transparent again.",
+            "Set the message text-area background color used by the Waifulike, Mobile Chat, and CardBoard themes.",
         textBorder:
             "Draw a subtle outline around message text to improve readability over background images.",
         textScreenRound:
