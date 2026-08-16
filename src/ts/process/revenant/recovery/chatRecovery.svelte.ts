@@ -6,7 +6,10 @@ import {
     type character,
 } from '../../../storage/database.svelte'
 import { DBState, ReloadChatPointer } from '../../../stores.svelte'
-import { saveChatToServer } from '../../../storage/chatStorage'
+import {
+    awaitChatGenerationCanonical,
+    beginChatGenerationProjection,
+} from '../../../storage/chatWorkingCopy'
 import { abortStatusesForChat, endStatus, hasRequestStatus, requestStatusIdForJob, startStatus, type RequestKind } from '../../../status/requestStatus'
 import { recoverHypaV3SummaryJobs } from '../../memory/hypav3'
 import { recoverRevenantLuaJobsForChat } from '../../scriptings'
@@ -128,6 +131,7 @@ export function clearRevenantRecoveryForChat(
     chat: Chat,
     options: { preserveProjection?: boolean, cancelled?: boolean } = {},
 ): void {
+    awaitChatGenerationCanonical(character.chaId, chat.id)
     let changed = false
     if (options.cancelled) abortStatusesForChat(chat.id)
     for (const [jobId, subscription] of recoveryStreamSubscriptions) {
@@ -326,7 +330,9 @@ async function restoreStoppedReroll(
         isContinuation: context.continue,
         rerollSnapshot: snapshot,
     })
-    await saveChatToServer(character.chaId, chatIndex, currentChat.id, currentChat)
+    // The durable workflow input already contains the pre-reroll chat. Keep
+    // this local restoration projection-owned until canonical sync arrives.
+    awaitChatGenerationCanonical(character.chaId, currentChat.id)
 }
 
 function scheduleRevenantAuxiliaryRecovery(character: character, chat: Chat): void {
@@ -496,6 +502,28 @@ export async function recoverRevenantGenerationsForChat(
             const messageChatId = job.chatId
             if (Date.now() < (recoveryRetryAt.get(job.jobId) ?? 0)) break
             const isActiveGeneration = isRevenantJobActive(job.status)
+            // The workflow becomes terminal before its provider job and local
+            // recovery projection finish shutting down. Active-only lookup can
+            // therefore legitimately return null here. Recover ownership from
+            // the job's durable workflow instead of letting those UI mutations
+            // fall through as an ordinary client edit.
+            const ownershipWorkflow = activeWorkflow?.workflowId === job.workflowId
+                ? activeWorkflow
+                : await getRevenantWorkflow(job.workflowId).catch(() => undefined)
+            const workflowBaseChat = ownershipWorkflow?.context?.inputCommit?.chat
+            if (
+                workflowBaseChat?.id === chat.id
+                && Array.isArray(workflowBaseChat.message)
+            ) {
+                beginChatGenerationProjection(character.chaId, workflowBaseChat, {
+                    messageChatId,
+                    isContinuation: job.isContinuation,
+                    rerollSnapshot: job.rerollSnapshot,
+                })
+                if (!isActiveGeneration) {
+                    awaitChatGenerationCanonical(character.chaId, chat.id)
+                }
+            }
             const existingMessage = chat.message.find(message => message?.chatId === messageChatId)
             const rerollSnapshot = job.rerollSnapshot
             let snapshotTarget: Message | undefined

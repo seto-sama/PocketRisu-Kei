@@ -1,9 +1,19 @@
 import { applySyncedDatabase, forageStorage } from './globalApi.svelte'
 import { getDatabase, type character as Character, type Database } from './storage/database.svelte'
-import { convertStubsToPlaceholders, fetchChatFromServer } from './storage/chatStorage'
+import {
+    convertStubsToPlaceholders,
+    fetchChatFromServer,
+    getChatServerEtag,
+} from './storage/chatStorage'
 import { decodeRisuSave } from './storage/risuSave'
 import { getSyncClientId } from './storage/nodeStorage'
 import { safeStructuredClone } from './polyfill'
+import {
+    awaitChatGenerationCanonical,
+    isChatAwaitingGenerationCanonical,
+    isChatWorkingCopyDirty,
+    resolveChatGenerationCanonical,
+} from './storage/chatWorkingCopy'
 import {
     emitRevenantWorkflowSyncReady,
     emitRevenantWorkflowUpdate,
@@ -18,6 +28,7 @@ type SyncMessage = {
     type: string
     etag?: string
     chats?: SyncChatTarget[]
+    allChats?: boolean
     workflowId?: string
     characterId?: string
     roomId?: string
@@ -30,6 +41,7 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 let refreshInFlight: Promise<void> | null = null
 const pendingChats = new Set<string>()
+let pendingAllChats = false
 
 function chatKey(characterId: string, chatId: string) {
     return `${characterId}\u0000${chatId}`
@@ -38,7 +50,10 @@ function chatKey(characterId: string, chatId: string) {
 async function refreshFromServer() {
     if (refreshInFlight) return refreshInFlight
     const changedChats = new Set(pendingChats)
+    const refreshAllChats = pendingAllChats
+    const serverAppliedChats: SyncChatTarget[] = []
     pendingChats.clear()
+    pendingAllChats = false
 
     refreshInFlight = (async () => {
         const raw = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
@@ -83,26 +98,67 @@ async function refreshFromServer() {
                 if (!remoteChat?.id) continue
                 const key = chatKey(character.chaId, remoteChat.id)
 
-                if (changedChats.has(key)) {
+                const localChat = localCharacter?.chats?.find(chat => chat?.id === remoteChat.id)
+                const localDirty = isChatWorkingCopyDirty(character.chaId, remoteChat.id)
+                const awaitingCanonical = isChatAwaitingGenerationCanonical(
+                    character.chaId,
+                    remoteChat.id,
+                )
+                if (
+                    (changedChats.has(key) && (!localDirty || awaitingCanonical))
+                    || (refreshAllChats && localChat && !localChat._placeholder)
+                ) {
                     const full = await fetchChatFromServer(character.chaId, index, remoteChat.id)
-                    if (full) character.chats[index] = full
+                    if (full) {
+                        character.chats[index] = localChat && awaitingCanonical
+                            ? resolveChatGenerationCanonical(
+                                character.chaId,
+                                localChat,
+                                full,
+                                getChatServerEtag(character.chaId, remoteChat.id),
+                            )
+                            : full
+                        serverAppliedChats.push({
+                            characterId: character.chaId,
+                            chatId: remoteChat.id,
+                        })
+                    }
                     continue
                 }
 
                 // database.bin intentionally contains chat stubs. Preserve an
                 // already hydrated local chat unless the server explicitly
-                // reported that chat as changed.
-                const localChat = localCharacter?.chats?.find(chat => chat?.id === remoteChat.id)
+                // reported a clean working copy as changed. Dirty bodies keep
+                // their pinned base ETag and resolve through the commit CAS.
                 if (localChat && !localChat._placeholder) {
                     character.chats[index] = localChat
                 }
             }
+
+            // A new local chat may not have reached the server's stub list yet.
+            // Carry dirty working copies across ordinary sync by stable id.
+            if (!refreshAllChats && localCharacter) {
+                for (const localChat of localCharacter.chats ?? []) {
+                    if (
+                        localChat?.id
+                        && !localChat._placeholder
+                        && isChatWorkingCopyDirty(character.chaId, localChat.id)
+                        && !character.chats.some(chat => chat?.id === localChat.id)
+                    ) {
+                        character.chats.push(localChat)
+                    }
+                }
+            }
         }
 
-        await applySyncedDatabase(remote, forageStorage.getDbEtag())
+        await applySyncedDatabase(remote, forageStorage.getDbEtag(), {
+            authoritativeChatReset: refreshAllChats,
+            serverAppliedChats,
+        })
+
     })().finally(() => {
         refreshInFlight = null
-        if (pendingChats.size > 0) scheduleRefresh()
+        if (pendingChats.size > 0 || pendingAllChats) scheduleRefresh()
     })
 
     return refreshInFlight
@@ -144,6 +200,13 @@ async function connect() {
                     && message.roomId
                     && ['active', 'completed', 'cancelled', 'failed'].includes(message.status ?? '')
                 ) {
+                    if (message.status !== 'active') {
+                        // Arm ownership handoff, but do not synthesize a DB
+                        // refresh from workflow state. The server publishes a
+                        // targeted database-invalidated event only after the
+                        // canonical terminal chat is ready.
+                        awaitChatGenerationCanonical(message.characterId, message.roomId)
+                    }
                     emitRevenantWorkflowUpdate({
                         workflowId: message.workflowId,
                         characterId: message.characterId,
@@ -154,6 +217,7 @@ async function connect() {
                 return
             }
             if (message.type !== 'database-invalidated') return
+            if (message.allChats === true) pendingAllChats = true
             for (const chat of message.chats ?? []) {
                 if (chat.characterId && chat.chatId) {
                     pendingChats.add(chatKey(chat.characterId, chat.chatId))

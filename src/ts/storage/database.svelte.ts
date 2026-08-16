@@ -2,6 +2,7 @@ import { get } from 'svelte/store';
 import { checkNullish, decryptBuffer, encryptBuffer, selectSingleFile } from '../util';
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
+import { initializeCharacterRuntimeState } from './persistenceShape';
 import type { RisuPlugin } from '../plugins/plugins.svelte';
 import type {triggerscript as triggerscriptMain} from '../process/triggers';
 import { downloadFile, saveAsset as saveImageGlobal } from '../globalApi.svelte';
@@ -786,6 +787,9 @@ export function setDatabase(data:Database){
 }
 
 export function setDatabaseLite(data:Database){
+    for (const character of data.characters ?? []) {
+        initializeCharacterRuntimeState(character)
+    }
     DBState.db = data
 }
 

@@ -3,6 +3,13 @@ import * as fflate from "fflate";
 import { createBotPresetTemplate, getDatabase, type Database } from "./database.svelte";
 import { forageStorage } from "../globalApi.svelte";
 import { chatToStub } from "./chatStorage";
+import {
+    characterToClientWriteShape,
+    characterToPersistentShape,
+    characterWithServerBaseline,
+    rootValueToClientWriteShape,
+    rootValueWithServerBaseline,
+} from './persistenceShape';
 
 const packr = new Packr({
     useRecords:false
@@ -134,7 +141,7 @@ export class RisuSaveEncoder {
                 key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
                 key !== 'plugins' && key !== 'pluginCustomStorage'
             ){
-                obj[key] = data[key]
+                obj[key] = rootValueToClientWriteShape(key, data[key])
             }
         }
         this.blocks['root'] = await this.encodeBlock({
@@ -170,7 +177,10 @@ export class RisuSaveEncoder {
         this.characterJsons = {}
         for( const character of data.characters) {
             // Replace chats with stubs for database.bin — full chat data lives server-side
-            const charForEncode = { ...character, chats: character.chats.map(c => chatToStub(c)) }
+            const charForEncode = {
+                ...characterToClientWriteShape(character),
+                chats: character.chats.map(c => chatToStub(c)),
+            }
             // Raw stringify (no normalize fallback): a circular ref must fail the
             // save loudly, exactly as before, rather than silently persist a
             // lossy copy. This string doubles as the encode payload.
@@ -204,7 +214,7 @@ export class RisuSaveEncoder {
                 key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
                 key !== 'plugins' && key !== 'pluginCustomStorage'
             ){
-                obj[key] = data[key]
+                obj[key] = rootValueToClientWriteShape(key, data[key])
             }
         }
 
@@ -219,7 +229,10 @@ export class RisuSaveEncoder {
             // Compare against the stub-replaced character so hydration (stub →
             // full chat) doesn't read as a change of the character itself.
             // Raw stringify (see init): circular refs fail the save loudly.
-            const charForEncode = { ...character, chats: character.chats.map(c => chatToStub(c)) }
+            const charForEncode = {
+                ...characterToClientWriteShape(character),
+                chats: character.chats.map(c => chatToStub(c)),
+            }
             const charJson = JSON.stringify(charForEncode)
             const hasChanged = this.characterJsons[chaId] !== charJson
 
@@ -891,7 +904,10 @@ export class RisuSavePatcher {
         for (let i = 0; i < this.lastSyncedDb.characters.length; i++) {
             const character = this.lastSyncedDb.characters[i];
             // Hash with stubs only (matching set()) so hashes stay in sync
-            const withStubs = { ...character, chats: (character.chats || []).map((c: any) => chatToStub(c)) };
+            const withStubs = {
+                ...characterToPersistentShape(character),
+                chats: (character.chats || []).map((c: any) => chatToStub(c)),
+            };
             this.hashBlocks[character.chaId] = calculateHash(withStubs);
             this.lastSyncedDb.characters[i] = withStubs;
         }
@@ -942,6 +958,9 @@ export class RisuSavePatcher {
             modules: curModules,
             ...curRoot
         } = data
+        for (const key of Object.keys(curRoot)) {
+            curRoot[key] = rootValueWithServerBaseline(key, curRoot[key], lastRoot[key])
+        }
 
         // Per-KEY cheap pre-check over the root. While typing into a root field
         // (e.g. personaPrompt) the root changes on every save, so a whole-root
@@ -1088,14 +1107,20 @@ export class RisuSavePatcher {
             lastIds.some((id: string, i: number) => id !== curIds[i])
 
         // Replace chats with stubs for patch diff — full chat data lives server-side
-        function withStubs(char: any) {
+        function withStubs(char: any, baseline?: any) {
             if (!char) return char
-            return { ...char, chats: (char.chats || []).map((c: any) => chatToStub(c)) }
+            return {
+                ...characterWithServerBaseline(char, baseline),
+                chats: (char.chats || []).map((c: any) => chatToStub(c)),
+            }
         }
 
         if (structuralChange) {
             // Structural change → replace entire characters array (safe for deletions/additions)
-            const normChars = normalizeJSON(curCharacters.map(withStubs))
+            const lastById = new Map(lastCharacters.map((character: any) =>
+                [character?.chaId, character]))
+            const normChars = normalizeJSON(curCharacters.map((character: any) =>
+                withStubs(character, lastById.get(character?.chaId))))
             patch.push({ op: 'replace', path: '/characters', value: normChars })
             // Update all character hashes
             for (const lastId of lastIds) {
@@ -1125,12 +1150,12 @@ export class RisuSavePatcher {
                 // hash, baseline and (empty) diff are all still valid — skip
                 // the normalize + protocol hash + compare entirely.
                 let curJson: string | null = null
-                try { curJson = JSON.stringify(withStubs(curChar)) } catch { curJson = null }
+                try { curJson = JSON.stringify(withStubs(curChar, lastChar)) } catch { curJson = null }
                 if (!trackedBySave && curCharId && curJson !== null && curJson === this.lastCharJsons.get(curCharId)) {
                     continue
                 }
 
-                const normChar = normalizeJSON(withStubs(curChar))
+                const normChar = normalizeJSON(withStubs(curChar, lastChar))
                 const curCharHash = curCharId ? calculateHash(normChar) : undefined
                 const changedByHash = !!(curCharId && curCharHash !== this.hashBlocks[curCharId])
 

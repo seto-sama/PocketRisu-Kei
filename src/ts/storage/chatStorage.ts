@@ -1,6 +1,11 @@
 import { forageStorage } from "../globalApi.svelte"
 import { type Chat, type ChatStub, type ChatOrStub, isChatStub } from "./database.svelte"
 import { tick } from "svelte"
+import {
+    acknowledgeChatCommit,
+    createChatCommitSnapshot as createWorkingCopyCommitSnapshot,
+    type ChatCommitSnapshot,
+} from './chatWorkingCopy'
 
 // ── Stub ↔ Placeholder conversion ───────────────────────────────────────────
 
@@ -111,8 +116,42 @@ export async function fetchChatFromServer(chaId: string, chatIndex: number, chat
 }
 
 export async function saveChatToServer(chaId: string, chatIndex: number, chatId: string, chat: Chat): Promise<void> {
+    if (chat.id !== chatId) {
+        throw new Error('Chat save target does not match the payload id')
+    }
+    const snapshot = createChatCommitSnapshot(chaId, chat)
+    await saveChatCommitToServer(chatIndex, snapshot)
+}
+
+export function createChatCommitSnapshot(chaId: string, chat: Chat): ChatCommitSnapshot {
+    return createWorkingCopyCommitSnapshot(chaId, chat, getChatServerEtag(chaId, chat.id))
+}
+
+export async function saveChatCommitToServer(
+    chatIndex: number,
+    snapshot: ChatCommitSnapshot,
+    options: { generationInput?: boolean } = {},
+): Promise<void> {
     const storage = forageStorage.realStorage
-    await storage.saveChatContent(chaId, chatIndex, chatId, chat)
+    await storage.saveChatContent(
+        snapshot.characterId,
+        chatIndex,
+        snapshot.chatId,
+        snapshot.chat,
+        {
+            expectedEtag: snapshot.expectedEtag,
+            generationInput: options.generationInput,
+        },
+    )
+    acknowledgeChatCommit(snapshot, storage.getChatEtag(snapshot.characterId, snapshot.chatId))
+}
+
+export function getChatServerEtag(chaId: string, chatId: string): string | undefined {
+    return forageStorage.realStorage.getChatEtag(chaId, chatId)
+}
+
+export function setChatServerEtag(chaId: string, chatId: string, etag: string): void {
+    forageStorage.realStorage.setChatEtag(chaId, chatId, etag)
 }
 
 // ── Hydration ───────────────────────────────────────────────────────────────

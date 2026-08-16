@@ -1,4 +1,5 @@
 import type { RevenantJobStatus } from '../types'
+import { revenantTerminalRequestOutcome } from '../jobStatus'
 
 export const MAIN_JOB_REGISTRATION_GRACE_MS = 5000
 
@@ -35,7 +36,5 @@ export function recoveryStatusAction(
     if (status === 'generating') return 'start'
     if (status === 'queued') return options.startQueued === false ? 'none' : 'start'
     if (!wasObserved) return 'none'
-    if (status === 'generated') return 'done'
-    if (status === 'cancelled') return 'aborted'
-    return 'failed'
+    return revenantTerminalRequestOutcome(status) ?? 'none'
 }

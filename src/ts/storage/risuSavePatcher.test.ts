@@ -392,6 +392,88 @@ describe('RisuSavePatcher.set — botPresets path', () => {
     })
 })
 
+describe('RisuSavePatcher.set — server-owned generation metadata', () => {
+    test('does not emit root or character ops when only server-owned values change locally', async () => {
+        const initial = {
+            statics: { messages: 4, imports: 1 },
+            characters: [{
+                chaId: 'character-1',
+                name: 'Name',
+                lastInteraction: 100,
+                chats: [],
+            }],
+            botPresets: [],
+            modules: [],
+        }
+        const patcher = new RisuSavePatcher()
+        await patcher.init(initial)
+
+        const { patch } = await patcher.set({
+            ...initial,
+            statics: { ...initial.statics, messages: 999 },
+            characters: [{
+                ...initial.characters[0],
+                lastInteraction: 999,
+            }],
+        }, {
+            ...emptyToSave(),
+            root: true,
+            character: ['character-1'],
+        })
+
+        expect(patch.filter((operation: any) =>
+            operation.path.startsWith('/statics/messages')
+            || operation.path.startsWith('/characters/0/lastInteraction')),
+        ).toEqual([])
+        expect(patch).toEqual([])
+    })
+
+    test('still emits client-owned edits beside server-owned values', async () => {
+        const initial = {
+            statics: { messages: 4, imports: 1 },
+            characters: [{
+                chaId: 'character-1',
+                name: 'Old',
+                lastInteraction: 100,
+                chats: [],
+            }],
+            botPresets: [],
+            modules: [],
+        }
+        const patcher = new RisuSavePatcher()
+        await patcher.init(initial)
+
+        const { patch } = await patcher.set({
+            ...initial,
+            statics: { messages: 999, imports: 2 },
+            characters: [{
+                ...initial.characters[0],
+                name: 'New',
+                lastInteraction: 999,
+            }],
+        }, {
+            ...emptyToSave(),
+            root: true,
+            character: ['character-1'],
+        })
+
+        expect(patch).toContainEqual({
+            op: 'replace',
+            path: '/statics/imports',
+            value: 2,
+        })
+        expect(patch).toContainEqual({
+            op: 'replace',
+            path: '/characters/0/name',
+            value: 'New',
+        })
+        expect(patch.some((operation: any) =>
+            operation.path.includes('messages')
+            || operation.path.includes('lastInteraction')),
+        ).toBe(false)
+    })
+})
+
 // ──────────────────────────────────────────────────────────────────────────
 // Round-trip integrity — the strongest correctness invariant:
 //
@@ -645,6 +727,18 @@ const dbWith = (characters: any[], rest: Record<string, any> = {}) => ({
 const clone = (o: any) => JSON.parse(JSON.stringify(o))
 
 describe('fast-path — no-op detection after each transition', () => {
+    test('runtime-only reloadKeys changes never produce a database patch', async () => {
+        const db = dbWith([chr('a', { reloadKeys: 1 })])
+        const p = new RisuSavePatcher()
+        await p.init(db)
+
+        const runtimeChanged = clone(db)
+        runtimeChanged.characters[0].reloadKeys = 25
+        const { patch } = await p.set(runtimeChanged, emptyToSave())
+
+        expect(patch).toEqual([])
+    })
+
     test('init → identical save is a no-op', async () => {
         const db = dbWith([chr('a'), chr('b')])
         const p = new RisuSavePatcher()

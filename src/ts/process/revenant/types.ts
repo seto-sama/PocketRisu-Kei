@@ -140,6 +140,7 @@ export interface RevenantPostprocessRecipe {
     messageChatId: string
     isContinuation: boolean
     rerollSnapshot?: RevenantRerollSnapshot
+    baseChatEtag?: string
     providerBackend: 'http' | 'plugin' | 'echo'
     modelPreset: unknown
     auxProviders?: Partial<Record<'submodel' | 'emotion' | 'otherAx', {
@@ -152,6 +153,13 @@ export interface RevenantPostprocessRecipe {
     modules: unknown[]
     moduleRegexScripts: customscript[]
     moduleTriggers: triggerscript[]
+}
+
+export interface RevenantWorkflowInputCommit {
+    schemaVersion: 1
+    /** Canonical chat state at the submission boundary, before prompt-only transforms. */
+    chat: Chat
+    expectedEtag?: string
 }
 
 export interface RevenantPostprocessMutationPatch {
@@ -168,6 +176,7 @@ export interface RevenantPostprocessMutationPatch {
 export interface RevenantChatWorkflowContext {
     schemaVersion: 1
     kind: 'chat-generation'
+    inputCommit: RevenantWorkflowInputCommit
     resume: {
         schemaVersion: 1
         chatProcessIndex: number
@@ -232,6 +241,14 @@ export interface RevenantGenerationLifecycle {
     onJobCreated?: (jobId: string) => void
     onJobRegistrationUnavailable?: (error?: unknown) => void
     onProviderStarted?: (startedAt: number) => void
+    /** Terminal provider-job state reported by the durable server journal. */
+    onTerminal?: (terminal: RevenantGenerationTerminal) => void
+}
+
+export interface RevenantGenerationTerminal {
+    status?: Extract<RevenantJobStatus, 'generated' | 'cancelled' | 'interrupted' | 'failed_partial' | 'failed'>
+    partial?: boolean
+    finishReason?: string
 }
 
 /** Explicit boundary between durable work, workflow execution, and observation. */

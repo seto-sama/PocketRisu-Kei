@@ -3,6 +3,7 @@ import { get } from 'svelte/store'
 import type { RevenantWorkflow } from '../types'
 import {
     activeRevenantWorkflows,
+    beginRevenantWorkflow,
     cancelRevenantWorkflow,
     completeChatGenerationPreModelPlan,
     createChatGenerationWorkflowPlan,
@@ -57,14 +58,13 @@ describe('revenant workflow resume checkpoint', () => {
                 messageChatId: 'message-1',
                 continue: false,
             },
-            persistUserMessage: true,
             hypaEnabled: false,
             igpEnabled: true,
             pluginProvider: false,
         })
 
         expect(plan.map(step => step.key)).toEqual([
-            'user.persist',
+            'input.commit',
             'trigger.start',
             'memory.hypav3',
             'prompt.build',
@@ -90,7 +90,6 @@ describe('revenant workflow resume checkpoint', () => {
                 messageChatId: 'message-1',
                 continue: false,
             },
-            persistUserMessage: false,
             hypaEnabled: false,
             igpEnabled: false,
             pluginProvider: true,
@@ -107,13 +106,12 @@ describe('revenant workflow resume checkpoint', () => {
                 messageChatId: 'message-1',
                 continue: false,
             },
-            persistUserMessage: true,
             hypaEnabled: false,
             igpEnabled: false,
             pluginProvider: false,
         }))
 
-        expect(plan.find(step => step.key === 'user.persist')?.status).toBe('completed')
+        expect(plan.find(step => step.key === 'input.commit')?.status).toBeUndefined()
         expect(plan.find(step => step.key === 'trigger.start')?.status).toBe('completed')
         expect(plan.find(step => step.key === 'memory.hypav3')?.status).toBe('skipped')
         expect(plan.find(step => step.key === 'prompt.build')?.status).toBe('completed')
@@ -227,6 +225,49 @@ describe('active workflow client state', () => {
         await cancelRevenantWorkflow('workflow-1')
 
         expect(get(activeRevenantWorkflows)).toEqual([])
+    })
+
+    it('accepts a lost cancel response when the durable workflow is cancelled', async () => {
+        const cancelled = { ...workflowWithMetadata(), status: 'cancelled' as const }
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(new Response('Bad gateway', { status: 502 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: cancelled }), { status: 200 }))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await expect(cancelRevenantWorkflow('workflow-1')).resolves.toBeUndefined()
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            2,
+            '/api/generation/workflows/workflow-1',
+            expect.anything(),
+        )
+    })
+
+    it('keeps the cancel error when the durable workflow is still active', async () => {
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(new Response('Bad gateway', { status: 502 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                workflow: workflowWithMetadata(),
+            }), { status: 200 }))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await expect(cancelRevenantWorkflow('workflow-1')).rejects.toThrow(
+            'Failed to cancel generation workflow: 502',
+        )
+    })
+
+    it('surfaces an input commit conflict instead of misclassifying it as a busy room', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({
+                error: 'Chat changed before the generation input was committed',
+            }), { status: 409 }),
+        ))
+
+        await expect(beginRevenantWorkflow({
+            characterId: 'character-1',
+            roomId: 'room-1',
+            plan: [{ key: 'input.commit', kind: 'input.chat.commit', recoveryPolicy: 'resume' }],
+            context: {} as any,
+        })).rejects.toThrow('Chat changed before the generation input was committed')
     })
 
 })

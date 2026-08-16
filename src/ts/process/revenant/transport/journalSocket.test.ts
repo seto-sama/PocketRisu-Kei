@@ -121,10 +121,21 @@ describe('openRevenantJournalSocket', () => {
         })
         const reader = stream.getReader()
 
-        FakeWebSocket.instances[0].emit({ type: 'done' })
+        FakeWebSocket.instances[0].emit({
+            type: 'done',
+            status: 'cancelled',
+            partial: true,
+            finishReason: 'workflow_cancelled',
+        })
 
         expect((await reader.read()).done).toBe(true)
         expect(onDone).toHaveBeenCalledOnce()
+        expect(onDone).toHaveBeenCalledWith({
+            type: 'done',
+            status: 'cancelled',
+            partial: true,
+            finishReason: 'workflow_cancelled',
+        })
     })
 
     it('preserves a provider error body from older servers for adapter parsing', async () => {

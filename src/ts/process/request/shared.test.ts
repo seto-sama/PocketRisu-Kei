@@ -173,6 +173,7 @@ describe('buildGenerationRequest', () => {
         const onJobCreated = vi.fn()
         const onJobRegistrationUnavailable = vi.fn()
         const onProviderStarted = vi.fn()
+        const onTerminal = vi.fn()
 
         const request = buildGenerationRequest({
             formated: [],
@@ -182,11 +183,13 @@ describe('buildGenerationRequest', () => {
             onRevenantJobCreated: onJobCreated,
             onRevenantJobRegistrationUnavailable: onJobRegistrationUnavailable,
             onRevenantProviderStarted: onProviderStarted,
+            onRevenantTerminal: onTerminal,
         })
 
         expect(request?.lifecycle?.onJobCreated).toBe(onJobCreated)
         expect(request?.lifecycle?.onJobRegistrationUnavailable).toBe(onJobRegistrationUnavailable)
         expect(request?.lifecycle?.onProviderStarted).toBe(onProviderStarted)
+        expect(request?.lifecycle?.onTerminal).toBe(onTerminal)
         expect(request?.job).not.toHaveProperty('onJobCreated')
         expect(request?.job).not.toHaveProperty('workflowId')
         expect(request?.workflow).toBeUndefined()

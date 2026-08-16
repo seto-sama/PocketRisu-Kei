@@ -3,6 +3,7 @@ import {
     formatProxyStreamErrorMessage,
     parseProxyJobWsEvent,
     trimProxyJobWsReplay,
+    type ProxyJobWsDoneEvent,
 } from '../../../network/proxyJobWs'
 
 export interface RevenantJournalSocketOptions {
@@ -12,7 +13,7 @@ export interface RevenantJournalSocketOptions {
     recovery?: boolean
     onProviderStarted?: (startedAt: number) => void
     onHeaders?: (status: number, headers: Record<string, string>) => void
-    onDone?: () => void
+    onDone?: (terminal: ProxyJobWsDoneEvent) => void
     onFatal?: (error: Error) => void
     signalAction?: 'detach' | 'cancel_job'
     onDetached?: () => void
@@ -59,12 +60,12 @@ export function openRevenantJournalSocket(
                 options.onFatal?.(error)
                 try { controller.error(error) } catch { /* already closed */ }
             }
-            const finish = () => {
+            const finish = (terminalEvent: ProxyJobWsDoneEvent = { type: 'done' }) => {
                 if (disposed) return
                 disposed = true
                 terminal = true
                 closeSocket()
-                options.onDone?.()
+                options.onDone?.(terminalEvent)
                 try { controller.close() } catch { /* already closed */ }
             }
             const abortLocal = () => {
@@ -136,7 +137,7 @@ export function openRevenantJournalSocket(
                             return
                         }
                         case 'done':
-                            finish()
+                            finish(parsed)
                             return
                         case 'error':
                             // Older Revenant servers terminate every non-2xx

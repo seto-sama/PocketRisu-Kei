@@ -590,9 +590,7 @@ function formatTavernChat(chat:string, charName:string){
     return chat.replace(/<([Uu]ser)>|\{\{([Uu]ser)\}\}/g, getUserName()).replace(/((\{\{)|<)([Cc]har)(=.+)?((\}\})|>)/g, charName)
 }
 
-export function characterFormatUpdate(indexOrCharacter:number|character, arg:{
-    updateInteraction?:boolean,
-} = {}){
+export function characterFormatUpdate(indexOrCharacter:number|character){
     let cha = typeof(indexOrCharacter) === 'number' ? getCharacterByIndex(indexOrCharacter) : indexOrCharacter
     if(cha.chats.length === 0){
         cha.chats = [{
@@ -673,7 +671,6 @@ export function characterFormatUpdate(indexOrCharacter:number|character, arg:{
     if(checkNullish(cha.customscript)){
         cha.customscript = []
     }
-    cha.lastInteraction = Date.now()
     if(typeof(indexOrCharacter) === 'number'){
         setCharacterByIndex(indexOrCharacter, cha)
     }
@@ -904,9 +901,7 @@ export function changeChar(index: number, arg:{
     const char = getDatabase().characters[index]
     reseter();
     chatDeselected.set(false)
-    characterFormatUpdate(index, {
-      updateInteraction: true,
-    });
+    characterFormatUpdate(index);
     selectedCharID.set(index);
     const chat = getCurrentChat()
     if(chat){

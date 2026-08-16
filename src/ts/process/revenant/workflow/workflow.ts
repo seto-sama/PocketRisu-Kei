@@ -104,17 +104,15 @@ export function createRevenantWorkflowResumeMetadata(
 
 export function createChatGenerationWorkflowPlan(options: {
     resumeContext: RevenantWorkflowResumeContext
-    persistUserMessage: boolean
     hypaEnabled: boolean
     igpEnabled: boolean
     pluginProvider: boolean
 }): RevenantWorkflowPlanStep[] {
     return [
         {
-            key: 'user.persist',
-            kind: 'preprocess.user.persist',
+            key: 'input.commit',
+            kind: 'input.chat.commit',
             recoveryPolicy: 'resume',
-            status: options.persistUserMessage ? 'pending' : 'completed',
         },
         {
             key: 'trigger.start',
@@ -174,7 +172,6 @@ export function createChatGenerationWorkflowPlan(options: {
 }
 
 const LOCAL_PRE_MODEL_STEP_KEYS = new Set([
-    'user.persist',
     'trigger.start',
     'memory.hypav3',
     'prompt.build',
@@ -229,8 +226,8 @@ export async function beginRevenantWorkflow(arg: {
         body: JSON.stringify(arg),
     })
     const body = await response.json().catch(() => ({})) as { workflow?: RevenantWorkflow, error?: string }
-    if (response.status === 409) {
-        if (body.workflow) rememberWorkflow(body.workflow)
+    if (response.status === 409 && body.workflow) {
+        rememberWorkflow(body.workflow)
         throw new RevenantWorkflowBusyError(body.workflow)
     }
     if (!response.ok || !body.workflow) {
@@ -358,19 +355,39 @@ export async function finishRevenantWorkflow(
 }
 
 export async function cancelRevenantWorkflow(workflowId: string): Promise<void> {
-    const response = await fetch(
-        `/api/generation/workflows/${encodeURIComponent(workflowId)}/cancel`,
-        {
-            method: 'POST',
-            headers: await createRevenantCancellationHeaders(),
-            keepalive: true,
-        },
-    )
-    if (!response.ok) {
+    let failure: unknown
+    try {
+        const response = await fetch(
+            `/api/generation/workflows/${encodeURIComponent(workflowId)}/cancel`,
+            {
+                method: 'POST',
+                headers: await createRevenantCancellationHeaders(),
+                keepalive: true,
+            },
+        )
+        if (response.ok) {
+            forgetWorkflow(workflowId)
+            return
+        }
         const body = await response.json().catch(() => ({})) as { error?: string }
-        throw new Error(body.error || `Failed to cancel generation workflow: ${response.status}`)
+        failure = new Error(body.error || `Failed to cancel generation workflow: ${response.status}`)
+    } catch (error) {
+        failure = error
     }
-    forgetWorkflow(workflowId)
+
+    // The cancellation command and terminal materialization may have committed
+    // even when a proxy loses the HTTP response. Resolve that ambiguity from
+    // the durable workflow instead of retrying or reporting a false failure.
+    try {
+        const workflow = await getRevenantWorkflow(workflowId)
+        if (workflow.status === 'cancelled') {
+            forgetWorkflow(workflowId)
+            return
+        }
+    } catch {
+        // Preserve the original command failure below.
+    }
+    throw failure
 }
 
 export async function cancelRevenantWorkflowStepExecution(

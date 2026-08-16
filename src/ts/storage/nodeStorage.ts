@@ -51,6 +51,7 @@ export class NodeStorage{
         crypto?.randomUUID?.() ?? (Date.now().toString(36) + Math.random().toString(36).slice(2))
 
     _lastDbEtag: string | null = null
+    private chatEtags = new Map<string, string>()
     authChecked = false
     private cachedJwt: { token: string; expiresAt: number } | null = null
     private static sessionInitialized = false
@@ -384,6 +385,11 @@ export class NodeStorage{
     }
 
     async patchItem(key: string, patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
+        // An empty JSON Patch is the identity operation. It has no write intent,
+        // so it must not enter the network/CAS lane with a potentially stale
+        // hash while a server-owned generation commit is advancing the DB.
+        if (patchData.patch.length === 0) return { success: true }
+
         const da = await this.authFetch('/api/patch', {
             method: "POST",
             body: JSON.stringify(patchData),
@@ -764,21 +770,50 @@ export class NodeStorage{
         })
         if (da.status === 404) return null
         if (da.status < 200 || da.status >= 300) throw new Error(`fetchChatContent error: ${da.status}`)
+        const etag = da.headers.get('x-chat-etag')
+        if (etag) this.chatEtags.set(`${chaId}\u0000${chatId}`, etag)
         const buffer = new Uint8Array(await da.arrayBuffer())
         return normalizeChat(await decodeRisuSave(buffer))
     }
 
-    async saveChatContent(chaId: string, chatIndex: number, chatId: string, chat: any): Promise<void> {
+    async saveChatContent(
+        chaId: string,
+        chatIndex: number,
+        chatId: string,
+        chat: any,
+        commit?: { expectedEtag?: string, generationInput?: boolean },
+    ): Promise<void> {
         const encoded = encodeRisuSaveLegacy(chat)
+        const chatKey = `${chaId}\u0000${chatId}`
+        const headers: Record<string, string> = {
+            'content-type': 'application/octet-stream',
+            'x-chat-id': chatId,
+        }
+        const expectedEtag = commit
+            ? commit.expectedEtag
+            : this.chatEtags.get(chatKey)
+        if (expectedEtag) headers['x-chat-if-match'] = expectedEtag
+        if (commit?.generationInput) headers['x-generation-input'] = '1'
         const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
             method: 'POST',
-            headers: {
-                'content-type': 'application/octet-stream',
-                'x-chat-id': chatId,
-            },
+            headers,
             body: encoded,
         })
+        if (da.status === 409) {
+            const data = await da.json().catch(() => ({}))
+            throw new ConflictError(data.error || 'Chat body conflict', data.currentEtag || '')
+        }
         if (da.status < 200 || da.status >= 300) throw new Error(`saveChatContent error: ${da.status}`)
+        const data = await da.json()
+        if (typeof data.etag === 'string') this.chatEtags.set(chatKey, data.etag)
+    }
+
+    getChatEtag(chaId: string, chatId: string): string | undefined {
+        return this.chatEtags.get(`${chaId}\u0000${chatId}`)
+    }
+
+    setChatEtag(chaId: string, chatId: string, etag: string): void {
+        this.chatEtags.set(`${chaId}\u0000${chatId}`, etag)
     }
 
     // ── Save-folder migration ─────────────────────────────────────────────────

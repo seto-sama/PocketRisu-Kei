@@ -61,6 +61,9 @@ export function coordinateRevenantGeneration<T>(
         onProviderStarted(startedAt) {
             options.onProviderStarted?.(startedAt)
         },
+        onTerminal(terminal) {
+            options.onTerminal?.(terminal)
+        },
     }))
 
     // Request preparation can fail before it reaches the durable endpoint.

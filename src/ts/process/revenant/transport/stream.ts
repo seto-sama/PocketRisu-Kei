@@ -13,6 +13,7 @@ import type {
     RecoverableAuxiliaryJob,
     RecoverableGenerationJob,
     RevenantGenerationRequest,
+    RevenantGenerationTerminal,
 } from '../types'
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
@@ -93,6 +94,7 @@ export async function fetchViaGenerationJob(url: string, arg: {
     requestTimeoutMs?: number
     onJobCreated?: (jobId: string) => void
     onProviderStarted?: (startedAt: number) => void
+    onTerminal?: (terminal: RevenantGenerationTerminal) => void
     generationRequest: RevenantGenerationRequest
 }): Promise<Response> {
     const auth = await createRevenantGenerationAuth()
@@ -136,7 +138,14 @@ export async function fetchViaGenerationJob(url: string, arg: {
     if (arg.generationRequest.job.jobType === 'model' && arg.generationRequest.job.chatId) {
         trackRevenantGenerationJob(arg.generationRequest.job.chatId, jobId)
     }
-    return openGenerationJobResponse(jobId, auth, arg.signal, arg.onProviderStarted)
+    return openGenerationJobResponse(
+        jobId,
+        auth,
+        arg.signal,
+        arg.onProviderStarted,
+        arg.onTerminal,
+        !arg.generationRequest.workflow?.workflowId,
+    )
 }
 
 async function deleteGenerationJob(jobId: string): Promise<void> {
@@ -151,6 +160,8 @@ function openGenerationJobResponse(
     auth: string,
     signal?: AbortSignal,
     onProviderStarted?: (startedAt: number) => void,
+    onTerminal?: (terminal: RevenantGenerationTerminal) => void,
+    cancelJobOnAbort = true,
 ): Promise<Response> {
     return new Promise((resolve, reject) => {
         let settled = false
@@ -177,18 +188,19 @@ function openGenerationJobResponse(
                 settled = true
                 reject(error)
             },
-            onDone() {
+            onDone(terminal) {
                 setRevenantGenerationLocallyObserved(jobId, false)
+                onTerminal?.(terminal)
                 if (settled) return
                 settled = true
                 reject(new Error('Generation ended before provider response headers'))
             },
-            signalAction: 'cancel_job',
+            signalAction: cancelJobOnAbort ? 'cancel_job' : undefined,
             onDetached() {
                 setRevenantGenerationLocallyObserved(jobId, false)
             },
             onCancelRequested() {
-                void deleteGenerationJob(jobId)
+                if (cancelJobOnAbort) void deleteGenerationJob(jobId)
             },
         })
     })
