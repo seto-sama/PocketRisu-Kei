@@ -34,6 +34,7 @@ const {
     stmtCreateWorkflowStep,
     stmtGetWorkflow,
     stmtGetActiveWorkflowForRoom,
+    stmtGetLatestWorkflowForRoom,
     stmtListWorkflowSteps,
     stmtGetWorkflowStep,
     stmtListReadyChatWorkflowJobs,
@@ -54,6 +55,7 @@ const {
     stmtAcknowledgeStepExecutionJobs,
     stmtCancelStepExecutionJobs,
     stmtAcknowledgeWorkflowJobs,
+    stmtAcknowledgeCancelledWorkflowJobs,
     stmtCancelWorkflowJobs,
     stmtFailActiveWorkflowSteps,
     stmtFailActiveStepExecutions,
@@ -135,6 +137,13 @@ function getGenerationWorkflow(workflowId, includeSteps = true) {
 function getActiveGenerationWorkflow(characterId, roomId, includeSteps = true) {
     return rowToWorkflow(
         stmtGetActiveWorkflowForRoom.get(characterId, roomId),
+        includeSteps,
+    );
+}
+
+function getLatestGenerationWorkflow(characterId, roomId, includeSteps = true) {
+    return rowToWorkflow(
+        stmtGetLatestWorkflowForRoom.get(characterId, roomId),
         includeSteps,
     );
 }
@@ -373,10 +382,14 @@ function cancelGenerationWorkflow(workflowId, terminalStatus = 'cancelled') {
         : 'workflow_failed';
     db.transaction(() => {
         stmtFinishWorkflow.run(terminalStatus, now, now, workflowId);
-        // A terminal workflow is intentionally discarded by the client. Mark
-        // every child output acknowledged so reconnect recovery cannot replay
-        // an already-finished child, while rows and journals remain retained.
-        stmtAcknowledgeWorkflowJobs.run(now, workflowId);
+        // Failed workflows discard all child output. A user cancellation keeps
+        // the model journal unacknowledged until the server materializer has
+        // committed its partial projection; auxiliary children are discarded.
+        if (terminalStatus === 'cancelled') {
+            stmtAcknowledgeCancelledWorkflowJobs.run(now, workflowId);
+        } else {
+            stmtAcknowledgeWorkflowJobs.run(now, workflowId);
+        }
         stmtCancelWorkflowJobs.run(finishReason, now, now, workflowId);
         stmtCancelWorkflowExecutions.run(finishReason, now, now, workflowId);
         stmtFailActiveWorkflowSteps.run(now, now, workflowId);
@@ -870,6 +883,7 @@ module.exports = {
     createGenerationWorkflow,
     getGenerationWorkflow,
     getActiveGenerationWorkflow,
+    getLatestGenerationWorkflow,
     listReadyChatWorkflowJobs,
     claimGenerationWorkflowStep,
     claimGenerationWorkflowClientAction,

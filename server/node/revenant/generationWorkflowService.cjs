@@ -8,6 +8,12 @@ function createGenerationWorkflowService(options) {
         generationRuntimeJobs,
         markGenerationJobDone,
         abortHypaWorkflowExecution = () => {},
+        commitWorkflowInput = async () => {
+            throw new Error('Workflow input commit service unavailable');
+        },
+        updateGenerationWorkflowStep = () => false,
+        getGenerationWorkflow = workflow => workflow,
+        materializeCancelledWorkflow = async () => {},
     } = options;
 
     async function abortJobs(jobs, terminalEvent) {
@@ -43,13 +49,19 @@ function createGenerationWorkflowService(options) {
         }
 
         const result = cancelGenerationWorkflow(workflowId, status);
-        if (!result.changed) return result;
+        if (!result.changed) {
+            if (status === 'cancelled') {
+                await materializeCancelledWorkflow(workflowId);
+            }
+            return result;
+        }
 
         const hypaAbort = abortHypaWorkflowExecution(workflowId);
         await Promise.allSettled([
             abortJobs(result.jobs, status === 'cancelled'
                 ? {
                     type: 'done',
+                    status: 'cancelled',
                     partial: true,
                     finishReason: 'workflow_cancelled',
                 }
@@ -60,6 +72,9 @@ function createGenerationWorkflowService(options) {
                 }),
             ...(hypaAbort && typeof hypaAbort.then === 'function' ? [hypaAbort] : []),
         ]);
+        if (status === 'cancelled') {
+            await materializeCancelledWorkflow(workflowId);
+        }
         return result;
     }
 
@@ -68,13 +83,47 @@ function createGenerationWorkflowService(options) {
         if (!result.changed) return result;
         await abortJobs(result.jobs, {
             type: 'done',
+            status: 'cancelled',
             partial: true,
             finishReason: 'step_cancelled',
         });
         return result;
     }
 
-    return { terminateWorkflow, cancelStepExecution };
+    async function commitInput(workflow, input, request) {
+        const step = workflow?.steps?.find(item => item.key === 'input.commit');
+        if (!step || step.status !== 'pending') {
+            const error = new Error('input.commit must be the pending workflow input boundary');
+            error.httpStatus = 400;
+            throw error;
+        }
+        try {
+            const commit = await commitWorkflowInput({
+                workflowId: workflow.workflowId,
+                characterId: workflow.characterId,
+                roomId: workflow.roomId,
+                input,
+                request,
+            });
+            updateGenerationWorkflowStep(workflow.workflowId, 'input.commit', {
+                status: 'completed',
+                metadata: {
+                    schemaVersion: 1,
+                    ...(commit?.etag ? { etag: commit.etag } : {}),
+                },
+            });
+            return getGenerationWorkflow(workflow.workflowId);
+        } catch (error) {
+            updateGenerationWorkflowStep(workflow.workflowId, 'input.commit', {
+                status: 'failed',
+                metadata: { error: error?.message || 'Failed to commit workflow input' },
+            });
+            await terminateWorkflow(workflow.workflowId, 'failed');
+            throw error;
+        }
+    }
+
+    return { terminateWorkflow, cancelStepExecution, commitInput };
 }
 
 module.exports = { createGenerationWorkflowService };

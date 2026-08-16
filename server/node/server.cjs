@@ -45,6 +45,7 @@ const {
     finishGenerationJob,
     finishGenerationWorkflow,
     getGenerationWorkflow,
+    getActiveGenerationWorkflow,
     cancelGenerationWorkflow,
     cancelGenerationStepExecution,
     listGenerationJobsNeedingProjection,
@@ -63,6 +64,23 @@ const {
     notifyRevenantJournalWaiters,
     streamRevenantJournal,
 } = require('./revenant/index.cjs');
+const {
+    computeChatEtag,
+    createFullChatStore,
+    commitChatContent,
+    stripChatsFromDb,
+    reassembleFullDb: reassembleFullDbFromStore,
+    findStubFlagLossChats,
+} = require('./chatStore.cjs');
+const {
+    ChatResultMergeConflict,
+    isStaleGenerationTargetWrite,
+    mergeConcurrentChatEdit,
+} = require('./revenant/chatResultMerge.cjs');
+const {
+    applyGenerationInputMetadata,
+    restoreGenerationOwnedMetadata,
+} = require('./revenant/generationInputMetadata.cjs');
 const {
     filterRemoteOnlyFolders,
     isChatHiddenFromRemote,
@@ -120,6 +138,25 @@ function queueStorageOperation(operation) {
     const operationRun = storageOperationQueue.then(operation, operation);
     storageOperationQueue = operationRun.catch(() => {});
     return operationRun;
+}
+
+/**
+ * Debounce a persist without opening a second writer lane. Once the timer
+ * fires it joins the same storage queue as request writes and Revenant
+ * materialization, so an older snapshot can never finish after a newer
+ * canonical commit. Remove the timer token before queueing: a later debounce
+ * must not be deleted by the older queued operation's cleanup.
+ */
+function scheduleStorageOperation(key, operation) {
+    if (saveTimers[key]) clearTimeout(saveTimers[key]);
+    const timer = setTimeout(() => {
+        if (saveTimers[key] !== timer) return;
+        delete saveTimers[key];
+        void queueStorageOperation(operation).catch(error => {
+            logger.error(`[Storage] Scheduled operation failed for ${key}:`, error);
+        });
+    }, SAVE_INTERVAL);
+    saveTimers[key] = timer;
 }
 
 const DB_HEX_KEY = Buffer.from('database/database.bin', 'utf-8').toString('hex');
@@ -280,17 +317,7 @@ async function flushPendingDb() {
     if (saveTimers[DB_HEX_KEY]) {
         clearTimeout(saveTimers[DB_HEX_KEY]);
         delete saveTimers[DB_HEX_KEY];
-        if (dbCache[DB_HEX_KEY]) {
-            await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
-        } else if (fullChatStore && fullChatStore.size > 0) {
-            // No stripped cache but chat store has data — merge and persist directly
-            const raw = kvGet('database/database.bin');
-            if (raw) {
-                const dbObj = normalizeJSON(await decodeRisuSave(raw));
-                const fullDb = reassembleFullDb(stripChatsFromDb(dbObj));
-                kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
-            }
-        }
+        await persistFullChatStoreNow();
         createBackupAndRotate();
     }
 }
@@ -388,131 +415,12 @@ async function decodeDatabaseWithPersistentChatIds(raw, options = {}) {
     return dbObj;
 }
 
-/**
- * Convert a full chat to a stub (metadata only).
- *
- * Hybrid corruption guard: a chat carrying `_stub: true` AND a real `message`
- * array is the v1.4.x legacy hybrid pattern. The fast-path "if _stub return"
- * would propagate the corruption (server reassemble skips merge for _stub
- * chats with no fullChat lookup match). Treat hybrids as real chats and
- * collapse them to a real stub here.
- */
-function chatToStub(chat) {
-    if (!chat) return chat;
-    if (chat._stub && !Array.isArray(chat.message)) return chat;
-    const stub = {
-        id: chat.id || '',
-        name: chat.name ?? '',
-        _stub: true,
-    };
-    // Preserve key presence even when the value is null/undefined so the
-    // round-trip distinguishes "user cleared" from "field absent". See
-    // mergeChatStubWithFullChat — it relies on `in` semantics.
-    if ('lastDate' in chat) stub.lastDate = chat.lastDate;
-    if ('folderId' in chat) stub.folderId = chat.folderId;
-    if ('modules' in chat) stub.modules = chat.modules;
-    return stub;
-}
-
-/**
- * Initialize fullChatStore from a decoded full database object.
- * Extracts all chat payloads into the store keyed by chaId → chatId.
- *
- * Hybrid corruption recovery: a chat with both `_stub: true` and a real
- * message array is treated as a real chat (its fullChat data is intact).
- * Strip the `_stub` flag in place so subsequent reassemble passes don't
- * reproduce the hybrid on disk.
- */
 function initChatStore(dbObj) {
-    fullChatStore = new Map();
-    if (!dbObj?.characters) return;
-    for (const char of dbObj.characters) {
-        if (!char?.chaId || !char.chats) continue;
-        const charChats = new Map();
-        for (const chat of char.chats) {
-            if (!chat) continue;
-            const isStub = chat._stub === true;
-            const hasMessage = Array.isArray(chat.message);
-            // Real stub (no payload) — fullChatStore tracks payloads only.
-            if (isStub && !hasMessage) continue;
-            // Hybrid: strip the corrupt _stub flag, keep the real chat.
-            if (isStub && hasMessage) {
-                delete chat._stub;
-            }
-            if (!chat.id) {
-                chat.id = nodeCrypto.randomUUID();
-            }
-            charChats.set(chat.id, chat);
-        }
-        if (charChats.size > 0) {
-            fullChatStore.set(char.chaId, charChats);
-        }
-    }
-}
-
-/**
- * Strip full chat data from a decoded database object, replacing with stubs.
- * Returns a new object — does not mutate input.
- */
-function stripChatsFromDb(dbObj) {
-    if (!dbObj?.characters) return dbObj;
-    const stripped = { ...dbObj };
-    stripped.characters = dbObj.characters.map(char => {
-        if (!char?.chats) return char;
-        return { ...char, chats: char.chats.map(chatToStub) };
-    });
-    return stripped;
-}
-
-/**
- * Reassemble a full database from a stripped DB + fullChatStore.
- * Replaces stubs with full chats from the store. Returns a new object.
- */
-function mergeChatStubWithFullChat(stub, fullChat) {
-    if (!fullChat) {
-        return stub;
-    }
-    if (!stub || !stub._stub) {
-        return fullChat;
-    }
-    const merged = {
-        ...fullChat,
-        id: stub.id || fullChat.id || '',
-        name: stub.name,
-    };
-    // Defensive: never let `_stub: true` ride along on a merged chat. If
-    // fullChat carries a stale flag (legacy disk corruption), the spread
-    // would propagate the hybrid pattern back to disk and re-trigger the
-    // chat-data loss path on next round-trip.
-    if ('_stub' in merged) delete merged._stub;
-    // Use key presence (`in`) so an explicit null/undefined from the client —
-    // meaning "user cleared this field" — overwrites fullChat. The previous
-    // `!= null` check conflated "cleared" with "absent" and silently kept
-    // stale folderId / modules on disk, producing orphan-folder chats.
-    if ('lastDate' in stub) merged.lastDate = stub.lastDate;
-    if ('folderId' in stub) merged.folderId = stub.folderId;
-    if ('modules' in stub) merged.modules = stub.modules;
-    return merged;
+    fullChatStore = createFullChatStore(dbObj);
 }
 
 function reassembleFullDb(strippedDb) {
-    if (!strippedDb?.characters || !fullChatStore) return strippedDb;
-    const full = { ...strippedDb };
-    full.characters = strippedDb.characters.map(char => {
-        if (!char?.chaId || !char.chats) return char;
-        const charChats = fullChatStore.get(char.chaId);
-        if (!charChats) return char;
-        return {
-            ...char,
-            chats: char.chats.map(chat => {
-                if (chat && chat._stub && chat.id) {
-                    return mergeChatStubWithFullChat(chat, charChats.get(chat.id));
-                }
-                return chat;
-            }),
-        };
-    });
-    return full;
+    return reassembleFullDbFromStore(strippedDb, fullChatStore);
 }
 
 function isCloudflareTunnelRequest(req) {
@@ -622,30 +530,6 @@ function findChatInternalFieldOps(patch) {
  * A real Chat has `message` (Array). A real stub has `_stub === true`. Anything
  * with neither is a malformed in-between state; treat as a corruption signal.
  */
-function findStubFlagLossChats(fullDb) {
-    if (!fullDb?.characters) return [];
-    const losses = [];
-    for (let ci = 0; ci < fullDb.characters.length; ci++) {
-        const char = fullDb.characters[ci];
-        if (!char?.chats) continue;
-        for (let chi = 0; chi < char.chats.length; chi++) {
-            const chat = char.chats[chi];
-            if (!chat || typeof chat !== 'object') continue;
-            const isStub = chat._stub === true;
-            const hasMessage = Array.isArray(chat.message);
-            if (!isStub && !hasMessage) {
-                losses.push({
-                    chaId: char.chaId,
-                    charIndex: ci,
-                    chatIndex: chi,
-                    chatId: chat.id || null,
-                });
-            }
-        }
-    }
-    return losses;
-}
-
 /**
  * Persist dbCache to disk with full chats merged back in.
  */
@@ -692,6 +576,64 @@ async function persistDbCacheWithChats(filePath, decodedKey) {
     // would resurrect the cleared values until the next /api/read.
     if (decodedKey === 'database/database.bin') {
         initChatStore(fullDb);
+    }
+}
+
+/** Persist the canonical full-chat store immediately, preserving pending stub edits. */
+async function persistFullChatStoreNow() {
+    await ensureChatStore();
+    if (dbCache[DB_HEX_KEY]) {
+        await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
+        return;
+    }
+    if (!fullChatStore || fullChatStore.size === 0) return;
+    const raw = kvGet('database/database.bin');
+    if (!raw) return;
+    const dbObj = normalizeJSON(await decodeRisuSave(raw));
+    const fullDb = reassembleFullDb(stripChatsFromDb(dbObj));
+    kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
+    initChatStore(fullDb);
+}
+
+/**
+ * Persist generation-owned activity metadata together with the already
+ * committed chat input. The storage queue serializes this with every other DB
+ * mutation, so concurrent devices increment the server value instead of
+ * racing client-side snapshots.
+ */
+async function persistGenerationInputState(characterId) {
+    const hadCachedDb = Object.prototype.hasOwnProperty.call(dbCache, DB_HEX_KEY);
+    const previousCachedDb = hadCachedDb ? dbCache[DB_HEX_KEY] : undefined;
+    let nextDb;
+    if (previousCachedDb) {
+        nextDb = structuredClone(previousCachedDb);
+    } else {
+        const raw = kvGet('database/database.bin');
+        if (!raw) throw new Error('Compatible database is missing');
+        nextDb = normalizeJSON(stripChatsFromDb(await decodeRisuSave(raw)));
+    }
+
+    const metadata = applyGenerationInputMetadata(nextDb, characterId);
+    if (!metadata) {
+        const error = new Error('Generation input character not found');
+        error.httpStatus = 404;
+        throw error;
+    }
+
+    if (saveTimers[DB_HEX_KEY]) {
+        clearTimeout(saveTimers[DB_HEX_KEY]);
+        delete saveTimers[DB_HEX_KEY];
+    }
+    dbCache[DB_HEX_KEY] = nextDb;
+    try {
+        await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
+        dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(nextDb)));
+        clearPersistFailure();
+        return metadata;
+    } catch (error) {
+        if (hadCachedDb) dbCache[DB_HEX_KEY] = previousCachedDb;
+        else delete dbCache[DB_HEX_KEY];
+        throw error;
     }
 }
 
@@ -1576,7 +1518,7 @@ async function checkDiskSpace(requiredBytes) {
 // is retained to suppress self-echoes on the sync WebSocket.
 
 function getSyncClientIdFromRequest(req) {
-    return req.headers['x-sync-client-id'] || req.headers['x-session-id'] || ''
+    return req?.headers?.['x-sync-client-id'] || req?.headers?.['x-session-id'] || ''
 }
 
 function requireSyncClientId(req, res) {
@@ -1617,6 +1559,16 @@ function broadcastRevenantWorkflowUpdated(workflow) {
         status: workflow.status,
         timestamp: Date.now(),
     });
+    // Terminal workflow publication is also the canonical chat handoff. The
+    // terminator/postprocess worker calls this only after cancellation or
+    // completion materialization has settled. Failed workflows point back to
+    // their already-committed input. Clients therefore never need to infer a
+    // database refresh from provider-job EOF.
+    if (workflow.status !== 'active') {
+        broadcastDatabaseInvalidated(undefined, {
+            chats: [{ characterId: workflow.characterId, chatId: workflow.roomId }],
+        });
+    }
 }
 
 // --- Generation Job constants ---
@@ -1850,6 +1802,7 @@ function loadPersistedGenerationRuntimeJob(jobId) {
             }
             : {
                 type: 'done',
+                status: persisted.status,
                 partial: ['cancelled', 'interrupted', 'failed_partial'].includes(persisted.status),
                 finishReason: persisted.finishReason,
             },
@@ -1873,10 +1826,6 @@ function markGenerationJobDone(job) {
     job.done = true;
     job.cleanupAt = Date.now() + GENERATION_JOB_DONE_GRACE_MS;
     notifyRevenantJournalWaiters(job);
-    const workflow = job.workflowId ? getGenerationWorkflow(job.workflowId) : undefined;
-    if (workflow && workflow.status !== 'active') {
-        broadcastRevenantWorkflowUpdated(workflow);
-    }
 }
 
 function cleanupGenerationRuntimeJob(jobId) {
@@ -1905,15 +1854,6 @@ const {
     scheduleHypaWorkflowExecution,
 } = generationWorkers;
 
-const generationWorkflowService = createGenerationWorkflowService({
-    finishGenerationWorkflow,
-    cancelGenerationWorkflow,
-    cancelGenerationStepExecution,
-    generationRuntimeJobs,
-    markGenerationJobDone,
-    abortHypaWorkflowExecution,
-});
-
 const revenantMaterializer = createRevenantMaterializer({
     repository: generationDb,
     queueStorageOperation,
@@ -1932,6 +1872,18 @@ const revenantMaterializer = createRevenantMaterializer({
     createBackupAndRotate,
     broadcastDatabaseInvalidated: (request, payload) =>
         broadcastDatabaseInvalidated(request || { headers: {} }, payload),
+});
+const generationWorkflowService = createGenerationWorkflowService({
+    finishGenerationWorkflow,
+    cancelGenerationWorkflow,
+    cancelGenerationStepExecution,
+    generationRuntimeJobs,
+    markGenerationJobDone,
+    abortHypaWorkflowExecution,
+    commitWorkflowInput: commitRevenantWorkflowInput,
+    updateGenerationWorkflowStep: generationDb.updateGenerationWorkflowStep,
+    getGenerationWorkflow,
+    materializeCancelledWorkflow: revenantMaterializer.materializeCancellation,
 });
 const revenantPostprocessWorker = createRevenantPostprocessWorker({
     repository: generationDb,
@@ -2080,21 +2032,25 @@ async function runGenerationProviderJob(job, arg) {
         const rawResponse = readGenerationJobRaw(job.id);
         let projection = persisted?.projection;
         let terminalFailure;
-        if (!cancelled) {
+        if (cancelled || (upstreamResponse.status >= 200 && upstreamResponse.status < 300)) {
+            try {
+                projection = await projectGenerationJournal(persisted, rawResponse);
+                setGenerationJobProjection(job.id, projection);
+            } catch (error) {
+                const message = `Failed to normalize provider journal: ${error}`;
+                setGenerationJobProjectionError(job.id, message);
+                if (!cancelled) {
+                    terminalFailure = { finishReason: 'projection_error', message };
+                } else {
+                    logger.warn(`[GenerationJob] Cancelled projection unavailable for ${job.id}:`, error);
+                }
+            }
+        } else {
             if (upstreamResponse.status < 200 || upstreamResponse.status >= 300) {
                 terminalFailure = {
                     finishReason: 'upstream_http_error',
                     message: `Provider request failed with HTTP ${upstreamResponse.status}`,
                 };
-            } else {
-                try {
-                    projection = await projectGenerationJournal(persisted, rawResponse);
-                    setGenerationJobProjection(job.id, projection);
-                } catch (error) {
-                    const message = `Failed to normalize provider journal: ${error}`;
-                    setGenerationJobProjectionError(job.id, message);
-                    terminalFailure = { finishReason: 'projection_error', message };
-                }
             }
         }
         updateRequestLogResponseById(
@@ -2139,6 +2095,7 @@ async function runGenerationProviderJob(job, arg) {
         if (terminalFailure?.finishReason === 'upstream_http_error') {
             job.terminalEvent = {
                 type: 'done',
+                status: 'failed',
                 partial: false,
                 finishReason: terminalFailure.finishReason,
             };
@@ -2151,6 +2108,7 @@ async function runGenerationProviderJob(job, arg) {
         } else {
             job.terminalEvent = {
                 type: 'done',
+                status: cancelled ? 'cancelled' : 'generated',
                 partial: cancelled,
                 finishReason: cancelled ? cancelFinishReason : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
             };
@@ -2199,6 +2157,7 @@ async function runGenerationProviderJob(job, arg) {
         job.terminalEvent = cancelled
             ? {
                 type: 'done',
+                status: 'cancelled',
                 partial: true,
                 finishReason: cancelFinishReason,
             }
@@ -2770,6 +2729,46 @@ app.delete('/proxy2', reverseProxyFunc);
 app.post('/hub-proxy/*splat', hubProxyFunc);
 
 // --- Revenant generation jobs -------------------------------------------------
+async function commitRevenantWorkflowInput({ characterId, roomId, input, request }) {
+    return queueStorageOperation(async () => {
+        await ensureChatStore();
+        const previousChat = fullChatStore.get(characterId)?.get(roomId);
+        const commit = commitChatContent(
+            fullChatStore,
+            characterId,
+            roomId,
+            input.chat,
+            input.expectedEtag,
+            { requireExpected: true },
+        );
+        if (!commit.success) {
+            const error = new Error('Chat changed before the generation input was committed');
+            error.httpStatus = 409;
+            error.currentEtag = commit.currentEtag;
+            throw error;
+        }
+        try {
+            await persistGenerationInputState(characterId);
+        } catch (error) {
+            const characterChats = fullChatStore.get(characterId);
+            if (previousChat) characterChats?.set(roomId, previousChat);
+            else characterChats?.delete(roomId);
+            throw error;
+        }
+        try {
+            createBackupAndRotate();
+        } catch (error) {
+            logger.warn('[GenerationWorkflow] Input committed but snapshot creation failed:', error);
+        }
+        // The server, not the submitting page, owns activity metadata. Include
+        // the origin so it installs the canonical counters and timestamp too.
+        broadcastDatabaseInvalidated(undefined, {
+            chats: [{ characterId, chatId: roomId }],
+        });
+        return commit;
+    });
+}
+
 installRevenantGenerationRoutes(app, {
     checkProxyAuth,
     requireSyncClientId,
@@ -2782,6 +2781,7 @@ installRevenantGenerationRoutes(app, {
     scheduleRevenantPostprocess,
     notifyRevenantWorkflowUpdated: broadcastRevenantWorkflowUpdated,
     terminateGenerationWorkflow: generationWorkflowService.terminateWorkflow,
+    commitWorkflowInput: generationWorkflowService.commitInput,
     cancelGenerationStepExecution: generationWorkflowService.cancelStepExecution,
     generationRuntimeJobs,
     countActiveGenerationJobs,
@@ -3658,13 +3658,19 @@ app.post('/api/write', async (req, res, next) => {
                 try {
                     let incomingDb = await decodeRisuSave(fileContent);
                     await ensureChatStore();
-                    if (isCloudflareTunnelRequest(req)) {
+                    let currentDb = dbCache[DB_HEX_KEY];
+                    if (!currentDb) {
                         const raw = kvGet('database/database.bin');
                         if (raw) {
-                            const originalDb = normalizeJSON(stripChatsFromDb(
+                            currentDb = normalizeJSON(stripChatsFromDb(
                                 await decodeDatabaseWithPersistentChatIds(raw)
                             ));
-                            incomingDb = mergeRemoteFilteredDatabase(originalDb, incomingDb);
+                        }
+                    }
+                    restoreGenerationOwnedMetadata(incomingDb, currentDb);
+                    if (isCloudflareTunnelRequest(req)) {
+                        if (currentDb) {
+                            incomingDb = mergeRemoteFilteredDatabase(currentDb, incomingDb);
                         }
                     }
                     const fullDb = reassembleFullDb(incomingDb);
@@ -3835,11 +3841,39 @@ app.post('/api/patch', async (req, res, next) => {
             const patchBaseline = remoteFilteredDb ?? dbCache[filePath];
             const serverHash = calculateHash(patchBaseline).toString(16);
 
+            // JSON Patch identity: no operation means no compare-and-swap and
+            // no write. Older open clients may still submit these while a
+            // server-owned generation commit advances the database, so return
+            // the current view without manufacturing a hash conflict.
+            if (Array.isArray(patch) && patch.length === 0) {
+                let currentEtag;
+                if (decodedKey === 'database/database.bin') {
+                    currentEtag = computeBufferEtag(Buffer.from(
+                        encodeRisuSaveLegacy(patchBaseline)
+                    ));
+                    dbEtag = currentEtag;
+                }
+                const responsePayload = {
+                    success: true,
+                    appliedOperations: 0,
+                    etag: currentEtag,
+                };
+                const persistWarning = currentPersistWarning();
+                if (persistWarning) responsePayload.persistWarning = persistWarning;
+                res.send(responsePayload);
+                return;
+            }
+
             if (expectedHash !== serverHash) {
+                const patchPaths = Array.isArray(patch)
+                    ? patch.slice(0, 8).map(operation =>
+                        `${String(operation?.op || '?')} ${String(operation?.path || '?')}`)
+                    : [];
                 logger.warn(
                     `[Patch] Hash mismatch for ${decodedKey}: `
                     + `expected=${expectedHash}, server=${serverHash}, `
-                    + `client=${String(getSyncClientIdFromRequest(req) || 'none')}`
+                    + `client=${String(getSyncClientIdFromRequest(req) || 'none')}, `
+                    + `ops=[${patchPaths.join(', ')}]`
                 );
                 let currentEtag = undefined;
                 if (decodedKey === 'database/database.bin') {
@@ -3869,10 +3903,7 @@ app.post('/api/patch', async (req, res, next) => {
                 : snapshot;
 
             // Schedule save to KV (debounced) — merge full chats back for database.bin
-            if (saveTimers[filePath]) {
-                clearTimeout(saveTimers[filePath]);
-            }
-            saveTimers[filePath] = setTimeout(async () => {
+            scheduleStorageOperation(filePath, async () => {
                 try {
                     if (decodedKey === 'database/database.bin') {
                         await persistDbCacheWithChats(filePath, decodedKey);
@@ -3900,10 +3931,8 @@ app.post('/api/patch', async (req, res, next) => {
                 } catch (error) {
                     logger.error(`[Patch] Error saving ${decodedKey}:`, error);
                     recordPersistFailure(error, `patch:${decodedKey}`);
-                } finally {
-                    delete saveTimers[filePath];
                 }
-            }, SAVE_INTERVAL);
+            });
 
             // Update ETag after successful patch (based on stripped version)
             if (decodedKey === 'database/database.bin') {
@@ -4675,6 +4704,7 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 }
                 const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
                 res.setHeader('Content-Type', 'application/octet-stream');
+                res.setHeader('x-chat-etag', computeChatEtag(chat));
                 return res.send(encoded);
             }
         }
@@ -4699,6 +4729,7 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
         }
         const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
         res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('x-chat-etag', computeChatEtag(chat));
         res.send(encoded);
     } catch (error) {
         next(error);
@@ -4742,17 +4773,119 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 }
             }
 
-            // Update fullChatStore
-            if (!fullChatStore.has(chaId)) {
-                fullChatStore.set(chaId, new Map());
+            const expectedEtag = req.headers['x-chat-if-match'];
+            const isGenerationInput = req.headers['x-generation-input'] === '1';
+            const activeWorkflow = getActiveGenerationWorkflow(
+                chaId,
+                expectedChatId,
+                true,
+            );
+            const latestWorkflow = activeWorkflow
+                ?? generationDb.getLatestGenerationWorkflow(chaId, expectedChatId, true);
+            const currentChat = fullChatStore.get(chaId)?.get(expectedChatId);
+            const staleTerminalProjection = !activeWorkflow
+                && latestWorkflow?.status !== 'active'
+                && isStaleGenerationTargetWrite(
+                    chatData,
+                    currentChat,
+                    latestWorkflow?.context?.postprocess,
+                );
+            const mergeWorkflow = activeWorkflow ?? (staleTerminalProjection
+                ? latestWorkflow
+                : undefined);
+            const inputStep = mergeWorkflow?.steps?.find(step =>
+                step.key === 'input.commit' && step.status === 'completed');
+            const inputEtag = inputStep?.metadata?.etag;
+            const inputChat = mergeWorkflow?.context?.inputCommit?.chat;
+            const currentEtag = computeChatEtag(currentChat);
+            let commit;
+
+            if (
+                mergeWorkflow
+                && typeof inputEtag === 'string'
+                && inputChat?.id === expectedChatId
+                && Array.isArray(inputChat.message)
+                && currentChat
+            ) {
+                // Clients own ordinary chat edits, but never a stale copy of
+                // the generation target. The same three-way merge covers live
+                // generation and a terminal projection echo after materialize.
+                const mergeBase = expectedEtag === currentEtag
+                    ? currentChat
+                    : expectedEtag === inputEtag
+                        ? inputChat
+                        : undefined;
+                if (!mergeBase) {
+                    return res.status(409).json({
+                        error: 'Chat content changed on another client',
+                        currentEtag,
+                    });
+                }
+                let rebasedChat;
+                try {
+                    rebasedChat = mergeConcurrentChatEdit(
+                        mergeBase,
+                        chatData,
+                        currentChat,
+                        mergeWorkflow.context?.postprocess,
+                    );
+                } catch (error) {
+                    if (!(error instanceof ChatResultMergeConflict)) throw error;
+                    return res.status(409).json({
+                        error: error.message,
+                        conflicts: error.paths,
+                        currentEtag,
+                    });
+                }
+                commit = commitChatContent(
+                    fullChatStore,
+                    chaId,
+                    expectedChatId,
+                    rebasedChat,
+                    currentEtag,
+                    { requireExpected: true },
+                );
+            } else {
+                commit = commitChatContent(
+                    fullChatStore,
+                    chaId,
+                    expectedChatId,
+                    chatData,
+                    expectedEtag,
+                    { requireExpected: true },
+                );
             }
-            fullChatStore.get(chaId).set(expectedChatId, chatData);
+            if (!commit.success) {
+                return res.status(409).json({
+                    error: 'Chat content changed on another client',
+                    currentEtag: commit.currentEtag,
+                });
+            }
+            chatData = commit.chat;
+
+            if (isGenerationInput) {
+                try {
+                    await persistGenerationInputState(chaId);
+                } catch (error) {
+                    const characterChats = fullChatStore.get(chaId);
+                    if (currentChat) characterChats?.set(expectedChatId, currentChat);
+                    else characterChats?.delete(expectedChatId);
+                    throw error;
+                }
+                try {
+                    createBackupAndRotate();
+                } catch (backupErr) {
+                    logger.warn('[ChatContent] Generation input committed but snapshot creation failed:', backupErr);
+                }
+                broadcastDatabaseInvalidated(undefined, {
+                    chats: [{ characterId: chaId, chatId: expectedChatId }],
+                });
+                res.json({ success: true, etag: commit.etag });
+                return;
+            }
 
             // Schedule debounced persist (reuses existing timer mechanism)
-            if (saveTimers[DB_HEX_KEY]) {
-                clearTimeout(saveTimers[DB_HEX_KEY]);
-            }
-            saveTimers[DB_HEX_KEY] = setTimeout(async () => {
+            scheduleStorageOperation(DB_HEX_KEY, async () => {
                 try {
                     // If dbCache has stripped DB, persist with merged chats
                     if (dbCache[DB_HEX_KEY]) {
@@ -4785,15 +4918,13 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 } catch (error) {
                     logger.error('[ChatContent] Error persisting chat:', error);
                     recordPersistFailure(error, 'chat-content');
-                } finally {
-                    delete saveTimers[DB_HEX_KEY];
                 }
-            }, SAVE_INTERVAL);
+            });
 
             broadcastDatabaseInvalidated(req, {
                 chats: [{ characterId: chaId, chatId: expectedChatId }],
             });
-            res.json({ success: true });
+            res.json({ success: true, etag: commit.etag });
         });
     } catch (error) {
         next(error);
@@ -5596,7 +5727,7 @@ app.post('/api/db/snapshots/restore', async (req, res, next) => {
             return res.status(404).json({ error: 'Snapshot not found' });
         }
         await restoreDatabaseBlob(blob);
-        broadcastDatabaseInvalidated(req);
+        broadcastDatabaseInvalidated(req, { allChats: true });
         res.json({ ok: true });
     } catch (err) { next(err); }
 });
@@ -5714,7 +5845,7 @@ app.post('/api/db/manual-snapshots/restore', async (req, res, next) => {
             throw err;
         }
         await restoreDatabaseBlob(blob);
-        broadcastDatabaseInvalidated(req);
+        broadcastDatabaseInvalidated(req, { allChats: true });
         res.json({ ok: true });
     } catch (err) { next(err); }
 });

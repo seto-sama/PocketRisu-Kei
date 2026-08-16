@@ -1,6 +1,10 @@
 'use strict';
 
 const { applyRevenantStageTimingToMessage } = require('./generationTiming.cjs');
+const { commitChatContent, computeChatEtag } = require('../chatStore.cjs');
+const { applyGeneratedMessage } = require('./postprocessPipeline.cjs');
+const { projectGenerationJournal } = require('./generationProjection.cjs');
+const { mergeGenerationChatResult } = require('./chatResultMerge.cjs');
 
 class RevenantMaterializationError extends Error {
     constructor(status, message) {
@@ -74,8 +78,12 @@ function createRevenantMaterializer(options) {
     const {
         getGenerationJob,
         getGenerationWorkflow,
+        listGenerationWorkflowJobs,
         listRecoverableGenerationJobs,
         markGenerationMaterialized,
+        readGenerationJobRaw = () => Buffer.alloc(0),
+        setGenerationJobProjection = () => false,
+        setGenerationJobProjectionError = () => false,
         updateGenerationWorkflowStep,
     } = repository;
     const {
@@ -95,6 +103,68 @@ function createRevenantMaterializer(options) {
         createBackupAndRotate,
         broadcastDatabaseInvalidated = () => {},
     } = options;
+
+    async function commitCanonicalChat(job, workflow, chat, mutationPatch) {
+        await ensureChatStore();
+        const { fullChatStore, saveTimers, dbCache } = getChatStorageState();
+        const storedChat = fullChatStore.get(job.characterId)?.get(job.roomId);
+        if (!storedChat || !Array.isArray(storedChat.message)) {
+            throw new RevenantMaterializationError(404, 'Target chat not found');
+        }
+
+        const baseChat = workflow?.context?.inputCommit?.chat;
+        if (!baseChat?.id || !Array.isArray(baseChat.message)) {
+            throw new RevenantMaterializationError(409, 'Workflow has no durable chat merge base');
+        }
+        let canonicalChat;
+        try {
+            canonicalChat = mergeGenerationChatResult(
+                baseChat,
+                chat,
+                storedChat,
+                workflow.context?.postprocess,
+            );
+        } catch (error) {
+            throw new RevenantMaterializationError(
+                409,
+                error instanceof Error ? error.message : String(error),
+            );
+        }
+        const commit = commitChatContent(
+            fullChatStore,
+            job.characterId,
+            job.roomId,
+            canonicalChat,
+            computeChatEtag(storedChat),
+        );
+        if (!commit.success) {
+            throw new RevenantMaterializationError(
+                409,
+                'Target chat changed after generation started',
+            );
+        }
+
+        if (saveTimers[databaseHexKey]) {
+            clearTimeout(saveTimers[databaseHexKey]);
+            delete saveTimers[databaseHexKey];
+        }
+        if (dbCache[databaseHexKey]) {
+            applyMutationPatch(dbCache[databaseHexKey], job.characterId, mutationPatch);
+            await persistDbCacheWithChats(databaseHexKey, 'database/database.bin');
+        }
+        else {
+            const raw = kvGet('database/database.bin');
+            if (!raw) throw new Error('Compatible database is missing');
+            const dbObj = normalizeJSON(await decodeRisuSave(raw));
+            const strippedDb = stripChatsFromDb(dbObj);
+            applyMutationPatch(strippedDb, job.characterId, mutationPatch);
+            const fullDb = reassembleFullDb(strippedDb);
+            kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
+            initChatStore(fullDb);
+        }
+        createBackupAndRotate();
+        return commit;
+    }
 
     async function materialize(jobId) {
         return queueStorageOperation(async () => {
@@ -119,13 +189,6 @@ function createRevenantMaterializer(options) {
                 );
             }
 
-            await ensureChatStore();
-            const { fullChatStore, saveTimers, dbCache } = getChatStorageState();
-            const storedChat = fullChatStore.get(job.characterId)?.get(job.roomId);
-            if (!storedChat || !Array.isArray(storedChat.message)) {
-                throw new RevenantMaterializationError(404, 'Target chat not found');
-            }
-
             const workflow = job.workflowId ? getGenerationWorkflow(job.workflowId) : undefined;
             const serverChat = completedServerChat(workflow);
             if (!serverChat) {
@@ -142,11 +205,6 @@ function createRevenantMaterializer(options) {
                 workflow,
                 job.completedAt || job.updatedAt,
             );
-            updateGenerationWorkflowStep(workflow.workflowId, 'message.materialize', {
-                status: 'running',
-                metadata: { schemaVersion: 1, chat },
-            });
-
             const hypaMemory = workflow?.steps
                 ?.find(step => step.key === 'memory.hypav3' && step.status === 'completed')
                 ?.metadata?.hypaMemory;
@@ -155,38 +213,85 @@ function createRevenantMaterializer(options) {
             }
             chat.isStreaming = false;
 
-            if (!fullChatStore.has(job.characterId)) fullChatStore.set(job.characterId, new Map());
-            fullChatStore.get(job.characterId).set(job.roomId, chat);
-            if (saveTimers[databaseHexKey]) {
-                clearTimeout(saveTimers[databaseHexKey]);
-                delete saveTimers[databaseHexKey];
-            }
-            if (dbCache[databaseHexKey]) {
-                applyMutationPatch(dbCache[databaseHexKey], job.characterId, mutationPatch);
-                await persistDbCacheWithChats(databaseHexKey, 'database/database.bin');
-            }
-            else {
-                const raw = kvGet('database/database.bin');
-                if (!raw) throw new Error('Compatible database is missing');
-                const dbObj = normalizeJSON(await decodeRisuSave(raw));
-                const strippedDb = stripChatsFromDb(dbObj);
-                applyMutationPatch(strippedDb, job.characterId, mutationPatch);
-                const fullDb = reassembleFullDb(strippedDb);
-                kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
-                initChatStore(fullDb);
-            }
-            createBackupAndRotate();
+            updateGenerationWorkflowStep(workflow.workflowId, 'message.materialize', {
+                status: 'running',
+                metadata: { schemaVersion: 1, chat },
+            });
+            const commit = await commitCanonicalChat(job, workflow, chat, mutationPatch);
             if (!markGenerationMaterialized(jobId)) {
                 throw new Error('Failed to mark generation materialized');
             }
             broadcastDatabaseInvalidated(undefined, {
                 chats: [{ characterId: job.characterId, chatId: job.roomId }],
             });
-            return { success: true, message: materializedMessage, chat };
+            return { success: true, message: materializedMessage, chat: commit.chat };
         });
     }
 
-    return { materialize };
+    /**
+     * Cancellation owns the last durable journal projection just like normal
+     * completion owns its postprocessed projection. Browsers only render it;
+     * they never race to persist a partial response.
+     */
+    async function materializeCancellation(workflowId) {
+        return queueStorageOperation(async () => {
+            const workflow = getGenerationWorkflow(workflowId);
+            if (!workflow) throw new RevenantMaterializationError(404, 'Generation workflow not found');
+            if (workflow.status !== 'cancelled') {
+                return { success: true, notCancelled: true };
+            }
+            const job = listGenerationWorkflowJobs(workflowId)
+                .find(candidate => candidate.jobType === 'model'
+                    && candidate.characterId && candidate.roomId && candidate.chatId);
+            if (!job) return { success: true, noGenerationJob: true };
+            if (job.materializedAt) return { success: true, alreadyMaterialized: true };
+
+            const inputChat = workflow.context?.inputCommit?.chat;
+            const recipe = workflow.context?.postprocess;
+            if (!inputChat?.id || !Array.isArray(inputChat.message) || !recipe?.chat) {
+                throw new RevenantMaterializationError(409, 'Workflow has no durable cancellation input');
+            }
+
+            let projection = job.projection;
+            if (!projection && job.rawBytes > 0) {
+                try {
+                    projection = await projectGenerationJournal(job, readGenerationJobRaw(job.jobId));
+                    setGenerationJobProjection(job.jobId, projection);
+                } catch (error) {
+                    setGenerationJobProjectionError(job.jobId, String(error));
+                    throw new RevenantMaterializationError(
+                        409,
+                        'Cancelled generation journal projection is not ready',
+                    );
+                }
+            }
+            const partial = String(projection?.content || '');
+            const projected = job.isContinuation
+                && job.continuationPrefix
+                && !partial.startsWith(job.continuationPrefix)
+                ? job.continuationPrefix + partial
+                : partial;
+            const chat = projected.trim()
+                ? applyGeneratedMessage(recipe.chat, recipe, job, projected)
+                : structuredClone(inputChat);
+            chat.isStreaming = false;
+
+            const commit = await commitCanonicalChat(job, workflow, chat);
+            if (!markGenerationMaterialized(job.jobId)) {
+                throw new Error('Failed to mark cancelled generation materialized');
+            }
+            broadcastDatabaseInvalidated(undefined, {
+                chats: [{ characterId: job.characterId, chatId: job.roomId }],
+            });
+            return {
+                success: true,
+                chat: commit.chat,
+                message: commit.chat.message.find(item => item?.chatId === job.chatId),
+            };
+        });
+    }
+
+    return { materialize, materializeCancellation };
 }
 
 module.exports = {

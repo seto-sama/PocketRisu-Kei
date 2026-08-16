@@ -322,6 +322,11 @@ describe('revenant workflow validation', () => {
     const workflowContext = {
         schemaVersion: 1,
         kind: 'chat-generation',
+        inputCommit: {
+            schemaVersion: 1,
+            chat: { id: 'room-1', message: [{ role: 'user', data: 'hello' }] },
+            expectedEtag: 'previous-etag',
+        },
         resume: {
             schemaVersion: 1,
             chatProcessIndex: -1,
@@ -378,13 +383,24 @@ describe('revenant workflow validation', () => {
             'different-character',
             'room-1',
         )).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext(
+            {
+                ...workflowContext,
+                inputCommit: {
+                    ...workflowContext.inputCommit,
+                    chat: { id: 'different-room', message: [] },
+                },
+            },
+            'character-1',
+            'room-1',
+        )).toBeUndefined()
     })
 
     it('normalizes an ordered checkpoint plan', () => {
         expect(normalizeRevenantWorkflowPlan([
             {
-                key: 'user.persist',
-                kind: 'user.persist',
+                key: 'input.commit',
+                kind: 'input.chat.commit',
                 recoveryPolicy: 'resume',
                 status: 'completed',
             },
@@ -396,8 +412,8 @@ describe('revenant workflow validation', () => {
             },
         ])).toEqual([
             {
-                key: 'user.persist',
-                kind: 'user.persist',
+                key: 'input.commit',
+                kind: 'input.chat.commit',
                 recoveryPolicy: 'resume',
                 status: 'completed',
                 order: 0,

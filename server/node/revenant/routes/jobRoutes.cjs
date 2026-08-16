@@ -42,7 +42,15 @@ function installRevenantJobRoutes(app, deps) {
         maxActiveJobs,
         maxBodyBase64Bytes,
         randomUUID,
+        terminateGenerationWorkflow,
+        notifyRevenantWorkflowUpdated = () => {},
     } = deps;
+    const cancellationRepository = {
+        getGenerationJob: deps.getGenerationJob ?? getGenerationJob,
+        getGenerationWorkflow: deps.getGenerationWorkflow ?? getGenerationWorkflow,
+        finishGenerationJob: deps.finishGenerationJob ?? finishGenerationJob,
+        markGenerationMaterialized: deps.markGenerationMaterialized ?? markGenerationMaterialized,
+    };
 
     // Unlike the legacy local-network proxy jobs, revenant jobs may target an
     // external provider. Metadata lives in save/revenant/revenant.db while exact
@@ -346,24 +354,54 @@ function installRevenantJobRoutes(app, deps) {
         res.send(job);
     });
 
-    app.delete('/api/generation/jobs/:jobId', async (req, res) => {
+    app.delete('/api/generation/jobs/:jobId', async (req, res, next) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        const persisted = getGenerationJob(req.params.jobId, false);
-        const job = generationRuntimeJobs.get(req.params.jobId);
-        if (job && !job.done) {
-            job.abortController.abort();
-            finishGenerationJob(req.params.jobId, 'cancelled', 'user_cancelled');
-        } else {
-            if (persisted && isRevenantJobActive(persisted.status)) {
-                finishGenerationJob(req.params.jobId, 'cancelled', 'user_cancelled');
+        try {
+            const persisted = cancellationRepository.getGenerationJob(req.params.jobId, false);
+
+            // A model job inside a chat workflow is not independently owned.
+            // Route even legacy/stale job DELETE requests through the workflow
+            // terminator so its journal projection is materialized before the
+            // job is acknowledged. The old path marked it materialized first
+            // and made the workflow cancellation silently skip persistence.
+            if (persisted?.jobType === 'model' && persisted.workflowId) {
+                const result = await terminateGenerationWorkflow(
+                    persisted.workflowId,
+                    'cancelled',
+                );
+                notifyRevenantWorkflowUpdated(
+                    cancellationRepository.getGenerationWorkflow(persisted.workflowId),
+                );
+                res.send({
+                    success: true,
+                    workflowId: persisted.workflowId,
+                    ...(result.changed ? {} : { alreadyFinished: true }),
+                });
+                return;
             }
+
+            const job = generationRuntimeJobs.get(req.params.jobId);
+            if (job && !job.done) {
+                job.abortController.abort();
+                cancellationRepository.finishGenerationJob(
+                    req.params.jobId,
+                    'cancelled',
+                    'user_cancelled',
+                );
+            } else if (persisted && isRevenantJobActive(persisted.status)) {
+                cancellationRepository.finishGenerationJob(
+                    req.params.jobId,
+                    'cancelled',
+                    'user_cancelled',
+                );
+            }
+            // Standalone and auxiliary jobs have no workflow materializer.
+            cancellationRepository.markGenerationMaterialized(req.params.jobId);
+            res.send({ success: true });
+        } catch (error) {
+            next(error);
         }
-        // DELETE is an explicit user cancellation. The client keeps any partial
-        // text it has already displayed, so do not let revenant recovery replay
-        // this job later and overwrite subsequent user edits.
-        markGenerationMaterialized(req.params.jobId);
-        res.send({ success: true });
     });
 
     app.post('/api/generation/jobs/:jobId/consume', async (req, res) => {
