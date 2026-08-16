@@ -102,6 +102,7 @@ async function executeProviderAction(
             onRevenantJobCreated: lifecycle.onJobCreated,
             onRevenantJobRegistrationUnavailable: lifecycle.onJobRegistrationUnavailable,
             onRevenantProviderStarted: lifecycle.onProviderStarted,
+            onRevenantTerminal: lifecycle.onTerminal,
             revenantClientAction: {
                 workflowId: workflow.workflowId,
                 parentStepKey: stepKey,

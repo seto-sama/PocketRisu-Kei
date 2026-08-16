@@ -116,6 +116,17 @@ function normalizeRevenantWorkflowContext(value, characterId, roomId) {
         || !Array.isArray(value.postprocess.modules)
         || !Array.isArray(value.postprocess.moduleRegexScripts)
         || !Array.isArray(value.postprocess.moduleTriggers)
+        || (value.inputCommit != null && (
+            !value.inputCommit
+            || typeof value.inputCommit !== 'object'
+            || Array.isArray(value.inputCommit)
+            || value.inputCommit.schemaVersion !== 1
+            || value.inputCommit.chat?.id !== roomId
+            || !Array.isArray(value.inputCommit.chat?.message)
+            || (value.inputCommit.expectedEtag != null
+                && (typeof value.inputCommit.expectedEtag !== 'string'
+                    || !value.inputCommit.expectedEtag))
+        ))
     ) return undefined;
     return JSON.parse(serialized);
 }

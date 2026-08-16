@@ -7,6 +7,10 @@
     import { chatFoldedStateMessageIndex } from 'src/ts/globalApi.svelte';
     import { didNewResponseComplete, getCompletedResponseAction, isChatNearBottom, type ChatResponseSnapshot, type ChatScrollController } from './chatScroll';
     import { createRevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from 'src/ts/process/revenant/recovery';
+    import {
+        findGenerationTargetMessageIndex,
+        isGenerationOwnedMessage,
+    } from 'src/ts/process/revenant/chatGeneration';
 
     let {
         messages,
@@ -91,17 +95,7 @@
 
         // Find the last real (non-comment, non-disabled) char message index
         // Only show reroll if it's the actual last non-disabled message
-        let lastRealCharIdx = -1;
-        let lastNonDisabledIdx = -1;
-        for (let i = messages.length - 1; i >= 0; i--) {
-            if (!messages[i].isComment && !messages[i].disabled) {
-                lastNonDisabledIdx = i;
-                break;
-            }
-        }
-        if (lastNonDisabledIdx >= 0 && messages[lastNonDisabledIdx].role === 'char') {
-            lastRealCharIdx = lastNonDisabledIdx;
-        }
+        const lastRealCharIdx = findGenerationTargetMessageIndex(messages)
 
         if(chatFoldedStateMessageIndex.index !== -1){
             loadStart = Math.max(0, chatFoldedStateMessageIndex.index - loadPages)
@@ -117,6 +111,12 @@
             const displayMessage = message.recoveryDisplayData ?? message.data;
             const messageLargePortrait = message.role === 'user' ? (userIconPortrait ?? false) : ((currentCharacter as character).largePortrait ?? false);
             const isRerollTarget = i === lastRealCharIdx;
+            const generationOwned = isGenerationOwnedMessage({
+                message,
+                messageIndex: i,
+                generationTargetIndex: lastRealCharIdx,
+                roomIsResponding,
+            });
             const showHistoricalSwipes = showPreviousChatSwipeButtons && message.role === 'char' && !message.isComment && !message.disabled && !isRerollTarget && (message.swipes?.length ?? 0) > 1;
             const showSwipeControls = isRerollTarget || showHistoricalSwipes;
             const isStreamingMessage = message.role === 'char'
@@ -166,6 +166,7 @@
                     rerollIcon: showSwipeControls ? 'force' : false,
                     swipeNavigationOnly: showHistoricalSwipes,
                     isStreamingDisplay: isStreamingMessage,
+                    generationOwned,
                     character: simpleChar,
                     largePortrait: messageLargePortrait,
                     messageGenerationInfo: message.generationInfo ? { ...message.generationInfo } : undefined,
@@ -202,6 +203,7 @@
                     if (props.rerollIcon !== rerollIcon) props.rerollIcon = rerollIcon
                     if (props.swipeNavigationOnly !== showHistoricalSwipes) props.swipeNavigationOnly = showHistoricalSwipes
                     if (props.isStreamingDisplay !== isStreamingMessage) props.isStreamingDisplay = isStreamingMessage
+                    if (props.generationOwned !== generationOwned) props.generationOwned = generationOwned
                     if (entry.characterSource !== simpleChar) {
                         props.character = simpleChar
                         entry.characterSource = simpleChar

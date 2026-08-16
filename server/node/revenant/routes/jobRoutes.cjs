@@ -26,6 +26,9 @@ const {
 } = require('../generation.cjs');
 const { createClientGenerationProjection } = require('../generationProjection.cjs');
 const { findReusableActiveMainJob } = require('./policy.cjs');
+const {
+    createGenerationJobCancellationService,
+} = require('../generationWorkflowService.cjs');
 
 function installRevenantJobRoutes(app, deps) {
     const {
@@ -42,7 +45,22 @@ function installRevenantJobRoutes(app, deps) {
         maxActiveJobs,
         maxBodyBase64Bytes,
         randomUUID,
+        terminateGenerationWorkflow,
+        notifyRevenantWorkflowUpdated = () => {},
     } = deps;
+    const cancellationRepository = {
+        getGenerationJob: deps.getGenerationJob ?? getGenerationJob,
+        getGenerationWorkflow: deps.getGenerationWorkflow ?? getGenerationWorkflow,
+        finishGenerationJob: deps.finishGenerationJob ?? finishGenerationJob,
+        markGenerationMaterialized: deps.markGenerationMaterialized ?? markGenerationMaterialized,
+    };
+    const cancellationService = createGenerationJobCancellationService({
+        repository: cancellationRepository,
+        generationRuntimeJobs,
+        terminateGenerationWorkflow,
+        notifyRevenantWorkflowUpdated,
+        isJobActive: isRevenantJobActive,
+    });
 
     // Unlike the legacy local-network proxy jobs, revenant jobs may target an
     // external provider. Metadata lives in save/revenant/revenant.db while exact
@@ -346,24 +364,14 @@ function installRevenantJobRoutes(app, deps) {
         res.send(job);
     });
 
-    app.delete('/api/generation/jobs/:jobId', async (req, res) => {
+    app.delete('/api/generation/jobs/:jobId', async (req, res, next) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        const persisted = getGenerationJob(req.params.jobId, false);
-        const job = generationRuntimeJobs.get(req.params.jobId);
-        if (job && !job.done) {
-            job.abortController.abort();
-            finishGenerationJob(req.params.jobId, 'cancelled', 'user_cancelled');
-        } else {
-            if (persisted && isRevenantJobActive(persisted.status)) {
-                finishGenerationJob(req.params.jobId, 'cancelled', 'user_cancelled');
-            }
+        try {
+            res.send(await cancellationService.cancel(req.params.jobId));
+        } catch (error) {
+            next(error);
         }
-        // DELETE is an explicit user cancellation. The client keeps any partial
-        // text it has already displayed, so do not let revenant recovery replay
-        // this job later and overwrite subsequent user edits.
-        markGenerationMaterialized(req.params.jobId);
-        res.send({ success: true });
     });
 
     app.post('/api/generation/jobs/:jobId/consume', async (req, res) => {

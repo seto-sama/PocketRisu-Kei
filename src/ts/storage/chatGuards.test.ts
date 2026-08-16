@@ -5,7 +5,7 @@ import { describe, test, expect, vi } from 'vitest'
 // pure function with no runtime deps of its own.
 vi.mock('./database.svelte', () => ({}))
 vi.mock('./chatStorage', () => ({}))
-vi.mock('../globalApi.svelte', () => ({ forageStorage: { realStorage: null } }))
+vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
 
 const { findDangerousChatOps } = await import('./risuSave')
 

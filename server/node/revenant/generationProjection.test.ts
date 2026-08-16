@@ -86,6 +86,22 @@ describe('generation normalized projection', () => {
         expect(projection.content).toBe('partial')
     })
 
+    it('projects a cancelled stream through its last complete journal event', async () => {
+        const projection = await projectGenerationJournal({
+            adapterKind: 'openai-compatible',
+            streaming: true,
+            status: 'cancelled',
+            responseStatus: 200,
+            responseHeaders: { 'content-type': 'text/event-stream' },
+        }, Buffer.from([
+            'data: {"choices":[{"delta":{"content":"kept partial"}}]}',
+            '',
+            'data: {"choices":[',
+        ].join('\n')))
+
+        expect(projection.content).toBe('kept partial')
+    })
+
     it('rejects provider error responses instead of projecting an error body', async () => {
         await expect(projectGenerationJournal({
             adapterKind: 'openai-compatible',

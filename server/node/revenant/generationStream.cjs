@@ -40,6 +40,7 @@ function recoveryTerminalEvent(job, event) {
     ) {
         return {
             type: 'done',
+            status: 'failed_partial',
             partial: true,
             finishReason: 'upstream_error',
         };

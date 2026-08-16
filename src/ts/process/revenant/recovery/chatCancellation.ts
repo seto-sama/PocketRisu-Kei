@@ -21,7 +21,7 @@ function clearRecoveryDisplay(message: Message): void {
  * chat when the user cancels. Cancellation stops future generation; bytes
  * already received remain visible just like a locally cancelled stream.
  */
-export function commitCancelledGenerationProjection(
+export function applyCancelledGenerationProjection(
     chat: Chat,
     projection: CancelledGenerationProjection,
 ): void {

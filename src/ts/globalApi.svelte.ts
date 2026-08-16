@@ -12,9 +12,28 @@ import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
-import { isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders } from "./storage/chatStorage";
+import { getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag } from "./storage/chatStorage";
+import {
+    acknowledgeProjectionOnlyChatConflict,
+    discardAllChatWorkingCopies,
+    discardAllChatGenerationProjections,
+    consumeChatSyncApplied,
+    isChatWorkingCopyDirty,
+    listDirtyChatWorkingCopies,
+    markChatWorkingCopyDirty,
+    markChatSyncApplied,
+    observeChatGenerationProjection,
+} from './storage/chatWorkingCopy';
 import { preparePatchConflictRebase } from "./storage/patchRebase";
-import { AutoStorage } from "./storage/autoStorage";
+import {
+    isClientWritableCharacterField,
+    visitClientWritableRootValues,
+} from './storage/persistenceShape';
+import { forageStorage } from "./storage/autoStorage";
+import {
+    registerSyncedDatabaseHandler,
+    type SyncedDatabaseOptions,
+} from './sync/databaseSync';
 import { ConflictError, getSyncClientId, type PersistWarning } from "./storage/nodeStorage";
 import { supportsPatchSync } from "./platform";
 import { updateAnimationSpeed } from "./gui/animation";
@@ -43,10 +62,16 @@ import {
 import { type RevenantGenerationRequest } from "./process/revenant";
 import {
     configureRevenantGenerationClient,
-    fetchViaGenerationJob,
 } from "./process/revenant/transport";
+import {
+    configureNativeFetchLogging,
+    fetchNative,
+    type FetchNativeArgs,
+} from './network/nativeFetch';
 
-export const forageStorage = new AutoStorage()
+export { fetchNative, type FetchNativeArgs }
+
+export { forageStorage }
 configureRevenantGenerationClient({
     createAuth: () => forageStorage.createAuth(),
     getSyncClientId,
@@ -61,6 +86,18 @@ function pushFetchLog(log: Omit<FetchLog, 'id' | 'timestamp' | 'clientId' | 'pla
     fetchLog.unshift(entry)
     return entry
 }
+
+configureNativeFetchLogging({
+    create: entry => pushFetchLog(entry as Parameters<typeof pushFetchLog>[0]).id,
+    update: (id, response, status, success) => {
+        const entry = fetchLog.find(log => log.id === id)
+        if (!entry) return
+        entry.response = formatFetchLogValue(response)
+        entry.responseType = 'stream'
+        if (status !== undefined) entry.status = status
+        if (success !== undefined) entry.success = success
+    },
+})
 
 export async function downloadFile(name: string, dat: Uint8Array | ArrayBuffer | string) {
     if (typeof (dat) === 'string') {
@@ -383,15 +420,6 @@ export function setPatchSyncBaseline(data: Database | null) {
     patchSyncBaseline = data ? safeStructuredClone(data) as Database : null
 }
 
-let syncedDatabaseHandler: ((data: Database, etag: string | null) => Promise<void>) | null = null
-
-export async function applySyncedDatabase(data: Database, etag: string | null) {
-    while (!syncedDatabaseHandler) {
-        await sleep(20)
-    }
-    await syncedDatabaseHandler(data, etag)
-}
-
 export async function saveDb() {
     let changed = false
     let syncApplying = false
@@ -458,6 +486,36 @@ export async function saveDb() {
         changeTracker.modules = false
         changeTracker.plugins = false
         changeTracker.pluginCustomStorage = false
+    }
+
+    /** Install fetched/rebased database state without turning its reactive
+     * replacement effects into local save intent. */
+    async function replaceRuntimeDatabase(
+        data: Database,
+        serverAppliedTargets: SyncedDatabaseOptions['serverAppliedChats'] = [],
+    ) {
+        changed = false
+        cancelPendingSave()
+        clearTrackedChanges()
+        const previousIndex = get(selectedCharID)
+        const previousCharacterId = getDatabase()?.characters?.[previousIndex]?.chaId
+        setDatabase(data)
+        if (previousCharacterId) {
+            const nextIndex = data.characters.findIndex(character =>
+                character?.chaId === previousCharacterId)
+            selectedCharID.set(nextIndex)
+        }
+        for (const target of serverAppliedTargets ?? []) {
+            const character = DBState.db.characters?.find(item =>
+                item?.chaId === target.characterId)
+            const chat = character?.chats?.find(item => item?.id === target.chatId)
+            if (chat && !chat._placeholder) {
+                markChatSyncApplied(chat)
+            }
+        }
+        await tick()
+        clearTrackedChanges()
+        cancelPendingSave()
     }
 
     async function flushServerDbKeepalive() {
@@ -534,7 +592,7 @@ export async function saveDb() {
                     key !== 'characters' && key !== 'botPresets' && key !== 'modules' &&
                     key !== 'plugins' && key !== 'pluginCustomStorage'
                 ) {
-                    deepTouch(DBState.db[key])
+                    visitClientWritableRootValues(key, DBState.db[key], deepTouch)
                 }
             }
             if (!didInitRootEffect) {
@@ -600,9 +658,10 @@ export async function saveDb() {
             knownCharacterIds = currentCharacterIdSet
 
             if (DBState?.db?.characters?.[selIdState]) {
+                const activeCharacter = DBState.db.characters[selIdState]
                 for (const key in DBState.db.characters[selIdState]) {
                     // Exclude chats — chat changes are tracked via chat-specific server save, not database.bin
-                    if (key !== 'chats') {
+                    if (key !== 'chats' && isClientWritableCharacterField(key)) {
                         deepTouch(DBState.db.characters[selIdState][key])
                     }
                 }
@@ -615,6 +674,18 @@ export async function saveDb() {
                 })))
                 if (changeTracker.character[0] !== DBState.db.characters[selIdState]?.chaId) {
                     changeTracker.character.unshift(DBState.db.characters[selIdState]?.chaId)
+                }
+                if (!syncApplying) {
+                    const knownChatIds = knownChatIdsByCharacter.get(activeCharacter.chaId) ?? new Set<string>()
+                    for (const chat of activeCharacter.chats ?? []) {
+                        if (chat?.id && !chat._placeholder && !knownChatIds.has(chat.id)) {
+                            markChatWorkingCopyDirty(
+                                activeCharacter.chaId,
+                                chat.id,
+                                getChatServerEtag(activeCharacter.chaId, chat.id),
+                            )
+                        }
+                    }
                 }
             }
             if (!didInitGeneralEffect) {
@@ -641,6 +712,8 @@ export async function saveDb() {
                 return
             }
 
+            if (syncApplying) return
+
             // Selecting a different chat establishes a new baseline; only later edits are dirty.
             if (trackedActiveChatKey !== activeKey) {
                 trackedActiveChatKey = activeKey
@@ -650,6 +723,20 @@ export async function saveDb() {
             if (isHydrating(activeChaId, activeChatId)) {
                 return
             }
+
+            if (consumeChatSyncApplied(activeChat)) return
+
+            const projectionChange = observeChatGenerationProjection(activeChaId, activeChat)
+            if (projectionChange === 'projection') return
+            // A legacy/non-Revenant stream has no target ownership metadata,
+            // so its structurally transient body keeps the former protection.
+            if (projectionChange === 'inactive' && activeChat.isStreaming) return
+
+            markChatWorkingCopyDirty(
+                activeChaId,
+                activeChatId,
+                getChatServerEtag(activeChaId, activeChatId),
+            )
 
             if (
                 changeTracker.chat[0]?.[0] !== activeChaId ||
@@ -661,28 +748,18 @@ export async function saveDb() {
         })
     })
 
-    syncedDatabaseHandler = async (data, etag) => {
+    registerSyncedDatabaseHandler(async (data, etag, options) => {
         syncApplying = true
-        changed = false
-        cancelPendingSave()
-        clearTrackedChanges()
         try {
-            const previousIndex = get(selectedCharID)
-            const previousCharacterId = getDatabase()?.characters?.[previousIndex]?.chaId
-            setDatabase(data)
-            if (previousCharacterId) {
-                const nextIndex = data.characters.findIndex(character => character?.chaId === previousCharacterId)
-                selectedCharID.set(nextIndex)
+            if (options?.authoritativeChatReset) {
+                discardAllChatWorkingCopies()
+                discardAllChatGenerationProjections()
             }
+            await replaceRuntimeDatabase(data, options?.serverAppliedChats)
             updateColorScheme()
             updateTextThemeAndCSS()
             updateAnimationSpeed()
             updateGuisize()
-            await tick()
-            // Effects observe the replacement asynchronously. Clear anything
-            // they tracked and install the received server state as baseline.
-            clearTrackedChanges()
-            cancelPendingSave()
             encoder = new RisuSaveEncoder()
             await encoder.init(data, { compression: false })
             if (supportsPatchSync) {
@@ -698,11 +775,17 @@ export async function saveDb() {
                     new Set((character.chats ?? []).map(chat => chat?.id).filter(Boolean)),
                 )
             }
-            changed = false
+            if (!options?.authoritativeChatReset) {
+                changeTracker.chat = listDirtyChatWorkingCopies().map(chat => [
+                    chat.characterId,
+                    chat.chatId,
+                ])
+            }
+            changed = changeTracker.chat.length > 0
         } finally {
             syncApplying = false
         }
-    }
+    })
 
     function requeueTrackedChanges(toSave: toSaveType) {
         changeTracker.character = [...new Set([...toSave.character, ...changeTracker.character])]
@@ -850,7 +933,15 @@ export async function saveDb() {
                         : remoteChat
                 })
             }
-            setDatabase(mergedDb)
+            // Hash conflict rebase is a server-state installation too. Running
+            // this replacement outside the sync guard used to classify the
+            // preserved hydrated body as a fresh client edit.
+            syncApplying = true
+            try {
+                await replaceRuntimeDatabase(mergedDb)
+            } finally {
+                syncApplying = false
+            }
 
             encoder = new RisuSaveEncoder()
             await encoder.init(getDatabase(), {
@@ -891,13 +982,17 @@ export async function saveDb() {
             const chat = char.chats[chatIndex]
             // Skip placeholders — they have no real data to save
             if (!chat || chat._placeholder) continue
-            // Streaming chat state may be structurally transient (notably
-            // reroll temporarily removes the original swipe message). The
-            // revenant generation job owns partial-response persistence.
-            if (chat.isStreaming) continue
             try {
                 await saveChatToServer(chaId, chatIndex, chatId, chat)
             } catch (e) {
+                if (
+                    e instanceof ConflictError
+                    && acknowledgeProjectionOnlyChatConflict(chaId, chat)
+                ) {
+                    if (e.currentEtag) setChatServerEtag(chaId, chatId, e.currentEtag)
+                    window.dispatchEvent(new Event('risu-sync-refresh-requested'))
+                    continue
+                }
                 console.error(`[Save] Failed to save chat ${chaId}/${chatId}:`, e)
                 failedChats.push([chaId, chatId])
             }
@@ -1126,11 +1221,11 @@ export async function saveDb() {
                 throw conflictErr
             }
 
-            // Re-init patcher from the data we just wrote so both sides
-            // share the same baseline (including setDatabase defaults).
+            // The wire payload omits server-owned metadata, while the server
+            // reattaches its canonical values. Those values are already in
+            // the accepted runtime image, so keep them in the hash baseline.
             if (supportsPatchSync) {
-                const decodedDb = await decodeRisuSave(dbData)
-                await patcher.init(decodedDb)
+                await patcher.init(db)
             }
         }
 
@@ -2041,297 +2136,7 @@ export class AppendableBuffer {
     }
 }
 
-/**
- * Mirrors a streamed response into the matching request log while forwarding
- * the original bytes to the caller.
- */
-const updateFetchLogResponse = (fetchLogId: string, response: any, status?: number, success?: boolean) => {
-    const entry = fetchLog.find(log => log.id === fetchLogId)
-    if (!entry) return
-    entry.response = formatFetchLogValue(response)
-    entry.responseType = 'stream'
-    if (status !== undefined) entry.status = status
-    if (success !== undefined) entry.success = success
-}
-
-const pipeFetchLog = (
-    fetchLogId: string,
-    readableStream: ReadableStream<Uint8Array> | null,
-    status?: number,
-    suppressAbortError = false,
-) => {
-    if (!readableStream) return readableStream
-
-    const splited = readableStream.tee()
-
-    ;(async () => {
-        try {
-            const text = await (new Response(splited[0])).text()
-            updateFetchLogResponse(fetchLogId, text, status)
-        } catch (err) {
-            if (suppressAbortError && (
-                (err instanceof DOMException && err.name === 'AbortError')
-                || String(err).includes('AbortError')
-                || String(err).includes('Generation stream detached')
-            )) {
-                return
-            }
-            updateFetchLogResponse(fetchLogId, `${err}`, status, false)
-        }
-    })()
-
-    return splited[1]
-}
-
-const pipeFetchLogResponse = (fetchLogId: string, response: Response) => {
-    if (!response.body) return response
-    return new Response(pipeFetchLog(
-        fetchLogId,
-        response.body,
-        response.status,
-        response.headers.get('x-risu-revenant-generation') === '1',
-    ), {
-        headers: response.headers,
-        status: response.status,
-        statusText: response.statusText,
-    })
-}
-
-/**
- * Fetches data from a given URL using native fetch or through a proxy.
- * @param {string} url - The URL to fetch data from.
- * @param {Object} arg - The arguments for the fetch request.
- * @param {string} arg.body - The body of the request.
- * @param {Object} [arg.headers] - The headers of the request.
- * @param {string} [arg.method="POST"] - The HTTP method of the request.
- * @param {AbortSignal} [arg.signal] - The signal to abort the request.
- * @param {boolean} [arg.useRisuTk] - Whether to use Risu token.
- * @param {string} [arg.chatId] - The chat ID associated with the request.
- * @returns {Promise<Object>} - A promise that resolves to an object containing the response body, headers, and status.
- * @returns {ReadableStream<Uint8Array>} body - The response body as a readable stream.
- * @returns {Headers} headers - The response headers.
- * @returns {number} status - The response status code.
- * @throws {Error} - Throws an error if the request is aborted or if there is an error in the response.
- */
-export interface FetchNativeArgs {
-    body?: string | Uint8Array | ArrayBuffer,
-    headers?: { [key: string]: string },
-    method?: "POST" | "GET" | "PUT" | "DELETE",
-    signal?: AbortSignal,
-    useRisuTk?: boolean,
-    chatId?: string
-    generationRequest?: RevenantGenerationRequest
-    interceptor?: string
-    requestTimeoutMs?: number
-    networkRoute?: 'auto' | 'local_network'
-    llmExecutionPolicy?: import('./network/transportTypes').LLMExecutionPolicy
-}
-
-export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Response> {
-    const useInterceptor = !!arg.interceptor
-    if (arg.body === undefined && (arg.method === 'POST' || arg.method === 'PUT')) {
-        throw new Error('Body is required for POST and PUT requests')
-    }
-
-    arg.method = arg.method ?? 'POST'
-
-    const headers = arg.headers ?? {}
-    let realBody: Uint8Array | undefined
-
-    if (arg.method === 'GET' || arg.method === 'DELETE') {
-        realBody = undefined
-    }
-    else if (typeof arg.body === 'string') {
-        let body: string = arg.body
-        if(useInterceptor) {
-            for (const interceptor of bodyIntercepterStore) {
-                try {
-                    body = await interceptor.callback(body, arg.interceptor) || body
-                }
-                catch (e) {
-                    console.error(e)
-                }
-            }
-        }
-        realBody = new TextEncoder().encode(body)
-    }
-    else if (arg.body instanceof Uint8Array) {
-        realBody = arg.body
-    }
-    else if (arg.body instanceof ArrayBuffer) {
-        realBody = new Uint8Array(arg.body)
-    }
-    else {
-        throw new Error('Invalid body type')
-    }
-
-    let fetchLogId: string | null = null
-    const fetchLogBody = realBody ? new TextDecoder().decode(realBody) : ''
-    const withFetchLog = (response: Response) => fetchLogId ? pipeFetchLogResponse(fetchLogId, response) : response
-    const useLocalNetworkRoute = arg.networkRoute === 'local_network' && isLocalNetworkUrl(url)
-    const timeoutSignal = buildTimeoutSignal(arg.signal, arg.requestTimeoutMs)
-    const requestSignal = timeoutSignal.signal
-    try {
-        // Provider LLM requests are owned by the Node server. The raw
-        // response stream is persistently journaled on the server and replayed
-        // through the same Response interface. Main requests remain recoverable
-        // into chat; auxiliary requests are retained only as completed jobs.
-        const revenantRequest = arg.generationRequest
-        const useRevenantGenerationJob = !!revenantRequest
-            && !!arg.interceptor
-            && arg.method === 'POST'
-        if (revenantRequest && !arg.llmExecutionPolicy) {
-            throw new Error('LLM generation requests require an explicit execution policy')
-        }
-        if (
-            arg.llmExecutionPolicy?.kind === 'workflow'
-            && (
-                !revenantRequest?.workflow?.workflowId
-                || !revenantRequest.workflow.stepKey
-            )
-        ) {
-            throw new Error('Workflow LLM execution requires an active workflow step')
-        }
-        const durableRequired = arg.llmExecutionPolicy?.durability === 'required'
-            || !!revenantRequest?.job.dispatchPolicy
-            || !!revenantRequest?.workflow?.dependency
-        if (durableRequired && !useRevenantGenerationJob) {
-            throw new Error('Durable LLM transport requires a POST request with generation context and interceptor')
-        }
-
-        const attemptDurable = useRevenantGenerationJob && durableRequired
-        if (attemptDurable) {
-            try {
-                let revenantJobId = ''
-                const recordProviderRequest = (startedAt: number) => {
-                    if (!revenantJobId || fetchLogId) return
-                    fetchLogId = pushFetchLog({
-                        id: revenantJobId,
-                        timestamp: startedAt,
-                        body: fetchLogBody,
-                        header: JSON.stringify(arg.headers ?? {}, null, 2),
-                        response: 'Streamed Fetch',
-                        responseType: 'stream',
-                        success: true,
-                        date: new Date(startedAt).toLocaleTimeString(),
-                        url,
-                        chatId: revenantRequest.job.chatId,
-                    }).id
-                }
-                return withFetchLog(await fetchViaGenerationJob(url, {
-                    method: arg.method,
-                    headers,
-                    body: realBody,
-                    signal: requestSignal,
-                    requestTimeoutMs: arg.requestTimeoutMs,
-                    generationRequest: revenantRequest,
-                    onJobCreated: (jobId) => {
-                        revenantJobId = jobId
-                        revenantRequest.lifecycle?.onJobCreated?.(jobId)
-                        if (
-                            !revenantRequest.job.dispatchPolicy
-                            && !revenantRequest.workflow?.dependency
-                        ) {
-                            recordProviderRequest(Date.now())
-                        }
-                    },
-                    onProviderStarted: (startedAt) => {
-                        revenantRequest.lifecycle?.onProviderStarted?.(startedAt)
-                        recordProviderRequest(startedAt)
-                    },
-                }))
-            } catch (wsErr) {
-                revenantRequest.lifecycle?.onJobRegistrationUnavailable?.(wsErr)
-                // Registration failures are never downgraded to an ordinary
-                // provider request: the server may already own a live job.
-                throw wsErr
-            }
-        }
-
-        if (arg.llmExecutionPolicy?.providerRoute === 'server') {
-            return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
-                ...arg,
-                signal: requestSignal
-            }))
-        }
-
-        if (arg.llmExecutionPolicy?.providerRoute === 'direct') {
-            return withFetchLog(await fetch(url, {
-                body: realBody as any,
-                headers,
-                method: arg.method,
-                signal: requestSignal,
-            }))
-        }
-
-        // Generic local-network requests that are not LLM generations use the
-        // synchronous server proxy.
-        if (useLocalNetworkRoute) {
-            return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
-                ...arg,
-                signal: requestSignal
-            }))
-        }
-
-        // Try direct fetch first (upstream behavior), fall back to proxy on CORS/network error
-        try {
-            return withFetchLog(await fetch(url, {
-                body: realBody as any,
-                headers: headers,
-                method: arg.method,
-                signal: requestSignal,
-            }))
-        } catch (e) {
-            if (requestSignal?.aborted) throw e
-            return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
-                ...arg,
-                signal: requestSignal
-            }))
-        }
-    } finally {
-        timeoutSignal.cleanup()
-    }
-}
-
-async function fetchViaProxy2(
-    url: string,
-    headers: Record<string, string>,
-    realBody: Uint8Array | undefined,
-    arg: { method?: string, signal?: AbortSignal, useRisuTk?: boolean, requestTimeoutMs?: number }
-): Promise<Response> {
-    const proxyHeaders: Record<string, string> = {
-        "risu-header": encodeURIComponent(JSON.stringify(headers)),
-        "risu-url": encodeURIComponent(url),
-        "risu-auth": await createRequiredNodeAuth(),
-        ...(arg.useRisuTk ? { "x-risu-tk": "use" } : {}),
-        ...(arg.requestTimeoutMs && { "risu-timeout-ms": Math.max(1, Math.floor(arg.requestTimeoutMs)).toString() }),
-        ...(DBState?.db?.requestLocation ? { "risu-location": DBState.db.requestLocation } : {}),
-    }
-
-    if (realBody) {
-        proxyHeaders["Content-Type"] = headers["Content-Type"] ?? headers["content-type"] ?? "application/json"
-    }
-
-    const r = await fetch(`/proxy2`, {
-        body: realBody as any,
-        headers: proxyHeaders,
-        method: arg.method,
-        signal: arg.signal
-    })
-
-    return new Response(r.body, {
-        headers: r.headers,
-        status: r.status
-    })
-}
-
-
-/**
- * Converts a ReadableStream of Uint8Array to a text string.
- * 
- * @param {ReadableStream<Uint8Array>} stream - The readable stream to convert.
- * @returns {Promise<string>} A promise that resolves to the text content of the stream.
- */
+/** Convert a byte stream to text. */
 export function textifyReadableStream(stream: ReadableStream<Uint8Array>) {
     return new Response(stream).text()
 }

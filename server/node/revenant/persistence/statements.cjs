@@ -200,6 +200,12 @@ function createGenerationStatements(db) {
         WHERE character_id = ? AND room_id = ? AND status = 'active'
         LIMIT 1
     `);
+    const stmtGetLatestWorkflowForRoom = db.prepare(`
+        SELECT * FROM generation_workflows
+        WHERE character_id = ? AND room_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+    `);
     const stmtListWorkflowSteps = db.prepare(`
         SELECT * FROM generation_workflow_steps
         WHERE workflow_id = ?
@@ -329,6 +335,11 @@ function createGenerationStatements(db) {
         SET materialized_at = COALESCE(materialized_at, ?)
         WHERE workflow_id = ?
     `);
+    const stmtAcknowledgeCancelledWorkflowJobs = db.prepare(`
+        UPDATE generation_jobs
+        SET materialized_at = COALESCE(materialized_at, ?)
+        WHERE workflow_id = ? AND COALESCE(job_type, 'model') <> 'model'
+    `);
     const stmtCancelWorkflowJobs = db.prepare(`
         UPDATE generation_jobs
         SET status = 'cancelled', finish_reason = ?, error = NULL,
@@ -426,6 +437,7 @@ function createGenerationStatements(db) {
         stmtCreateWorkflowStep,
         stmtGetWorkflow,
         stmtGetActiveWorkflowForRoom,
+        stmtGetLatestWorkflowForRoom,
         stmtListWorkflowSteps,
         stmtGetWorkflowStep,
         stmtListReadyChatWorkflowJobs,
@@ -446,6 +458,7 @@ function createGenerationStatements(db) {
         stmtAcknowledgeStepExecutionJobs,
         stmtCancelStepExecutionJobs,
         stmtAcknowledgeWorkflowJobs,
+        stmtAcknowledgeCancelledWorkflowJobs,
         stmtCancelWorkflowJobs,
         stmtFailActiveWorkflowSteps,
         stmtFailActiveStepExecutions,

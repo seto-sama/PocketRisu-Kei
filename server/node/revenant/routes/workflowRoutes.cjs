@@ -33,6 +33,9 @@ function installRevenantWorkflowRoutes(app, deps) {
         scheduleRevenantPostprocess = () => {},
         notifyRevenantWorkflowUpdated = () => {},
         terminateGenerationWorkflow,
+        commitWorkflowInput = async () => {
+            throw new Error('Workflow input commit service unavailable');
+        },
         cancelGenerationStepExecution,
         randomUUID,
     } = deps;
@@ -77,6 +80,25 @@ function installRevenantWorkflowRoutes(app, deps) {
                     ...(hasMainJob ? { workflow: result.workflow } : {}),
                 });
                 return;
+            }
+            if (context.inputCommit) {
+                try {
+                    const workflow = await commitWorkflowInput(
+                        result.workflow,
+                        context.inputCommit,
+                        req,
+                    );
+                    result = {
+                        ...result,
+                        workflow,
+                    };
+                } catch (error) {
+                    notifyRevenantWorkflowUpdated(getGenerationWorkflow(result.workflow.workflowId));
+                    res.status(error?.httpStatus || 500).send({
+                        error: error?.message || 'Failed to commit workflow input',
+                    });
+                    return;
+                }
             }
             res.send({ workflow: result.workflow });
         } catch (error) {

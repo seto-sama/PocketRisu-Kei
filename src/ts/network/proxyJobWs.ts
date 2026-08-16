@@ -4,8 +4,16 @@ export type ProxyJobWsEvent =
     | { type: 'upstream_headers', status: number, headers: Record<string, string> }
     | { type: 'chunk', offset?: number, dataBase64: string }
     | { type: 'error', status?: number, message: string }
-    | { type: 'done' }
+    | ProxyJobWsDoneEvent
     | { type: 'ping', ts: number };
+
+export interface ProxyJobWsDoneEvent {
+    type: 'done'
+    /** Durable server state. Older servers omit this field. */
+    status?: 'generated' | 'cancelled' | 'interrupted' | 'failed_partial' | 'failed'
+    partial?: boolean
+    finishReason?: string
+}
 
 export function parseProxyJobWsEvent(raw: string): ProxyJobWsEvent | null {
     try {

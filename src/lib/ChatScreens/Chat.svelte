@@ -73,6 +73,7 @@
         totalPages?: number;
         swipeNavigationOnly?: boolean;
         isStreamingDisplay?: boolean;
+        generationOwned?: boolean;
         isComment?: boolean;
         disabled?: boolean | 'allBefore';
         renderCacheKey?: string;
@@ -104,6 +105,7 @@
         totalPages = 1,
         swipeNavigationOnly = false,
         isStreamingDisplay = false,
+        generationOwned = false,
         isComment = false,
         disabled = false,
         renderCacheKey = '',
@@ -121,6 +123,16 @@
             translationRecoveryTarget?.swipeId ?? (firstMessage ? currentPage - 1 : 0),
         ])
         : '')
+    const translationSourceIdentity = $derived(JSON.stringify([
+        renderCacheKey,
+        translationRecoveryTarget?.messageChatId ?? null,
+        translationRecoveryTarget?.swipeId ?? (firstMessage ? currentPage - 1 : 0),
+    ]))
+    let previousTranslationSource: {
+        identity: string
+        message: string
+        streaming: boolean
+    } | null = null
     const trackSharedTranslationTasks = createSubscriber((update) =>
         subscribeSharedTranslationTaskChanges(update)
     )
@@ -130,6 +142,7 @@
     })
 
     async function rm(){
+        if (generationOwned) return
         const messages = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
         const cascadeCount = messages.length - idx
 
@@ -377,15 +390,15 @@
 
     const currentTextEditActive = $derived(editMode || editTranslationMode)
     const controlDisabled = $derived.by(() => ({
-        translationToggle: currentTextEditActive
+        translationToggle: generationOwned || currentTextEditActive
             || (isTranslationControlBusy() && cancelTranslationRequest === null),
-        translationAction: currentTextEditActive || isTranslationControlBusy(),
-        swipe: currentTextEditActive || isTranslationBusy(),
-        edit: isTranslationBusy()
+        translationAction: generationOwned || currentTextEditActive || isTranslationControlBusy(),
+        swipe: generationOwned || currentTextEditActive || isTranslationBusy(),
+        edit: generationOwned || isTranslationBusy()
             || (translated
                 && DBState.db.translatorType === 'llm'
                 && !revenantTranslationInspectionReady),
-        partialEdit: currentTextEditActive || isTranslationBusy() || isStreamingDisplay,
+        partialEdit: generationOwned || currentTextEditActive || isTranslationBusy(),
     }))
 
     function updateTranslationTasks(delta:1|-1) {
@@ -401,6 +414,31 @@
         translated = false
         retranslate = false
     }
+
+    // Local controls and remote canonical sync both eventually replace this
+    // message source. Reset at that shared boundary so a translated old swipe
+    // cannot initiate a translation for the new one. Cached-only auto
+    // translation may then inspect and restore the new swipe's existing cache.
+    $effect.pre(() => {
+        const nextSource = {
+            identity: translationSourceIdentity,
+            message,
+            streaming: isStreamingDisplay,
+        }
+        const previousSource = previousTranslationSource
+        previousTranslationSource = nextSource
+        if (previousSource === null) {
+            return
+        }
+        const identityChanged = previousSource.identity !== nextSource.identity
+        const settledMessageChanged = !previousSource.streaming
+            && !nextSource.streaming
+            && previousSource.message !== nextSource.message
+        if (!identityChanged && !settledMessageChanged) return
+        cancelTranslationRequest?.()
+        resetTranslationState()
+        translationRevision += 1
+    })
 
     function handleTranslationButton() {
         if (currentTextEditActive) return
@@ -418,9 +456,7 @@
 
     function changeSwipe(change: () => void) {
         if (controlDisabled.swipe) return
-        resetTranslationState()
         change()
-        translationRevision += 1
     }
 
     async function toggleCurrentTextEdit() {
@@ -1050,7 +1086,7 @@
             {/if}
         </IconButton>
     {/if}
-    <IconButton size="lg" expanded={showNames} tone="destructive" className="button-icon-remove" onclick={rm}>
+    <IconButton size="lg" expanded={showNames} tone="destructive" className="button-icon-remove" disabled={generationOwned} onclick={rm}>
         <TrashIcon />
 
         {#if showNames}
@@ -1153,6 +1189,7 @@
 {/snippet}
 
 {#snippet minorIconButtonsBody(showNames:boolean)}
+    <fieldset class="contents" disabled={generationOwned}>
     {#if idx > -1}
         <IconButton size="lg" expanded={showNames} active={isBookmarked} activeColor="primary" className="button-icon-bookmark" onclick={async () => {
             await sleep(1)
@@ -1223,6 +1260,7 @@
         {/if}
     </IconButton>
     {/if}
+    </fieldset>
 {/snippet}
 
 {#snippet senderIcon(options:{rounded?:boolean,styleFix?:string} = {})}

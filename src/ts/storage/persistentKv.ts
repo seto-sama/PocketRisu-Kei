@@ -1,5 +1,5 @@
 import { hasher } from "../parser/parser.svelte";
-import { forageStorage } from "../globalApi.svelte";
+import { forageStorage } from "./autoStorage";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

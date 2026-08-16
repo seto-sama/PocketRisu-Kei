@@ -113,6 +113,7 @@ export function buildGenerationRequest(
             onJobCreated: arg.onRevenantJobCreated,
             onJobRegistrationUnavailable: arg.onRevenantJobRegistrationUnavailable,
             onProviderStarted: arg.onRevenantProviderStarted,
+            onTerminal: arg.onRevenantTerminal,
         },
     }
 }

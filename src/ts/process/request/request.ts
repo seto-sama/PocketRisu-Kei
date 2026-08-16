@@ -44,6 +44,7 @@ import {
     type RequestKind,
 } from "src/ts/status/requestStatus";
 import type { RevenantOperationContext, RevenantProviderJobSpec } from "../revenant";
+import { bindRevenantTerminalOutcome } from "../revenant/jobStatus";
 import {
     auxiliaryResultJobIdsToConsume,
     consumeOnStreamCompletion,
@@ -98,6 +99,7 @@ export interface requestDataArgument{
     onRevenantJobCreated?:(jobId:string) => void
     onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
     onRevenantProviderStarted?:(startedAt:number) => void
+    onRevenantTerminal?:(terminal:import('../revenant').RevenantGenerationTerminal) => void
     llmExecutionPolicy?:LLMExecutionPolicy
     revenantClientAction?: {
         workflowId: string
@@ -573,6 +575,7 @@ async function requestPluginPreset(
 
     const genId = ensureRequestGenerationId(arg)
     const reportStatus = !arg.previewBody && statusEnabled()
+    const terminalOutcome = bindRevenantTerminalOutcome(arg)
     if (reportStatus) {
         safeStatus(() => startStatus(genId, {
             kind: toRequestKind(mode),
@@ -595,9 +598,10 @@ async function requestPluginPreset(
             const finish = (outcome: 'done' | 'failed' | 'aborted', error?: unknown) => {
                 if (ended) return
                 ended = true
-                safeStatus(() => endStatus(genId, outcome, {
+                const finalOutcome = terminalOutcome.resolve(outcome)
+                safeStatus(() => endStatus(genId, finalOutcome, {
                     now: Date.now(),
-                    error: outcome === 'failed'
+                    error: finalOutcome === 'failed'
                         ? (error instanceof Error ? error.message : String(error))
                         : undefined,
                 }))
@@ -657,9 +661,9 @@ async function requestPluginPreset(
         if (responseText) {
             safeStatus(() => appendText(genId, { response: responseText }, Date.now()))
         }
-        safeStatus(() => endStatus(genId, 'done', { now: Date.now() }))
+        safeStatus(() => endStatus(genId, terminalOutcome.resolve('done'), { now: Date.now() }))
     } else if (reportStatus) {
-        const outcome = abortSignal?.aborted ? 'aborted' : 'failed'
+        const outcome = terminalOutcome.resolve(abortSignal?.aborted ? 'aborted' : 'failed')
         safeStatus(() => endStatus(genId, outcome, {
             now: Date.now(),
             error: outcome === 'failed' ? String(result.result) : undefined,
@@ -1016,6 +1020,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     const genId = ensureRequestGenerationId(arg)
     const statusKind = toRequestKind(mode)
     const reportStatus = statusEnabled() && !!genId
+    const terminalOutcome = bindRevenantTerminalOutcome(arg)
 
     // Tool gating. Three guards:
     //  1) Per-preset opt-in (preset.toolUse, default OFF) — the hard regression
@@ -1269,7 +1274,8 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                                 // A stream that ends via abort throws inside the
                                 // generator → 'failed'; reclassify as 'aborted' so the
                                 // toast shows "Cancelled" rather than an error.
-                                const finalOutcome = outcome === 'failed' && abortSignal?.aborted ? 'aborted' : outcome
+                                const localOutcome = outcome === 'failed' && abortSignal?.aborted ? 'aborted' : outcome
+                                const finalOutcome = terminalOutcome.resolve(localOutcome)
                                 // Confirmed cache hit (usageMetadata.cachedContentTokenCount
                                 // > 0) → savings badge on the status toast. Gated on the
                                 // cache context so behavior is unchanged with caching off.
@@ -1328,7 +1334,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                 if (cache && cachedTokens > 0) {
                     addBadge(genId, { key: 'cache', text: language.requestStatus.cacheHit.replace('{n}', cachedTokens.toLocaleString()), tone: 'success' })
                 }
-                endStatus(genId, 'done', {
+                endStatus(genId, terminalOutcome.resolve('done'), {
                     now: Date.now(),
                     usage: response.usage?.completionTokens !== undefined
                         ? { responseTokens: response.usage.completionTokens }
@@ -1347,7 +1353,7 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
         console.error('[ModelPreset] request failed', describeModelPresetError(err))
         if (reportStatus) {
             // Distinguish a user cancel from a real failure for the status toast.
-            const outcome = abortSignal?.aborted ? 'aborted' : 'failed'
+            const outcome = terminalOutcome.resolve(abortSignal?.aborted ? 'aborted' : 'failed')
             safeStatus(() => endStatus(genId, outcome, { now: Date.now(), error: outcome === 'failed' ? (err instanceof Error ? err.message : String(err)) : undefined }))
         }
         return {

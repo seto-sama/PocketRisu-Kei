@@ -24,6 +24,20 @@ describe('parseProxyJobWsEvent', () => {
         }))).toEqual({ type: 'provider_started', startedAt: 123 })
     })
 
+    it('preserves the durable terminal job state', () => {
+        expect(parseProxyJobWsEvent(JSON.stringify({
+            type: 'done',
+            status: 'cancelled',
+            partial: true,
+            finishReason: 'workflow_cancelled',
+        }))).toEqual({
+            type: 'done',
+            status: 'cancelled',
+            partial: true,
+            finishReason: 'workflow_cancelled',
+        })
+    })
+
     it('returns null for invalid input', () => {
         expect(parseProxyJobWsEvent('not-json')).toBeNull()
         expect(parseProxyJobWsEvent(JSON.stringify({ nope: 1 }))).toBeNull()
