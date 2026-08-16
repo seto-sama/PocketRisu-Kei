@@ -463,7 +463,11 @@ import { isMobile } from 'src/ts/platform'
 
             if (exact) {
                 if (chatScreenRoot && element && chatScrollController) {
-                    chatScrollController.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
+                    chatScrollController.scrollToElement(element as HTMLElement, {
+                        block: 'start',
+                        behavior: 'instant',
+                        followLayout: true,
+                    })
                 }
                 return
             }

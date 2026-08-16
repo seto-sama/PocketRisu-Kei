@@ -39,6 +39,7 @@ export function isChatNearBottom(
 type ScrollElementOptions = {
     block: 'start' | 'end'
     behavior: ScrollBehavior
+    followLayout?: boolean
 }
 
 type LayoutAnchor = {
@@ -108,6 +109,8 @@ export function createChatScrollController(
     let leavingBottom = false
     let pointerActive = false
     let touchActive = false
+    let directManipulationStart: number | null = null
+    let navigationAnchor: LayoutAnchor | null = null
     const layoutAnchors = new Map<symbol, LayoutAnchor>()
     const observedElements = new Set<Element>()
 
@@ -120,7 +123,7 @@ export function createChatScrollController(
 
     const latestLayoutAnchor = () => {
         const anchors = [...layoutAnchors.values()]
-        return anchors.at(-1) ?? null
+        return anchors.at(-1) ?? navigationAnchor
     }
 
     const alignLayoutAnchor = (anchor: LayoutAnchor) => {
@@ -135,6 +138,11 @@ export function createChatScrollController(
 
     const preserveAfterLayout = () => {
         if (destroyed || pointerActive || touchActive) return
+        if (navigationAnchor?.element
+            && (!navigationAnchor.element.isConnected
+                || !container.contains(navigationAnchor.element))) {
+            navigationAnchor = null
+        }
         const anchor = latestLayoutAnchor()
         if (anchor) {
             alignLayoutAnchor(anchor)
@@ -173,6 +181,7 @@ export function createChatScrollController(
     }
 
     const handleWheel = (event: WheelEvent) => {
+        navigationAnchor = null
         if (event.deltaY < 0) {
             leavingBottom = true
             pinnedToBottom = false
@@ -183,7 +192,7 @@ export function createChatScrollController(
     }
 
     const handleScroll = () => {
-        if (layoutAnchors.size > 0) return
+        if (layoutAnchors.size > 0 || navigationAnchor) return
         const atBottom = isAtBottom()
         // Firefox can deliver the wheel event before APZ publishes the first
         // changed scrollTop. Do not relatch during that gap.
@@ -191,23 +200,49 @@ export function createChatScrollController(
             pinnedToBottom = false
             return
         }
-        pinnedToBottom = atBottom
-        if (!atBottom) leavingBottom = false
+        if (atBottom) {
+            pinnedToBottom = true
+            leavingBottom = false
+            return
+        }
+        const directManipulationMoved = (pointerActive || touchActive)
+            && directManipulationStart !== null
+            && Math.abs(container.scrollTop - directManipulationStart) > BOTTOM_EPSILON
+        if (leavingBottom || directManipulationMoved) {
+            pinnedToBottom = false
+            leavingBottom = false
+            return
+        }
+        // A forward-flow room can emit scroll while its initial/streamed
+        // content is still publishing layout. Without explicit user intent,
+        // that temporary bottom gap must not release the bottom latch.
+        if (pinnedToBottom) scheduleLayout()
     }
 
+    const startDirectManipulation = () => {
+        navigationAnchor = null
+        directManipulationStart ??= container.scrollTop
+    }
+    const finishDirectManipulation = () => {
+        if (pointerActive || touchActive) return
+        directManipulationStart = null
+        scheduleLayout()
+    }
     const startPointer = () => {
+        startDirectManipulation()
         pointerActive = true
     }
     const endPointer = () => {
         pointerActive = false
-        if (!touchActive) scheduleLayout()
+        finishDirectManipulation()
     }
     const startTouch = () => {
+        startDirectManipulation()
         touchActive = true
     }
     const endTouch = () => {
         touchActive = false
-        if (!pointerActive) scheduleLayout()
+        finishDirectManipulation()
     }
 
     const scrollToElement = (element: HTMLElement, options: ScrollElementOptions) => {
@@ -219,15 +254,26 @@ export function createChatScrollController(
             : elementRect.bottom - containerRect.bottom
         leavingBottom = false
         pinnedToBottom = false
+        navigationAnchor = options.followLayout
+            ? {
+                element,
+                edge: 'top',
+                position: options.block === 'start'
+                    ? containerRect.top
+                    : containerRect.bottom - elementRect.height,
+            }
+            : null
         container.scrollTo({
             top: container.scrollTop + offset,
             behavior: options.behavior,
         })
+        if (navigationAnchor) scheduleLayout()
     }
 
     const scrollToEdge = (edge: 'top' | 'bottom', behavior: ScrollBehavior) => {
         if (destroyed) return
         leavingBottom = false
+        navigationAnchor = null
         pinnedToBottom = edge === 'bottom' && behavior === 'instant'
         container.scrollTo({
             top: edge === 'bottom' ? maxScrollTop() : 0,
@@ -344,6 +390,8 @@ export function createChatScrollController(
             mutationObserver?.disconnect()
             observedElements.clear()
             layoutAnchors.clear()
+            directManipulationStart = null
+            navigationAnchor = null
             cancelAnimationFrame(layoutFrame)
             container.removeEventListener('wheel', handleWheel)
             container.removeEventListener('scroll', handleScroll)
