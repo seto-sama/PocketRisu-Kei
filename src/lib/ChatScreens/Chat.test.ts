@@ -38,6 +38,8 @@ const storeMocks = vi.hoisted(() => {
 
 const parserMocks = vi.hoisted(() => ({
     ParseMarkdown: vi.fn(async (value: string) => value),
+    prepareMarkdownSource: vi.fn(async (value: string) => value),
+    renderPreparedMarkdown: vi.fn(async (value: string) => value),
 }))
 
 const interactionMocks = vi.hoisted(() => ({
@@ -99,6 +101,8 @@ vi.mock('../../ts/parser/parser.svelte', () => ({
     addMetadataToElement: (value: string) => value,
     getDistance: () => 0,
     postTranslationParse: (value: string) => value,
+    prepareMarkdownSource: parserMocks.prepareMarkdownSource,
+    renderPreparedMarkdown: parserMocks.renderPreparedMarkdown,
     resolveInlayPlaceholders: vi.fn(),
     trimMarkdown: (value: string) => value,
 }))
@@ -164,6 +168,10 @@ const mountedComponents: unknown[] = []
 beforeEach(() => {
     clearChatBodyRenderCache()
     parserMocks.ParseMarkdown.mockImplementation(async (value: string) => value)
+    parserMocks.prepareMarkdownSource.mockImplementation(async (value: string) => value)
+    parserMocks.renderPreparedMarkdown.mockImplementation(
+        async (value: string) => `<p>${value.trim()}</p>`,
+    )
     translatorMocks.getLLMCache.mockResolvedValue(null)
     translatorMocks.translateHTML.mockImplementation(async (value: string) => value)
     DBState.db = {
@@ -274,6 +282,54 @@ describe('Chat editing', () => {
         restoredButton?.click()
         const restoredOriginalButton = await waitForTranslationButtonState(restoredTarget, false)
         expect(restoredOriginalButton?.classList.contains('text-primary')).toBe(false)
+    })
+
+    it('reuses an LLM translation cache after showing the original text', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        DBState.db.showTranslationLoading = true
+        translatorMocks.getLLMCache.mockImplementation(async (key: string) =>
+            key === 'User message' ? 'Cached translation' : null
+        )
+        translatorMocks.translateHTML.mockImplementation(async (key: string) =>
+            await translatorMocks.getLLMCache(key) ?? `Translated ${key}`
+        )
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                isLastMemory: false,
+                renderCacheKey: 'room:cached-message',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        const originalButton = target.querySelector<HTMLButtonElement>('.button-icon-translate')
+        originalButton?.click()
+        const translatedButton = await waitForTranslationButtonState(target, true)
+        await vi.waitFor(() => expect(translatorMocks.translateHTML).toHaveBeenCalled())
+        await vi.waitFor(() => expect(target.textContent).toContain('Cached translation'))
+
+        translatedButton?.click()
+        const restoredOriginalButton = await waitForTranslationButtonState(target, false)
+        await vi.waitFor(() => expect(target.textContent).toContain('User message'))
+
+        restoredOriginalButton?.click()
+        const restoredTranslatedButton = await waitForTranslationButtonState(target, true)
+        await vi.waitFor(() => {
+            expect(restoredTranslatedButton?.classList.contains('text-primary')).toBe(true)
+            expect(target.textContent).toContain('Cached translation')
+            expect(target.querySelector('.translating')).toBeNull()
+        })
     })
 
     it('enters the original-message editor after one edit click', async () => {
@@ -729,6 +785,73 @@ describe('Chat editing', () => {
 
         expect(target.querySelectorAll('.chat-message-container')).toHaveLength(30)
         expect(parserMocks.ParseMarkdown).toHaveBeenCalledTimes(30)
+    })
+
+    it('keeps stable streaming blocks mounted and performs a full final parse', async () => {
+        DBState.db.useStreaming = true
+        const initialMessage: Message = {
+            role: 'char',
+            data: 'Stable paragraph.\n\nTail',
+            chatId: 'stream-1',
+        }
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            largePortrait: false,
+            chats: [{ id: 'chat-1', message: [initialMessage] }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = createClassComponent({
+            component: ChatsTestHarness,
+            target,
+            props: {
+                messages: [initialMessage],
+                currentCharacter,
+                roomIsStreaming: true,
+                roomIsResponding: true,
+            },
+        })
+        await vi.waitFor(() => {
+            expect(target.textContent).toContain('Tail')
+        })
+        const stableParagraph = target.querySelector('p')
+        expect(stableParagraph).not.toBeNull()
+
+        const completedText = 'Stable paragraph.\n\nSecond paragraph.\n\nFinished tail'
+        const growingMessage = { ...initialMessage, data: completedText }
+        component.$set({
+            messages: [growingMessage],
+            roomIsStreaming: true,
+            roomIsResponding: true,
+        })
+        await vi.waitFor(() => {
+            expect(target.textContent).toContain('Finished tail')
+        })
+
+        expect(target.querySelector('p')).toBe(stableParagraph)
+        expect(parserMocks.renderPreparedMarkdown.mock.calls
+            .filter(([source]) => source === 'Stable paragraph.\n\n')).toHaveLength(1)
+
+        component.$set({
+            messages: [growingMessage],
+            roomIsStreaming: false,
+            roomIsResponding: false,
+        })
+        await vi.waitFor(() => {
+            expect(parserMocks.ParseMarkdown).toHaveBeenCalledWith(
+                completedText,
+                expect.anything(),
+                'notrim',
+                0,
+                expect.anything(),
+                expect.anything(),
+            )
+        })
+        component.$destroy()
     })
 
     it('publishes a new-message notification after a fast Echo response completes', async () => {

@@ -979,7 +979,7 @@ function parseThoughtsAndTools(data:string, inlineThoughts = false){
     })
 }
 
-export async function ParseMarkdown(
+export async function prepareMarkdownSource(
     data:string,
     charArg:(character|simpleCharacterArgument | string) = null,
     mode:'normal'|'back'|'pretranslate'|'notrim' = 'normal',
@@ -1010,7 +1010,13 @@ export async function ParseMarkdown(
 
     data = parseInlayAssets(data ?? '')
     data = parseThoughtsAndTools(data, options.inlineThoughts === true)
-    data = encodeStyle(data)
+    return encodeStyle(data)
+}
+
+export async function renderPreparedMarkdown(
+    data:string,
+    mode:'normal'|'back'|'pretranslate'|'notrim' = 'normal',
+) {
     if(mode === 'normal' || mode === 'notrim'){
         data = await renderHighlightableMarkdown(data)
 
@@ -1019,6 +1025,20 @@ export async function ParseMarkdown(
         }
     }
     return trimMarkdown(data)
+}
+
+export async function ParseMarkdown(
+    data:string,
+    charArg:(character|simpleCharacterArgument | string) = null,
+    mode:'normal'|'back'|'pretranslate'|'notrim' = 'normal',
+    chatID=-1,
+    cbsConditions:CbsConditions = {},
+    options:{inlineThoughts?:boolean} = {},
+) {
+    return renderPreparedMarkdown(
+        await prepareMarkdownSource(data, charArg, mode, chatID, cbsConditions, options),
+        mode,
+    )
 }
 
 // LRU cache for DOMPurify + decodeStyle results.
@@ -1105,7 +1125,11 @@ function encodeMetadata(modelShortName:string){
     return encodedMetaCode
 }
 
-export function addMetadataToElement(data:string, modelShortName:string){
+export function addMetadataToElement(
+    data:string,
+    modelShortName:string,
+    appendTerminalMetadata = true,
+){
     if(!aiWatermarkingLawApplies()){
         return data
     }
@@ -1118,7 +1142,7 @@ export function addMetadataToElement(data:string, modelShortName:string){
         return '<p>' + encodedMetaCode
     })
 
-    return d + encodedMetaCode
+    return d + (appendTerminalMetadata ? encodedMetaCode : '')
 }
 
 export async function postTranslationParse(data:string){
