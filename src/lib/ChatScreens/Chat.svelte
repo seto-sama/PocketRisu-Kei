@@ -123,6 +123,16 @@
             translationRecoveryTarget?.swipeId ?? (firstMessage ? currentPage - 1 : 0),
         ])
         : '')
+    const translationSourceIdentity = $derived(JSON.stringify([
+        renderCacheKey,
+        translationRecoveryTarget?.messageChatId ?? null,
+        translationRecoveryTarget?.swipeId ?? (firstMessage ? currentPage - 1 : 0),
+    ]))
+    let previousTranslationSource: {
+        identity: string
+        message: string
+        streaming: boolean
+    } | null = null
     const trackSharedTranslationTasks = createSubscriber((update) =>
         subscribeSharedTranslationTaskChanges(update)
     )
@@ -405,6 +415,31 @@
         retranslate = false
     }
 
+    // Local controls and remote canonical sync both eventually replace this
+    // message source. Reset at that shared boundary so a translated old swipe
+    // cannot initiate a translation for the new one. Cached-only auto
+    // translation may then inspect and restore the new swipe's existing cache.
+    $effect.pre(() => {
+        const nextSource = {
+            identity: translationSourceIdentity,
+            message,
+            streaming: isStreamingDisplay,
+        }
+        const previousSource = previousTranslationSource
+        previousTranslationSource = nextSource
+        if (previousSource === null) {
+            return
+        }
+        const identityChanged = previousSource.identity !== nextSource.identity
+        const settledMessageChanged = !previousSource.streaming
+            && !nextSource.streaming
+            && previousSource.message !== nextSource.message
+        if (!identityChanged && !settledMessageChanged) return
+        cancelTranslationRequest?.()
+        resetTranslationState()
+        translationRevision += 1
+    })
+
     function handleTranslationButton() {
         if (currentTextEditActive) return
         if (isTranslationBusy()) {
@@ -421,9 +456,7 @@
 
     function changeSwipe(change: () => void) {
         if (controlDisabled.swipe) return
-        resetTranslationState()
         change()
-        translationRevision += 1
     }
 
     async function toggleCurrentTextEdit() {

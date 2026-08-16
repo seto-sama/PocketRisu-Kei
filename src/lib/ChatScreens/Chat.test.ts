@@ -123,6 +123,7 @@ vi.mock('src/ts/process/modules', () => ({ getModuleAssets: () => [] }))
 vi.mock('src/ts/characters', () => ({ getCharImage: (value: string) => value }))
 vi.mock('src/ts/gui/longtouch', () => ({ longpress: () => ({ destroy() {} }) }))
 vi.mock('src/ts/process/revenant/recovery', () => ({
+    configureRevenantGenerationChatRecovery: () => {},
     createRevenantChatTranslationRecoveryContext: () => ({ trackSnapshot: () => {} }),
     createRevenantChatTranslationRecovery: () => ({
         pending: false,
@@ -591,6 +592,127 @@ describe('Chat editing', () => {
             expect(translatorMocks.getLLMCache).toHaveBeenCalledWith('First swipe')
             expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(true)
         })
+    })
+
+    it('restores the selected swipe cache after a remote canonical deletion', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        DBState.db.autoTranslate = true
+        DBState.db.autoTranslateCachedOnly = true
+        const messages: Message[] = [{
+            role: 'char',
+            data: 'Third swipe',
+            chatId: 'message-0',
+            swipes: ['First swipe', 'Second swipe', 'Third swipe'],
+            swipeId: 2,
+        }]
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            largePortrait: false,
+            chats: [{ id: 'chat-1', message: messages }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+        translatorMocks.getLLMCache.mockImplementation(async (key: string) =>
+            key === 'Second swipe' ? 'Translated second swipe' : null
+        )
+        translatorMocks.translateHTML.mockImplementation(async (key: string) =>
+            await translatorMocks.getLLMCache(key) ?? `Generated ${key}`
+        )
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chats, {
+            target,
+            props: {
+                messages,
+                currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 1,
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+        expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(false)
+
+        messages[0].swipes!.splice(2, 1)
+        messages[0].swipeId = 1
+        messages[0].data = 'Second swipe'
+        storeMocks.ReloadChatPointer.set({ 0: 1 })
+
+        await vi.waitFor(() => {
+            expect(translatorMocks.getLLMCache).toHaveBeenCalledWith('Second swipe')
+            expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(true)
+            expect(target.textContent).toContain('Translated second swipe')
+        })
+    })
+
+    it('does not translate an uncached swipe selected by remote canonical sync', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        const messages: Message[] = [{
+            role: 'char',
+            data: 'Second swipe',
+            chatId: 'message-0',
+            swipes: ['First swipe', 'Second swipe', 'Third swipe'],
+            swipeId: 1,
+        }]
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            largePortrait: false,
+            chats: [{ id: 'chat-1', message: messages }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+        translatorMocks.getLLMCache.mockImplementation(async (key: string) =>
+            key === 'Second swipe' ? 'Translated second swipe' : null
+        )
+        translatorMocks.translateHTML.mockImplementation(async (key: string) =>
+            await translatorMocks.getLLMCache(key) ?? `Generated ${key}`
+        )
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chats, {
+            target,
+            props: {
+                messages,
+                currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 1,
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await waitForTranslationButtonState(target, true)
+        await vi.waitFor(() => expect(target.textContent).toContain('Translated second swipe'))
+        translatorMocks.translateHTML.mockClear()
+
+        messages[0].swipeId = 2
+        messages[0].data = 'Third swipe'
+        storeMocks.ReloadChatPointer.set({ 0: 2 })
+
+        await vi.waitFor(() => {
+            expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(false)
+            expect(target.textContent).toContain('Third swipe')
+        })
+        expect(translatorMocks.translateHTML.mock.calls.some(
+            ([source]) => source === 'Third swipe',
+        )).toBe(false)
     })
 
     it('does not automatically retranslate content changed by an internal Lua button', async () => {
