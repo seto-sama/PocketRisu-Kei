@@ -117,6 +117,8 @@
             const displayMessage = message.recoveryDisplayData ?? message.data;
             const messageLargePortrait = message.role === 'user' ? (userIconPortrait ?? false) : ((currentCharacter as character).largePortrait ?? false);
             const isRerollTarget = i === lastRealCharIdx;
+            const generationOwned = message.role === 'char'
+                && (message.isRecovering === true || (roomIsResponding && isRerollTarget));
             const showHistoricalSwipes = showPreviousChatSwipeButtons && message.role === 'char' && !message.isComment && !message.disabled && !isRerollTarget && (message.swipes?.length ?? 0) > 1;
             const showSwipeControls = isRerollTarget || showHistoricalSwipes;
             const isStreamingMessage = message.role === 'char'
@@ -166,6 +168,7 @@
                     rerollIcon: showSwipeControls ? 'force' : false,
                     swipeNavigationOnly: showHistoricalSwipes,
                     isStreamingDisplay: isStreamingMessage,
+                    generationOwned,
                     character: simpleChar,
                     largePortrait: messageLargePortrait,
                     messageGenerationInfo: message.generationInfo ? { ...message.generationInfo } : undefined,
@@ -202,6 +205,7 @@
                     if (props.rerollIcon !== rerollIcon) props.rerollIcon = rerollIcon
                     if (props.swipeNavigationOnly !== showHistoricalSwipes) props.swipeNavigationOnly = showHistoricalSwipes
                     if (props.isStreamingDisplay !== isStreamingMessage) props.isStreamingDisplay = isStreamingMessage
+                    if (props.generationOwned !== generationOwned) props.generationOwned = generationOwned
                     if (entry.characterSource !== simpleChar) {
                         props.character = simpleChar
                         entry.characterSource = simpleChar

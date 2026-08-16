@@ -14,7 +14,8 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
     import { chatProcessStage, doingChat, recoverRevenantGenerationsForChat, sendChat } from "../../ts/process/index.svelte";
-    import { ensureCurrentChatReady } from "../../ts/storage/chatStorage";
+    import { createChatCommitSnapshot, ensureCurrentChatReady } from "../../ts/storage/chatStorage";
+    import type { ChatCommitSnapshot } from '../../ts/storage/chatWorkingCopy';
     import { sleep } from "../../ts/util";
     import { language } from "../../lang";
     import { isExpTranslator, recoverAuxiliaryTranslationJobs, translate } from "../../ts/translator/translator";
@@ -42,12 +43,10 @@ import { isMobile } from 'src/ts/platform'
         activeRevenantWorkflows,
         cancelRevenantWorkflow,
         getActiveRevenantWorkflow,
-        getRevenantWorkflow,
         subscribeRevenantWorkflowSyncReady,
         subscribeRevenantWorkflowUpdates,
     } from 'src/ts/process/revenant/workflow';
     import {
-        clearRevenantRecoveryForChat,
         updateRevenantAuxiliaryRecoveryStatus,
     } from 'src/ts/process/revenant/recovery';
 
@@ -186,27 +185,8 @@ import { isMobile } from 'src/ts/platform'
         const characterId = currentCharacter?.chaId
         const roomId = currentChatSlot?.id
         if (!characterId || !roomId) return
-        const workflow = currentRevenantWorkflow
-        const character = currentCharacter
-        const chat = currentChatSlot
         const refresh = () => {
             void getActiveRevenantWorkflow(characterId, roomId)
-                .then(async active => {
-                    if (
-                        !active
-                        && workflow
-                        && character?.chaId === characterId
-                        && chat?.id === roomId
-                    ) {
-                        const terminalWorkflow = await getRevenantWorkflow(workflow.workflowId)
-                            .catch(() => undefined)
-                        const cancelled = terminalWorkflow?.status === 'cancelled'
-                        clearRevenantRecoveryForChat(character, chat, {
-                            preserveProjection: cancelled,
-                            cancelled,
-                        })
-                    }
-                })
                 .catch(error => console.warn('[GenerationWorkflow] Active refresh failed:', error))
         }
         refresh()
@@ -754,6 +734,7 @@ import { isMobile } from 'src/ts/platform'
         // Generate new response
         // Preserve trailing comment/disabled messages (e.g. branch comments)
         let cha = safeStructuredClone(rerollChat.message)
+        const durableInputCommit = createChatCommitSnapshot(rerollCharacter.chaId, rerollChat)
         const originalMessages = safeStructuredClone(cha)
         if(cha.length === 0) return
         openMenu = false
@@ -796,6 +777,7 @@ import { isMobile } from 'src/ts/platform'
             rerollSnapshot,
             generationTarget,
             foregroundContext,
+            durableInputCommit,
         )
 
         // A user-triggered cancel keeps the partial reroll as the active swipe.
@@ -819,7 +801,6 @@ import { isMobile } from 'src/ts/platform'
     }
 
     async function unReroll(idx?: number) {
-        if(currentRoomHasMainGeneration) return
         const lastMsg = getSwipeTargetMsg(idx)
         if (!lastMsg || !lastMsg.swipes || lastMsg.swipeId === undefined) return
 
@@ -889,6 +870,7 @@ import { isMobile } from 'src/ts/platform'
         rerollSnapshot?: RevenantRerollSnapshot,
         generationTarget?: ForegroundGenerationContext['origin'],
         preparedContext?: ForegroundGenerationContext,
+        durableInputCommit?: ChatCommitSnapshot,
     ) {
 
         const origin = generationTarget ?? (
@@ -911,6 +893,7 @@ import { isMobile } from 'src/ts/platform'
                 onDetached: () => detached = true,
                 continue:continued,
                 rerollSnapshot,
+                durableInputCommit,
                 generationTarget: origin,
             })
         } catch (error) {
@@ -941,14 +924,6 @@ import { isMobile } from 'src/ts/platform'
         const workflowBelongsToCurrentChat =
             currentCharacter?.chaId === workflow.characterId
             && currentChatSlot?.id === workflow.roomId
-        if (workflowBelongsToCurrentChat) {
-            // Snapshot the detached projection before the server cancellation
-            // closes the journal subscription and removes the recoverable job.
-            clearRevenantRecoveryForChat(currentCharacter, currentChatSlot, {
-                preserveProjection: true,
-                cancelled: true,
-            })
-        }
         try{
             await cancelRevenantWorkflow(workflow.workflowId)
         }

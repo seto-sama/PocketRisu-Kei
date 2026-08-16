@@ -73,6 +73,7 @@
         totalPages?: number;
         swipeNavigationOnly?: boolean;
         isStreamingDisplay?: boolean;
+        generationOwned?: boolean;
         isComment?: boolean;
         disabled?: boolean | 'allBefore';
         renderCacheKey?: string;
@@ -104,6 +105,7 @@
         totalPages = 1,
         swipeNavigationOnly = false,
         isStreamingDisplay = false,
+        generationOwned = false,
         isComment = false,
         disabled = false,
         renderCacheKey = '',
@@ -130,6 +132,7 @@
     })
 
     async function rm(){
+        if (generationOwned) return
         const messages = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
         const cascadeCount = messages.length - idx
 
@@ -377,15 +380,15 @@
 
     const currentTextEditActive = $derived(editMode || editTranslationMode)
     const controlDisabled = $derived.by(() => ({
-        translationToggle: currentTextEditActive
+        translationToggle: generationOwned || currentTextEditActive
             || (isTranslationControlBusy() && cancelTranslationRequest === null),
-        translationAction: currentTextEditActive || isTranslationControlBusy(),
-        swipe: currentTextEditActive || isTranslationBusy(),
-        edit: isTranslationBusy()
+        translationAction: generationOwned || currentTextEditActive || isTranslationControlBusy(),
+        swipe: generationOwned || currentTextEditActive || isTranslationBusy(),
+        edit: generationOwned || isTranslationBusy()
             || (translated
                 && DBState.db.translatorType === 'llm'
                 && !revenantTranslationInspectionReady),
-        partialEdit: currentTextEditActive || isTranslationBusy() || isStreamingDisplay,
+        partialEdit: generationOwned || currentTextEditActive || isTranslationBusy(),
     }))
 
     function updateTranslationTasks(delta:1|-1) {
@@ -1050,7 +1053,7 @@
             {/if}
         </IconButton>
     {/if}
-    <IconButton size="lg" expanded={showNames} tone="destructive" className="button-icon-remove" onclick={rm}>
+    <IconButton size="lg" expanded={showNames} tone="destructive" className="button-icon-remove" disabled={generationOwned} onclick={rm}>
         <TrashIcon />
 
         {#if showNames}
@@ -1153,6 +1156,7 @@
 {/snippet}
 
 {#snippet minorIconButtonsBody(showNames:boolean)}
+    <fieldset class="contents" disabled={generationOwned}>
     {#if idx > -1}
         <IconButton size="lg" expanded={showNames} active={isBookmarked} activeColor="primary" className="button-icon-bookmark" onclick={async () => {
             await sleep(1)
@@ -1223,6 +1227,7 @@
         {/if}
     </IconButton>
     {/if}
+    </fieldset>
 {/snippet}
 
 {#snippet senderIcon(options:{rounded?:boolean,styleFix?:string} = {})}

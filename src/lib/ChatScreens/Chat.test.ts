@@ -367,6 +367,45 @@ describe('Chat editing', () => {
         expect(target.querySelector('.message-edit-area')).toBeNull()
     })
 
+    it('locks controls only for the message owned by generation', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            largePortrait: false,
+        } as unknown as character
+        const messages: Message[] = [
+            { role: 'char', data: 'previous', chatId: 'previous', swipes: ['one', 'two'], swipeId: 0 },
+            { role: 'user', data: 'question', chatId: 'question' },
+            { role: 'char', data: 'streaming', chatId: 'generated' },
+        ]
+        currentCharacter.chats = [{ id: 'chat-1', message: messages } as any]
+        DBState.db.characters[0] = currentCharacter
+
+        const component = createClassComponent({
+            component: ChatsTestHarness,
+            target,
+            props: {
+                messages,
+                currentCharacter,
+                roomIsStreaming: true,
+                roomIsResponding: true,
+            },
+        })
+        await waitForParserCalls(3)
+
+        const rendered = target.querySelectorAll('.chat-message-container')
+        expect(rendered[0].querySelector<HTMLButtonElement>('.button-icon-edit')?.disabled).toBe(false)
+        expect(rendered[2].querySelector<HTMLButtonElement>('.button-icon-edit')?.disabled).toBe(true)
+        expect(rendered[2]
+            .querySelector<HTMLButtonElement>('.button-icon-reroll')
+            ?.closest('fieldset')?.disabled).toBe(true)
+
+        component.$destroy()
+    })
+
     it('uses the shared pencil button to edit the visible LLM translation', async () => {
         DBState.db.translator = 'en'
         DBState.db.translatorType = 'llm'
