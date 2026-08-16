@@ -5,7 +5,7 @@
     import { getCharImage } from 'src/ts/characters';
     import { createSimpleCharacter, DBState, ReloadChatPointer } from 'src/ts/stores.svelte';
     import { chatFoldedStateMessageIndex } from 'src/ts/globalApi.svelte';
-    import { didNewResponseStart, type ChatResponseSnapshot, type ChatScrollController } from './chatScroll';
+    import { didNewResponseComplete, getCompletedResponseAction, isColumnReverseNearBottom, type ChatResponseSnapshot, type ChatScrollController } from './chatScroll';
     import { createRevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from 'src/ts/process/revenant/recovery';
 
     let {
@@ -19,6 +19,7 @@
         userIcon,
         chatRoomId,
         roomIsStreaming = false,
+        roomIsResponding = roomIsStreaming,
         loadPages,
         userIconPortrait,
         getScrollController = () => null,
@@ -34,6 +35,7 @@
         userIcon: string
         chatRoomId: string
         roomIsStreaming?: boolean
+        roomIsResponding?: boolean
         loadPages: number
         userIconPortrait?: boolean
         getScrollController?: () => ChatScrollController | null
@@ -304,7 +306,7 @@
             messageCount: messages.length,
             isCharacterResponse: lastMsg?.role === 'char',
             hasContent: (lastMsg?.recoveryDisplayData ?? lastMsg?.data ?? '').length > 0,
-            isResponding: roomIsStreaming || lastMsg?.isRecovering === true,
+            isResponding: roomIsResponding || lastMsg?.isRecovering === true,
         }
         const newMessageButtonEnabled = DBState.db.newMessageButtonStyle !== 'off'
 
@@ -312,14 +314,23 @@
         // unread affordance that was already visible.
         if (!newMessageButtonEnabled) hasNewUnreadMessage = false
 
-        // Move exactly once when the first visible response content arrives.
-        // No delayed callback remains to pull the reader back after they move.
-        if (didNewResponseStart(previousResponseSnapshot, snapshot)) {
-            if (DBState.db.autoScrollToNewMessage) {
+        // A completed response is the notification boundary. While streaming,
+        // the scroll controller already follows content if the reader stayed
+        // at the bottom; readers browsing history must not be pulled into a
+        // partial response on its first token.
+        const responseCompleted = didNewResponseComplete(previousResponseSnapshot, snapshot)
+        if (responseCompleted) {
+            const completedResponseAction = getCompletedResponseAction({
+                autoScroll: DBState.db.autoScrollToNewMessage === true,
+                buttonEnabled: newMessageButtonEnabled,
+                nearBottom: !chatBody?.parentElement
+                    || isColumnReverseNearBottom(chatBody.parentElement.scrollTop),
+            })
+            if (completedResponseAction === 'scroll') {
                 hasNewUnreadMessage = false
                 scrollLatestIntoChatScreen()
             }
-            else if (newMessageButtonEnabled) {
+            else if (completedResponseAction === 'notify') {
                 hasNewUnreadMessage = true
             }
         }

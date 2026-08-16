@@ -26,7 +26,7 @@ import { isMobile } from 'src/ts/platform'
     import { stopTTS } from "src/ts/process/tts";
     import MainMenu from '../UI/MainMenu.svelte';
     import AssetInput from './AssetInput.svelte';
-    import { createChatScrollController, type ChatScrollController } from './chatScroll';
+    import { createChatScrollController, isColumnReverseNearBottom, type ChatScrollController } from './chatScroll';
     import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile } from 'src/ts/globalApi.svelte';
     import { isRevenantGenerationLocallyObserved } from 'src/ts/process/revenant/transport';
     import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenant/auxiliary';
@@ -1551,11 +1551,8 @@ import { isMobile } from 'src/ts/platform'
             if(scrolled < 100 && currentChat.length > loadPages){
                 loadPages += getAdditionalChatLoadPages(DBState.db)
             }
-            const chatTarget = e.target as HTMLElement;
-            const chatsContainer = (DBState.db.fixedChatTextarea && chatTarget.children[1]) ? chatTarget.children[1] : chatTarget.children[0];
-            const lastEl = chatsContainer?.firstElementChild;
-            const isAtBottom = lastEl ? lastEl.getBoundingClientRect().top <= chatTarget.getBoundingClientRect().bottom + 100 : true;
-            if(isAtBottom){
+            const chatTarget = e.currentTarget as HTMLElement;
+            if(isColumnReverseNearBottom(chatTarget.scrollTop)){
                 showNewMessageButton = false;
             }
         }}>
@@ -1615,6 +1612,7 @@ import { isMobile } from 'src/ts/platform'
                 userIcon={userIcon}
                 chatRoomId={currentChatSlot?.id ?? ''}
                 roomIsStreaming={currentChatSlot?.isStreaming ?? false}
+                roomIsResponding={currentRoomHasMainGeneration}
                 userIconPortrait={userIconPortrait}
                 bind:hasNewUnreadMessage={showNewMessageButton}
             />

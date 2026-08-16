@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
     calculateRangePixelPadding,
     createChatScrollController,
-    didNewResponseStart,
+    didNewResponseComplete,
+    getCompletedResponseAction,
+    isColumnReverseNearBottom,
     isColumnReverseScrolledToBottom,
     snapToDevicePixel,
     type ChatResponseSnapshot,
@@ -102,52 +104,86 @@ function responseSnapshot(
     }
 }
 
-describe('new response auto-scroll timing', () => {
-    it('waits for content instead of scrolling when the empty placeholder appears', () => {
+describe('new response completion timing', () => {
+    it('waits for a streaming response to finish', () => {
         const previous = responseSnapshot({
-            messageKey: 'user-1',
-            messageCount: 1,
-            isCharacterResponse: false,
-            hasContent: true,
+            hasContent: false,
         })
-        const placeholder = responseSnapshot()
-
-        expect(didNewResponseStart(previous, placeholder)).toBe(false)
-        expect(didNewResponseStart(placeholder, {
-            ...placeholder,
-            hasContent: true,
-        })).toBe(true)
-    })
-
-    it('recognizes an already-populated non-streaming response', () => {
-        const previous = responseSnapshot({
-            messageKey: 'user-1',
-            messageCount: 1,
-            isCharacterResponse: false,
-            hasContent: true,
-        })
-
-        expect(didNewResponseStart(previous, responseSnapshot({ hasContent: true }))).toBe(true)
-    })
-
-    it('does not repeatedly scroll as more streaming content arrives', () => {
         const firstToken = responseSnapshot({ hasContent: true })
-        expect(didNewResponseStart(firstToken, firstToken)).toBe(false)
+        const completed = responseSnapshot({
+            hasContent: true,
+            isResponding: false,
+        })
+
+        expect(didNewResponseComplete(previous, firstToken)).toBe(false)
+        expect(didNewResponseComplete(firstToken, completed)).toBe(true)
+    })
+
+    it('recognizes an already-populated non-streaming response when it settles', () => {
+        const previous = responseSnapshot({
+            messageKey: 'user-1',
+            messageCount: 1,
+            isCharacterResponse: false,
+            hasContent: true,
+            isResponding: false,
+        })
+
+        expect(didNewResponseComplete(previous, responseSnapshot({
+            hasContent: true,
+            isResponding: false,
+        }))).toBe(true)
+    })
+
+    it('does not trigger again after the response has completed', () => {
+        const completed = responseSnapshot({
+            hasContent: true,
+            isResponding: false,
+        })
+        expect(didNewResponseComplete(completed, completed)).toBe(false)
     })
 
     it('ignores chat switches, edits, and continuation id changes', () => {
-        const empty = responseSnapshot({ isResponding: false })
-        expect(didNewResponseStart(empty, { ...empty, hasContent: true })).toBe(false)
+        const completed = responseSnapshot({
+            hasContent: true,
+            isResponding: false,
+        })
+        expect(didNewResponseComplete(completed, completed)).toBe(false)
 
         const populated = responseSnapshot({ hasContent: true })
-        expect(didNewResponseStart(populated, {
-            ...populated,
+        expect(didNewResponseComplete(populated, {
+            ...completed,
             roomKey: 'character:other-room',
         })).toBe(false)
-        expect(didNewResponseStart(populated, {
-            ...populated,
+        expect(didNewResponseComplete(populated, {
+            ...completed,
             messageKey: 'continuation-generation',
         })).toBe(false)
+    })
+})
+
+describe('completed response behavior', () => {
+    it('always scrolls a completed response when auto-scroll is enabled', () => {
+        expect(getCompletedResponseAction({
+            autoScroll: true,
+            buttonEnabled: true,
+            nearBottom: false,
+        })).toBe('scroll')
+    })
+
+    it('notifies history readers when auto-scroll is disabled', () => {
+        expect(getCompletedResponseAction({
+            autoScroll: false,
+            buttonEnabled: true,
+            nearBottom: false,
+        })).toBe('notify')
+    })
+
+    it('does nothing when the reader is already near the bottom', () => {
+        expect(getCompletedResponseAction({
+            autoScroll: true,
+            buttonEnabled: true,
+            nearBottom: true,
+        })).toBe('none')
     })
 })
 
@@ -644,5 +680,15 @@ describe('chat scroll pixel snapping', () => {
 
         expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
         controller.destroy()
+    })
+})
+
+describe('column-reverse bottom proximity', () => {
+    it('keeps the new-message affordance while reading older messages', () => {
+        expect(isColumnReverseNearBottom(0)).toBe(true)
+        expect(isColumnReverseNearBottom(12)).toBe(true)
+        expect(isColumnReverseNearBottom(-99.9)).toBe(true)
+        expect(isColumnReverseNearBottom(-100.1)).toBe(false)
+        expect(isColumnReverseNearBottom(-500)).toBe(false)
     })
 })

@@ -46,6 +46,16 @@ export function isColumnReverseScrolledToBottom(scrollTop: number) {
     return scrollTop >= -POSITION_EPSILON
 }
 
+export function isColumnReverseNearBottom(
+    scrollTop: number,
+    threshold = 100,
+) {
+    const normalizedThreshold = Number.isFinite(threshold)
+        ? Math.max(0, threshold)
+        : 0
+    return scrollTop >= -normalizedThreshold - POSITION_EPSILON
+}
+
 type ScrollAnchor = {
     element: HTMLElement
     edge: 'top' | 'bottom' | 'scrollTop'
@@ -74,8 +84,8 @@ export interface ChatResponseSnapshot {
     isResponding: boolean
 }
 
-/** Detect the instant a new assistant response first becomes visible. */
-export function didNewResponseStart(
+/** Detect the instant a new assistant response finishes generating. */
+export function didNewResponseComplete(
     previous: ChatResponseSnapshot | null,
     current: ChatResponseSnapshot,
 ): boolean {
@@ -84,19 +94,33 @@ export function didNewResponseStart(
         || !current.isCharacterResponse
         || !current.messageKey
         || !current.hasContent
-        || (!previous.isResponding && !current.isResponding)) {
+        || current.isResponding) {
         return false
     }
 
-    // Streaming fills an existing empty placeholder. Non-streaming providers
-    // may instead append an already-populated response.
+    // Streaming fills and then settles an existing placeholder. Non-streaming
+    // providers may instead replace it with an already-populated response.
     if (previous.messageKey === current.messageKey) {
-        return !previous.hasContent
+        return previous.isResponding
     }
 
-    // A continuation can replace the generation id of the current message;
-    // only a larger message list represents a genuinely new response here.
+    // Fast non-streaming providers such as Echo can append and settle their
+    // response between two UI observations. A continuation can also replace
+    // the generation id, so require a larger message list for this path.
     return current.messageCount > previous.messageCount
+}
+
+export type CompletedResponseAction = 'scroll' | 'notify' | 'none'
+
+export function getCompletedResponseAction(options: {
+    autoScroll: boolean
+    buttonEnabled: boolean
+    nearBottom: boolean
+}): CompletedResponseAction {
+    if (options.nearBottom) return 'none'
+    if (options.autoScroll) return 'scroll'
+    if (options.buttonEnabled) return 'notify'
+    return 'none'
 }
 
 export function createChatScrollController(
