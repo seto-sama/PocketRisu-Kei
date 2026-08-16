@@ -9,6 +9,7 @@
     import IconButton from "../GUI/IconButton.svelte";
     import ShButton from "../GUI/ShButton.svelte";
     import ShInput from "../GUI/ShInput.svelte";
+    import Portal from "../GUI/Portal.svelte";
 
     let openedData:null|hubType = $state(null)
 
@@ -184,6 +185,7 @@
 
 
 {#if menuOpen}
+    <Portal>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="risu-modal-backdrop z-50 flex justify-center items-center" role="button" tabindex="0" onclick={() => {
         menuOpen = false
@@ -216,4 +218,5 @@
             })}>Import Character from URL or ID</ShButton>
         </div>
     </div>
+    </Portal>
 {/if}

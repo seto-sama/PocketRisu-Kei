@@ -8,6 +8,7 @@
     import RealmLicense from "./RealmLicense.svelte";
     import MultiLangDisplay from "../GUI/MultiLangDisplay.svelte";
     import { tooltip } from "src/ts/gui/tooltip";
+    import Portal from "../GUI/Portal.svelte";
 
     interface Props {
         openedData: hubType;
@@ -19,6 +20,7 @@
 
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
+<Portal>
 <div class="risu-modal-backdrop z-50 flex justify-center items-center text-textcolor" role="button" tabindex="0" onclick={() => {
     openedData = null
 }}>
@@ -130,3 +132,4 @@
         </div>
     </div>
 </div>
+</Portal>

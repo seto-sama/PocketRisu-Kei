@@ -24,7 +24,8 @@
         type FetchLogSummary,
     } from 'src/ts/globalApi.svelte'
     import { language } from 'src/lang'
-    import { formatRequestBody, formatResponseBody, getResponseBodyDetails } from 'src/ts/requestLogFormat'
+    import { formatResponseBody } from 'src/ts/requestLogFormat'
+    import RequestLogDetail from 'src/lib/UI/RequestLogDetail.svelte'
 
     const LIST_LIMIT = 100
 
@@ -60,16 +61,6 @@
         const d = new Date(ts)
         const pad = (n: number) => String(n).padStart(2, '0')
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-    }
-
-    function parseRequestHeaders(header: string): Array<[string, string]> {
-        try {
-            const parsed = JSON.parse(header)
-            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
-            return Object.entries(parsed).map(([key, value]) => [key, typeof value === 'string' ? value : JSON.stringify(value)])
-        } catch {
-            return []
-        }
     }
 
     function formatRequestLogTime(log: { timestamp?: number; date: string }): string {
@@ -295,68 +286,8 @@
                                 {language.systemLogsFailedLoad}: {requestDetailErrors[log.id]}
                             </div>
                         {:else if detail}
-                        {@const headers = parseRequestHeaders(detail.header)}
-                        {@const requestBody = formatRequestBody(detail.body)}
-                        {@const responseDetails = getResponseBodyDetails(detail)}
                         <div class="p-3 text-xs text-textcolor2 space-y-4">
-                            <div class="flex flex-wrap gap-x-4 gap-y-1">
-                                <span><span class="text-textcolor2/70">timestamp:</span> {formatRequestLogTime(log)}</span>
-                                <span><span class="text-textcolor2/70">device:</span> {requestDeviceLabel(log)}</span>
-                                <span><span class="text-textcolor2/70">success:</span> {log.success ? 'true' : 'false'}</span>
-                                {#if log.status !== undefined}<span><span class="text-textcolor2/70">status:</span> {log.status}</span>{/if}
-                                {#if log.responseType}<span><span class="text-textcolor2/70">response-type:</span> {log.responseType}</span>{/if}
-                                {#if log.chatId}<span><span class="text-textcolor2/70">chat:</span> {log.chatId}</span>{/if}
-                            </div>
-                            <div>
-                                <div class="text-textcolor text-sm font-semibold mb-2">URL</div>
-                                <div class="break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono">{detail.url}</div>
-                            </div>
-                            <div>
-                                <div class="text-textcolor text-sm font-semibold mb-2">Request Header</div>
-                                {#if headers.length === 0}
-                                    <div class="break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono">{detail.header}</div>
-                                {:else}
-                                    <div class="bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor">
-                                        <div class="flex flex-wrap gap-x-4 gap-y-1">
-                                            {#each headers as [key, value]}
-                                                <span class="break-all"><span class="text-textcolor2/70">{key}:</span> {value}</span>
-                                            {/each}
-                                        </div>
-                                    </div>
-                                {/if}
-                            </div>
-                            <div>
-                                <div class="text-textcolor text-sm font-semibold mb-2">Request Body</div>
-                                <pre class="whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono ">{requestBody}</pre>
-                            </div>
-                            <div>
-                                <div class="text-textcolor text-sm font-semibold mb-2">Response Body</div>
-                                {#if responseDetails}
-                                    <div class="space-y-2">
-                                        {#each responseDetails.groups as group (group.event)}
-                                            <details class="bg-bgcolor/50 border border-darkborderc/50 rounded text-textcolor">
-                                                <summary class="cursor-pointer select-none p-2 font-mono">
-                                                    {group.summary}
-                                                </summary>
-                                                <pre class="whitespace-pre-wrap break-all border-t border-darkborderc/50 p-2 font-mono max-h-64 overflow-auto">{group.readable}</pre>
-                                                <details class="border-t border-darkborderc/50">
-                                                    <summary class="cursor-pointer select-none p-2 font-mono text-textcolor2">Raw</summary>
-                                                    <pre class="whitespace-pre-wrap break-all border-t border-darkborderc/50 p-2 font-mono max-h-64 overflow-auto">{group.raw}</pre>
-                                                </details>
-                                            </details>
-                                        {/each}
-                                    </div>
-                                    {#if responseDetails.remainder}
-                                        <pre class="mt-2 whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono">{responseDetails.remainder}</pre>
-                                        <details class="mt-2 bg-bgcolor/50 border border-darkborderc/50 rounded text-textcolor2">
-                                            <summary class="cursor-pointer select-none p-2 font-mono">Raw remaining events</summary>
-                                            <pre class="whitespace-pre-wrap break-all border-t border-darkborderc/50 p-2 font-mono max-h-64 overflow-auto">{responseDetails.rawRemainder}</pre>
-                                        </details>
-                                    {/if}
-                                {:else}
-                                    <pre class="whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono">{formatResponseBody(detail)}</pre>
-                                {/if}
-                            </div>
+                            <RequestLogDetail log={detail} />
                             <div class="pt-1 flex gap-2">
                                 <ShButton variant="outline" size="sm" onclick={() => copyRequestLog(detail)}>
                                     <CopyIcon />

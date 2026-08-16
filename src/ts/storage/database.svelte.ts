@@ -2122,12 +2122,26 @@ export interface Message{
     recoveryDisplayData?:string
     swipes?: string[]
     swipeId?: number
+    /** Diagnostic context for each regenerated response in `swipes`.
+     * Kept parallel to the string array so existing card/save formats remain
+     * backwards compatible while request logs and prompt metadata can follow
+     * the currently selected swipe. */
+    swipeMetadata?: MessageSwipeMetadata[]
+}
+
+export interface MessageSwipeMetadata{
+    chatId?: string
+    time?: number
+    generationInfo?: MessageGenerationInfo
+    promptInfo?: MessagePresetInfo
 }
 
 export interface MessageGenerationInfo{
     model?: string
     generationId?: string
     inputTokens?: number
+    /** Configured maximum response tokens; retained under the legacy field
+     * name for save compatibility. This is not actual generated usage. */
     outputTokens?: number
     maxContext?: number
     stageTiming?: {

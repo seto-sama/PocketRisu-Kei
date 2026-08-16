@@ -38,6 +38,8 @@ const storeMocks = vi.hoisted(() => {
 
 const parserMocks = vi.hoisted(() => ({
     ParseMarkdown: vi.fn(async (value: string) => value),
+    prepareMarkdownSource: vi.fn(async (value: string) => value),
+    renderPreparedMarkdown: vi.fn(async (value: string) => value),
 }))
 
 const interactionMocks = vi.hoisted(() => ({
@@ -45,8 +47,13 @@ const interactionMocks = vi.hoisted(() => ({
     runTrigger: vi.fn(),
 }))
 
+const alertMocks = vi.hoisted(() => ({
+    alertConfirmMulti: vi.fn(),
+}))
+
 const translatorMocks = vi.hoisted(() => ({
-    getLLMCache: vi.fn(async () => null as string | null),
+    getLLMCache: vi.fn(async (_key: string) => null as string | null),
+    setLLMCache: vi.fn(async () => {}),
     translateHTML: vi.fn(async (value: string) => value),
 }))
 
@@ -81,7 +88,7 @@ vi.mock('../../lang', () => ({
 vi.mock('../../ts/alert', () => ({
     alertClear: vi.fn(),
     alertConfirm: vi.fn(),
-    alertConfirmMulti: vi.fn(),
+    alertConfirmMulti: alertMocks.alertConfirmMulti,
     alertInput: vi.fn(),
     alertRequestData: vi.fn(),
     alertWait: vi.fn(),
@@ -94,13 +101,15 @@ vi.mock('../../ts/parser/parser.svelte', () => ({
     addMetadataToElement: (value: string) => value,
     getDistance: () => 0,
     postTranslationParse: (value: string) => value,
+    prepareMarkdownSource: parserMocks.prepareMarkdownSource,
+    renderPreparedMarkdown: parserMocks.renderPreparedMarkdown,
     resolveInlayPlaceholders: vi.fn(),
     trimMarkdown: (value: string) => value,
 }))
 vi.mock('../../ts/translator/translator', () => ({
     getLLMCache: translatorMocks.getLLMCache,
     getLLMTranslationCacheRevision: () => 0,
-    setLLMCache: vi.fn(),
+    setLLMCache: translatorMocks.setLLMCache,
     subscribeLLMTranslationCache: () => () => {},
     translateHTML: translatorMocks.translateHTML,
 }))
@@ -128,11 +137,17 @@ vi.mock('src/ts/process/revenant/recovery', () => ({
                 parseMarkdown: (data: string, mode: 'pretranslate') => Promise<string>
             },
         ) => {
-            const display = !options.streaming
-                && Boolean(options.data.trim())
-                && (options.translated || Boolean(storeMocks.DBState.db.autoTranslate))
-            if (display) snapshot.cacheKey = await options.parseMarkdown(options.data, 'pretranslate')
-            return display
+            if (options.streaming || !options.data.trim()) return false
+            const display = options.translated || Boolean(storeMocks.DBState.db.autoTranslate)
+            if (!display) return false
+            const cacheKey = await options.parseMarkdown(options.data, 'pretranslate')
+            snapshot.cacheKey = cacheKey
+            if (
+                storeMocks.DBState.db.autoTranslateCachedOnly
+                && storeMocks.DBState.db.translatorType === 'llm'
+                && !options.translated
+            ) return await translatorMocks.getLLMCache(cacheKey) !== null
+            return true
         },
         waitForResult: async () => {},
         acknowledgeResolved: async () => {},
@@ -140,8 +155,10 @@ vi.mock('src/ts/process/revenant/recovery', () => ({
 }))
 
 import { mount, tick, unmount } from 'svelte'
+import { createClassComponent } from 'svelte/legacy'
 import Chat from './Chat.svelte'
 import Chats from './Chats.svelte'
+import ChatsTestHarness from './Chats.test-harness.svelte'
 import { clearChatBodyRenderCache } from './chatBodyRenderCache'
 import { DBState } from 'src/ts/stores.svelte'
 import type { character, Message } from 'src/ts/storage/database.svelte'
@@ -150,6 +167,11 @@ const mountedComponents: unknown[] = []
 
 beforeEach(() => {
     clearChatBodyRenderCache()
+    parserMocks.ParseMarkdown.mockImplementation(async (value: string) => value)
+    parserMocks.prepareMarkdownSource.mockImplementation(async (value: string) => value)
+    parserMocks.renderPreparedMarkdown.mockImplementation(
+        async (value: string) => `<p>${value.trim()}</p>`,
+    )
     translatorMocks.getLLMCache.mockResolvedValue(null)
     translatorMocks.translateHTML.mockImplementation(async (value: string) => value)
     DBState.db = {
@@ -262,6 +284,54 @@ describe('Chat editing', () => {
         expect(restoredOriginalButton?.classList.contains('text-primary')).toBe(false)
     })
 
+    it('reuses an LLM translation cache after showing the original text', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        DBState.db.showTranslationLoading = true
+        translatorMocks.getLLMCache.mockImplementation(async (key: string) =>
+            key === 'User message' ? 'Cached translation' : null
+        )
+        translatorMocks.translateHTML.mockImplementation(async (key: string) =>
+            await translatorMocks.getLLMCache(key) ?? `Translated ${key}`
+        )
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                isLastMemory: false,
+                renderCacheKey: 'room:cached-message',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        const originalButton = target.querySelector<HTMLButtonElement>('.button-icon-translate')
+        originalButton?.click()
+        const translatedButton = await waitForTranslationButtonState(target, true)
+        await vi.waitFor(() => expect(translatorMocks.translateHTML).toHaveBeenCalled())
+        await vi.waitFor(() => expect(target.textContent).toContain('Cached translation'))
+
+        translatedButton?.click()
+        const restoredOriginalButton = await waitForTranslationButtonState(target, false)
+        await vi.waitFor(() => expect(target.textContent).toContain('User message'))
+
+        restoredOriginalButton?.click()
+        const restoredTranslatedButton = await waitForTranslationButtonState(target, true)
+        await vi.waitFor(() => {
+            expect(restoredTranslatedButton?.classList.contains('text-primary')).toBe(true)
+            expect(target.textContent).toContain('Cached translation')
+            expect(target.querySelector('.translating')).toBeNull()
+        })
+    })
+
     it('enters the original-message editor after one edit click', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
@@ -295,6 +365,193 @@ describe('Chat editing', () => {
 
         expect(DBState.db.characters[0].chats[0].message[0].data).toBe('Edited user message')
         expect(target.querySelector('.message-edit-area')).toBeNull()
+    })
+
+    it('uses the shared pencil button to edit the visible LLM translation', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        translatorMocks.getLLMCache.mockResolvedValue('Translated user message')
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                isLastMemory: false,
+                renderCacheKey: 'room:translated-edit',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await waitForTranslationButtonState(target, true)
+
+        expect(target.querySelectorAll('.chat-generation-info button')).toHaveLength(1)
+        const editButton = target.querySelector<HTMLButtonElement>('.button-icon-edit')
+        expect(editButton?.getAttribute('aria-label')).toBe('editTranslation')
+        editButton?.click()
+        await vi.waitFor(() => {
+            expect(target.querySelector('.message-edit-area')).not.toBeNull()
+        })
+
+        const editor = target.querySelector<HTMLTextAreaElement>('.message-edit-area')
+        expect(editor?.value).toBe('Translated user message')
+        editor!.value = 'Edited translation'
+        editor!.dispatchEvent(new Event('input', { bubbles: true }))
+        await tick()
+        target.querySelector<HTMLButtonElement>('.button-icon-edit')?.click()
+        await vi.waitFor(() => {
+            expect(translatorMocks.setLLMCache).toHaveBeenCalledWith('User message', 'Edited translation')
+            expect(target.querySelector('.message-edit-area')).toBeNull()
+        })
+
+        expect(DBState.db.characters[0].chats[0].message[0].data).toBe('User message')
+    })
+
+    it('keeps a translation edit scoped to its original swipe', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        DBState.db.characters[0].chats[0].message[0] = {
+            role: 'char',
+            data: 'First swipe',
+            chatId: 'message-0',
+            swipes: ['First swipe', 'Second swipe'],
+            swipeId: 0,
+        }
+        translatorMocks.getLLMCache.mockResolvedValue('Translated first swipe')
+        const onNextSwipe = vi.fn()
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'First swipe',
+                name: 'Character',
+                role: 'char',
+                idx: 0,
+                totalLength: 1,
+                isLastMemory: false,
+                rerollIcon: true,
+                currentPage: 1,
+                totalPages: 2,
+                onNextSwipe,
+                renderCacheKey: 'room:swipe-edit',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await waitForTranslationButtonState(target, true)
+        target.querySelector<HTMLButtonElement>('.button-icon-edit')?.click()
+        await vi.waitFor(() => {
+            expect(target.querySelector('.message-edit-area')).not.toBeNull()
+        })
+
+        const editor = target.querySelector<HTMLTextAreaElement>('.message-edit-area')!
+        editor.value = 'Edited first translation'
+        editor.dispatchEvent(new Event('input', { bubbles: true }))
+        await tick()
+
+        const nextSwipeButton = target.querySelector<HTMLButtonElement>('.button-icon-reroll')!
+        const translationButton = target.querySelector<HTMLButtonElement>('.button-icon-translate')!
+        const retranslationButton = target.querySelector<HTMLButtonElement>('.chat-generation-info button')!
+        expect(nextSwipeButton.closest('fieldset')?.disabled).toBe(true)
+        expect(translationButton.disabled).toBe(true)
+        expect(retranslationButton.disabled).toBe(true)
+        nextSwipeButton.click()
+        translationButton.click()
+        expect(onNextSwipe).not.toHaveBeenCalled()
+        expect(translationButton.classList.contains('text-primary')).toBe(true)
+
+        // Even if the rendered source changes outside these controls, saving
+        // must use the cache key captured when the editor was opened.
+        parserMocks.ParseMarkdown.mockResolvedValue('Second swipe')
+        target.querySelector<HTMLButtonElement>('.button-icon-edit')?.click()
+        await vi.waitFor(() => {
+            expect(translatorMocks.setLLMCache).toHaveBeenCalledWith(
+                'First swipe',
+                'Edited first translation',
+            )
+            expect(target.querySelector('.message-edit-area')).toBeNull()
+        })
+        expect(translatorMocks.setLLMCache).not.toHaveBeenCalledWith(
+            'Second swipe',
+            'Edited first translation',
+        )
+    })
+
+    it('restores a cached translation after deleting the selected swipe', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        DBState.db.autoTranslate = true
+        DBState.db.autoTranslateCachedOnly = true
+        const messages: Message[] = [{
+            role: 'char',
+            data: 'Second swipe',
+            chatId: 'message-0',
+            swipes: ['First swipe', 'Second swipe'],
+            swipeId: 1,
+        }]
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            largePortrait: false,
+            chats: [{ id: 'chat-1', message: messages }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+        translatorMocks.getLLMCache.mockImplementation(async (key: string) =>
+            key === 'First swipe' ? 'Translated first swipe' : null
+        )
+        alertMocks.alertConfirmMulti.mockResolvedValue(0)
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chats, {
+            target,
+            props: {
+                messages,
+                currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                onDeleteSwipe: () => {
+                    const message = messages[0]
+                    message.swipes!.splice(message.swipeId!, 1)
+                    message.swipeId = 0
+                    message.data = message.swipes![0]
+                    delete message.swipes
+                    delete message.swipeId
+                    storeMocks.ReloadChatPointer.set({ 0: 1 })
+                },
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 1,
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+        expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(false)
+
+        translatorMocks.getLLMCache.mockClear()
+        target.querySelector<HTMLButtonElement>('.button-icon-remove')?.click()
+
+        await vi.waitFor(() => {
+            expect(messages[0].data).toBe('First swipe')
+            expect(translatorMocks.getLLMCache).toHaveBeenCalledWith('First swipe')
+            expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(true)
+        })
     })
 
     it('does not automatically retranslate content changed by an internal Lua button', async () => {
@@ -476,6 +733,9 @@ describe('Chat editing', () => {
 
         expect(target.querySelectorAll('.chat-message-container')).toHaveLength(30)
         expect(parserMocks.ParseMarkdown).toHaveBeenCalledTimes(30)
+        expect(Array.from(target.querySelectorAll<HTMLElement>('[data-chat-index]'))
+            .map(element => Number(element.dataset.chatIndex)))
+            .toEqual(Array.from({ length: 30 }, (_, index) => index + 30))
         const editedMessage = target.querySelector<HTMLElement>('[data-chat-index="58"]')
         editedMessage?.querySelector<HTMLButtonElement>('.button-icon-edit')?.click()
         await tick()
@@ -487,6 +747,9 @@ describe('Chat editing', () => {
         await waitForParserCalls(60)
 
         expect(target.querySelectorAll('.chat-message-container')).toHaveLength(60)
+        expect(Array.from(target.querySelectorAll<HTMLElement>('[data-chat-index]'))
+            .map(element => Number(element.dataset.chatIndex)))
+            .toEqual(Array.from({ length: 60 }, (_, index) => index))
         expect(editedMessage?.querySelector('.message-edit-area')).not.toBeNull()
         expect(parserMocks.ParseMarkdown).toHaveBeenCalledTimes(60)
     })
@@ -528,5 +791,136 @@ describe('Chat editing', () => {
 
         expect(target.querySelectorAll('.chat-message-container')).toHaveLength(30)
         expect(parserMocks.ParseMarkdown).toHaveBeenCalledTimes(30)
+    })
+
+    it('keeps stable streaming blocks mounted and performs a full final parse', async () => {
+        DBState.db.useStreaming = true
+        const initialMessage: Message = {
+            role: 'char',
+            data: 'Stable paragraph.\n\nTail',
+            chatId: 'stream-1',
+        }
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            largePortrait: false,
+            chats: [{ id: 'chat-1', message: [initialMessage] }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = createClassComponent({
+            component: ChatsTestHarness,
+            target,
+            props: {
+                messages: [initialMessage],
+                currentCharacter,
+                roomIsStreaming: true,
+                roomIsResponding: true,
+            },
+        })
+        await vi.waitFor(() => {
+            expect(target.textContent).toContain('Tail')
+        })
+        const stableParagraph = target.querySelector('p')
+        expect(stableParagraph).not.toBeNull()
+
+        const completedText = 'Stable paragraph.\n\nSecond paragraph.\n\nFinished tail'
+        const growingMessage = { ...initialMessage, data: completedText }
+        component.$set({
+            messages: [growingMessage],
+            roomIsStreaming: true,
+            roomIsResponding: true,
+        })
+        await vi.waitFor(() => {
+            expect(target.textContent).toContain('Finished tail')
+        })
+
+        expect(target.querySelector('p')).toBe(stableParagraph)
+        expect(parserMocks.renderPreparedMarkdown.mock.calls
+            .filter(([source]) => source === 'Stable paragraph.\n\n')).toHaveLength(1)
+
+        component.$set({
+            messages: [growingMessage],
+            roomIsStreaming: false,
+            roomIsResponding: false,
+        })
+        await vi.waitFor(() => {
+            expect(parserMocks.ParseMarkdown).toHaveBeenCalledWith(
+                completedText,
+                expect.anything(),
+                'notrim',
+                0,
+                expect.anything(),
+                expect.anything(),
+            )
+        })
+        component.$destroy()
+    })
+
+    it('publishes a new-message notification after a fast Echo response completes', async () => {
+        DBState.db.autoScrollToNewMessage = false
+        DBState.db.newMessageButtonStyle = 'bottom-center'
+        const userMessage: Message = {
+            role: 'user',
+            data: 'User message',
+            chatId: 'user-1',
+        }
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            largePortrait: false,
+            chats: [{ id: 'chat-1', message: [userMessage] }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = createClassComponent({
+            component: ChatsTestHarness,
+            target,
+            props: {
+                messages: [userMessage],
+                currentCharacter,
+                roomIsStreaming: false,
+                roomIsResponding: false,
+            },
+        })
+        const scrollHost = target.querySelector<HTMLElement>('.chat-test-scroll-host')!
+        Object.defineProperties(scrollHost, {
+            scrollHeight: { configurable: true, value: 1000 },
+            clientHeight: { configurable: true, value: 200 },
+        })
+        scrollHost.scrollTop = 100
+
+        const echoPlaceholder: Message = {
+            role: 'char',
+            data: '',
+            chatId: 'echo-1',
+        }
+        component.$set({
+            messages: [userMessage, echoPlaceholder],
+            roomIsStreaming: true,
+            roomIsResponding: true,
+        })
+        await tick()
+        component.$set({
+            messages: [userMessage, { ...echoPlaceholder, data: 'Echo Message' }],
+            roomIsStreaming: false,
+            roomIsResponding: true,
+        })
+        await tick()
+        component.$set({
+            messages: [userMessage, { ...echoPlaceholder, data: 'Echo Message' }],
+            roomIsStreaming: false,
+            roomIsResponding: false,
+        })
+        await tick()
+
+        expect(target.querySelector('[data-new-message-state]')?.textContent).toBe('unread')
+        component.$destroy()
     })
 })

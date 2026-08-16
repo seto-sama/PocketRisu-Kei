@@ -69,6 +69,53 @@ describe('revenant terminal postprocess pipeline', () => {
         })
     })
 
+    it('preserves per-swipe diagnostics from the generation placeholder', async () => {
+        const input = recipe()
+        input.messageChatId = 'generation-2'
+        input.rerollSnapshot = {
+            targetIndex: 1,
+            targetMessage: {
+                role: 'char',
+                data: 'old answer',
+                chatId: 'generation-1',
+                swipes: ['old answer'],
+                swipeId: 0,
+            },
+            trailingMessages: [],
+        }
+        input.chat.message.push({
+            role: 'char',
+            data: '',
+            chatId: 'generation-2',
+            swipes: ['old answer', ''],
+            swipeId: 1,
+            swipeMetadata: [
+                { generationInfo: { generationId: 'generation-1', inputTokens: 100 } },
+                { generationInfo: { generationId: 'generation-2', inputTokens: 200 } },
+            ],
+        })
+
+        const result = await runRevenantOutputStage({
+            text: 'new answer',
+            recipe: input,
+            job: {
+                completedAt: 123,
+                generationInfo: { generationId: 'generation-2', inputTokens: 200 },
+            },
+            transformOutput: pipelinePkg.runRevenantOutputTransform,
+        })
+
+        expect(result.chat.message[1]).toMatchObject({
+            data: 'new answer-final',
+            swipeId: 1,
+            swipes: ['old answer', 'new answer-final'],
+            swipeMetadata: [
+                { generationInfo: { generationId: 'generation-1', inputTokens: 100 } },
+                { generationInfo: { generationId: 'generation-2', inputTokens: 200 } },
+            ],
+        })
+    })
+
     it('delegates dynamic asset matching after regex and materializes its response', async () => {
         const input = recipe()
         input.database.dynamicAssets = true

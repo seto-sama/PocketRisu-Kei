@@ -227,12 +227,18 @@
 
     const scheduleAutoResize = () => {
         if(!autoResize) return
-        // Collapse before measuring so the frame can shrink as content is removed.
-        autoHeight = '44px'
         tick().then(() => {
             const target = textareaRef ?? inputDom
             if(!target) return
-            autoHeight = `${Math.max(target.scrollHeight, 44)}px`
+            // Measure against a collapsed input without collapsing the outer
+            // field itself. Changing autoHeight to 44px here used to publish a
+            // full layout frame on every keystroke, which could move an
+            // ancestor chat scroller before the real height was restored.
+            const previousInlineHeight = target.style.height
+            target.style.height = '0px'
+            const nextHeight = Math.max(target.scrollHeight, 44)
+            target.style.height = previousInlineHeight
+            autoHeight = `${nextHeight}px`
         })
     }
 

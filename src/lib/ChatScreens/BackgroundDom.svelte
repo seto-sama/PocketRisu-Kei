@@ -3,6 +3,7 @@
     import { type character } from "src/ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { ChatRoomReloadPointer, moduleBackgroundEmbedding, ReloadGUIPointer, selIdState } from "src/ts/stores.svelte";
+    import Portal from "../UI/GUI/Portal.svelte";
 
     let backgroundHTML = $derived(DBState.db?.characters?.[selIdState.selId]?.backgroundHTML)
     let currentChar:character = $derived(DBState.db?.characters?.[selIdState.selId])
@@ -31,11 +32,13 @@
                     {@html background.content}
                 </div>
                 {#if background.audioPlayers.length > 0}
+                    <Portal>
                     <div class="pointer-events-auto fixed left-1/2 top-4 z-20 flex w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 flex-col items-center gap-2">
                         {#each background.audioPlayers as player}
                             {@html player}
                         {/each}
                     </div>
+                    </Portal>
                 {/if}
             {/await}
         {/key}

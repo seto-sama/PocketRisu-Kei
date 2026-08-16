@@ -1,5 +1,6 @@
 <script lang="ts">
     import { ChevronDownIcon, ChevronRightIcon, DownloadIcon, SearchIcon, TrashIcon, UploadIcon, XIcon } from "@lucide/svelte";
+    import Portal from "../UI/GUI/Portal.svelte";
     import { language } from "src/lang";
     import { DBState, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
     import { alertConfirm, alertError, notifySuccess } from "src/ts/alert";
@@ -309,6 +310,7 @@
     }
 </script>
 
+<Portal>
 <div class="risu-modal-backdrop z-40 flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-124 max-h-full overflow-hidden">
         <div class="flex items-center text-textcolor mb-4 shrink-0">
@@ -416,6 +418,7 @@
         </div>
     </div>
 </div>
+</Portal>
 
 <style>
     .break-any{

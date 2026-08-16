@@ -16,6 +16,7 @@
     //   above/below positioning.
     import { ChevronDownIcon, CheckIcon } from "@lucide/svelte";
     import { isTouchDevice } from "src/ts/stores.svelte";
+    import Portal from "./Portal.svelte";
 
     interface Props {
         value: string | number;
@@ -240,6 +241,7 @@
     </div>
 
     {#if open}
+        <Portal>
         <div
             id={listboxId}
             bind:this={dropdownEl}
@@ -268,5 +270,6 @@
                 </button>
             {/each}
         </div>
+        </Portal>
     {/if}
 {/if}

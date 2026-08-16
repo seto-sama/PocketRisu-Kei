@@ -1,65 +1,77 @@
-// Chat scrolling is coordinated here because physical-pixel alignment and
-// programmatic movement both write scrollTop. Keeping them in one controller
-// prevents an alignment pass from fighting a button-triggered smooth scroll.
+// Chat scrolling uses an ordinary top-to-bottom coordinate system. Content
+// appended below the reader does not move the viewport. At the bottom, a
+// dedicated DOM scroll anchor follows streaming layout in the same paint;
+// JavaScript handles explicit navigation and layout transitions only.
 
-const POSITION_EPSILON = 0.0001
+const BOTTOM_EPSILON = 1
+const SCROLL_PHASE_EPSILON = 1 / 120
 const MESSAGE_NAVIGATION_THRESHOLD = 30
-const POINTER_DIRECTION_EPSILON = 0.5
+const LAYOUT_ELEMENT_SELECTOR = '.chat-message-container, .risu-chat'
+const NATIVE_BOTTOM_ANCHOR_ATTRIBUTE = 'data-chat-scroll-anchor'
+const SCROLL_PHASE_ATTRIBUTE = 'data-chat-scroll-phase'
+export const CHAT_NEAR_BOTTOM_THRESHOLD = 100
+export const CHAT_HISTORY_LOAD_THRESHOLD = 100
 
-function normalizedDevicePixelRatio(devicePixelRatio: number) {
+type ChatScrollMode = 'bottom-follow' | 'history-read'
+
+export function getScrollDistanceFromBottom(
+    scrollTop: number,
+    scrollHeight: number,
+    clientHeight: number,
+) {
+    return Math.max(0, scrollHeight - clientHeight - scrollTop)
+}
+
+export function isChatScrolledToBottom(
+    scrollTop: number,
+    scrollHeight: number,
+    clientHeight: number,
+    epsilon = BOTTOM_EPSILON,
+) {
+    return getScrollDistanceFromBottom(scrollTop, scrollHeight, clientHeight)
+        <= Math.max(0, epsilon)
+}
+
+export function isChatNearBottom(
+    scrollTop: number,
+    scrollHeight: number,
+    clientHeight: number,
+    threshold = CHAT_NEAR_BOTTOM_THRESHOLD,
+) {
+    return getScrollDistanceFromBottom(scrollTop, scrollHeight, clientHeight)
+        <= Math.max(0, threshold)
+}
+
+export function getScrollPhaseQuantum(devicePixelRatio: number) {
     return Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
-        ? devicePixelRatio
+        ? 1 / devicePixelRatio
         : 1
 }
 
-export function snapToDevicePixel(
-    value: number,
-    devicePixelRatio = window.devicePixelRatio || 1,
-) {
-    const ratio = normalizedDevicePixelRatio(devicePixelRatio)
-    const snapped = Math.round(value * ratio) / ratio
-    return Object.is(snapped, -0) ? 0 : snapped
-}
-
-/**
- * Return the smallest non-negative spacer that raises the scroll range to the
- * next physical-pixel boundary. The spacer is always less than one physical
- * pixel before the browser quantizes CSS layout coordinates.
- */
-export function calculateRangePixelPadding(
-    rangeWithoutPadding: number,
-    devicePixelRatio: number,
-) {
-    if (!Number.isFinite(rangeWithoutPadding) || rangeWithoutPadding <= 0) return 0
-    const ratio = normalizedDevicePixelRatio(devicePixelRatio)
-    const physicalRange = rangeWithoutPadding * ratio
-    // Avoid adding a whole extra pixel for ordinary floating-point residue.
-    const targetPhysicalRange = Math.ceil(physicalRange - POSITION_EPSILON)
-    return Math.max(0, (targetPhysicalRange - physicalRange) / ratio)
-}
-
-export function isColumnReverseScrolledToBottom(scrollTop: number) {
-    // A column-reverse scroller moves towards negative scrollTop values when
-    // navigating into history. Mobile WebKit may temporarily report a positive
-    // value while rubber-banding past the latest-message edge, which is still
-    // the bottom and must remain pinned while streaming content grows.
-    return scrollTop >= -POSITION_EPSILON
-}
-
-type ScrollAnchor = {
-    element: HTMLElement
-    top: number
+export function normalizeScrollPhaseHeight(height: number, devicePixelRatio: number) {
+    const quantum = getScrollPhaseQuantum(devicePixelRatio)
+    const normalized = ((height % quantum) + quantum) % quantum
+    return normalized > quantum - SCROLL_PHASE_EPSILON ? 0 : normalized
 }
 
 type ScrollElementOptions = {
     block: 'start' | 'end'
     behavior: ScrollBehavior
+    followLayout?: boolean
+}
+
+type LayoutAnchor = {
+    element: HTMLElement | null
+    edge: 'top' | 'bottom'
+    position: number
 }
 
 export type ChatScrollController = {
     scrollToElement(element: HTMLElement, options: ScrollElementOptions): void
     scrollToEdge(edge: 'top' | 'bottom', behavior: ScrollBehavior): void
     navigateMessage(direction: 'prev' | 'next', behavior?: ScrollBehavior): void
+    preserveElementPosition(element: HTMLElement): () => void
+    preserveViewportPosition(): () => void
     destroy(): void
 }
 
@@ -72,8 +84,8 @@ export interface ChatResponseSnapshot {
     isResponding: boolean
 }
 
-/** Detect the instant a new assistant response first becomes visible. */
-export function didNewResponseStart(
+/** Detect the instant a new assistant response finishes generating. */
+export function didNewResponseComplete(
     previous: ChatResponseSnapshot | null,
     current: ChatResponseSnapshot,
 ): boolean {
@@ -82,291 +94,233 @@ export function didNewResponseStart(
         || !current.isCharacterResponse
         || !current.messageKey
         || !current.hasContent
-        || (!previous.isResponding && !current.isResponding)) {
+        || current.isResponding) {
         return false
     }
 
-    // Streaming fills an existing empty placeholder. Non-streaming providers
-    // may instead append an already-populated response.
     if (previous.messageKey === current.messageKey) {
-        return !previous.hasContent
+        return previous.isResponding
     }
 
-    // A continuation can replace the generation id of the current message;
-    // only a larger message list represents a genuinely new response here.
     return current.messageCount > previous.messageCount
+}
+
+export type CompletedResponseAction = 'scroll' | 'notify' | 'none'
+
+export function getCompletedResponseAction(options: {
+    autoScroll: boolean
+    alwaysScroll: boolean
+    buttonEnabled: boolean
+    nearBottom: boolean
+}): CompletedResponseAction {
+    if (options.nearBottom) return 'none'
+    if (options.autoScroll && options.alwaysScroll) return 'scroll'
+    if (options.buttonEnabled) return 'notify'
+    return 'none'
 }
 
 export function createChatScrollController(
     container: HTMLElement,
-    rangeSpacer: HTMLElement,
 ): ChatScrollController {
     let destroyed = false
-    let alignmentFrame = 0
-    let anchor: ScrollAnchor | null = null
-    let pinnedToBottom = isColumnReverseScrolledToBottom(container.scrollTop)
-    let streamingMessage: HTMLElement | null = null
-    let streamingHeightSpacer: HTMLDivElement | null = null
-    let userMovingAwayFromBottom = false
-    let lastPointerY: number | null = null
+    let layoutFrame = 0
+    let mode: ChatScrollMode = 'bottom-follow'
+    let leavingBottom = false
     let pointerActive = false
     let touchActive = false
-    const observedChildren = new Set<Element>()
+    let directManipulationStart: number | null = null
+    let navigationAnchor: LayoutAnchor | null = null
+    const layoutAnchors = new Map<symbol, LayoutAnchor>()
+    const observedElements = new Set<Element>()
 
-    const getRatio = () => normalizedDevicePixelRatio(window.devicePixelRatio || 1)
-    const isAtBottom = () => isColumnReverseScrolledToBottom(container.scrollTop)
-    const findVisibleAnchor = () => {
+    const maxScrollTop = () => Math.max(0, container.scrollHeight - container.clientHeight)
+    const isAtBottom = () => isChatScrolledToBottom(
+        container.scrollTop,
+        container.scrollHeight,
+        container.clientHeight,
+    )
+
+    const latestLayoutAnchor = () => {
+        const anchors = [...layoutAnchors.values()]
+        return anchors.at(-1) ?? navigationAnchor
+    }
+
+    const directChildWithAttribute = (attribute: string) => Array.from(container.children)
+        .find((element): element is HTMLElement => element instanceof HTMLElement
+            && element.hasAttribute(attribute))
+
+    const nativeBottomAnchor = () => directChildWithAttribute(NATIVE_BOTTOM_ANCHOR_ATTRIBUTE)
+    const scrollPhaseElement = () => directChildWithAttribute(SCROLL_PHASE_ATTRIBUTE)
+
+    const followsNativeBottomAnchor = () => mode === 'bottom-follow'
+        && !latestLayoutAnchor()
+        && Boolean(nativeBottomAnchor())
+        && isAtBottom()
+
+    const alignBottomPhase = () => {
+        const phaseElement = scrollPhaseElement()
+        const bottomAnchor = nativeBottomAnchor()
+        if (!phaseElement || !bottomAnchor) return false
+
+        if (maxScrollTop() <= 0) {
+            if (phaseElement.getBoundingClientRect().height > SCROLL_PHASE_EPSILON) {
+                phaseElement.style.height = '0px'
+                return true
+            }
+            return false
+        }
+
+        // Firefox rasterizes the scrolled layer at its content-space physical
+        // pixel phase. Keeping only the viewport rect stable is insufficient:
+        // text and one-pixel lines still repaint on alternating device rows if
+        // this phase changes. Align the content bottom itself to one physical
+        // pixel, then let the scrollport clamp to the corresponding bottom.
         const containerRect = container.getBoundingClientRect()
-        let best: HTMLElement | null = null
-        let bestTop = Number.POSITIVE_INFINITY
-
-        for (const element of container.querySelectorAll<HTMLElement>('.chat-message-container')) {
-            const rect = element.getBoundingClientRect()
-            if (rect.bottom <= containerRect.top || rect.top >= containerRect.bottom) continue
-            if (rect.top < bestTop) {
-                best = element
-                bestTop = rect.top
-            }
-        }
-
-        // The first greeting is rendered outside Chats and therefore has no
-        // chat-message-container wrapper.
-        if (!best) {
-            for (const element of container.querySelectorAll<HTMLElement>('.risu-chat')) {
-                const rect = element.getBoundingClientRect()
-                if (rect.bottom <= containerRect.top || rect.top >= containerRect.bottom) continue
-                if (rect.top < bestTop) {
-                    best = element
-                    bestTop = rect.top
-                }
-            }
-        }
-
-        return best
-    }
-
-    const alignAnchor = () => {
-        if (!anchor || !anchor.element.isConnected || !container.contains(anchor.element)) {
-            anchor = null
-            return false
-        }
-
-        // A second pass absorbs the browser's own scroll-range clamping and
-        // layout-unit rounding without spinning indefinitely.
-        for (let pass = 0; pass < 2; pass++) {
-            const currentTop = anchor.element.getBoundingClientRect().top
-            const delta = currentTop - anchor.top
-            if (Math.abs(delta) <= POSITION_EPSILON) break
-            const previousScrollTop = container.scrollTop
-            container.scrollTop = previousScrollTop + delta
-            if (Math.abs(container.scrollTop - previousScrollTop) <= POSITION_EPSILON) break
-        }
-        return true
-    }
-
-    const captureAnchor = (snapToPixel: boolean) => {
-        const element = findVisibleAnchor()
-        if (!element) {
-            anchor = null
-            return false
-        }
-        anchor = {
-            element,
-            top: snapToPixel
-                ? snapToDevicePixel(element.getBoundingClientRect().top, getRatio())
-                : element.getBoundingClientRect().top,
-        }
-        return true
-    }
-
-    const establishAnchor = () => {
-        if (!captureAnchor(true)) return
-        alignAnchor()
-    }
-
-    const measureRangeWithoutPadding = () => {
-        const containerTop = container.getBoundingClientRect().top + container.clientTop
-        const spacerRect = rangeSpacer.getBoundingClientRect()
-        // With column-reverse, rect.top + scrollTop is the spacer's invariant
-        // position at the bottom origin, regardless of the current scroll.
-        const rangeWithPadding = Math.max(
-            0,
-            containerTop - (spacerRect.top + container.scrollTop),
+        const contentBottom = bottomAnchor.getBoundingClientRect().bottom
+            - containerRect.top
+            + container.scrollTop
+        const currentHeight = phaseElement.getBoundingClientRect().height
+        const nextHeight = normalizeScrollPhaseHeight(
+            currentHeight - contentBottom,
+            globalThis.devicePixelRatio,
         )
-        return Math.max(0, rangeWithPadding - spacerRect.height)
+        if (Math.abs(nextHeight - currentHeight) <= SCROLL_PHASE_EPSILON) return false
+        phaseElement.style.height = `${nextHeight}px`
+        return true
     }
 
-    const alignStreamingMessageHeight = () => {
-        const cachedStreamingMessageIsActive = !!streamingMessage
-            && streamingMessage.isConnected
-            && container.contains(streamingMessage)
-            && streamingMessage.hasAttribute('data-streaming-chat-message')
-            && !!streamingHeightSpacer?.isConnected
-        const nextStreamingMessage = cachedStreamingMessageIsActive
-            ? streamingMessage
-            : container.querySelector<HTMLElement>(
-                '.chat-message-container[data-streaming-chat-message]',
-            )
+    const scrollToActualBottom = () => {
+        // scrollHeight/clientHeight are integer-valued, while Firefox's actual
+        // clamped maximum can be fractional under browser zoom. Request past
+        // the end and let the scrollport clamp to its real maximum.
+        container.scrollTop = container.scrollHeight
+    }
 
-        if (nextStreamingMessage
-            && (nextStreamingMessage !== streamingMessage || !streamingHeightSpacer?.isConnected)) {
-            streamingHeightSpacer?.remove()
-            streamingMessage = nextStreamingMessage
-            streamingHeightSpacer = document.createElement('div')
-            streamingHeightSpacer.dataset.streamingPixelSpacer = ''
-            streamingHeightSpacer.setAttribute('aria-hidden', 'true')
-            streamingHeightSpacer.style.cssText = 'display:block;width:100%;height:0;pointer-events:none;'
-            streamingMessage.appendChild(streamingHeightSpacer)
-        }
+    const alignBottom = () => {
+        alignBottomPhase()
+        scrollToActualBottom()
+    }
 
-        // Keep the final correction on the completed message until another
-        // message starts streaming. Removing it at stream completion would
-        // cause the exact fractional phase jump this spacer is preventing.
-        if (!streamingMessage?.isConnected || !streamingHeightSpacer?.isConnected) {
-            streamingMessage = null
-            streamingHeightSpacer = null
+    const alignLayoutAnchor = (anchor: LayoutAnchor) => {
+        if (anchor.edge === 'bottom') {
+            alignBottom()
             return
         }
-
-        const spacerHeight = streamingHeightSpacer.getBoundingClientRect().height
-        const rawMessageHeight = Math.max(
-            0,
-            streamingMessage.getBoundingClientRect().height - spacerHeight,
-        )
-        const padding = calculateRangePixelPadding(rawMessageHeight, getRatio())
-        if (Math.abs(spacerHeight - padding) > POSITION_EPSILON) {
-            streamingHeightSpacer.style.height = `${padding}px`
-        }
-    }
-
-    const alignScrollRange = () => {
-        const padding = calculateRangePixelPadding(measureRangeWithoutPadding(), getRatio())
-        const currentHeight = rangeSpacer.getBoundingClientRect().height
-        if (Math.abs(currentHeight - padding) > POSITION_EPSILON) {
-            rangeSpacer.style.height = `${padding}px`
-        }
+        if (!anchor.element?.isConnected || !container.contains(anchor.element)) return
+        const delta = anchor.element.getBoundingClientRect().top - anchor.position
+        if (Math.abs(delta) > Number.EPSILON) container.scrollTop += delta
     }
 
     const preserveAfterLayout = () => {
-        // Direct manipulation can run off the main thread on mobile. Defer
-        // writes until the finger or scrollbar thumb is released; wheel and
-        // programmatic movement instead rebase from every emitted scroll.
         if (destroyed || pointerActive || touchActive) return
-
-        if (pinnedToBottom) {
-            alignStreamingMessageHeight()
-            alignScrollRange()
-            container.scrollTop = 0
-            anchor = null
+        if (navigationAnchor?.element
+            && (!navigationAnchor.element.isConnected
+                || !container.contains(navigationAnchor.element))) {
+            navigationAnchor = null
+        }
+        const anchor = latestLayoutAnchor()
+        if (anchor) {
+            alignLayoutAnchor(anchor)
             return
         }
-
-        const hadAnchor = alignAnchor()
-        alignStreamingMessageHeight()
-        if (hadAnchor) alignAnchor()
-        alignScrollRange()
-        if (hadAnchor) alignAnchor()
-        // Firefox can publish an upward wheel position after the next layout
-        // frame. Do not establish a pre-wheel anchor during that short gap.
-        else if (!userMovingAwayFromBottom) establishAnchor()
+        if (mode === 'bottom-follow') {
+            alignBottom()
+        }
     }
 
-    const scheduleAlignment = () => {
+    const scheduleLayout = () => {
         if (destroyed) return
-        cancelAnimationFrame(alignmentFrame)
-        alignmentFrame = requestAnimationFrame(() => {
-            alignmentFrame = 0
+        cancelAnimationFrame(layoutFrame)
+        layoutFrame = requestAnimationFrame(() => {
+            layoutFrame = 0
             preserveAfterLayout()
         })
     }
 
-    const prepareForMovement = () => {
-        userMovingAwayFromBottom = false
-        lastPointerY = null
-        anchor = null
-        cancelAnimationFrame(alignmentFrame)
-        alignmentFrame = 0
-    }
-
-    const startPointerGesture = (event: PointerEvent) => {
-        pointerActive = true
-        userMovingAwayFromBottom = false
-        lastPointerY = event.clientY
-    }
-
-    const startTouchGesture = () => {
-        touchActive = true
-    }
-
-    const handlePointerMove = (event: PointerEvent) => {
-        if (!pointerActive) return
-        if (lastPointerY !== null) {
-            const deltaY = event.clientY - lastPointerY
-            if (Math.abs(deltaY) > POINTER_DIRECTION_EPSILON) {
-                // Touch content follows the finger: dragging down moves a
-                // column-reverse chat away from its bottom. A mouse dragging
-                // the scrollbar thumb has the opposite physical direction.
-                userMovingAwayFromBottom = event.pointerType === 'mouse'
-                    ? deltaY < 0
-                    : deltaY > 0
-                if (userMovingAwayFromBottom) {
-                    pinnedToBottom = false
-                    anchor = null
-                }
-            }
+    let resizeObserver: ResizeObserver | null = null
+    const refreshResizeObservations = () => {
+        if (!resizeObserver) return
+        const nextElements = new Set<Element>([
+            container,
+            ...Array.from(container.children)
+                .filter(element => !element.hasAttribute(SCROLL_PHASE_ATTRIBUTE)),
+            ...container.querySelectorAll(LAYOUT_ELEMENT_SELECTOR),
+        ])
+        for (const element of observedElements) {
+            if (nextElements.has(element)) continue
+            resizeObserver.unobserve(element)
+            observedElements.delete(element)
         }
-        lastPointerY = event.clientY
-    }
-
-    const endPointerGesture = () => {
-        pointerActive = false
-        lastPointerY = null
-        if (!touchActive) {
-            userMovingAwayFromBottom = false
-            scheduleAlignment()
+        for (const element of nextElements) {
+            if (observedElements.has(element)) continue
+            observedElements.add(element)
+            resizeObserver.observe(element)
         }
     }
-    const endTouchGesture = () => {
-        touchActive = false
-        if (!pointerActive) {
-            userMovingAwayFromBottom = false
-            scheduleAlignment()
-        }
-    }
+
     const handleWheel = (event: WheelEvent) => {
-        cancelAnimationFrame(alignmentFrame)
-        alignmentFrame = 0
-        anchor = null
-        userMovingAwayFromBottom = event.deltaY < 0
-        if (userMovingAwayFromBottom) pinnedToBottom = false
+        navigationAnchor = null
+        if (event.deltaY < 0) {
+            leavingBottom = true
+            mode = 'history-read'
+        }
+        else if (event.deltaY > 0) {
+            leavingBottom = false
+        }
     }
 
     const handleScroll = () => {
+        if (layoutAnchors.size > 0 || navigationAnchor) return
         const atBottom = isAtBottom()
+        // Firefox can deliver the wheel event before APZ publishes the first
+        // changed scrollTop. Do not relatch during that gap.
+        if (leavingBottom && atBottom) {
+            mode = 'history-read'
+            return
+        }
         if (atBottom) {
-            // An upward wheel can precede Firefox APZ's first off-bottom
-            // position. Preserve that intent rather than latching a stale 0.
-            pinnedToBottom = !userMovingAwayFromBottom
-            anchor = null
+            mode = 'bottom-follow'
+            leavingBottom = false
             return
         }
-
-        // A reverse scroller can move because bottom content grew while a
-        // finger is resting. Keep the bottom latch unless the gesture itself
-        // has actually moved towards history.
-        if ((pointerActive || touchActive)
-            && pinnedToBottom
-            && !userMovingAwayFromBottom) {
-            anchor = null
+        const directManipulationMoved = (pointerActive || touchActive)
+            && directManipulationStart !== null
+            && Math.abs(container.scrollTop - directManipulationStart) > BOTTOM_EPSILON
+        if (leavingBottom || directManipulationMoved) {
+            mode = 'history-read'
+            leavingBottom = false
             return
         }
+        // A forward-flow room can emit scroll while its initial/streamed
+        // content is still publishing layout. Without explicit user intent,
+        // that temporary bottom gap must not release the bottom latch.
+        if (mode === 'bottom-follow') scheduleLayout()
+    }
 
-        // Every native or programmatic scroll position is authoritative. This
-        // also rebases after browser-native anchoring, so a later observer pass
-        // cannot restore an older point from the same gesture.
-        pinnedToBottom = false
-        captureAnchor(false)
-        if (!pointerActive && !touchActive) userMovingAwayFromBottom = false
+    const startDirectManipulation = () => {
+        navigationAnchor = null
+        directManipulationStart ??= container.scrollTop
+    }
+    const finishDirectManipulation = () => {
+        if (pointerActive || touchActive) return
+        directManipulationStart = null
+        scheduleLayout()
+    }
+    const startPointer = () => {
+        startDirectManipulation()
+        pointerActive = true
+    }
+    const endPointer = () => {
+        pointerActive = false
+        finishDirectManipulation()
+    }
+    const startTouch = () => {
+        startDirectManipulation()
+        touchActive = true
+    }
+    const endTouch = () => {
+        touchActive = false
+        finishDirectManipulation()
     }
 
     const scrollToElement = (element: HTMLElement, options: ScrollElementOptions) => {
@@ -376,27 +330,40 @@ export function createChatScrollController(
         const offset = options.block === 'start'
             ? elementRect.top - containerRect.top
             : elementRect.bottom - containerRect.bottom
-        const top = snapToDevicePixel(container.scrollTop + offset, getRatio())
-        prepareForMovement()
-        pinnedToBottom = isColumnReverseScrolledToBottom(top)
-        // scrollIntoView would also scroll ancestors such as documentElement.
-        container.scrollTo({ top, behavior: options.behavior })
+        leavingBottom = false
+        mode = 'history-read'
+        navigationAnchor = options.followLayout
+            ? {
+                element,
+                edge: 'top',
+                position: options.block === 'start'
+                    ? containerRect.top
+                    : containerRect.bottom - elementRect.height,
+            }
+            : null
+        container.scrollTo({
+            top: container.scrollTop + offset,
+            behavior: options.behavior,
+        })
+        if (navigationAnchor) scheduleLayout()
     }
 
     const scrollToEdge = (edge: 'top' | 'bottom', behavior: ScrollBehavior) => {
         if (destroyed) return
-        prepareForMovement()
-        pinnedToBottom = edge === 'bottom'
-        // The chat uses column-reverse: the latest-message edge is 0 and the
-        // oldest-message edge is negative. Let the browser clamp the oversized
-        // negative target to the exact fractional upper boundary.
+        leavingBottom = false
+        navigationAnchor = null
+        mode = edge === 'bottom' && behavior === 'instant'
+            ? 'bottom-follow'
+            : 'history-read'
         container.scrollTo({
-            top: edge === 'bottom' ? 0 : -container.scrollHeight,
+            top: edge === 'bottom' ? maxScrollTop() : 0,
             behavior,
         })
     }
 
-    const getLoadedMessages = () => Array.from(container.querySelectorAll<HTMLElement>('[data-chat-index]'))
+    const getLoadedMessages = () => Array.from(
+        container.querySelectorAll<HTMLElement>('[data-chat-index]'),
+    )
         .map(element => ({
             element,
             index: Number.parseInt(element.getAttribute('data-chat-index') ?? '', 10),
@@ -413,26 +380,15 @@ export function createChatScrollController(
         if (messages.length === 0) return
 
         const containerRect = container.getBoundingClientRect()
-        let currentPosition = 0
-        for (let position = 0; position < messages.length; position++) {
-            if (messages[position].element.getBoundingClientRect().bottom
-                > containerRect.top + MESSAGE_NAVIGATION_THRESHOLD) {
-                currentPosition = position
-                break
-            }
-        }
+        let currentPosition = messages.findIndex(message =>
+            message.element.getBoundingClientRect().bottom
+                > containerRect.top + MESSAGE_NAVIGATION_THRESHOLD)
+        if (currentPosition < 0) currentPosition = messages.length - 1
 
         if (direction === 'next') {
-            // Message starts are the only stops; a long message's bottom is
-            // deliberately not an intermediate navigation target.
             const next = messages[currentPosition + 1]
-            if (next) {
-                scrollToElement(next.element, { block: 'start', behavior })
-            }
-            else {
-                // At the final message, match the dedicated bottom-edge button.
-                scrollToEdge('bottom', behavior)
-            }
+            if (next) scrollToElement(next.element, { block: 'start', behavior })
+            else scrollToEdge('bottom', behavior)
             return
         }
 
@@ -444,68 +400,99 @@ export function createChatScrollController(
         if (target) scrollToElement(target.element, { block: 'start', behavior })
     }
 
-    const resizeObserver = typeof ResizeObserver === 'undefined'
-        ? null
-        : new ResizeObserver(() => scheduleAlignment())
-    const observeDirectChildren = () => {
-        if (!resizeObserver) return
-        const currentChildren = new Set(
-            Array.from(container.children).filter(child => child !== rangeSpacer),
-        )
-        for (const child of observedChildren) {
-            if (currentChildren.has(child)) continue
-            resizeObserver.unobserve(child)
-            observedChildren.delete(child)
-        }
-        for (const child of container.children) {
-            if (child === rangeSpacer || observedChildren.has(child)) continue
-            observedChildren.add(child)
-            resizeObserver.observe(child)
+    const preserveElementPosition = (element: HTMLElement) => {
+        if (destroyed || !container.contains(element)) return () => {}
+        const token = Symbol('chat-layout-anchor')
+        const atBottom = isAtBottom()
+        const anchor: LayoutAnchor = atBottom
+            ? { element: null, edge: 'bottom', position: 0 }
+            : {
+                element,
+                edge: 'top',
+                position: element.getBoundingClientRect().top,
+            }
+        layoutAnchors.set(token, anchor)
+        mode = atBottom ? 'bottom-follow' : 'history-read'
+
+        let released = false
+        return () => {
+            if (released || destroyed) return
+            released = true
+            alignLayoutAnchor(anchor)
+            layoutAnchors.delete(token)
+            scheduleLayout()
         }
     }
+
+    const preserveViewportPosition = () => {
+        const containerRect = container.getBoundingClientRect()
+        const visibleElement = Array.from(
+            container.querySelectorAll<HTMLElement>(LAYOUT_ELEMENT_SELECTOR),
+        ).find((element) => {
+            const rect = element.getBoundingClientRect()
+            return rect.bottom > containerRect.top && rect.top < containerRect.bottom
+        })
+        return visibleElement ? preserveElementPosition(visibleElement) : () => {}
+    }
+
+    const handleObservedLayout = () => {
+        if (destroyed) return
+        if (followsNativeBottomAnchor()) {
+            // Native anchoring owns healthy streamed frames. JS only recovers
+            // a fractional phase mismatch and otherwise performs no scroll
+            // write, so the two mechanisms cannot fight over the same frame.
+            if (alignBottomPhase()) scrollToActualBottom()
+            return
+        }
+        scheduleLayout()
+    }
+
+    resizeObserver = typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(handleObservedLayout)
     const mutationObserver = typeof MutationObserver === 'undefined'
         ? null
         : new MutationObserver(() => {
-            observeDirectChildren()
-            scheduleAlignment()
+            refreshResizeObservations()
+            handleObservedLayout()
         })
 
-    resizeObserver?.observe(container)
-    observeDirectChildren()
-    mutationObserver?.observe(container, { childList: true })
-    container.addEventListener('pointerdown', startPointerGesture, { passive: true })
-    container.addEventListener('touchstart', startTouchGesture, { passive: true })
-    window.addEventListener('pointermove', handlePointerMove, { passive: true })
-    window.addEventListener('pointerup', endPointerGesture, { passive: true })
-    window.addEventListener('pointercancel', endPointerGesture, { passive: true })
-    window.addEventListener('touchend', endTouchGesture, { passive: true })
-    window.addEventListener('touchcancel', endTouchGesture, { passive: true })
+    refreshResizeObservations()
+    mutationObserver?.observe(container, { childList: true, subtree: true })
     container.addEventListener('wheel', handleWheel, { passive: true })
     container.addEventListener('scroll', handleScroll, { passive: true })
-    scheduleAlignment()
+    container.addEventListener('pointerdown', startPointer, { passive: true })
+    container.addEventListener('touchstart', startTouch, { passive: true })
+    window.addEventListener('pointerup', endPointer, { passive: true })
+    window.addEventListener('pointercancel', endPointer, { passive: true })
+    window.addEventListener('touchend', endTouch, { passive: true })
+    window.addEventListener('touchcancel', endTouch, { passive: true })
+    scheduleLayout()
 
     return {
         scrollToElement,
         scrollToEdge,
         navigateMessage,
+        preserveElementPosition,
+        preserveViewportPosition,
         destroy() {
             if (destroyed) return
             destroyed = true
             resizeObserver?.disconnect()
             mutationObserver?.disconnect()
-            observedChildren.clear()
-            cancelAnimationFrame(alignmentFrame)
-            container.removeEventListener('pointerdown', startPointerGesture)
-            container.removeEventListener('touchstart', startTouchGesture)
-            window.removeEventListener('pointermove', handlePointerMove)
-            window.removeEventListener('pointerup', endPointerGesture)
-            window.removeEventListener('pointercancel', endPointerGesture)
-            window.removeEventListener('touchend', endTouchGesture)
-            window.removeEventListener('touchcancel', endTouchGesture)
+            observedElements.clear()
+            layoutAnchors.clear()
+            directManipulationStart = null
+            navigationAnchor = null
+            cancelAnimationFrame(layoutFrame)
             container.removeEventListener('wheel', handleWheel)
             container.removeEventListener('scroll', handleScroll)
-            streamingHeightSpacer?.remove()
-            rangeSpacer.style.height = '0px'
+            container.removeEventListener('pointerdown', startPointer)
+            container.removeEventListener('touchstart', startTouch)
+            window.removeEventListener('pointerup', endPointer)
+            window.removeEventListener('pointercancel', endPointer)
+            window.removeEventListener('touchend', endTouch)
+            window.removeEventListener('touchcancel', endTouch)
         },
     }
 }

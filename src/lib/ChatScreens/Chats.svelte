@@ -5,7 +5,7 @@
     import { getCharImage } from 'src/ts/characters';
     import { createSimpleCharacter, DBState, ReloadChatPointer } from 'src/ts/stores.svelte';
     import { chatFoldedStateMessageIndex } from 'src/ts/globalApi.svelte';
-    import { didNewResponseStart, type ChatResponseSnapshot, type ChatScrollController } from './chatScroll';
+    import { didNewResponseComplete, getCompletedResponseAction, isChatNearBottom, type ChatResponseSnapshot, type ChatScrollController } from './chatScroll';
     import { createRevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from 'src/ts/process/revenant/recovery';
 
     let {
@@ -19,6 +19,7 @@
         userIcon,
         chatRoomId,
         roomIsStreaming = false,
+        roomIsResponding = roomIsStreaming,
         loadPages,
         userIconPortrait,
         getScrollController = () => null,
@@ -34,6 +35,7 @@
         userIcon: string
         chatRoomId: string
         roomIsStreaming?: boolean
+        roomIsResponding?: boolean
         loadPages: number
         userIconPortrait?: boolean
         getScrollController?: () => ChatScrollController | null
@@ -84,8 +86,8 @@
             currentCharacter.chaId && chatRoomId
                 ? { characterId: currentCharacter.chaId, roomId: chatRoomId }
                 : null
-        let loadStart = messages.length - 1
-        let loadEnd = messages.length - loadPages
+        let loadStart = Math.max(0, messages.length - loadPages)
+        let loadEnd = messages.length - 1
 
         // Find the last real (non-comment, non-disabled) char message index
         // Only show reroll if it's the actual last non-disabled message
@@ -102,15 +104,15 @@
         }
 
         if(chatFoldedStateMessageIndex.index !== -1){
-            loadStart = chatFoldedStateMessageIndex.index
-            loadEnd = Math.max(0, chatFoldedStateMessageIndex.index - loadPages)
+            loadStart = Math.max(0, chatFoldedStateMessageIndex.index - loadPages)
+            loadEnd = chatFoldedStateMessageIndex.index
         }
 
         const showPreviousChatSwipeButtons = DBState.db.showPreviousChatSwipeButtons;
         let previousElement: HTMLDivElement | null = null
 
-        for(let i=loadStart ; i >= loadEnd; i--){
-            if(i < 0) break; // Prevent out of bounds
+        for(let i=loadStart ; i <= loadEnd; i++){
+            if(i >= messages.length) break;
             const message = messages[i];
             const displayMessage = message.recoveryDisplayData ?? message.data;
             const messageLargePortrait = message.role === 'user' ? (userIconPortrait ?? false) : ((currentCharacter as character).largePortrait ?? false);
@@ -150,7 +152,6 @@
             if (!entry) {
                 const element = document.createElement('div')
                 element.classList.add('chat-message-container')
-                element.toggleAttribute('data-streaming-chat-message', isStreamingMessage)
                 const props = $state<ChatMountProps>({
                     message: displayMessage,
                     isLastMemory: false,
@@ -183,6 +184,7 @@
                         messageIndex: i,
                         swipeId,
                     },
+                    getScrollController,
                 })
                 const inst = mount(Chat, { target: element, props })
                 entry = { inst, element, props, characterSource: simpleChar, callbackSources }
@@ -191,7 +193,6 @@
             else {
                 untrack(() => {
                     const props = entry.props
-                    entry.element.toggleAttribute('data-streaming-chat-message', isStreamingMessage)
 
                     if (props.message !== displayMessage) props.message = displayMessage
                     if (props.idx !== i) props.idx = i
@@ -216,6 +217,7 @@
                     if (props.disabled !== disabled) props.disabled = disabled
                     if (props.currentPage !== currentPage) props.currentPage = currentPage
                     if (props.totalPages !== totalPages) props.totalPages = totalPages
+                    if (props.getScrollController !== getScrollController) props.getScrollController = getScrollController
                     const recoveryTarget = props.translationRecoveryTarget
                     if (
                         recoveryTarget?.messageChatId !== (message.chatId ?? null)
@@ -276,7 +278,7 @@
 
     function scrollLatestIntoChatScreen() {
         if(!chatBody) return;
-        const element = chatBody.firstElementChild as HTMLElement | null;
+        const element = chatBody.lastElementChild as HTMLElement | null;
         const chatScreen = chatBody.parentElement;
         if(!element || !chatScreen) return;
         getScrollController()?.scrollToElement(element, { block: 'start', behavior: 'instant' });
@@ -302,7 +304,7 @@
             messageCount: messages.length,
             isCharacterResponse: lastMsg?.role === 'char',
             hasContent: (lastMsg?.recoveryDisplayData ?? lastMsg?.data ?? '').length > 0,
-            isResponding: roomIsStreaming || lastMsg?.isRecovering === true,
+            isResponding: roomIsResponding || lastMsg?.isRecovering === true,
         }
         const newMessageButtonEnabled = DBState.db.newMessageButtonStyle !== 'off'
 
@@ -310,14 +312,28 @@
         // unread affordance that was already visible.
         if (!newMessageButtonEnabled) hasNewUnreadMessage = false
 
-        // Move exactly once when the first visible response content arrives.
-        // No delayed callback remains to pull the reader back after they move.
-        if (didNewResponseStart(previousResponseSnapshot, snapshot)) {
-            if (DBState.db.autoScrollToNewMessage) {
+        // A completed response is the notification boundary. While streaming,
+        // the scroll controller already follows content if the reader stayed
+        // at the bottom; readers browsing history must not be pulled into a
+        // partial response on its first token.
+        const responseCompleted = didNewResponseComplete(previousResponseSnapshot, snapshot)
+        if (responseCompleted) {
+            const completedResponseAction = getCompletedResponseAction({
+                autoScroll: DBState.db.autoScrollToNewMessage === true,
+                alwaysScroll: DBState.db.alwaysScrollToNewMessage === true,
+                buttonEnabled: newMessageButtonEnabled,
+                nearBottom: !chatBody?.parentElement
+                    || isChatNearBottom(
+                        chatBody.parentElement.scrollTop,
+                        chatBody.parentElement.scrollHeight,
+                        chatBody.parentElement.clientHeight,
+                    ),
+            })
+            if (completedResponseAction === 'scroll') {
                 hasNewUnreadMessage = false
                 scrollLatestIntoChatScreen()
             }
-            else if (newMessageButtonEnabled) {
+            else if (completedResponseAction === 'notify') {
                 hasNewUnreadMessage = true
             }
         }
@@ -326,4 +342,4 @@
 
 </script>
 
-<div class="flex flex-col-reverse" bind:this={chatBody}></div>
+<div class="flex flex-col" bind:this={chatBody}></div>

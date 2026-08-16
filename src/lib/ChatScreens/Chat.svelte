@@ -10,7 +10,7 @@
     import { DBState, ReloadChatPointer, CurrentTriggerIdStore, popupStore } from 'src/ts/stores.svelte'
 
     import { capitalize, getUserIcon, getUserName, sleep } from "src/ts/util"
-    import { onDestroy, onMount } from "svelte"
+    import { onDestroy, onMount, tick } from "svelte"
     import { type Unsubscriber } from "svelte/store"
     import { v4 as uuidv4, v4 } from 'uuid'
     import { language } from "../../lang"
@@ -24,12 +24,14 @@
     import ChatBody from './ChatBody.svelte'
     import PopupButton from "../UI/PopupButton.svelte";
     import { createRevenantChatTranslationRecovery, type RevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from "src/ts/process/revenant/recovery";
+    import { resolveRequestDiagnosticContext } from "src/ts/requestDiagnostics";
     import type { RevenantChatMessageTranslationTarget } from "src/ts/process/revenant";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";
     import { createSubscriber } from "svelte/reactivity";
     import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges } from "./chatBodyRenderController.svelte";
+    import type { ChatScrollController } from "./chatScroll";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -39,10 +41,12 @@
     let editTranslationMode = $state(false)
     let editTranslationKeyMode = $state(false)
     let editTranslationText = $state('')
+    let editTranslationCacheKey = $state<string | null>(null)
     let translationRevision = $state(0)
     let originalEditTranslationKey = $state<string | null>(null)
     let bodyRoot:HTMLElement|null = $state(null)
     let partialEditRoot: HTMLDivElement | null = $state(null)
+    const generationInfoAlignsLeft = $derived(DBState.db.theme === '')
     let activeTranslationTasks = 0
     let cancelTranslationRequest: (() => void) | null = $state(null)
     let messageEditTextAreaStyle = $derived(`font-size:${0.875 * (DBState.db.zoomsize / 100)}rem;line-height:${(DBState.db.lineHeight ?? 1.25) * (DBState.db.zoomsize / 100)}rem`)
@@ -75,6 +79,7 @@
         translationRecoveryContext?: RevenantChatTranslationRecoveryContext;
         translationRecoveryScope?: RevenantChatTranslationRecoveryScope | null;
         translationRecoveryTarget?: RevenantChatMessageTranslationTarget | null;
+        getScrollController?: () => ChatScrollController | null;
     }
 
     let {
@@ -105,6 +110,7 @@
         translationRecoveryContext,
         translationRecoveryScope,
         translationRecoveryTarget,
+        getScrollController = () => null,
     }: Props = $props();
 
     let msgDisplay = $state('')
@@ -156,7 +162,10 @@
         }
         const action = selectedAction.id
         if(action === 'swipe'){
-            onDeleteSwipe()
+            // Deleting the selected swipe also navigates to the response that
+            // takes its place. Use the same transition as the arrow controls
+            // so cached-only auto translation inspects the new source text.
+            changeSwipe(onDeleteSwipe)
             return
         }
         let msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
@@ -179,12 +188,31 @@
         }
     }
 
+    async function preservePositionWhileEditing(update: () => void | Promise<void>) {
+        const release = partialEditRoot
+            ? getScrollController()?.preserveElementPosition(partialEditRoot)
+            : undefined
+        try {
+            await update()
+            // The editor first mounts and then measures its scrollHeight on a
+            // following Svelte tick. Keep the old message anchor through both
+            // layouts so the intermediate 44px textarea cannot move the view.
+            await tick()
+            await tick()
+        }
+        finally {
+            release?.()
+        }
+    }
+
     async function enterEditMode() {
         // Keep the editor independent from streaming/recovery prop updates.
         // Otherwise a parent refresh can replace every keystroke with the
         // latest server-owned display value.
-        editDraft = message
-        editMode = true
+        await preservePositionWhileEditing(() => {
+            editDraft = message
+            editMode = true
+        })
         if (translated && DBState.db.translatorType === 'llm') {
             editTranslationKeyMode = true
             originalEditTranslationKey = await getTranslationCacheKey()
@@ -199,10 +227,12 @@
         const oldKey = originalEditTranslationKey
         const shouldMigrateTranslationKey = editTranslationKeyMode
         const nextMessage = editDraft
-        editMode = false
-        editTranslationKeyMode = false
-        await edit(nextMessage)
-        displaya(nextMessage)
+        await preservePositionWhileEditing(async () => {
+            editMode = false
+            editTranslationKeyMode = false
+            await edit(nextMessage)
+            displaya(nextMessage)
+        })
 
         if (shouldMigrateTranslationKey && oldKey) {
             const newKey = await getTranslationCacheKey()
@@ -241,8 +271,10 @@
     async function handlePartialEditTranslationSave(event: Event) {
         const { key, data } = (event as CustomEvent<{ key: string; data: string }>).detail
         await setLLMCache(key, data)
-        if (editTranslationMode) editTranslationText = data
-        if (translated) translationRevision += 1
+        await preservePositionWhileEditing(() => {
+            if (editTranslationMode) editTranslationText = data
+            if (translated) translationRevision += 1
+        })
     }
 
     function getCbsCondition(){
@@ -310,14 +342,29 @@
     async function loadTranslationForEdit() {
         const key = await getTranslationCacheKey()
         const cached = await getLLMCache(key)
-        editTranslationText = cached ?? ''
-        editTranslationMode = true
+        await preservePositionWhileEditing(() => {
+            editTranslationCacheKey = key
+            editTranslationText = cached ?? ''
+            editTranslationMode = true
+        })
     }
 
     async function saveTranslationEdit() {
-        const key = await getTranslationCacheKey()
+        const key = editTranslationCacheKey
+        if (key === null) return
         await setLLMCache(key, editTranslationText)
-        editTranslationMode = false
+        await preservePositionWhileEditing(() => {
+            editTranslationMode = false
+            editTranslationCacheKey = null
+        })
+    }
+
+    async function cancelOriginalEdit() {
+        await preservePositionWhileEditing(() => {
+            editMode = false
+            editTranslationKeyMode = false
+            originalEditTranslationKey = null
+        })
     }
 
     function isTranslationBusy() {
@@ -327,6 +374,19 @@
     function isTranslationControlBusy() {
         return isTranslationBusy() || !revenantTranslationInspectionReady
     }
+
+    const currentTextEditActive = $derived(editMode || editTranslationMode)
+    const controlDisabled = $derived.by(() => ({
+        translationToggle: currentTextEditActive
+            || (isTranslationControlBusy() && cancelTranslationRequest === null),
+        translationAction: currentTextEditActive || isTranslationControlBusy(),
+        swipe: currentTextEditActive || isTranslationBusy(),
+        edit: isTranslationBusy()
+            || (translated
+                && DBState.db.translatorType === 'llm'
+                && !revenantTranslationInspectionReady),
+        partialEdit: currentTextEditActive || isTranslationBusy() || isStreamingDisplay,
+    }))
 
     function updateTranslationTasks(delta:1|-1) {
         activeTranslationTasks = Math.max(0, activeTranslationTasks + delta)
@@ -343,6 +403,7 @@
     }
 
     function handleTranslationButton() {
+        if (currentTextEditActive) return
         if (isTranslationBusy()) {
             cancelTranslationRequest?.()
             resetTranslationState()
@@ -352,26 +413,32 @@
     }
 
     function requestRetranslation() {
-        if (!isTranslationControlBusy()) retranslate = true
+        if (!controlDisabled.translationAction) retranslate = true
     }
 
     function changeSwipe(change: () => void) {
+        if (controlDisabled.swipe) return
         resetTranslationState()
         change()
         translationRevision += 1
     }
 
-    function toggleTranslationEdit() {
-        if (isTranslationControlBusy()) return
+    async function toggleCurrentTextEdit() {
+        if (isTranslationBusy()) return
+        if (editTranslationMode) {
+            await saveTranslationEdit()
+            return
+        }
         if (editMode) {
-            editTranslationKeyMode = !editTranslationKeyMode
+            await saveOriginalEdit()
+            return
         }
-        else if (editTranslationMode) {
-            saveTranslationEdit()
+        if (translated && DBState.db.translatorType === 'llm') {
+            if (isTranslationControlBusy()) return
+            await loadTranslationForEdit()
+            return
         }
-        else {
-            loadTranslationForEdit()
-        }
+        await enterEditMode()
     }
 
     function displaya(message:string){
@@ -557,23 +624,27 @@
 {#snippet genInfo()}
     <IconButtonGroup
         size="lg"
-        className={`chat-generation-info flex-wrap justify-end gap-1 ${DBState.db.theme === 'standardRisu' ? 'flex-row-reverse' : ''}`}
+        className={`chat-generation-info flex-wrap gap-1 ${generationInfoAlignsLeft ? 'justify-start' : 'chat-width w-full justify-end'}`}
         style="min-height:var(--icon-cell-size)"
     >
         {#if messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())}
-            {@const modelLabel = capitalize(getModelInfo(messageGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))}
+            {@const diagnosticMessage = idx >= 0
+                ? DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx]
+                : undefined}
+            {@const diagnosticGenerationInfo = diagnosticMessage
+                ? resolveRequestDiagnosticContext(diagnosticMessage, messageGenerationInfo).generationInfo
+                : messageGenerationInfo}
+            {@const modelLabel = diagnosticGenerationInfo?.model
+                ? capitalize(getModelInfo(diagnosticGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))
+                : language.requestDiagnostics.unavailable}
             <IconButton
                 expanded
-                className="text-sm"
+                className={`text-sm ${generationInfoAlignsLeft ? '' : 'order-last'}`}
                 aria-label={modelLabel}
                 title={modelLabel}
                 onclick={() => {
-                    const currentGenerationInfo = idx >= 0 ?
-                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx].generationInfo :
-                        messageGenerationInfo
-
                     alertRequestData({
-                        genInfo: currentGenerationInfo,
+                        genInfo: diagnosticGenerationInfo ?? {},
                         idx: idx,
                     })
                 }}
@@ -588,28 +659,13 @@
             <IconButton
                 expanded
                 className="text-sm"
-                disabled={isTranslationControlBusy()}
+                disabled={controlDisabled.translationAction}
                 aria-label={language.retranslate}
                 title={language.retranslate}
                 onclick={requestRetranslation}
             >
                 <RefreshCcwIcon />
                 <span>{language.retranslate}</span>
-            </IconButton>
-            <IconButton
-                expanded
-                className="text-sm"
-                active={editTranslationMode || editTranslationKeyMode}
-                activeColor="primary"
-                disabled={isTranslationControlBusy()}
-                aria-label={editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
-                title={editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
-                onclick={toggleTranslationEdit}
-            >
-                <PencilIcon />
-                <span>
-                    {editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
-                </span>
             </IconButton>
         {/if}
     </IconButtonGroup>
@@ -622,9 +678,7 @@
         }} />
     {:else if editMode}
         <TextAreaInput bind:value={editDraft} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
-            editMode = false
-            editTranslationKeyMode = false
-            originalEditTranslationKey = null
+            void cancelOriginalEdit()
         }} />
     {:else if isComment}
         <div class="w-full flex justify-center text-textcolor2 italic mb-12">
@@ -665,7 +719,7 @@
             class:prose-invert={$ColorSchemeTypeStore === 'dark'}
             bind:this={bodyRoot}
             onclick={async () => {
-            if(DBState.db.clickToEdit && idx > -1 && !editMode && !editTranslationMode && !isTranslationBusy()){
+            if(DBState.db.clickToEdit && idx > -1 && !controlDisabled.partialEdit){
                 await enterEditMode()
             }
         }}
@@ -805,7 +859,6 @@
                         max-width: 100%;
                         margin: 10px 0;
                         border-radius: 8px;
-                        box-shadow: rgba(0,0,0,0.1) 0px 2px 8px;
                         display: block;
                         margin-left: auto;
                         margin-right: auto;
@@ -944,7 +997,7 @@
                     }
                 }
                 
-                const html = `<div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; color: ${root.style.getPropertyValue('--risu-theme-textcolor')}; line-height: 1.6; max-width: 600px; margin: 1rem auto; background: ${root.style.getPropertyValue('--risu-theme-bgcolor')}; border-radius: 12px; box-shadow: 0px 4px 12px rgba(0,0,0,0.15); overflow: hidden;">
+                const html = `<div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; color: ${root.style.getPropertyValue('--risu-theme-textcolor')}; line-height: 1.6; max-width: 600px; margin: 1rem auto; background: ${root.style.getPropertyValue('--risu-theme-bgcolor')}; border-radius: 12px; overflow: hidden;">
 <div style="padding: 20px;">
 <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 1rem; text-align: center;">
     ${finalHasValidImage ? `<img style="width: 80px; height: 80px; border-radius: 50%; border: 3px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')}; margin-bottom: 0.75rem; object-fit: cover;" src="${finalIconDataUrl}" alt="profile">` : ''}
@@ -1014,9 +1067,9 @@
             expanded={showNames}
             active={translated}
             activeColor="primary"
-            tone={cancelTranslationRequest ? 'destructive' : 'default'}
-            className={"button-icon-translate " + translationDisabledClasses + (translationPending ? ' translating' : '')}
-            disabled={isTranslationControlBusy() && cancelTranslationRequest === null}
+             tone={cancelTranslationRequest ? 'destructive' : 'default'}
+             className={"button-icon-translate " + translationDisabledClasses + (translationPending ? ' translating' : '')}
+             disabled={controlDisabled.translationToggle}
             aria-label={cancelTranslationRequest ? language.cancel : language.translate}
             title={cancelTranslationRequest ? language.cancel : language.translate}
             onclick={handleTranslationButton}>
@@ -1030,24 +1083,13 @@
         <IconButton
             size="lg"
             expanded={showNames}
-            active={editMode}
+            active={currentTextEditActive}
             activeColor="primary"
             className={"button-icon-edit " + translationDisabledClasses}
-            disabled={isTranslationBusy()}
-            onclick={async () => {
-            if(isTranslationBusy()){
-                return
-            }
-            if(editTranslationMode){
-                return
-            }
-            if(!editMode){
-                await enterEditMode()
-            }
-            else{
-                await saveOriginalEdit()
-            }
-        }}>
+            disabled={controlDisabled.edit}
+            aria-label={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
+            title={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
+            onclick={toggleCurrentTextEdit}>
             <PencilIcon />
 
             {#if showNames}
@@ -1059,7 +1101,7 @@
 
 {#snippet rerolls()}
     {#if (rerollIcon || altGreeting) && role !== 'user'}
-        <fieldset class="contents" disabled={isTranslationBusy()}>
+        <fieldset class="contents" disabled={controlDisabled.swipe}>
         {#if altGreeting}
             <!-- First message: ← counter → -->
             <IconButton size="lg" className="button-icon-unreroll" onclick={() => changeSwipe(unReroll)}>
@@ -1361,7 +1403,7 @@
      bind:this={partialEditRoot}
      data-chat-index={idx}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
-     data-partial-edit-disabled={editMode || editTranslationMode || isTranslationBusy() || isStreamingDisplay}
+     data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid rgba(98, 114, 164, 0.7);` : ''}
      onclickcapture={handleButtonTriggerWithin}>
@@ -1413,7 +1455,7 @@
      bind:this={partialEditRoot}
      data-chat-index={idx}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
-     data-partial-edit-disabled={editMode || editTranslationMode || isTranslationBusy() || isStreamingDisplay}
+     data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid rgba(98, 114, 164, 0.7);` : ''}
      onclickcapture={handleButtonTriggerWithin}>

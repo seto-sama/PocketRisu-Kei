@@ -122,7 +122,6 @@
         readOnly={showConfigure}
         close={() => { openOptions = false }}
         configure={showConfigure ? goToPresetSettings : undefined}
-        configureLabel={language.edit}
         onFoldersChange={(next) => { DBState.db.modelPresetFolders = next }}
         onAssignItem={assignPresetToFolder}
         onDeleteFolder={(folderId) => {

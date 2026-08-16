@@ -2418,9 +2418,11 @@ export async function loadInternalBackup() {
         }))
     ]
 
-    const alertResult = parseInt(
-        await alertSelect(selectOptions)
-    ) - 1
+    const selectedOption = parseInt(await alertSelect(selectOptions))
+    if (selectedOption < 0) {
+        return
+    }
+    const alertResult = selectedOption - 1
 
     if (alertResult === -1) {
         return

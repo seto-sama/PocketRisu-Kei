@@ -32,15 +32,16 @@ describe('ShCombobox', () => {
         input.focus()
         await tick()
 
-        expect(target.querySelector('[role="listbox"]')).not.toBeNull()
-        expect([...target.querySelectorAll('[role="option"]')].map(option => option.textContent?.trim()))
+        expect(target.querySelector('[role="listbox"]')).toBeNull()
+        expect(document.querySelector('[role="listbox"]')).not.toBeNull()
+        expect([...document.querySelectorAll('[role="option"]')].map(option => option.textContent?.trim()))
             .toEqual(['SUIT Variable', 'Example Thin'])
 
         input.value = 'suit'
         input.dispatchEvent(new Event('input', { bubbles: true }))
         await tick()
 
-        expect([...target.querySelectorAll('[role="option"]')].map(option => option.textContent?.trim()))
+        expect([...document.querySelectorAll('[role="option"]')].map(option => option.textContent?.trim()))
             .toEqual(['SUIT Variable'])
     })
 
@@ -54,7 +55,7 @@ describe('ShCombobox', () => {
         await tick()
 
         expect(input.value).toBe('SUIT Variable')
-        expect(target.querySelector('[role="listbox"]')).toBeNull()
+        expect(document.querySelector('[role="listbox"]')).toBeNull()
     })
 
     it('selects a suggestion with a click', async () => {
@@ -63,12 +64,12 @@ describe('ShCombobox', () => {
         input.focus()
         await tick()
 
-        const options = target.querySelectorAll<HTMLButtonElement>('[role="option"]')
+        const options = document.querySelectorAll<HTMLButtonElement>('[role="option"]')
         options[1].click()
         await tick()
 
         expect(input.value).toBe('Example Thin')
-        expect(target.querySelector('[role="listbox"]')).toBeNull()
+        expect(document.querySelector('[role="listbox"]')).toBeNull()
     })
 
     it('anchors the suggestion list to the input width', async () => {
@@ -79,7 +80,7 @@ describe('ShCombobox', () => {
         await tick()
         await tick()
 
-        const listbox = target.querySelector<HTMLElement>('[role="listbox"]')!
+        const listbox = document.querySelector<HTMLElement>('[role="listbox"]')!
         expect(listbox.style.left).toBe('24px')
         expect(listbox.style.top).toBe('82px')
         expect(listbox.style.width).toBe('280px')

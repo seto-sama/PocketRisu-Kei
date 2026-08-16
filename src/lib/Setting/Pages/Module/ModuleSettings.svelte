@@ -290,7 +290,7 @@
                                     if(sel === 0){
                                         exportModule(rmodule)
                                     }
-                                    else{
+                                    else if(sel === 1){
                                         exportModuleLegacy(rmodule)
                                     }
                                 }}>
@@ -377,7 +377,6 @@
                 void requestImmediateSave()
             }}
             configure={openPersonaSettings}
-            configureLabel={language.edit}
         >
             {#snippet itemContent(index)}
                 {@const persona = DBState.db.personas[index]}

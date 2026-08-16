@@ -17,6 +17,12 @@ export interface AlertAction {
     variant?: ShButtonVariant
 }
 
+export interface AlertSelectOptions {
+    display?: string
+    /** Defaults to true. Disable only when the caller cannot safely handle cancellation. */
+    closeOnOutsideClick?: boolean
+}
+
 export interface alertData{
     type: 'error'|'normal'|'none'|'ask'|'wait'|'selectChar'
             |'input'|'wait2'|'markdown'|'select'|'login'
@@ -30,6 +36,7 @@ export interface alertData{
     defaultValue?: string
     actions?: AlertAction[]
     hideConfirm?: boolean
+    closeOnOutsideClick?: boolean
 }
 
 export interface NotifyOptions {
@@ -38,7 +45,7 @@ export interface NotifyOptions {
     log?: boolean
 }
 
-type AlertGenerationInfoStoreData = {
+export type AlertGenerationInfoStoreData = {
     genInfo: MessageGenerationInfo,
     idx: number
 }
@@ -163,11 +170,17 @@ export async function alertLogin(){
     return get(alertStoreImported).msg
 }
 
-export async function alertSelect(msg:string[], display?:string){
+/** Returns the selected option index as a string, or "-1" when dismissed. */
+export async function alertSelect(msg:string[], options?:string|AlertSelectOptions){
+    const display = typeof options === 'string' ? options : options?.display
+    const closeOnOutsideClick = typeof options === 'string'
+        ? true
+        : options?.closeOnOutsideClick ?? true
     const message = display !== undefined ? `__DISPLAY__${display}||${msg.join('||')}` : msg.join('||')
     alertStoreImported.set({
         'type': 'select',
-        'msg': message
+        'msg': message,
+        closeOnOutsideClick,
     })
 
     await waitAlert()

@@ -13,12 +13,14 @@
     import { v4 } from "uuid";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
+    import Portal from "../UI/GUI/Portal.svelte";
 
     let editMode = $state(false)
     /** @type {{close?: any}} */
     let { close = () => {} } = $props();
 </script>
 
+<Portal>
 <div class="risu-modal-backdrop z-40 flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-72 max-h-full overflow-y-auto">
         <div class="flex items-center text-textcolor mb-4">
@@ -99,6 +101,7 @@
         </IconButtonGroup>
     </div>
 </div>
+</Portal>
 
 <style>
     .break-any{
