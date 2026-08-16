@@ -2197,9 +2197,7 @@ export const languageEnglish = {
     storageRowFileBackups: "Disk backups (.bin)",
     storageRowFileBackupsDesc: "Manual export backups stored on disk under the backups/ folder.",
     storageRowKvDatabase: "database.bin (live)",
-    storageRowKvDatabaseDesc: "The single BLOB inside risuai.db that holds character metadata, chats, and settings. Subject to the 2 GB single-blob limit.",
-    storageRowKvDbBackups: "In-process DB backups",
-    storageRowKvDbBackupsDesc: "Automatic snapshots of database.bin kept inside risuai.db. Rotated to fit within ~500 MB.",
+    storageRowKvDatabaseDesc: "Space used by chats, characters, settings, and automatic recovery snapshots.",
     storageRowKvAssets: "Character assets",
     storageRowKvAssetsDesc: "Character cards, emotion images, additional assets, persona icons, and similar media.",
     storageRowKvInlay: "Inlay images",
@@ -2214,10 +2212,10 @@ export const languageEnglish = {
     storageRowKvColdStorageDesc: "Legacy/dormant storage tier. Usually empty.",
     storageRowKvUncategorized: "Other data",
     storageRowKvUncategorizedDesc: "Keys not matching any known category. Usually migration leftovers or temporary entries.",
-    storageRowSqliteOverhead: "SQLite overhead (structural)",
-    storageRowSqliteOverheadDesc: "Structural pages SQLite always keeps: indexes, page headers, alignment padding. Not user data and not removable by cleanup (grows naturally with data volume).",
-    storageRowReclaimablePages: "SQLite overhead (reclaimable)",
-    storageRowReclaimablePagesDesc: "Empty pages left behind by deleted data — the reclaimable portion of SQLite overhead. Same value as the yellow segment in the \"Clean up SQLite overhead\" bar below; cleanup reclaims all of them.",
+    storageRowSqliteOverhead: "Basic DB space",
+    storageRowSqliteOverheadDesc: "Space required for the database to work. Cleanup cannot reduce it.",
+    storageRowReclaimablePages: "Space that can be cleaned up",
+    storageRowReclaimablePagesDesc: "Unused save data left behind while using the app. Cleanup does not delete current chats or settings.",
     storageRowReclaimable: (size: number) =>
         `${(size / 1024 / 1024).toFixed(1)} MB reclaimable — run Optimize to compact.`,
     storageInternalOnly: "Show with full disk",
@@ -2237,8 +2235,7 @@ export const languageEnglish = {
         `${(reclaim / 1024 / 1024).toFixed(1)} MB reclaimable of ${(dbSize / 1024 / 1024 / 1024).toFixed(2)} GB`,
     storageOptimizeBarUsed: "In use",
     storageOptimizeBarReclaimable: "Reclaimable",
-    storageOptimizeWhat: "When you delete characters, chats, or assets, the database marks the space as empty but does not shrink the file. Cleanup removes that empty space and rewrites the file to make it smaller on disk. Data is not modified.",
-    storageOptimizeWhen: "Run this after a large delete, or when the empty-space portion in the bar above grows. Saves pause briefly during cleanup (usually a few seconds; tens of seconds for very large databases).",
+    storageOptimizeWhat: "Removes only old save data and empty space. Current chats, characters, and settings remain unchanged.",
     storageOptimizeConfirm: "Clean up now? Server saves will pause for a few seconds.",
     storageOptimizeNeedsSpace: (need: number, free: number) =>
         `Not enough disk space. Need ~${(need / 1024 / 1024).toFixed(0)} MB, free ${(free / 1024 / 1024).toFixed(0)} MB.`,
@@ -2246,15 +2243,13 @@ export const languageEnglish = {
         `Reclaimed ${(reclaimed / 1024 / 1024).toFixed(1)} MB in ${(ms / 1000).toFixed(1)}s.`,
     storageOptimizeFailed: "Cleanup failed",
 
-    storageCleanup: "Clean up SQLite overhead",
+    storageCleanup: "Clean up unused DB space",
 
-    storageWalCleanup: "Manual WAL cleanup",
-    storageWalCleanupHeader: (walSize: number) => `Current WAL ${(walSize / 1024 / 1024).toFixed(1)} MB`,
-    storageWalCleanupWhat: "SQLite's WAL file (risuai.db-wal) collects recent changes before merging them into the main database. A background checkpoint runs every 5 minutes, but bursts like backup import or large asset uploads can temporarily inflate it.",
-    storageWalCleanupWhen: "Use this when the WAL file looks large and you want to reclaim disk space immediately. Lightweight (a few milliseconds) and requires no extra free space, unlike Optimize. Data is not modified.",
+    storageWalCleanupWhat: "WAL cleanup removes temporary database files.",
     storageWalCleanup_btn: "Clean up WAL",
     storageWalCleanuping: "Cleaning up WAL...",
-    storageWalCleanupConfirm: "Clean up WAL now? Server saves will pause briefly.",
+    storageWalCleanupConfirm: (walSize: number) =>
+        `Clean up WAL (${(walSize / 1024 / 1024).toFixed(1)} MB) now? Server saves will pause briefly.`,
     storageWalCleanupDone: (reclaimed: number, ms: number) =>
         `Reclaimed ${(reclaimed / 1024 / 1024).toFixed(1)} MB in ${ms}ms.`,
     storageWalCleanupNoop: "WAL is already clean.",
@@ -2264,7 +2259,6 @@ export const languageEnglish = {
     storageHypaCleanupHeader: (size: number, count: number) =>
         `${count} vectors · ${(size / 1024 / 1024).toFixed(1)} MB`,
     storageHypaCleanupWhat: "Compares cached embedding vectors with the HypaMemory summaries currently stored in every chat, then deletes vectors whose source text is no longer present. Summary text and chat data are not deleted.",
-    storageHypaCleanupWhen: "Use this after deleting or regenerating many HypaMemory summaries. Vectors for existing memory are kept.",
     storageHypaCleanup_btn: "Remove unused vectors",
     storageHypaCleanuping: "Scanning HypaMemory and cleaning unused vectors...",
     storageHypaCleanupConfirm: "Scan every chat and remove vector cache entries that are no longer referenced by current HypaMemory summaries?",

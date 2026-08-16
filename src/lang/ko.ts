@@ -2337,7 +2337,7 @@ export const languageKorean = {
     "PocketRisu Kei의 메인 SQLite 데이터베이스 파일. 모든 채팅·캐릭터·에셋·설정이 여기 들어갑니다.",
   storageRowWal: "WAL (Write-Ahead Log)",
   storageRowWalDesc:
-    "임시 트랜잭션 로그. 저장이 먼저 여기 기록된 뒤 본 파일에 통합됩니다. 사용 중엔 정상적으로 존재.",
+    "임시 트랜잭션 로그. 메인 DB로 합쳐지기 전의 변경사항을 임시로 모아두는 영역입니다.",
   storageRowShm: "SHM (공유 메모리)",
   storageRowShmDesc:
     "WAL용 SQLite 공유 메모리 인덱스. 작고 휘발성이며 필요 시 재생성됩니다.",
@@ -2346,15 +2346,12 @@ export const languageKorean = {
     "수동으로 export한 백업 파일. backups/ 폴더에 보관됩니다.",
   storageRowKvDatabase: "database.bin (활성)",
   storageRowKvDatabaseDesc:
-    "risuai.db 내부에 있는 단일 BLOB 행. 캐릭터 메타·채팅·설정이 통째로 들어갑니다. 2 GB 단일 BLOB 한계의 적용 대상.",
-  storageRowKvDbBackups: "DB 백업 (인프로세스)",
-  storageRowKvDbBackupsDesc:
-    "risuai.db 내부에 자동으로 보관되는 database.bin 스냅샷. 약 500 MB 한도로 자동 로테이션.",
+    "채팅·캐릭터·설정과 자동 복구용 스냅샷이 차지하는 공간입니다.",
   storageRowKvAssets: "캐릭터 에셋",
   storageRowKvAssetsDesc:
-    "캐릭터 카드, 이모션 이미지, 추가 에셋, 페르소나 아이콘 등.",
-  storageRowKvInlay: "인레이 이미지",
-  storageRowKvInlayDesc: "메시지에 첨부된 이미지 (본체 + 썸네일 + 메타).",
+    "캐릭터 카드, 감정 이미지, 추가 에셋, 페르소나 아이콘 등.",
+  storageRowKvInlay: "인레이 데이터",
+  storageRowKvInlayDesc: "메시지에 첨부된 파일들로, 인레이 갤러리에서 상세 파일을 확인할 수 있습니다.",
   storageRowHypaVectorCache: "HypaMemory 벡터 캐시",
   storageRowHypaVectorCacheDesc:
     "HypaMemory 텍스트에서 생성한 임베딩 벡터 캐시입니다. 원본 메모리 텍스트는 채팅 데이터에 남아 있습니다.",
@@ -2369,12 +2366,12 @@ export const languageKorean = {
   storageRowKvUncategorized: "기타 데이터",
   storageRowKvUncategorizedDesc:
     "위 분류에 들어가지 않는 키. 마이그레이션 잔여물이나 임시 항목 등이 여기 잡힙니다.",
-  storageRowSqliteOverhead: "SQLite 오버헤드 (구조)",
+  storageRowSqliteOverhead: "DB 기본 공간",
   storageRowSqliteOverheadDesc:
-    "인덱스, 페이지 헤더, 정렬 패딩 등 SQLite가 항상 들고 있는 구조적 영역입니다. 사용자 데이터가 아니며 정리로 제거되지 않습니다 (데이터 양에 비례해 자연 증가).",
-  storageRowReclaimablePages: "SQLite 오버헤드 (회수 가능)",
+    "DB가 작동하는 데에 필요한 헤더 등이 차지하는 공간입니다.",
+  storageRowReclaimablePages: "정리 가능 공간",
   storageRowReclaimablePagesDesc:
-    '삭제된 데이터가 남긴 빈 페이지로, SQLite 오버헤드 중 정리로 회수 가능한 부분입니다. 아래 "SQLite 오버헤드 정리"의 막대 노란색 부분과 같은 값이며, 정리 실행 시 모두 회수됩니다.',
+    "저장이나 삭제 등 DB 사용 시에 자연스럽게 발생하는 빈 공간으로, 수동 회수를 통해 정리할 수 있습니다. 정리해도 채팅이나 설정은 지워지지 않습니다.",
   storageRowReclaimable: (size: number) =>
     `${(size / 1024 / 1024).toFixed(1)} MB 회수 가능 — Optimize로 압축.`,
   storageInternalOnly: "저장공간과 함께보기",
@@ -2392,16 +2389,14 @@ export const languageKorean = {
   storageBlobThresholdCrit:
     "위험: 2 GB BLOB 한계가 임박했습니다. 저장이 실패할 수 있습니다.",
 
-  storageOptimize: "지금 정리",
+  storageOptimize: "DB 정리",
   storageOptimizing: "정리 중...",
   storageOptimizeHeader: (dbSize: number, reclaim: number) =>
     `${(dbSize / 1024 / 1024 / 1024).toFixed(2)} GB 중 ${(reclaim / 1024 / 1024).toFixed(1)} MB 회수 가능`,
   storageOptimizeBarUsed: "사용 중",
   storageOptimizeBarReclaimable: "회수 가능",
   storageOptimizeWhat:
-    "캐릭터·채팅·에셋을 삭제해도 데이터베이스는 그 자리를 빈 공간으로 표시할 뿐 파일 크기는 줄어들지 않습니다. 정리는 이 빈 공간을 제거해 파일을 다시 써서 실제 크기를 줄입니다. 데이터는 변경되지 않습니다.",
-  storageOptimizeWhen:
-    "큰 삭제 작업 후나 위 막대의 빈 공간이 많이 쌓였을 때 실행하면 효과가 큽니다. 정리 중에는 서버 저장이 잠시 멈춥니다 (보통 수 초, 매우 큰 DB는 수십 초까지).",
+    "DB가 차지하고 있는 공간 중 회수 가능한 공간을 사용 가능 공간으로 되돌립니다. 채팅·캐릭터·설정 등의 데이터는 그대로 유지됩니다.",
   storageOptimizeConfirm: "지금 정리할까요? 서버 저장이 수 초간 멈춥니다.",
   storageOptimizeNeedsSpace: (need: number, free: number) =>
     `디스크 여유가 부족합니다. 약 ${(need / 1024 / 1024).toFixed(0)} MB 필요, 여유 ${(free / 1024 / 1024).toFixed(0)} MB.`,
@@ -2409,18 +2404,14 @@ export const languageKorean = {
     `${(reclaimed / 1024 / 1024).toFixed(1)} MB 회수 (${(ms / 1000).toFixed(1)}초).`,
   storageOptimizeFailed: "정리 실패",
 
-  storageCleanup: "SQLite 오버헤드 정리",
+  storageCleanup: "DB 수동 정리",
 
-  storageWalCleanup: "WAL 수동 정리",
-  storageWalCleanupHeader: (walSize: number) =>
-    `현재 WAL ${(walSize / 1024 / 1024).toFixed(1)} MB`,
   storageWalCleanupWhat:
-    "SQLite의 WAL 파일(risuai.db-wal)은 최근 변경분이 본 DB로 합쳐지기 전 임시로 모아두는 영역입니다. 5분 주기로 자동 정리되지만 백업 임포트나 큰 에셋 업로드 직후 일시적으로 부풀 수 있습니다.",
-  storageWalCleanupWhen:
-    "WAL 파일이 커진 상태에서 디스크 공간을 즉시 회수하고 싶을 때 사용합니다. Optimize와 달리 수 밀리초로 끝나고 추가 디스크 공간도 필요하지 않습니다. 데이터는 변경되지 않습니다.",
+    "WAL 정리는 임시 변경사항을 DB에 통합하고 WAL 파일을 비웁니다.",
   storageWalCleanup_btn: "WAL 정리",
   storageWalCleanuping: "WAL 정리 중...",
-  storageWalCleanupConfirm: "WAL을 지금 정리할까요? 서버 저장이 잠시 멈춥니다.",
+  storageWalCleanupConfirm: (walSize: number) =>
+    `WAL (${(walSize / 1024 / 1024).toFixed(1)} MB)을 지금 정리할까요? 서버 저장이 잠시 멈춥니다.`,
   storageWalCleanupDone: (reclaimed: number, ms: number) =>
     `${(reclaimed / 1024 / 1024).toFixed(1)} MB 회수 (${ms}ms).`,
   storageWalCleanupNoop: "WAL은 이미 깨끗합니다.",
@@ -2430,9 +2421,7 @@ export const languageKorean = {
   storageHypaCleanupHeader: (size: number, count: number) =>
     `${count}개 벡터 · ${(size / 1024 / 1024).toFixed(1)} MB`,
   storageHypaCleanupWhat:
-    "모든 채팅에 현재 저장된 HypaMemory 요약과 임베딩 벡터 캐시를 대조하여, 원본 텍스트가 더 이상 존재하지 않는 벡터만 삭제합니다. 요약문과 채팅 데이터는 삭제하지 않습니다.",
-  storageHypaCleanupWhen:
-    "HypaMemory 요약을 많이 삭제하거나 다시 생성한 뒤 사용하세요. 현재 존재하는 메모리의 벡터는 유지됩니다.",
+    "저장된 HypaMemory 요약과 임베딩 벡터 캐시를 대조하여, 원본 텍스트가 더 이상 존재하지 않는 벡터만 삭제합니다. 요약문과 채팅 데이터는 삭제하지 않습니다.",
   storageHypaCleanup_btn: "미사용 벡터 삭제",
   storageHypaCleanuping: "HypaMemory를 확인하고 미사용 벡터를 정리하는 중...",
   storageHypaCleanupConfirm:
@@ -2534,7 +2523,7 @@ export const languageKorean = {
     if (saved > 1024 * 1024) {
       const data = ((logicalBytes ?? 0) / 1024 / 1024).toFixed(0)
       const savedMB = (saved / 1024 / 1024).toFixed(0)
-      return `현재 ${count}개 · 디스크 ${disk} MB (데이터 ${data} MB, 중복 제거로 ${savedMB} MB 절약)`
+      return `현재 ${count}개 · 디스크 ${disk} MB (데이터 ${data} MB, 중복 제거로 ${savedMB} MB 절약됨)`
     }
     return `현재 ${count}개 · ${disk} MB 사용`
   },
