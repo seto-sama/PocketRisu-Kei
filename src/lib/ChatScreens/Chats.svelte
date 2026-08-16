@@ -5,7 +5,7 @@
     import { getCharImage } from 'src/ts/characters';
     import { createSimpleCharacter, DBState, ReloadChatPointer } from 'src/ts/stores.svelte';
     import { chatFoldedStateMessageIndex } from 'src/ts/globalApi.svelte';
-    import { didNewResponseComplete, getCompletedResponseAction, isColumnReverseNearBottom, type ChatResponseSnapshot, type ChatScrollController } from './chatScroll';
+    import { didNewResponseComplete, getCompletedResponseAction, isChatNearBottom, type ChatResponseSnapshot, type ChatScrollController } from './chatScroll';
     import { createRevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from 'src/ts/process/revenant/recovery';
 
     let {
@@ -86,8 +86,8 @@
             currentCharacter.chaId && chatRoomId
                 ? { characterId: currentCharacter.chaId, roomId: chatRoomId }
                 : null
-        let loadStart = messages.length - 1
-        let loadEnd = messages.length - loadPages
+        let loadStart = Math.max(0, messages.length - loadPages)
+        let loadEnd = messages.length - 1
 
         // Find the last real (non-comment, non-disabled) char message index
         // Only show reroll if it's the actual last non-disabled message
@@ -104,15 +104,15 @@
         }
 
         if(chatFoldedStateMessageIndex.index !== -1){
-            loadStart = chatFoldedStateMessageIndex.index
-            loadEnd = Math.max(0, chatFoldedStateMessageIndex.index - loadPages)
+            loadStart = Math.max(0, chatFoldedStateMessageIndex.index - loadPages)
+            loadEnd = chatFoldedStateMessageIndex.index
         }
 
         const showPreviousChatSwipeButtons = DBState.db.showPreviousChatSwipeButtons;
         let previousElement: HTMLDivElement | null = null
 
-        for(let i=loadStart ; i >= loadEnd; i--){
-            if(i < 0) break; // Prevent out of bounds
+        for(let i=loadStart ; i <= loadEnd; i++){
+            if(i >= messages.length) break;
             const message = messages[i];
             const displayMessage = message.recoveryDisplayData ?? message.data;
             const messageLargePortrait = message.role === 'user' ? (userIconPortrait ?? false) : ((currentCharacter as character).largePortrait ?? false);
@@ -152,7 +152,6 @@
             if (!entry) {
                 const element = document.createElement('div')
                 element.classList.add('chat-message-container')
-                element.toggleAttribute('data-streaming-chat-message', isStreamingMessage)
                 const props = $state<ChatMountProps>({
                     message: displayMessage,
                     isLastMemory: false,
@@ -194,7 +193,6 @@
             else {
                 untrack(() => {
                     const props = entry.props
-                    entry.element.toggleAttribute('data-streaming-chat-message', isStreamingMessage)
 
                     if (props.message !== displayMessage) props.message = displayMessage
                     if (props.idx !== i) props.idx = i
@@ -280,7 +278,7 @@
 
     function scrollLatestIntoChatScreen() {
         if(!chatBody) return;
-        const element = chatBody.firstElementChild as HTMLElement | null;
+        const element = chatBody.lastElementChild as HTMLElement | null;
         const chatScreen = chatBody.parentElement;
         if(!element || !chatScreen) return;
         getScrollController()?.scrollToElement(element, { block: 'start', behavior: 'instant' });
@@ -324,7 +322,11 @@
                 autoScroll: DBState.db.autoScrollToNewMessage === true,
                 buttonEnabled: newMessageButtonEnabled,
                 nearBottom: !chatBody?.parentElement
-                    || isColumnReverseNearBottom(chatBody.parentElement.scrollTop),
+                    || isChatNearBottom(
+                        chatBody.parentElement.scrollTop,
+                        chatBody.parentElement.scrollHeight,
+                        chatBody.parentElement.clientHeight,
+                    ),
             })
             if (completedResponseAction === 'scroll') {
                 hasNewUnreadMessage = false
@@ -339,4 +341,4 @@
 
 </script>
 
-<div class="flex flex-col-reverse" bind:this={chatBody}></div>
+<div class="flex flex-col" bind:this={chatBody}></div>

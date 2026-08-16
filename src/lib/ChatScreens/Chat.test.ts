@@ -733,6 +733,9 @@ describe('Chat editing', () => {
 
         expect(target.querySelectorAll('.chat-message-container')).toHaveLength(30)
         expect(parserMocks.ParseMarkdown).toHaveBeenCalledTimes(30)
+        expect(Array.from(target.querySelectorAll<HTMLElement>('[data-chat-index]'))
+            .map(element => Number(element.dataset.chatIndex)))
+            .toEqual(Array.from({ length: 30 }, (_, index) => index + 30))
         const editedMessage = target.querySelector<HTMLElement>('[data-chat-index="58"]')
         editedMessage?.querySelector<HTMLButtonElement>('.button-icon-edit')?.click()
         await tick()
@@ -744,6 +747,9 @@ describe('Chat editing', () => {
         await waitForParserCalls(60)
 
         expect(target.querySelectorAll('.chat-message-container')).toHaveLength(60)
+        expect(Array.from(target.querySelectorAll<HTMLElement>('[data-chat-index]'))
+            .map(element => Number(element.dataset.chatIndex)))
+            .toEqual(Array.from({ length: 60 }, (_, index) => index))
         expect(editedMessage?.querySelector('.message-edit-area')).not.toBeNull()
         expect(parserMocks.ParseMarkdown).toHaveBeenCalledTimes(60)
     })
@@ -884,7 +890,11 @@ describe('Chat editing', () => {
             },
         })
         const scrollHost = target.querySelector<HTMLElement>('.chat-test-scroll-host')!
-        scrollHost.scrollTop = -500
+        Object.defineProperties(scrollHost, {
+            scrollHeight: { configurable: true, value: 1000 },
+            clientHeight: { configurable: true, value: 200 },
+        })
+        scrollHost.scrollTop = 100
 
         const echoPlaceholder: Message = {
             role: 'char',

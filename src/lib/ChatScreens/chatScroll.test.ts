@@ -2,34 +2,56 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-    calculateRangePixelPadding,
     createChatScrollController,
     didNewResponseComplete,
     getCompletedResponseAction,
-    isColumnReverseNearBottom,
-    isColumnReverseScrolledToBottom,
-    snapToDevicePixel,
+    getScrollDistanceFromBottom,
+    isChatNearBottom,
+    isChatScrolledToBottom,
     type ChatResponseSnapshot,
 } from './chatScroll'
 
 afterEach(() => {
     document.body.replaceChildren()
-    vi.useRealTimers()
     vi.unstubAllGlobals()
 })
 
-function createController(container: HTMLElement) {
-    const rangeSpacer = document.createElement('div')
-    container.appendChild(rangeSpacer)
-    document.body.appendChild(container)
-    return createChatScrollController(container, rangeSpacer)
+function responseSnapshot(
+    overrides: Partial<ChatResponseSnapshot> = {},
+): ChatResponseSnapshot {
+    return {
+        roomKey: 'character:room',
+        messageKey: 'response-1',
+        messageCount: 2,
+        isCharacterResponse: true,
+        hasContent: false,
+        isResponding: true,
+        ...overrides,
+    }
+}
+
+function setScrollMetrics(
+    container: HTMLElement,
+    metrics: { scrollHeight: number; clientHeight: number },
+) {
+    Object.defineProperties(container, {
+        scrollHeight: {
+            configurable: true,
+            get: () => metrics.scrollHeight,
+        },
+        clientHeight: {
+            configurable: true,
+            get: () => metrics.clientHeight,
+        },
+    })
 }
 
 function installLayoutObservers() {
     let resizeCallback: ResizeObserverCallback | null = null
     let mutationCallback: MutationCallback | null = null
+    let mutationObserveOptions: MutationObserverInit | null = null
     const observedElements = new Set<Element>()
-    const unobservedElements: Element[] = []
+
     class TestResizeObserver {
         constructor(callback: ResizeObserverCallback) {
             resizeCallback = callback
@@ -39,15 +61,19 @@ function installLayoutObservers() {
         }
         unobserve(element: Element) {
             observedElements.delete(element)
-            unobservedElements.push(element)
         }
-        disconnect() {}
+        disconnect() {
+            observedElements.clear()
+        }
     }
+
     class TestMutationObserver {
         constructor(callback: MutationCallback) {
             mutationCallback = callback
         }
-        observe() {}
+        observe(_target: Node, options?: MutationObserverInit) {
+            mutationObserveOptions = options ?? null
+        }
         disconnect() {}
     }
 
@@ -77,43 +103,22 @@ function installLayoutObservers() {
             pending.forEach(callback => callback(0))
         },
         observedElements,
-        unobservedElements,
+        get mutationObserveOptions() {
+            return mutationObserveOptions
+        },
     }
 }
 
-function pointerEvent(type: string, clientY: number, pointerType = 'touch') {
-    const event = new Event(type)
-    Object.defineProperties(event, {
-        clientY: { value: clientY },
-        pointerType: { value: pointerType },
-    })
-    return event
-}
-
-function responseSnapshot(
-    overrides: Partial<ChatResponseSnapshot> = {},
-): ChatResponseSnapshot {
-    return {
-        roomKey: 'character:room',
-        messageKey: 'response-1',
-        messageCount: 2,
-        isCharacterResponse: true,
-        hasContent: false,
-        isResponding: true,
-        ...overrides,
-    }
+function createController(container: HTMLElement) {
+    document.body.appendChild(container)
+    return createChatScrollController(container)
 }
 
 describe('new response completion timing', () => {
     it('waits for a streaming response to finish', () => {
-        const previous = responseSnapshot({
-            hasContent: false,
-        })
+        const previous = responseSnapshot({ hasContent: false })
         const firstToken = responseSnapshot({ hasContent: true })
-        const completed = responseSnapshot({
-            hasContent: true,
-            isResponding: false,
-        })
+        const completed = responseSnapshot({ hasContent: true, isResponding: false })
 
         expect(didNewResponseComplete(previous, firstToken)).toBe(false)
         expect(didNewResponseComplete(firstToken, completed)).toBe(true)
@@ -134,19 +139,8 @@ describe('new response completion timing', () => {
         }))).toBe(true)
     })
 
-    it('does not trigger again after the response has completed', () => {
-        const completed = responseSnapshot({
-            hasContent: true,
-            isResponding: false,
-        })
-        expect(didNewResponseComplete(completed, completed)).toBe(false)
-    })
-
-    it('ignores chat switches, edits, and continuation id changes', () => {
-        const completed = responseSnapshot({
-            hasContent: true,
-            isResponding: false,
-        })
+    it('does not trigger twice or across room and continuation changes', () => {
+        const completed = responseSnapshot({ hasContent: true, isResponding: false })
         expect(didNewResponseComplete(completed, completed)).toBe(false)
 
         const populated = responseSnapshot({ hasContent: true })
@@ -162,23 +156,17 @@ describe('new response completion timing', () => {
 })
 
 describe('completed response behavior', () => {
-    it('always scrolls a completed response when auto-scroll is enabled', () => {
+    it('selects scroll, notification, or no action from one policy', () => {
         expect(getCompletedResponseAction({
             autoScroll: true,
             buttonEnabled: true,
             nearBottom: false,
         })).toBe('scroll')
-    })
-
-    it('notifies history readers when auto-scroll is disabled', () => {
         expect(getCompletedResponseAction({
             autoScroll: false,
             buttonEnabled: true,
             nearBottom: false,
         })).toBe('notify')
-    })
-
-    it('does nothing when the reader is already near the bottom', () => {
         expect(getCompletedResponseAction({
             autoScroll: true,
             buttonEnabled: true,
@@ -187,508 +175,232 @@ describe('completed response behavior', () => {
     })
 })
 
-describe('chat scroll pixel snapping', () => {
-    it('snaps positive and negative offsets to the physical-pixel grid', () => {
-        expect(snapToDevicePixel(10.26, 2)).toBe(10.5)
-        expect(snapToDevicePixel(-10.26, 2)).toBe(-10.5)
-        expect(snapToDevicePixel(-0.1, 2)).toBe(0)
+describe('forward chat scroll metrics', () => {
+    it('uses the ordinary positive distance from the bottom', () => {
+        expect(getScrollDistanceFromBottom(800, 1000, 200)).toBe(0)
+        expect(getScrollDistanceFromBottom(650, 1000, 200)).toBe(150)
+        expect(isChatScrolledToBottom(799.5, 1000, 200)).toBe(true)
+        expect(isChatScrolledToBottom(790, 1000, 200)).toBe(false)
+        expect(isChatNearBottom(701, 1000, 200)).toBe(true)
+        expect(isChatNearBottom(699, 1000, 200)).toBe(false)
     })
+})
 
-    it('pads a fractional scroll range up to the next physical pixel', () => {
-        const range = 6967.283203125
-        const padding = calculateRangePixelPadding(range, 1.2)
-
-        expect(padding).toBeGreaterThan(0)
-        expect(padding).toBeLessThan(1 / 1.2)
-        expect((range + padding) * 1.2).toBeCloseTo(8361, 10)
-    })
-
-    it('does not add another pixel to an aligned range', () => {
-        expect(calculateRangePixelPadding(100, 1.2)).toBe(0)
-    })
-
-    it('keeps mobile rubber-band overscroll pinned to the bottom edge', () => {
-        expect(isColumnReverseScrolledToBottom(0)).toBe(true)
-        expect(isColumnReverseScrolledToBottom(12)).toBe(true)
-        expect(isColumnReverseScrolledToBottom(-10)).toBe(false)
-    })
-
-    it('quantizes the measured streaming message height with subpixel padding', () => {
-        const messageHeight = 6409.06689453125
-        const padding = calculateRangePixelPadding(messageHeight, 1.2)
-
-        expect(padding).toBeGreaterThan(0)
-        expect(padding).toBeLessThan(1 / 1.2)
-        expect((messageHeight + padding) * 1.2).toBeCloseTo(7691, 10)
-    })
-
-    it('reuses the active streaming message instead of querying every resize', () => {
+describe('forward chat scroll controller', () => {
+    it('starts at the bottom and follows streamed growth while latched', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
-        const streamingMessage = document.createElement('div')
-        streamingMessage.className = 'chat-message-container'
-        streamingMessage.toggleAttribute('data-streaming-chat-message', true)
-        container.appendChild(streamingMessage)
-        container.scrollTop = -100
-        const querySelector = vi.spyOn(container, 'querySelector')
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
         const controller = createController(container)
 
         observers.flushFrames()
-        observers.notifyResize()
-        observers.flushFrames()
-        observers.notifyResize()
-        observers.flushFrames()
+        expect(container.scrollTop).toBe(800)
 
-        expect(querySelector).toHaveBeenCalledTimes(1)
-        expect(streamingMessage.querySelector('[data-streaming-pixel-spacer]')).not.toBeNull()
+        metrics.scrollHeight = 1120
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(container.scrollTop).toBe(920)
         controller.destroy()
     })
 
-    it('unobserves direct children after they leave the chat container', () => {
+    it('does not pull a reader back when an upward wheel precedes Firefox scrollTop', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
-        const removedChild = document.createElement('div')
-        const addedChild = document.createElement('div')
-        container.appendChild(removedChild)
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
         const controller = createController(container)
+        observers.flushFrames()
 
-        expect(observers.observedElements.has(removedChild)).toBe(true)
-        removedChild.remove()
-        container.appendChild(addedChild)
-        observers.notifyMutation()
+        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -24 }))
+        metrics.scrollHeight = 1100
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(container.scrollTop).toBe(800)
 
-        expect(observers.unobservedElements).toContain(removedChild)
-        expect(observers.observedElements.has(removedChild)).toBe(false)
-        expect(observers.observedElements.has(addedChild)).toBe(true)
+        container.scrollTop = 740
+        container.dispatchEvent(new Event('scroll'))
+        metrics.scrollHeight = 1200
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(container.scrollTop).toBe(740)
         controller.destroy()
     })
 
-    it('does not write scrollTop while streaming layout grows during touch scrolling', () => {
+    it('relatches only after the reader reaches the exact bottom', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
-        const anchor = document.createElement('div')
-        anchor.className = 'chat-message-container'
-        container.appendChild(anchor)
-        container.scrollTop = -100
-        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
-        let anchorLayoutTop = -80
-        anchor.getBoundingClientRect = () => new DOMRect(
-            0,
-            anchorLayoutTop - container.scrollTop,
-            300,
-            100,
-        )
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        const controller = createController(container)
+        observers.flushFrames()
+
+        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -24 }))
+        container.scrollTop = 600
+        container.dispatchEvent(new Event('scroll'))
+        container.scrollTop = 800
+        container.dispatchEvent(new Event('scroll'))
+
+        metrics.scrollHeight = 1100
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(container.scrollTop).toBe(900)
+        controller.destroy()
+    })
+
+    it('defers bottom writes during direct touch manipulation', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
         const controller = createController(container)
         observers.flushFrames()
 
         container.dispatchEvent(new Event('touchstart'))
-        container.dispatchEvent(new Event('pointerdown'))
-        container.scrollTop = -125
-        container.dispatchEvent(new Event('scroll'))
-        // Native panning may cancel Pointer Events before the finger lifts.
-        // touchActive must still prevent layout correction until touchend.
-        window.dispatchEvent(new Event('pointercancel'))
-        anchorLayoutTop -= 30
+        metrics.scrollHeight = 1100
         observers.notifyResize()
         observers.flushFrames()
+        expect(container.scrollTop).toBe(800)
 
-        expect(container.scrollTop).toBe(-125)
-        expect(anchor.getBoundingClientRect().top).toBe(15)
+        window.dispatchEvent(new Event('touchend'))
+        observers.flushFrames()
+        expect(container.scrollTop).toBe(900)
         controller.destroy()
     })
 
-    it('restores the bottom when mobile layout scrolling occurs under a resting touch', () => {
+    it('observes nested message layout without injecting pixel spacers', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
-        container.scrollTop = 0
+        const message = document.createElement('div')
+        message.className = 'chat-message-container'
+        container.appendChild(message)
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
         const controller = createController(container)
-        observers.flushFrames()
 
-        container.dispatchEvent(new Event('pointerdown'))
-        // Mobile engines can move a reverse scroller when its bottom content
-        // grows even though the user has not moved their finger.
-        container.scrollTop = -24
-        container.dispatchEvent(new Event('scroll'))
-        observers.flushFrames()
-
-        expect(container.scrollTop).toBe(-24)
-        window.dispatchEvent(new Event('pointerup'))
-        observers.flushFrames()
-        expect(container.scrollTop).toBe(0)
+        expect(observers.mutationObserveOptions).toEqual({
+            childList: true,
+            subtree: true,
+        })
+        expect(observers.observedElements.has(message)).toBe(true)
+        expect(container.querySelector('[data-streaming-pixel-spacer]')).toBeNull()
         controller.destroy()
     })
 
-    it('keeps the bottom latched after a touch gesture reaches it', () => {
+    it('preserves an edited message position while away from the bottom', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
-        container.scrollTop = -100
-        const controller = createController(container)
-        observers.flushFrames()
-
-        container.dispatchEvent(pointerEvent('pointerdown', 100))
-        window.dispatchEvent(pointerEvent('pointermove', 80))
-        container.scrollTop = 0
-        container.dispatchEvent(new Event('scroll'))
-
-        // Simulate the streaming layout shifting scrollTop before the resize
-        // observer restores the latest-message edge.
-        container.scrollTop = -24
-        container.dispatchEvent(new Event('scroll'))
-        observers.flushFrames()
-
-        expect(container.scrollTop).toBe(-24)
-        window.dispatchEvent(new Event('pointerup'))
-        observers.flushFrames()
-        expect(container.scrollTop).toBe(0)
-        controller.destroy()
-    })
-
-    it('releases the bottom latch when the finger moves back into history', () => {
-        const observers = installLayoutObservers()
-        const container = document.createElement('div')
-        container.scrollTop = 0
-        const controller = createController(container)
-        observers.flushFrames()
-
-        container.dispatchEvent(pointerEvent('pointerdown', 100))
-        window.dispatchEvent(pointerEvent('pointermove', 120))
-        container.scrollTop = -24
-        container.dispatchEvent(new Event('scroll'))
-        observers.flushFrames()
-
-        window.dispatchEvent(new Event('pointerup'))
-        observers.flushFrames()
-        expect(container.scrollTop).toBe(-24)
-        controller.destroy()
-    })
-
-    it('keeps the exact fractional position published by a wheel scroll', () => {
-        const observers = installLayoutObservers()
-        const container = document.createElement('div')
-        const anchor = document.createElement('div')
-        anchor.className = 'chat-message-container'
-        container.appendChild(anchor)
-        container.scrollTop = -100
-        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
-        const anchorLayoutTop = -80
-        anchor.getBoundingClientRect = () => new DOMRect(
+        const message = document.createElement('div')
+        message.className = 'chat-message-container'
+        container.appendChild(message)
+        const metrics = { scrollHeight: 1200, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        let messageLayoutTop = 120
+        message.getBoundingClientRect = () => new DOMRect(
             0,
-            anchorLayoutTop - container.scrollTop,
+            messageLayoutTop - container.scrollTop,
             300,
             100,
         )
         const controller = createController(container)
         observers.flushFrames()
-
-        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -0.25 }))
-        container.scrollTop = -125.25
-        container.dispatchEvent(new Event('scroll'))
-        observers.notifyResize()
-        observers.flushFrames()
-
-        expect(container.scrollTop).toBe(-125.25)
-        controller.destroy()
-    })
-
-    it('does not relatch the bottom when an upward wheel move is published late', () => {
-        const observers = installLayoutObservers()
-        const container = document.createElement('div')
-        const anchor = document.createElement('div')
-        anchor.className = 'chat-message-container'
-        container.appendChild(anchor)
-        container.scrollTop = 0
-        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
-        const anchorLayoutTop = -80
-        anchor.getBoundingClientRect = () => new DOMRect(
-            0,
-            anchorLayoutTop - container.scrollTop,
-            300,
-            100,
-        )
-        const controller = createController(container)
-        observers.flushFrames()
-
-        // Firefox can expose the wheel event before its async scroll position.
-        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -24 }))
-        // A stream chunk in that gap must not create a stale bottom anchor.
-        observers.notifyResize()
-        observers.flushFrames()
-        container.scrollTop = -24
+        container.scrollTop = 100
         container.dispatchEvent(new Event('scroll'))
 
-        // The next streaming resize must accept the late user position instead
-        // of applying the old bottom latch and writing scrollTop back to zero.
+        const release = controller.preserveElementPosition(message)
+        messageLayoutTop += 300
+        metrics.scrollHeight += 300
         observers.notifyResize()
         observers.flushFrames()
 
-        expect(container.scrollTop).toBe(-24)
-        controller.destroy()
-    })
-
-    it('rebases the anchor at every position emitted during wheel scrolling', () => {
-        const observers = installLayoutObservers()
-        const container = document.createElement('div')
-        const anchor = document.createElement('div')
-        anchor.className = 'chat-message-container'
-        container.appendChild(anchor)
-        container.scrollTop = -100
-        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
-        let anchorLayoutTop = -80
-        anchor.getBoundingClientRect = () => new DOMRect(
-            0,
-            anchorLayoutTop - container.scrollTop,
-            300,
-            100,
-        )
-        const controller = createController(container)
-        observers.flushFrames()
-
-        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -24 }))
-        container.scrollTop = -110
-        container.dispatchEvent(new Event('scroll'))
-
-        // Firefox can preserve the visible position while layout and APZ each
-        // publish another value. The final scroll must replace the intermediate
-        // anchor before the observer is allowed to correct anything.
-        anchorLayoutTop -= 15
-        container.scrollTop = -125
-        container.dispatchEvent(new Event('scroll'))
-        observers.notifyResize()
-        observers.flushFrames()
-
-        expect(container.scrollTop).toBe(-125)
-        expect(anchor.getBoundingClientRect().top).toBe(30)
-        controller.destroy()
-    })
-
-    it('preserves an anchor after layout without relying on a native scroll event', () => {
-        const observers = installLayoutObservers()
-        const container = document.createElement('div')
-        const anchor = document.createElement('div')
-        anchor.className = 'chat-message-container'
-        container.appendChild(anchor)
-        container.scrollTop = -100
-        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
-        let anchorLayoutTop = -80
-        anchor.getBoundingClientRect = () => new DOMRect(
-            0,
-            anchorLayoutTop - container.scrollTop,
-            300,
-            100,
-        )
-        const controller = createController(container)
-        observers.flushFrames()
-
-        // Safari versions without native scroll anchoring do not move
-        // scrollTop or emit scroll here; ResizeObserver must preserve it.
-        anchorLayoutTop -= 30
-        observers.notifyResize()
-        observers.flushFrames()
-
-        expect(container.scrollTop).toBe(-130)
-        expect(anchor.getBoundingClientRect().top).toBe(20)
-        controller.destroy()
-    })
-
-    it('does not scroll when the visible message itself grows upward', () => {
-        const observers = installLayoutObservers()
-        const container = document.createElement('div')
-        const anchor = document.createElement('div')
-        anchor.className = 'chat-message-container'
-        container.appendChild(anchor)
-        container.scrollTop = -100
-        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
-        const anchorLayoutBottom = 80
-        let anchorHeight = 100
-        anchor.getBoundingClientRect = () => new DOMRect(
-            0,
-            anchorLayoutBottom - anchorHeight - container.scrollTop,
-            300,
-            anchorHeight,
-        )
-        const controller = createController(container)
-        observers.flushFrames()
-
-        expect(anchor.getBoundingClientRect().bottom).toBe(180)
-        anchorHeight = 500
-        observers.notifyResize()
-        observers.flushFrames()
-
-        expect(container.scrollTop).toBe(-100)
-        expect(anchor.getBoundingClientRect().bottom).toBe(180)
-        controller.destroy()
-    })
-
-    it('ignores subpixel drift when one long message spans the viewport', () => {
-        const observers = installLayoutObservers()
-        const container = document.createElement('div')
-        const anchor = document.createElement('div')
-        anchor.className = 'chat-message-container'
-        container.appendChild(anchor)
-        container.scrollTop = -100.25
-        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
-        anchor.getBoundingClientRect = () => new DOMRect(0, -300, 300, 800)
-        const controller = createController(container)
-        observers.flushFrames()
-
-        container.scrollTop = -100.5
-        observers.notifyResize()
-        observers.flushFrames()
-
-        expect(container.scrollTop).toBe(-100.5)
-        controller.destroy()
-    })
-
-    it('keeps the pre-edit message anchor through intermediate layout scroll events', () => {
-        const observers = installLayoutObservers()
-        const container = document.createElement('div')
-        const anchor = document.createElement('div')
-        anchor.className = 'chat-message-container'
-        container.appendChild(anchor)
-        container.scrollTop = -100
-        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
-        let anchorLayoutTop = -80
-        anchor.getBoundingClientRect = () => new DOMRect(
-            0,
-            anchorLayoutTop - container.scrollTop,
-            300,
-            100,
-        )
-        const controller = createController(container)
-        observers.flushFrames()
-
-        const release = controller.preserveElementPosition(anchor)
-        anchorLayoutTop -= 300
-        // Simulate native scroll anchoring reacting to the temporary 44px
-        // editor before its auto-height measurement has completed.
-        container.scrollTop = -150
-        container.dispatchEvent(new Event('scroll'))
-        observers.notifyResize()
-        observers.flushFrames()
-
-        expect(container.scrollTop).toBe(-400)
-        expect(anchor.getBoundingClientRect().top).toBe(20)
-
+        expect(container.scrollTop).toBe(400)
+        expect(message.getBoundingClientRect().top).toBe(20)
         release()
         controller.destroy()
     })
 
-    it('rebases a stale anchor whenever native scrolling publishes a newer position', () => {
+    it('preserves the first visible message while older history is prepended', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
-        const anchor = document.createElement('div')
-        anchor.className = 'chat-message-container'
-        container.appendChild(anchor)
-        container.scrollTop = -100
+        const visibleMessage = document.createElement('div')
+        visibleMessage.className = 'chat-message-container'
+        container.appendChild(visibleMessage)
+        const metrics = { scrollHeight: 1200, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
         container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
-        let anchorLayoutTop = -80
-        anchor.getBoundingClientRect = () => new DOMRect(
+        let messageLayoutTop = 120
+        visibleMessage.getBoundingClientRect = () => new DOMRect(
             0,
-            anchorLayoutTop - container.scrollTop,
+            messageLayoutTop - container.scrollTop,
             300,
             100,
         )
         const controller = createController(container)
         observers.flushFrames()
-
-        // Firefox APZ can publish another position after a layout-induced
-        // scroll. That newer coordinate must always replace the old anchor.
-        container.scrollTop = -125
+        container.scrollTop = 100
         container.dispatchEvent(new Event('scroll'))
 
-        // Firefox then preserves that new visual position while streaming
-        // content grows. The manual controller must not restore the old anchor.
-        anchorLayoutTop -= 30
-        container.scrollTop = -155
-        container.dispatchEvent(new Event('scroll'))
+        const release = controller.preserveViewportPosition()
+        messageLayoutTop += 300
+        metrics.scrollHeight += 300
         observers.notifyResize()
         observers.flushFrames()
 
-        expect(container.scrollTop).toBe(-155)
-        expect(anchor.getBoundingClientRect().top).toBe(45)
+        expect(container.scrollTop).toBe(400)
+        expect(visibleMessage.getBoundingClientRect().top).toBe(20)
+        release()
         controller.destroy()
     })
 
-    it('snaps programmatic scroll targets derived from fractional DOMRects', () => {
+    it('uses positive targets for edges and elements', () => {
+        installLayoutObservers()
         const container = document.createElement('div')
         const element = document.createElement('div')
-        container.scrollTop = -20.25
-        container.getBoundingClientRect = () => new DOMRect(0, 10.1, 300, 200)
-        element.getBoundingClientRect = () => new DOMRect(0, 42.45, 300, 50)
+        container.appendChild(element)
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        container.scrollTop = 300
+        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
+        element.getBoundingClientRect = () => new DOMRect(0, 400, 300, 100)
         const scrollTo = vi.fn()
         container.scrollTo = scrollTo
-        container.appendChild(element)
         const controller = createController(container)
 
         controller.scrollToElement(element, { block: 'start', behavior: 'instant' })
-
-        const dpr = window.devicePixelRatio || 1
-        const expectedTop = Math.round((-20.25 + 42.45 - 10.1) * dpr) / dpr
-        expect(scrollTo).toHaveBeenCalledWith({ top: expectedTop, behavior: 'instant' })
-        controller.destroy()
-    })
-
-    it('targets the exact clamped edges of a column-reverse chat', () => {
-        const container = document.createElement('div')
-        const scrollTo = vi.fn()
-        Object.defineProperty(container, 'scrollHeight', { value: 8063 })
-        container.scrollTo = scrollTo
-        const controller = createController(container)
-
         controller.scrollToEdge('top', 'smooth')
         controller.scrollToEdge('bottom', 'smooth')
 
-        expect(scrollTo).toHaveBeenNthCalledWith(1, { top: -8063, behavior: 'smooth' })
+        expect(scrollTo).toHaveBeenNthCalledWith(1, { top: 700, behavior: 'instant' })
         expect(scrollTo).toHaveBeenNthCalledWith(2, { top: 0, behavior: 'smooth' })
+        expect(scrollTo).toHaveBeenNthCalledWith(3, { top: 800, behavior: 'smooth' })
         controller.destroy()
     })
 
-    it('navigates down directly to the next message start', () => {
+    it('navigates chronologically and ends at the bottom edge', () => {
+        installLayoutObservers()
         const container = document.createElement('div')
         const current = document.createElement('div')
         const next = document.createElement('div')
         current.dataset.chatIndex = '0'
         next.dataset.chatIndex = '1'
         container.append(current, next)
-        container.scrollTop = -300
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        container.scrollTop = 300
         container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
-        current.getBoundingClientRect = () => new DOMRect(0, -100, 300, 500)
+        current.getBoundingClientRect = () => new DOMRect(0, -100, 300, 300)
         next.getBoundingClientRect = () => new DOMRect(0, 400, 300, 100)
         const scrollTo = vi.fn()
         container.scrollTo = scrollTo
         const controller = createController(container)
 
         controller.navigateMessage('next', 'instant')
+        expect(scrollTo).toHaveBeenCalledWith({ top: 700, behavior: 'instant' })
 
-        expect(scrollTo).toHaveBeenCalledWith({ top: 100, behavior: 'instant' })
-        controller.destroy()
-    })
-
-    it('navigates down to the bottom edge from the final message', () => {
-        const container = document.createElement('div')
-        const finalMessage = document.createElement('div')
-        finalMessage.dataset.chatIndex = '0'
-        container.appendChild(finalMessage)
-        container.scrollTop = -300
-        container.getBoundingClientRect = () => new DOMRect(0, 0, 300, 200)
-        finalMessage.getBoundingClientRect = () => new DOMRect(0, -100, 300, 500)
-        const scrollTo = vi.fn()
-        container.scrollTo = scrollTo
-        const controller = createController(container)
-
+        current.getBoundingClientRect = () => new DOMRect(0, -500, 300, 100)
+        next.getBoundingClientRect = () => new DOMRect(0, -100, 300, 300)
         controller.navigateMessage('next', 'smooth')
-
-        expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+        expect(scrollTo).toHaveBeenLastCalledWith({ top: 800, behavior: 'smooth' })
         controller.destroy()
-    })
-})
-
-describe('column-reverse bottom proximity', () => {
-    it('keeps the new-message affordance while reading older messages', () => {
-        expect(isColumnReverseNearBottom(0)).toBe(true)
-        expect(isColumnReverseNearBottom(12)).toBe(true)
-        expect(isColumnReverseNearBottom(-99.9)).toBe(true)
-        expect(isColumnReverseNearBottom(-100.1)).toBe(false)
-        expect(isColumnReverseNearBottom(-500)).toBe(false)
     })
 })

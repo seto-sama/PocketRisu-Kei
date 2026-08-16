@@ -26,7 +26,7 @@ import { isMobile } from 'src/ts/platform'
     import { stopTTS } from "src/ts/process/tts";
     import MainMenu from '../UI/MainMenu.svelte';
     import AssetInput from './AssetInput.svelte';
-    import { createChatScrollController, isColumnReverseNearBottom, type ChatScrollController } from './chatScroll';
+    import { CHAT_HISTORY_LOAD_THRESHOLD, createChatScrollController, isChatNearBottom, type ChatScrollController } from './chatScroll';
     import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile } from 'src/ts/globalApi.svelte';
     import { isRevenantGenerationLocallyObserved } from 'src/ts/process/revenant/transport';
     import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenant/auxiliary';
@@ -91,9 +91,9 @@ import { isMobile } from 'src/ts/platform'
     let scrollNavTimer: ReturnType<typeof setTimeout> | null = null
     let chatsInstance: any = $state()
     let chatScreenRoot: HTMLDivElement | null = $state(null)
-    let chatRangePixelSpacer: HTMLDivElement | null = $state(null)
     let chatScrollController: ChatScrollController | null = null
     let isScrollingToMessage = $state(false)
+    let historyLoadInFlight = false
     let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '' }: Props = $props();
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
     let currentChatSlot = $derived(currentCharacter?.chats[currentCharacter.chatPage])
@@ -104,10 +104,10 @@ import { isMobile } from 'src/ts/platform'
     let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter?.chatPage ?? -1}:${currentChatSlot?.id ?? ''}`)
 
     $effect(() => {
+        void currentChatRoomKey
         const container = chatScreenRoot
-        const rangeSpacer = chatRangePixelSpacer
-        if (!container || !rangeSpacer) return
-        const controller = createChatScrollController(container, rangeSpacer)
+        if (!container) return
+        const controller = createChatScrollController(container)
         chatScrollController = controller
         return () => {
             if (chatScrollController === controller) chatScrollController = null
@@ -408,6 +408,26 @@ import { isMobile } from 'src/ts/platform'
 
     function navigateMessage(direction: 'prev' | 'next') {
         chatScrollController?.navigateMessage(direction)
+    }
+
+    async function loadMoreHistory() {
+        if (historyLoadInFlight || currentChat.length <= loadPages) return
+        historyLoadInFlight = true
+        const release = chatScrollController?.preserveViewportPosition()
+        try {
+            loadPages = Math.min(
+                currentChat.length,
+                loadPages + getAdditionalChatLoadPages(DBState.db),
+            )
+            // Chats mounts stable message wrappers in the first tick; the
+            // second lets their child components publish initial layout.
+            await tick()
+            await tick()
+        }
+        finally {
+            release?.()
+            historyLoadInFlight = false
+        }
     }
     $effect(() => {
         if(ScrollToMessageStore.value !== -1){
@@ -1116,8 +1136,6 @@ import { isMobile } from 'src/ts/platform'
                 canvases.push(cnv)
             }
 
-            canvases.reverse()
-
             alertWait("Merging images...")
 
             let mergedCanvas = document.createElement('canvas');
@@ -1537,7 +1555,7 @@ import { isMobile } from 'src/ts/platform'
 
         {/snippet}
 
-        <div class="h-full w-full flex flex-col-reverse overflow-y-auto relative default-chat-screen"
+        <div class="h-full w-full flex flex-col overflow-y-auto relative default-chat-screen"
             bind:this={chatScreenRoot}
             class:nodeonly-standard={DBState.db.theme === ''}
             class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
@@ -1546,28 +1564,18 @@ import { isMobile } from 'src/ts/platform'
             if (DBState.db.nodeOnlyScrollButtonType !== 'off') {
                 bumpScrollNav()
             }
-            //@ts-expect-error scrollHeight/clientHeight/scrollTop don't exist on EventTarget, but target is HTMLElement here
-            const scrolled = (e.target.scrollHeight - e.target.clientHeight + e.target.scrollTop)
-            if(scrolled < 100 && currentChat.length > loadPages){
-                loadPages += getAdditionalChatLoadPages(DBState.db)
-            }
             const chatTarget = e.currentTarget as HTMLElement;
-            if(isColumnReverseNearBottom(chatTarget.scrollTop)){
+            if(chatTarget.scrollTop < CHAT_HISTORY_LOAD_THRESHOLD && currentChat.length > loadPages){
+                void loadMoreHistory()
+            }
+            if(isChatNearBottom(
+                chatTarget.scrollTop,
+                chatTarget.scrollHeight,
+                chatTarget.clientHeight,
+            )){
                 showNewMessageButton = false;
             }
         }}>
-            {@render composerCluster()}
-
-            {#if chatPanelStore.length > 0}
-                <div class="mx-4 my-2 flex flex-col gap-2">
-                    {#each chatPanelStore as panel (panel.id)}
-                        <section class={`rounded-md border border-darkborderc bg-darkbg/80 p-3 text-textcolor ${panel.className ?? ''}`} data-plugin-chat-panel={panel.id}>
-                            {@html panel.html}
-                        </section>
-                    {/each}
-                </div>
-            {/if}
-
             {#if !currentChatReady}
                 <div class="w-full flex justify-center text-textcolor2 italic mb-12">
                     {language.loadingChatData}
@@ -1598,26 +1606,19 @@ import { isMobile } from 'src/ts/platform'
                 />
             {/if}
 
-            <Chats
-                bind:this={chatsInstance}
-                getScrollController={getChatScrollController}
-                messages={currentChat}
-                loadPages={loadPages}
-                onReroll={reroll}
-                onNextSwipe={nextSwipe}
-                onDeleteSwipe={deleteSwipe}
-                unReroll={unReroll}
-                currentCharacter={currentCharacter}
-                currentUsername={currentUsername}
-                userIcon={userIcon}
-                chatRoomId={currentChatSlot?.id ?? ''}
-                roomIsStreaming={currentChatSlot?.isStreaming ?? false}
-                roomIsResponding={currentRoomHasMainGeneration}
-                userIconPortrait={userIconPortrait}
-                bind:hasNewUnreadMessage={showNewMessageButton}
-            />
-
             {#if currentChat.length <= loadPages}
+                {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0)}
+                    <div class="generated-by-ai-disclaimer ml-auto mr-auto mt-4 text-textcolor2 italic max-w-2/3 wrap-break-word text-center">
+                        {language.generatedByAIDisclaimer}
+                    </div>
+                {/if}
+                {#if !DBState.db.characters[$selectedCharID].removedQuotes && DBState.db.characters[$selectedCharID].creatorNotes.length >= 2}
+                    <CreatorQuote quote={DBState.db.characters[$selectedCharID].creatorNotes} onRemove={() => {
+                        const cha = DBState.db.characters[$selectedCharID]
+                        cha.removedQuotes = true
+                        DBState.db.characters[$selectedCharID] = cha
+                    }} />
+                {/if}
                 <Chat
                     character={createSimpleCharacter(DBState.db.characters[$selectedCharID])}
                     name={DBState.db.characters[$selectedCharID].name}
@@ -1656,28 +1657,40 @@ import { isMobile } from 'src/ts/platform'
                     translationRecoveryTarget={null}
 
                 />
-                {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0)}
-                    <div class="generated-by-ai-disclaimer ml-auto mr-auto mt-4 text-textcolor2 italic max-w-2/3 wrap-break-word text-center">
-                        {language.generatedByAIDisclaimer}
-                    </div>
-                {/if}
-                {#if !DBState.db.characters[$selectedCharID].removedQuotes && DBState.db.characters[$selectedCharID].creatorNotes.length >= 2}
-                    <CreatorQuote quote={DBState.db.characters[$selectedCharID].creatorNotes} onRemove={() => {
-                        const cha = DBState.db.characters[$selectedCharID]
-                        cha.removedQuotes = true
-                        DBState.db.characters[$selectedCharID] = cha
-                    }} />
-                {/if}
             {/if}
+
+            <Chats
+                bind:this={chatsInstance}
+                getScrollController={getChatScrollController}
+                messages={currentChat}
+                loadPages={loadPages}
+                onReroll={reroll}
+                onNextSwipe={nextSwipe}
+                onDeleteSwipe={deleteSwipe}
+                unReroll={unReroll}
+                currentCharacter={currentCharacter}
+                currentUsername={currentUsername}
+                userIcon={userIcon}
+                chatRoomId={currentChatSlot?.id ?? ''}
+                roomIsStreaming={currentChatSlot?.isStreaming ?? false}
+                roomIsResponding={currentRoomHasMainGeneration}
+                userIconPortrait={userIconPortrait}
+                bind:hasNewUnreadMessage={showNewMessageButton}
+            />
 
             {/if}
 
-            <div
-                bind:this={chatRangePixelSpacer}
-                class="w-full shrink-0 pointer-events-none"
-                style="height: 0px"
-                aria-hidden="true"
-            ></div>
+            {#if chatPanelStore.length > 0}
+                <div class="mx-4 my-2 flex flex-col gap-2">
+                    {#each chatPanelStore as panel (panel.id)}
+                        <section class={`rounded-md border border-darkborderc bg-darkbg/80 p-3 text-textcolor ${panel.className ?? ''}`} data-plugin-chat-panel={panel.id}>
+                            {@html panel.html}
+                        </section>
+                    {/each}
+                </div>
+            {/if}
+
+            {@render composerCluster()}
 
         </div>
 
