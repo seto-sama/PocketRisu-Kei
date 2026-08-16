@@ -5,9 +5,11 @@ import {
     createChatScrollController,
     didNewResponseComplete,
     getCompletedResponseAction,
+    getScrollPhaseQuantum,
     getScrollDistanceFromBottom,
     isChatNearBottom,
     isChatScrolledToBottom,
+    normalizeScrollPhaseHeight,
     type ChatResponseSnapshot,
 } from './chatScroll'
 
@@ -34,6 +36,7 @@ function setScrollMetrics(
     container: HTMLElement,
     metrics: { scrollHeight: number; clientHeight: number },
 ) {
+    let scrollTop = container.scrollTop
     Object.defineProperties(container, {
         scrollHeight: {
             configurable: true,
@@ -42,6 +45,16 @@ function setScrollMetrics(
         clientHeight: {
             configurable: true,
             get: () => metrics.clientHeight,
+        },
+        scrollTop: {
+            configurable: true,
+            get: () => scrollTop,
+            set: value => {
+                scrollTop = Math.max(
+                    0,
+                    Math.min(Number(value), metrics.scrollHeight - metrics.clientHeight),
+                )
+            },
         },
     })
 }
@@ -106,6 +119,9 @@ function installLayoutObservers() {
         get mutationObserveOptions() {
             return mutationObserveOptions
         },
+        get pendingFrameCount() {
+            return frames.size
+        },
     }
 }
 
@@ -159,19 +175,28 @@ describe('completed response behavior', () => {
     it('selects scroll, notification, or no action from one policy', () => {
         expect(getCompletedResponseAction({
             autoScroll: true,
+            alwaysScroll: false,
             buttonEnabled: true,
             nearBottom: false,
-        })).toBe('scroll')
+        })).toBe('notify')
         expect(getCompletedResponseAction({
             autoScroll: false,
+            alwaysScroll: false,
             buttonEnabled: true,
             nearBottom: false,
         })).toBe('notify')
         expect(getCompletedResponseAction({
             autoScroll: true,
+            alwaysScroll: false,
             buttonEnabled: true,
             nearBottom: true,
         })).toBe('none')
+        expect(getCompletedResponseAction({
+            autoScroll: true,
+            alwaysScroll: true,
+            buttonEnabled: true,
+            nearBottom: false,
+        })).toBe('scroll')
     })
 })
 
@@ -184,9 +209,175 @@ describe('forward chat scroll metrics', () => {
         expect(isChatNearBottom(701, 1000, 200)).toBe(true)
         expect(isChatNearBottom(699, 1000, 200)).toBe(false)
     })
+
+    it('uses one physical pixel as the fractional scroll phase', () => {
+        expect(getScrollPhaseQuantum(1)).toBe(1)
+        expect(getScrollPhaseQuantum(1.2)).toBeCloseTo(5 / 6)
+        expect(getScrollPhaseQuantum(Number.NaN)).toBe(1)
+        expect(normalizeScrollPhaseHeight(1.1, 1.2)).toBeCloseTo(1.1 - 5 / 6)
+    })
 })
 
 describe('forward chat scroll controller', () => {
+    it('leaves streamed bottom layout to the native scroll anchor', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const nativeAnchor = document.createElement('div')
+        nativeAnchor.setAttribute('data-chat-scroll-anchor', '')
+        container.appendChild(nativeAnchor)
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        let scrollTop = 0
+        let writes = 0
+        Object.defineProperty(container, 'scrollTop', {
+            configurable: true,
+            get: () => scrollTop,
+            set: (value: number) => {
+                scrollTop = Math.min(value, metrics.scrollHeight - metrics.clientHeight)
+                writes += 1
+            },
+        })
+        const controller = createController(container)
+        observers.flushFrames()
+        expect(scrollTop).toBe(800)
+
+        writes = 0
+        metrics.scrollHeight = 1044
+        scrollTop = 844
+        observers.notifyResize()
+        observers.notifyMutation()
+        expect(observers.pendingFrameCount).toBe(0)
+        observers.flushFrames()
+        expect(scrollTop).toBe(844)
+        expect(writes).toBe(0)
+
+        // The browser publishes the anchored scroll position atomically with
+        // the new layout instead of receiving a later JavaScript correction.
+        container.dispatchEvent(new Event('scroll'))
+        expect(observers.pendingFrameCount).toBe(0)
+        controller.destroy()
+    })
+
+    it('manually reaches the bottom before the native anchor is established', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const nativeAnchor = document.createElement('div')
+        nativeAnchor.setAttribute('data-chat-scroll-anchor', '')
+        container.appendChild(nativeAnchor)
+        const metrics = { scrollHeight: 200, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        const controller = createController(container)
+        observers.flushFrames()
+
+        metrics.scrollHeight = 1000
+        observers.notifyResize()
+        expect(observers.pendingFrameCount).toBe(1)
+        observers.flushFrames()
+        expect(container.scrollTop).toBe(800)
+        controller.destroy()
+    })
+
+    it('does not overwrite a healthy fractional native-anchor position', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const nativeAnchor = document.createElement('div')
+        nativeAnchor.setAttribute('data-chat-scroll-anchor', '')
+        container.appendChild(nativeAnchor)
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        let scrollTop = 800
+        let writes = 0
+        Object.defineProperty(container, 'scrollTop', {
+            configurable: true,
+            get: () => scrollTop,
+            set: value => {
+                scrollTop = Math.min(value, metrics.scrollHeight - metrics.clientHeight)
+                writes += 1
+            },
+        })
+        const controller = createController(container)
+        observers.flushFrames()
+
+        vi.spyOn(container, 'getBoundingClientRect')
+            .mockImplementation(() => new DOMRect(0, 0, 100, 200))
+        vi.spyOn(nativeAnchor, 'getBoundingClientRect')
+            .mockImplementation(() => new DOMRect(0, 198.65, 100, 1))
+        writes = 0
+        scrollTop = 799.35
+        observers.notifyResize()
+        expect(scrollTop).toBe(799.35)
+        expect(writes).toBe(0)
+        expect(observers.pendingFrameCount).toBe(0)
+        controller.destroy()
+    })
+
+    it('cancels the fractional scroll-height phase at the start of the flow', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const phase = document.createElement('div')
+        phase.setAttribute('data-chat-scroll-phase', '')
+        phase.style.height = '0px'
+        const nativeAnchor = document.createElement('div')
+        nativeAnchor.setAttribute('data-chat-scroll-anchor', '')
+        container.append(phase, nativeAnchor)
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        let scrollTop = 800
+        let residual = 0
+        Object.defineProperty(container, 'scrollTop', {
+            configurable: true,
+            get: () => scrollTop,
+            set: value => {
+                scrollTop = Math.min(value, metrics.scrollHeight - metrics.clientHeight)
+            },
+        })
+        vi.spyOn(container, 'getBoundingClientRect')
+            .mockImplementation(() => new DOMRect(0, 0, 100, 200))
+        vi.spyOn(phase, 'getBoundingClientRect').mockImplementation(() => {
+            const height = Number.parseFloat(phase.style.height || '0')
+            return new DOMRect(0, 0, 100, height)
+        })
+        vi.spyOn(nativeAnchor, 'getBoundingClientRect')
+            .mockImplementation(() => new DOMRect(0, 199 + residual, 100, 1))
+
+        const controller = createController(container)
+        observers.flushFrames()
+        expect(observers.observedElements.has(phase)).toBe(false)
+
+        residual = 0.35
+        observers.notifyResize()
+        expect(Number.parseFloat(phase.style.height)).toBeCloseTo(0.65, 5)
+        expect(scrollTop).toBe(800)
+        expect(observers.pendingFrameCount).toBe(0)
+        controller.destroy()
+    })
+
+    it('freezes the fractional phase while the reader is above the bottom', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const phase = document.createElement('div')
+        phase.setAttribute('data-chat-scroll-phase', '')
+        phase.style.height = '0.65px'
+        const nativeAnchor = document.createElement('div')
+        nativeAnchor.setAttribute('data-chat-scroll-anchor', '')
+        container.append(phase, nativeAnchor)
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        const controller = createController(container)
+        observers.flushFrames()
+
+        container.dispatchEvent(new WheelEvent('wheel', { deltaY: -24 }))
+        container.scrollTop = 700
+        container.dispatchEvent(new Event('scroll'))
+        metrics.scrollHeight = 1120
+        observers.notifyResize()
+        observers.flushFrames()
+
+        expect(phase.style.height).toBe('0.65px')
+        expect(container.scrollTop).toBe(700)
+        controller.destroy()
+    })
+
     it('keeps the initial bottom latch when layout emits scroll before resize', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')

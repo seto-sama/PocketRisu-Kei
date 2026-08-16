@@ -1580,6 +1580,8 @@ import { isMobile } from 'src/ts/platform'
                 showNewMessageButton = false;
             }
         }}>
+            <div class="chat-scroll-phase" data-chat-scroll-phase aria-hidden="true"></div>
+
             {#if !currentChatReady}
                 <div class="w-full flex justify-center text-textcolor2 italic mb-12">
                     {language.loadingChatData}
@@ -1696,6 +1698,8 @@ import { isMobile } from 'src/ts/platform'
 
             {@render composerCluster()}
 
+            <div class="chat-scroll-anchor" data-chat-scroll-anchor aria-hidden="true"></div>
+
         </div>
 
     {/if}
@@ -1745,6 +1749,28 @@ import { isMobile } from 'src/ts/platform'
     </Portal>
 {/if}
 <style>
+
+    :global(.default-chat-screen > :not([data-chat-scroll-anchor])) {
+        overflow-anchor: none;
+    }
+
+    :global(.default-chat-screen > [data-chat-scroll-phase]) {
+        width: 100%;
+        height: 0;
+        min-height: 0;
+        flex: 0 0 auto;
+        overflow-anchor: none;
+        pointer-events: none;
+    }
+
+    :global(.default-chat-screen > [data-chat-scroll-anchor]) {
+        width: 100%;
+        height: 1px;
+        min-height: 1px;
+        flex: 0 0 1px;
+        overflow-anchor: auto;
+        pointer-events: none;
+    }
 
     .chat-process-stage-1{
         border-top-color: var(--risu-theme-primary);

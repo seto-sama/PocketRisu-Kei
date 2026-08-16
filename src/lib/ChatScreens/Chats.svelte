@@ -320,6 +320,7 @@
         if (responseCompleted) {
             const completedResponseAction = getCompletedResponseAction({
                 autoScroll: DBState.db.autoScrollToNewMessage === true,
+                alwaysScroll: DBState.db.alwaysScrollToNewMessage === true,
                 buttonEnabled: newMessageButtonEnabled,
                 nearBottom: !chatBody?.parentElement
                     || isChatNearBottom(

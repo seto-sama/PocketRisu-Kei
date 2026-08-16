@@ -1,12 +1,18 @@
 // Chat scrolling uses an ordinary top-to-bottom coordinate system. Content
-// appended below the reader does not move the viewport, so JavaScript only
-// follows the bottom while latched and preserves explicit editor transitions.
+// appended below the reader does not move the viewport. At the bottom, a
+// dedicated DOM scroll anchor follows streaming layout in the same paint;
+// JavaScript handles explicit navigation and layout transitions only.
 
 const BOTTOM_EPSILON = 1
+const SCROLL_PHASE_EPSILON = 1 / 120
 const MESSAGE_NAVIGATION_THRESHOLD = 30
 const LAYOUT_ELEMENT_SELECTOR = '.chat-message-container, .risu-chat'
+const NATIVE_BOTTOM_ANCHOR_ATTRIBUTE = 'data-chat-scroll-anchor'
+const SCROLL_PHASE_ATTRIBUTE = 'data-chat-scroll-phase'
 export const CHAT_NEAR_BOTTOM_THRESHOLD = 100
 export const CHAT_HISTORY_LOAD_THRESHOLD = 100
+
+type ChatScrollMode = 'bottom-follow' | 'history-read'
 
 export function getScrollDistanceFromBottom(
     scrollTop: number,
@@ -34,6 +40,18 @@ export function isChatNearBottom(
 ) {
     return getScrollDistanceFromBottom(scrollTop, scrollHeight, clientHeight)
         <= Math.max(0, threshold)
+}
+
+export function getScrollPhaseQuantum(devicePixelRatio: number) {
+    return Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
+        ? 1 / devicePixelRatio
+        : 1
+}
+
+export function normalizeScrollPhaseHeight(height: number, devicePixelRatio: number) {
+    const quantum = getScrollPhaseQuantum(devicePixelRatio)
+    const normalized = ((height % quantum) + quantum) % quantum
+    return normalized > quantum - SCROLL_PHASE_EPSILON ? 0 : normalized
 }
 
 type ScrollElementOptions = {
@@ -91,11 +109,12 @@ export type CompletedResponseAction = 'scroll' | 'notify' | 'none'
 
 export function getCompletedResponseAction(options: {
     autoScroll: boolean
+    alwaysScroll: boolean
     buttonEnabled: boolean
     nearBottom: boolean
 }): CompletedResponseAction {
     if (options.nearBottom) return 'none'
-    if (options.autoScroll) return 'scroll'
+    if (options.autoScroll && options.alwaysScroll) return 'scroll'
     if (options.buttonEnabled) return 'notify'
     return 'none'
 }
@@ -105,7 +124,7 @@ export function createChatScrollController(
 ): ChatScrollController {
     let destroyed = false
     let layoutFrame = 0
-    let pinnedToBottom = true
+    let mode: ChatScrollMode = 'bottom-follow'
     let leavingBottom = false
     let pointerActive = false
     let touchActive = false
@@ -126,9 +145,65 @@ export function createChatScrollController(
         return anchors.at(-1) ?? navigationAnchor
     }
 
+    const directChildWithAttribute = (attribute: string) => Array.from(container.children)
+        .find((element): element is HTMLElement => element instanceof HTMLElement
+            && element.hasAttribute(attribute))
+
+    const nativeBottomAnchor = () => directChildWithAttribute(NATIVE_BOTTOM_ANCHOR_ATTRIBUTE)
+    const scrollPhaseElement = () => directChildWithAttribute(SCROLL_PHASE_ATTRIBUTE)
+
+    const followsNativeBottomAnchor = () => mode === 'bottom-follow'
+        && !latestLayoutAnchor()
+        && Boolean(nativeBottomAnchor())
+        && isAtBottom()
+
+    const alignBottomPhase = () => {
+        const phaseElement = scrollPhaseElement()
+        const bottomAnchor = nativeBottomAnchor()
+        if (!phaseElement || !bottomAnchor) return false
+
+        if (maxScrollTop() <= 0) {
+            if (phaseElement.getBoundingClientRect().height > SCROLL_PHASE_EPSILON) {
+                phaseElement.style.height = '0px'
+                return true
+            }
+            return false
+        }
+
+        // Firefox rasterizes the scrolled layer at its content-space physical
+        // pixel phase. Keeping only the viewport rect stable is insufficient:
+        // text and one-pixel lines still repaint on alternating device rows if
+        // this phase changes. Align the content bottom itself to one physical
+        // pixel, then let the scrollport clamp to the corresponding bottom.
+        const containerRect = container.getBoundingClientRect()
+        const contentBottom = bottomAnchor.getBoundingClientRect().bottom
+            - containerRect.top
+            + container.scrollTop
+        const currentHeight = phaseElement.getBoundingClientRect().height
+        const nextHeight = normalizeScrollPhaseHeight(
+            currentHeight - contentBottom,
+            globalThis.devicePixelRatio,
+        )
+        if (Math.abs(nextHeight - currentHeight) <= SCROLL_PHASE_EPSILON) return false
+        phaseElement.style.height = `${nextHeight}px`
+        return true
+    }
+
+    const scrollToActualBottom = () => {
+        // scrollHeight/clientHeight are integer-valued, while Firefox's actual
+        // clamped maximum can be fractional under browser zoom. Request past
+        // the end and let the scrollport clamp to its real maximum.
+        container.scrollTop = container.scrollHeight
+    }
+
+    const alignBottom = () => {
+        alignBottomPhase()
+        scrollToActualBottom()
+    }
+
     const alignLayoutAnchor = (anchor: LayoutAnchor) => {
         if (anchor.edge === 'bottom') {
-            container.scrollTop = maxScrollTop()
+            alignBottom()
             return
         }
         if (!anchor.element?.isConnected || !container.contains(anchor.element)) return
@@ -148,7 +223,9 @@ export function createChatScrollController(
             alignLayoutAnchor(anchor)
             return
         }
-        if (pinnedToBottom) container.scrollTop = maxScrollTop()
+        if (mode === 'bottom-follow') {
+            alignBottom()
+        }
     }
 
     const scheduleLayout = () => {
@@ -165,7 +242,8 @@ export function createChatScrollController(
         if (!resizeObserver) return
         const nextElements = new Set<Element>([
             container,
-            ...container.children,
+            ...Array.from(container.children)
+                .filter(element => !element.hasAttribute(SCROLL_PHASE_ATTRIBUTE)),
             ...container.querySelectorAll(LAYOUT_ELEMENT_SELECTOR),
         ])
         for (const element of observedElements) {
@@ -184,7 +262,7 @@ export function createChatScrollController(
         navigationAnchor = null
         if (event.deltaY < 0) {
             leavingBottom = true
-            pinnedToBottom = false
+            mode = 'history-read'
         }
         else if (event.deltaY > 0) {
             leavingBottom = false
@@ -197,11 +275,11 @@ export function createChatScrollController(
         // Firefox can deliver the wheel event before APZ publishes the first
         // changed scrollTop. Do not relatch during that gap.
         if (leavingBottom && atBottom) {
-            pinnedToBottom = false
+            mode = 'history-read'
             return
         }
         if (atBottom) {
-            pinnedToBottom = true
+            mode = 'bottom-follow'
             leavingBottom = false
             return
         }
@@ -209,14 +287,14 @@ export function createChatScrollController(
             && directManipulationStart !== null
             && Math.abs(container.scrollTop - directManipulationStart) > BOTTOM_EPSILON
         if (leavingBottom || directManipulationMoved) {
-            pinnedToBottom = false
+            mode = 'history-read'
             leavingBottom = false
             return
         }
         // A forward-flow room can emit scroll while its initial/streamed
         // content is still publishing layout. Without explicit user intent,
         // that temporary bottom gap must not release the bottom latch.
-        if (pinnedToBottom) scheduleLayout()
+        if (mode === 'bottom-follow') scheduleLayout()
     }
 
     const startDirectManipulation = () => {
@@ -253,7 +331,7 @@ export function createChatScrollController(
             ? elementRect.top - containerRect.top
             : elementRect.bottom - containerRect.bottom
         leavingBottom = false
-        pinnedToBottom = false
+        mode = 'history-read'
         navigationAnchor = options.followLayout
             ? {
                 element,
@@ -274,7 +352,9 @@ export function createChatScrollController(
         if (destroyed) return
         leavingBottom = false
         navigationAnchor = null
-        pinnedToBottom = edge === 'bottom' && behavior === 'instant'
+        mode = edge === 'bottom' && behavior === 'instant'
+            ? 'bottom-follow'
+            : 'history-read'
         container.scrollTo({
             top: edge === 'bottom' ? maxScrollTop() : 0,
             behavior,
@@ -332,7 +412,7 @@ export function createChatScrollController(
                 position: element.getBoundingClientRect().top,
             }
         layoutAnchors.set(token, anchor)
-        pinnedToBottom = atBottom
+        mode = atBottom ? 'bottom-follow' : 'history-read'
 
         let released = false
         return () => {
@@ -355,14 +435,26 @@ export function createChatScrollController(
         return visibleElement ? preserveElementPosition(visibleElement) : () => {}
     }
 
+    const handleObservedLayout = () => {
+        if (destroyed) return
+        if (followsNativeBottomAnchor()) {
+            // Native anchoring owns healthy streamed frames. JS only recovers
+            // a fractional phase mismatch and otherwise performs no scroll
+            // write, so the two mechanisms cannot fight over the same frame.
+            if (alignBottomPhase()) scrollToActualBottom()
+            return
+        }
+        scheduleLayout()
+    }
+
     resizeObserver = typeof ResizeObserver === 'undefined'
         ? null
-        : new ResizeObserver(scheduleLayout)
+        : new ResizeObserver(handleObservedLayout)
     const mutationObserver = typeof MutationObserver === 'undefined'
         ? null
         : new MutationObserver(() => {
             refreshResizeObservations()
-            scheduleLayout()
+            handleObservedLayout()
         })
 
     refreshResizeObservations()
