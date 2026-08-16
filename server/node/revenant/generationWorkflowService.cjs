@@ -14,6 +14,7 @@ function createGenerationWorkflowService(options) {
         updateGenerationWorkflowStep = () => false,
         getGenerationWorkflow = workflow => workflow,
         materializeCancelledWorkflow = async () => {},
+        publishCanonicalWorkflowChat = async () => {},
     } = options;
 
     async function abortJobs(jobs, terminalEvent) {
@@ -75,6 +76,9 @@ function createGenerationWorkflowService(options) {
         if (status === 'cancelled') {
             await materializeCancelledWorkflow(workflowId);
         }
+        else if (status === 'failed') {
+            await publishCanonicalWorkflowChat(workflowId);
+        }
         return result;
     }
 
@@ -90,7 +94,7 @@ function createGenerationWorkflowService(options) {
         return result;
     }
 
-    async function commitInput(workflow, input, request) {
+    async function commitInput(workflow, input) {
         const step = workflow?.steps?.find(item => item.key === 'input.commit');
         if (!step || step.status !== 'pending') {
             const error = new Error('input.commit must be the pending workflow input boundary');
@@ -103,7 +107,6 @@ function createGenerationWorkflowService(options) {
                 characterId: workflow.characterId,
                 roomId: workflow.roomId,
                 input,
-                request,
             });
             updateGenerationWorkflowStep(workflow.workflowId, 'input.commit', {
                 status: 'completed',
@@ -126,4 +129,44 @@ function createGenerationWorkflowService(options) {
     return { terminateWorkflow, cancelStepExecution, commitInput };
 }
 
-module.exports = { createGenerationWorkflowService };
+function createGenerationJobCancellationService(options) {
+    const {
+        repository,
+        generationRuntimeJobs,
+        terminateGenerationWorkflow,
+        notifyRevenantWorkflowUpdated = () => {},
+        isJobActive,
+    } = options;
+
+    async function cancel(jobId) {
+        const persisted = repository.getGenerationJob(jobId, false);
+        if (persisted?.jobType === 'model' && persisted.workflowId) {
+            const result = await terminateGenerationWorkflow(persisted.workflowId, 'cancelled');
+            notifyRevenantWorkflowUpdated(
+                repository.getGenerationWorkflow(persisted.workflowId),
+            );
+            return {
+                success: true,
+                workflowId: persisted.workflowId,
+                ...(result.changed ? {} : { alreadyFinished: true }),
+            };
+        }
+
+        const runtimeJob = generationRuntimeJobs.get(jobId);
+        if (runtimeJob && !runtimeJob.done) {
+            runtimeJob.abortController.abort();
+            repository.finishGenerationJob(jobId, 'cancelled', 'user_cancelled');
+        } else if (persisted && isJobActive(persisted.status)) {
+            repository.finishGenerationJob(jobId, 'cancelled', 'user_cancelled');
+        }
+        repository.markGenerationMaterialized(jobId);
+        return { success: true };
+    }
+
+    return { cancel };
+}
+
+module.exports = {
+    createGenerationJobCancellationService,
+    createGenerationWorkflowService,
+};

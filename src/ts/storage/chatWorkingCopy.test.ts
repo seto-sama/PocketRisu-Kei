@@ -2,23 +2,27 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
     acknowledgeChatCommit,
-    acknowledgeProjectionOnlyChatConflict,
-    awaitChatGenerationCanonical,
-    beginChatGenerationProjection,
-    consumeServerAppliedChat,
     createChatCommitSnapshot,
     discardAllChatWorkingCopies,
     isChatWorkingCopyDirty,
-    isChatAwaitingGenerationCanonical,
     listDirtyChatWorkingCopies,
     markChatWorkingCopyDirty,
-    markChatServerApplied,
+    consumeChatSyncApplied,
+    markChatSyncApplied,
+    acknowledgeProjectionOnlyChatConflict,
+    awaitChatGenerationCanonical,
+    beginChatGenerationProjection,
+    discardAllChatGenerationProjections,
+    isChatAwaitingGenerationCanonical,
     observeChatGenerationProjection,
     resolveChatGenerationCanonical,
 } from './chatWorkingCopy'
 
 describe('chat working copies', () => {
-    beforeEach(() => discardAllChatWorkingCopies())
+    beforeEach(() => {
+        discardAllChatWorkingCopies()
+        discardAllChatGenerationProjections()
+    })
 
     it('binds the first server etag to every later revision of a dirty body', () => {
         markChatWorkingCopyDirty('character', 'room', 'base-etag')
@@ -53,7 +57,7 @@ describe('chat working copies', () => {
     it('does not discard an unrelated dirty edit when a server projection is observed', () => {
         const chat = { id: 'room', message: [] } as any
         markChatWorkingCopyDirty('character', 'room', 'base-etag')
-        markChatServerApplied('character', chat)
+        markChatSyncApplied(chat)
 
         expect(isChatWorkingCopyDirty('character', 'room')).toBe(true)
     })
@@ -63,14 +67,14 @@ describe('chat working copies', () => {
             id: 'room',
             message: [{ chatId: 'message', role: 'char', data: 'cancelled partial' }],
         } as any
-        markChatServerApplied('character', chat)
+        markChatSyncApplied(chat)
 
-        expect(consumeServerAppliedChat(chat)).toBe(true)
-        expect(consumeServerAppliedChat(chat)).toBe(true)
+        expect(consumeChatSyncApplied(chat)).toBe(true)
+        expect(consumeChatSyncApplied(chat)).toBe(true)
 
         chat.message[0].data = 'user edit'
-        expect(consumeServerAppliedChat(chat)).toBe(false)
-        expect(consumeServerAppliedChat(chat)).toBe(false)
+        expect(consumeChatSyncApplied(chat)).toBe(false)
+        expect(consumeChatSyncApplied(chat)).toBe(false)
     })
 
     it('ends generation ownership only when its awaited canonical body is applied', () => {
@@ -81,7 +85,7 @@ describe('chat working copies', () => {
         beginChatGenerationProjection('character', base, { messageChatId: 'generated' })
 
         const inputCommitFetch = structuredClone(base)
-        markChatServerApplied('character', inputCommitFetch)
+        markChatSyncApplied(inputCommitFetch)
         expect(observeChatGenerationProjection('character', inputCommitFetch)).toBe('projection')
 
         awaitChatGenerationCanonical('character', 'room')
@@ -92,8 +96,13 @@ describe('chat working copies', () => {
                 { chatId: 'generated', role: 'char', data: 'partial' },
             ],
         }
-        markChatServerApplied('character', terminalCanonical as any)
-        expect(observeChatGenerationProjection('character', terminalCanonical as any)).toBe('inactive')
+        const applied = resolveChatGenerationCanonical(
+            'character',
+            inputCommitFetch,
+            terminalCanonical as any,
+        )
+        markChatSyncApplied(applied)
+        expect(observeChatGenerationProjection('character', applied)).toBe('inactive')
     })
 
     it('pins an absent base version instead of adopting a later fetch', () => {

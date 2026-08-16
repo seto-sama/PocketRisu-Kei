@@ -59,6 +59,7 @@ const {
     createRevenantMaterializer,
     createRevenantPostprocessWorker,
     createGenerationWorkflowService,
+    applyMutationPatch,
     GENERATION_REQUEST_DEFAULT_TIMEOUT_MS,
     normalizeGenerationRequestTimeoutMs,
     notifyRevenantJournalWaiters,
@@ -71,12 +72,9 @@ const {
     stripChatsFromDb,
     reassembleFullDb: reassembleFullDbFromStore,
     findStubFlagLossChats,
+    CanonicalChatCommitError,
+    createCanonicalChatService,
 } = require('./chatStore.cjs');
-const {
-    ChatResultMergeConflict,
-    isStaleGenerationTargetWrite,
-    mergeConcurrentChatEdit,
-} = require('./revenant/chatResultMerge.cjs');
 const {
     applyGenerationInputMetadata,
     restoreGenerationOwnedMetadata,
@@ -601,7 +599,7 @@ async function persistFullChatStoreNow() {
  * mutation, so concurrent devices increment the server value instead of
  * racing client-side snapshots.
  */
-async function persistGenerationInputState(characterId) {
+async function persistCanonicalChatState({ characterId, generationInput = false, mutationPatch }) {
     const hadCachedDb = Object.prototype.hasOwnProperty.call(dbCache, DB_HEX_KEY);
     const previousCachedDb = hadCachedDb ? dbCache[DB_HEX_KEY] : undefined;
     let nextDb;
@@ -613,11 +611,16 @@ async function persistGenerationInputState(characterId) {
         nextDb = normalizeJSON(stripChatsFromDb(await decodeRisuSave(raw)));
     }
 
-    const metadata = applyGenerationInputMetadata(nextDb, characterId);
-    if (!metadata) {
+    const metadata = generationInput
+        ? applyGenerationInputMetadata(nextDb, characterId)
+        : undefined;
+    if (generationInput && !metadata) {
         const error = new Error('Generation input character not found');
         error.httpStatus = 404;
         throw error;
+    }
+    if (mutationPatch) {
+        applyMutationPatch(nextDb, characterId, mutationPatch);
     }
 
     if (saveTimers[DB_HEX_KEY]) {
@@ -629,12 +632,34 @@ async function persistGenerationInputState(characterId) {
         await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
         dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(nextDb)));
         clearPersistFailure();
+        try {
+            createBackupAndRotate();
+        } catch (error) {
+            logger.warn('[CanonicalChat] Backup rotation failed:', error);
+        }
         return metadata;
     } catch (error) {
         if (hadCachedDb) dbCache[DB_HEX_KEY] = previousCachedDb;
         else delete dbCache[DB_HEX_KEY];
         throw error;
     }
+}
+
+function scheduleCanonicalChatPersist() {
+    scheduleStorageOperation(DB_HEX_KEY, async () => {
+        try {
+            await persistFullChatStoreNow();
+            clearPersistFailure();
+            try {
+                createBackupAndRotate();
+            } catch (error) {
+                logger.warn('[CanonicalChat] Backup rotation failed:', error);
+            }
+        } catch (error) {
+            logger.error('[CanonicalChat] Error persisting chat:', error);
+            recordPersistFailure(error, 'chat-content');
+        }
+    });
 }
 
 function shouldCompress(req, res) {
@@ -1550,6 +1575,16 @@ function broadcastDatabaseInvalidated(req, payload = {}) {
     );
 }
 
+function publishChatCommitted(event, originClientId) {
+    broadcastSync('database-invalidated', {
+        chats: [{ characterId: event.characterId, chatId: event.chatId }],
+        etag: dbEtag ?? undefined,
+        chatEtag: event.etag,
+        reason: event.reason,
+        timestamp: Date.now(),
+    }, originClientId || null);
+}
+
 function broadcastRevenantWorkflowUpdated(workflow) {
     if (!workflow?.workflowId || !workflow.characterId || !workflow.roomId) return;
     broadcastSync('generation-workflow-updated', {
@@ -1559,16 +1594,6 @@ function broadcastRevenantWorkflowUpdated(workflow) {
         status: workflow.status,
         timestamp: Date.now(),
     });
-    // Terminal workflow publication is also the canonical chat handoff. The
-    // terminator/postprocess worker calls this only after cancellation or
-    // completion materialization has settled. Failed workflows point back to
-    // their already-committed input. Clients therefore never need to infer a
-    // database refresh from provider-job EOF.
-    if (workflow.status !== 'active') {
-        broadcastDatabaseInvalidated(undefined, {
-            chats: [{ characterId: workflow.characterId, chatId: workflow.roomId }],
-        });
-    }
 }
 
 // --- Generation Job constants ---
@@ -1854,24 +1879,28 @@ const {
     scheduleHypaWorkflowExecution,
 } = generationWorkers;
 
-const revenantMaterializer = createRevenantMaterializer({
-    repository: generationDb,
+const canonicalChatService = createCanonicalChatService({
     queueStorageOperation,
     ensureChatStore,
-    getChatStorageState: () => ({ fullChatStore, saveTimers, dbCache }),
-    databaseHexKey: DB_HEX_KEY,
-    persistDbCacheWithChats,
-    kvGet,
-    normalizeJSON,
-    decodeRisuSave,
-    reassembleFullDb,
-    stripChatsFromDb,
-    kvSet,
-    encodeRisuSaveLegacy,
-    initChatStore,
-    createBackupAndRotate,
-    broadcastDatabaseInvalidated: (request, payload) =>
-        broadcastDatabaseInvalidated(request || { headers: {} }, payload),
+    getChat: (characterId, chatId) => fullChatStore.get(characterId)?.get(chatId),
+    replaceChat: (characterId, chatId, chat) => {
+        const chats = fullChatStore.get(characterId);
+        if (!chats) return;
+        if (chat) chats.set(chatId, chat);
+        else chats.delete(chatId);
+    },
+    commitChatContent: (characterId, chatId, chat, expectedEtag, options) =>
+        commitChatContent(fullChatStore, characterId, chatId, chat, expectedEtag, options),
+    computeChatEtag,
+    getActiveGenerationWorkflow,
+    getLatestGenerationWorkflow: generationDb.getLatestGenerationWorkflow,
+    persistNow: persistCanonicalChatState,
+    schedulePersist: scheduleCanonicalChatPersist,
+    publishChatCommitted,
+});
+const revenantMaterializer = createRevenantMaterializer({
+    repository: generationDb,
+    canonicalChatService,
 });
 const generationWorkflowService = createGenerationWorkflowService({
     finishGenerationWorkflow,
@@ -1884,6 +1913,15 @@ const generationWorkflowService = createGenerationWorkflowService({
     updateGenerationWorkflowStep: generationDb.updateGenerationWorkflowStep,
     getGenerationWorkflow,
     materializeCancelledWorkflow: revenantMaterializer.materializeCancellation,
+    publishCanonicalWorkflowChat: workflowId => {
+        const workflow = getGenerationWorkflow(workflowId);
+        if (!workflow) return false;
+        return canonicalChatService.publishCurrent(
+            workflow.characterId,
+            workflow.roomId,
+            'workflow-failed',
+        );
+    },
 });
 const revenantPostprocessWorker = createRevenantPostprocessWorker({
     repository: generationDb,
@@ -2729,43 +2767,12 @@ app.delete('/proxy2', reverseProxyFunc);
 app.post('/hub-proxy/*splat', hubProxyFunc);
 
 // --- Revenant generation jobs -------------------------------------------------
-async function commitRevenantWorkflowInput({ characterId, roomId, input, request }) {
-    return queueStorageOperation(async () => {
-        await ensureChatStore();
-        const previousChat = fullChatStore.get(characterId)?.get(roomId);
-        const commit = commitChatContent(
-            fullChatStore,
-            characterId,
-            roomId,
-            input.chat,
-            input.expectedEtag,
-            { requireExpected: true },
-        );
-        if (!commit.success) {
-            const error = new Error('Chat changed before the generation input was committed');
-            error.httpStatus = 409;
-            error.currentEtag = commit.currentEtag;
-            throw error;
-        }
-        try {
-            await persistGenerationInputState(characterId);
-        } catch (error) {
-            const characterChats = fullChatStore.get(characterId);
-            if (previousChat) characterChats?.set(roomId, previousChat);
-            else characterChats?.delete(roomId);
-            throw error;
-        }
-        try {
-            createBackupAndRotate();
-        } catch (error) {
-            logger.warn('[GenerationWorkflow] Input committed but snapshot creation failed:', error);
-        }
-        // The server, not the submitting page, owns activity metadata. Include
-        // the origin so it installs the canonical counters and timestamp too.
-        broadcastDatabaseInvalidated(undefined, {
-            chats: [{ characterId, chatId: roomId }],
-        });
-        return commit;
+async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
+    return canonicalChatService.commitGenerationInput({
+        characterId,
+        chatId: roomId,
+        chat: input.chat,
+        expectedEtag: input.expectedEtag,
     });
 }
 
@@ -4741,192 +4748,51 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
     if (!requireSyncClientId(req, res)) return;
     try {
-        await queueStorageOperation(async () => {
-            const chaId = req.params.chaId;
-            const chatIndex = parseInt(req.params.chatIndex, 10);
-            const expectedChatId = req.headers['x-chat-id'];
-            let chatData;
-            if (Buffer.isBuffer(req.body)) {
-                // Binary msgpack body (application/octet-stream)
-                try {
-                    chatData = await decodeRisuSave(req.body);
-                } catch (e) {
-                    return res.status(400).json({ error: 'Invalid binary chat data' });
-                }
-            } else {
-                // JSON body (legacy)
-                chatData = req.body;
+        const chaId = req.params.chaId;
+        const chatIndex = parseInt(req.params.chatIndex, 10);
+        const expectedChatId = req.headers['x-chat-id'];
+        let chatData;
+        if (Buffer.isBuffer(req.body)) {
+            try {
+                chatData = await decodeRisuSave(req.body);
+            } catch {
+                return res.status(400).json({ error: 'Invalid binary chat data' });
             }
+        } else {
+            chatData = req.body;
+        }
 
-            if (!chatData || !expectedChatId) {
-                return res.status(400).json({ error: 'Chat data and x-chat-id required' });
-            }
+        if (!chatData || !expectedChatId) {
+            return res.status(400).json({ error: 'Chat data and x-chat-id required' });
+        }
 
-            await ensureChatStore();
-            if (isCloudflareTunnelRequest(req)) {
-                const raw = kvGet('database/database.bin');
-                if (raw) {
-                    const dbObj = await decodeDatabaseWithPersistentChatIds(raw);
-                    if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
-                        return res.status(404).json({ error: 'Chat not found' });
-                    }
+        if (isCloudflareTunnelRequest(req)) {
+            const raw = kvGet('database/database.bin');
+            if (raw) {
+                const dbObj = await decodeDatabaseWithPersistentChatIds(raw);
+                if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
+                    return res.status(404).json({ error: 'Chat not found' });
                 }
             }
+        }
 
-            const expectedEtag = req.headers['x-chat-if-match'];
-            const isGenerationInput = req.headers['x-generation-input'] === '1';
-            const activeWorkflow = getActiveGenerationWorkflow(
-                chaId,
-                expectedChatId,
-                true,
-            );
-            const latestWorkflow = activeWorkflow
-                ?? generationDb.getLatestGenerationWorkflow(chaId, expectedChatId, true);
-            const currentChat = fullChatStore.get(chaId)?.get(expectedChatId);
-            const staleTerminalProjection = !activeWorkflow
-                && latestWorkflow?.status !== 'active'
-                && isStaleGenerationTargetWrite(
-                    chatData,
-                    currentChat,
-                    latestWorkflow?.context?.postprocess,
-                );
-            const mergeWorkflow = activeWorkflow ?? (staleTerminalProjection
-                ? latestWorkflow
-                : undefined);
-            const inputStep = mergeWorkflow?.steps?.find(step =>
-                step.key === 'input.commit' && step.status === 'completed');
-            const inputEtag = inputStep?.metadata?.etag;
-            const inputChat = mergeWorkflow?.context?.inputCommit?.chat;
-            const currentEtag = computeChatEtag(currentChat);
-            let commit;
-
-            if (
-                mergeWorkflow
-                && typeof inputEtag === 'string'
-                && inputChat?.id === expectedChatId
-                && Array.isArray(inputChat.message)
-                && currentChat
-            ) {
-                // Clients own ordinary chat edits, but never a stale copy of
-                // the generation target. The same three-way merge covers live
-                // generation and a terminal projection echo after materialize.
-                const mergeBase = expectedEtag === currentEtag
-                    ? currentChat
-                    : expectedEtag === inputEtag
-                        ? inputChat
-                        : undefined;
-                if (!mergeBase) {
-                    return res.status(409).json({
-                        error: 'Chat content changed on another client',
-                        currentEtag,
-                    });
-                }
-                let rebasedChat;
-                try {
-                    rebasedChat = mergeConcurrentChatEdit(
-                        mergeBase,
-                        chatData,
-                        currentChat,
-                        mergeWorkflow.context?.postprocess,
-                    );
-                } catch (error) {
-                    if (!(error instanceof ChatResultMergeConflict)) throw error;
-                    return res.status(409).json({
-                        error: error.message,
-                        conflicts: error.paths,
-                        currentEtag,
-                    });
-                }
-                commit = commitChatContent(
-                    fullChatStore,
-                    chaId,
-                    expectedChatId,
-                    rebasedChat,
-                    currentEtag,
-                    { requireExpected: true },
-                );
-            } else {
-                commit = commitChatContent(
-                    fullChatStore,
-                    chaId,
-                    expectedChatId,
-                    chatData,
-                    expectedEtag,
-                    { requireExpected: true },
-                );
-            }
-            if (!commit.success) {
-                return res.status(409).json({
-                    error: 'Chat content changed on another client',
-                    currentEtag: commit.currentEtag,
-                });
-            }
-            chatData = commit.chat;
-
-            if (isGenerationInput) {
-                try {
-                    await persistGenerationInputState(chaId);
-                } catch (error) {
-                    const characterChats = fullChatStore.get(chaId);
-                    if (currentChat) characterChats?.set(expectedChatId, currentChat);
-                    else characterChats?.delete(expectedChatId);
-                    throw error;
-                }
-                try {
-                    createBackupAndRotate();
-                } catch (backupErr) {
-                    logger.warn('[ChatContent] Generation input committed but snapshot creation failed:', backupErr);
-                }
-                broadcastDatabaseInvalidated(undefined, {
-                    chats: [{ characterId: chaId, chatId: expectedChatId }],
-                });
-                res.json({ success: true, etag: commit.etag });
-                return;
-            }
-
-            // Schedule debounced persist (reuses existing timer mechanism)
-            scheduleStorageOperation(DB_HEX_KEY, async () => {
-                try {
-                    // If dbCache has stripped DB, persist with merged chats
-                    if (dbCache[DB_HEX_KEY]) {
-                        await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
-                    } else {
-                        // No stripped cache — load, merge, save
-                        const raw = kvGet('database/database.bin');
-                        if (raw) {
-                            const dbObj = normalizeJSON(await decodeRisuSave(raw));
-                            const fullDb = reassembleFullDb(stripChatsFromDb(dbObj));
-                            const encoded = Buffer.from(encodeRisuSaveLegacy(fullDb));
-                            try {
-                                kvSet('database/database.bin', encoded);
-                            } catch (err) {
-                                if (err && typeof err === 'object') {
-                                    try { err.attemptedSize = encoded.length; } catch {}
-                                }
-                                throw err;
-                            }
-                        }
-                    }
-                    // Persist succeeded — clear before backup so a backup-only
-                    // failure isn't attributed to data loss.
-                    clearPersistFailure();
-                    try {
-                        createBackupAndRotate();
-                    } catch (backupErr) {
-                        logger.warn('[ChatContent] Backup rotation failed:', backupErr);
-                    }
-                } catch (error) {
-                    logger.error('[ChatContent] Error persisting chat:', error);
-                    recordPersistFailure(error, 'chat-content');
-                }
-            });
-
-            broadcastDatabaseInvalidated(req, {
-                chats: [{ characterId: chaId, chatId: expectedChatId }],
-            });
-            res.json({ success: true, etag: commit.etag });
+        const commit = await canonicalChatService.commitUserEdit({
+            characterId: chaId,
+            chatId: expectedChatId,
+            chat: chatData,
+            expectedEtag: req.headers['x-chat-if-match'],
+            originClientId: getSyncClientIdFromRequest(req),
         });
+        res.json({ success: true, etag: commit.etag });
     } catch (error) {
+        if (error instanceof CanonicalChatCommitError) {
+            return res.status(error.httpStatus).json({
+                error: error.message,
+                ...(error.currentEtag ? { currentEtag: error.currentEtag } : {}),
+                ...(error.conflicts ? { conflicts: error.conflicts } : {}),
+                ...(error.code ? { code: error.code } : {}),
+            });
+        }
         next(error);
     }
 });

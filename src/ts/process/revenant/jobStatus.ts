@@ -1,4 +1,4 @@
-import type { RevenantJobStatus } from './types'
+import type { RevenantGenerationTerminal, RevenantJobStatus } from './types'
 
 export type RevenantTerminalRequestOutcome = 'done' | 'failed' | 'aborted'
 
@@ -30,4 +30,21 @@ export function resolveRevenantTerminalRequestOutcome(
         return durableOutcome
     }
     return localOutcome
+}
+
+/** Compose terminal observation once for every live request backend. */
+export function bindRevenantTerminalOutcome(target: {
+    onRevenantTerminal?: (terminal: RevenantGenerationTerminal) => void
+}) {
+    let durableStatus: RevenantJobStatus | undefined
+    const caller = target.onRevenantTerminal
+    target.onRevenantTerminal = terminal => {
+        durableStatus = terminal.status
+        caller?.(terminal)
+    }
+    return {
+        resolve(localOutcome: RevenantTerminalRequestOutcome) {
+            return resolveRevenantTerminalRequestOutcome(localOutcome, durableStatus)
+        },
+    }
 }

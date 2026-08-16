@@ -14,8 +14,7 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
     import { chatProcessStage, doingChat, recoverRevenantGenerationsForChat, sendChat } from "../../ts/process/index.svelte";
-    import { createChatCommitSnapshot, ensureCurrentChatReady } from "../../ts/storage/chatStorage";
-    import type { ChatCommitSnapshot } from '../../ts/storage/chatWorkingCopy';
+    import { ensureCurrentChatReady } from "../../ts/storage/chatStorage";
     import { sleep } from "../../ts/util";
     import { language } from "../../lang";
     import { isExpTranslator, recoverAuxiliaryTranslationJobs, translate } from "../../ts/translator/translator";
@@ -32,6 +31,12 @@ import { isMobile } from 'src/ts/platform'
     import { isRevenantGenerationLocallyObserved } from 'src/ts/process/revenant/transport';
     import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenant/auxiliary';
     import type { RevenantRerollSnapshot } from 'src/ts/process/revenant';
+    import {
+        applyCancelledRerollSession,
+        prepareChatReroll,
+        type ActiveRerollSession,
+        type PreparedChatReroll,
+    } from 'src/ts/process/revenant/chatGeneration';
     import { runTrigger } from 'src/ts/process/triggers';
     import { v4 } from 'uuid';
     import { processMultiCommand } from 'src/ts/process/command';
@@ -661,60 +666,6 @@ import { isMobile } from 'src/ts/platform'
         return msg
     }
 
-    type ActiveRerollSession = {
-        characterId: string
-        roomId: string
-        originalTargetChatId?: string
-        savedSwipes: string[]
-        generatedMessageIndex: number
-        trailingComments: Message[]
-    }
-
-    function finishCancelledRerollSession(activeRerollSession?: ActiveRerollSession) {
-        if (!activeRerollSession) return false
-        const {
-            characterId,
-            roomId,
-            originalTargetChatId,
-            savedSwipes,
-            generatedMessageIndex,
-            trailingComments,
-        } = activeRerollSession
-        const char = DBState.db.characters.find(candidate => candidate?.chaId === characterId)
-        const chat = char?.chats?.find(candidate => candidate?.id === roomId)
-        if (!char || !chat) {
-            return false
-        }
-
-        const messages = chat.message
-        const generatedMsg = messages[generatedMessageIndex]
-        const generatedData = generatedMsg?.role === 'char' ? generatedMsg.data ?? '' : ''
-
-        if (
-            !generatedMsg
-            || generatedMsg.role !== 'char'
-            || !generatedData.trim()
-            // A cancellation before Echo produced content restores the original
-            // reroll target. Do not reinterpret that restored message as a new
-            // partial swipe.
-            || generatedMsg.chatId === originalTargetChatId
-        ) {
-            return false
-        }
-
-        generatedMsg.swipes = [...savedSwipes, generatedData]
-        generatedMsg.swipeId = generatedMsg.swipes.length - 1
-        generatedMsg.data = generatedData
-        messages.splice(generatedMessageIndex + 1)
-        if (trailingComments.length > 0) {
-            messages.push(...safeStructuredClone(trailingComments))
-        }
-        chat.message = messages
-        chat.isStreaming = false
-        char.reloadKeys += 1
-        return true
-    }
-
     async function reroll() {
         if(currentRoomHasMainGeneration) return
         const selectedChar = $selectedCharID
@@ -725,66 +676,30 @@ import { isMobile } from 'src/ts/platform'
             characterId: rerollCharacter.chaId,
             roomId: rerollChat.id,
         }
-        const lastMsg = getLastCharMsg()
-        if (!lastMsg) return
-
-        // Save existing swipes before clone replaces the array
-        const savedSwipes = lastMsg.swipes ? [...lastMsg.swipes] : [lastMsg.data]
-
-        // Generate new response
-        // Preserve trailing comment/disabled messages (e.g. branch comments)
-        let cha = safeStructuredClone(rerollChat.message)
-        const durableInputCommit = createChatCommitSnapshot(rerollCharacter.chaId, rerollChat)
-        const originalMessages = safeStructuredClone(cha)
-        if(cha.length === 0) return
+        const prepared = prepareChatReroll(rerollCharacter.chaId, rerollChat)
+        if (!prepared) return
         openMenu = false
-
-        const trailingComments = []
-        while(cha.length > 0 && (cha[cha.length - 1].isComment || cha[cha.length - 1].disabled)) {
-            trailingComments.unshift(cha.pop())
-        }
-
-        if(cha.length === 0) return
-        const saying = cha[cha.length - 1].saying
-        let sayingQu = 2
-        while(cha[cha.length - 1].role !== 'user'){
-            if(cha[cha.length - 1].saying === saying){
-                sayingQu -= 1
-                if(sayingQu === 0) break
-            }
-            let msg = cha.pop()
-            if(!msg) return
-        }
-        const generatedMessageIndex = cha.length
-        const rerollSnapshot: RevenantRerollSnapshot = {
-            targetMessage: safeStructuredClone(originalMessages[generatedMessageIndex]),
-            targetIndex: generatedMessageIndex,
-            trailingMessages: safeStructuredClone(trailingComments),
-        }
         const foregroundContext = beginForegroundGeneration(generationTarget)
-        foregroundContext.rerollSession = {
-            characterId: generationTarget.characterId,
-            roomId: generationTarget.roomId,
-            originalTargetChatId: originalMessages[generatedMessageIndex]?.chatId,
-            savedSwipes,
-            generatedMessageIndex,
-            trailingComments: safeStructuredClone(trailingComments),
-        }
+        foregroundContext.rerollSession = prepared.session
         rerollChat.isStreaming = true
-        rerollChat.message = cha
+        rerollChat.message = prepared.generationMessages
         const generated = await sendChatMain(
             false,
-            rerollSnapshot,
+            prepared.rerollSnapshot,
             generationTarget,
             foregroundContext,
-            durableInputCommit,
+            prepared.durableInputCommit,
         )
 
         // A user-triggered cancel keeps the partial reroll as the active swipe.
         if (!generated) {
             if (
                 foregroundContext.abortRequested
-                && finishCancelledRerollSession(foregroundContext.rerollSession)
+                && applyCancelledRerollSession(
+                    rerollCharacter,
+                    rerollChat,
+                    foregroundContext.rerollSession,
+                )
             ) {
                 return
             }
@@ -793,7 +708,7 @@ import { isMobile } from 'src/ts/platform'
             const failedChat = failedCharacter?.chats?.find(chat =>
                 chat?.id === generationTarget.roomId)
             if (failedChat) {
-                failedChat.message = originalMessages
+                failedChat.message = prepared.originalMessages
                 failedChat.isStreaming = false
             }
             return
@@ -870,7 +785,7 @@ import { isMobile } from 'src/ts/platform'
         rerollSnapshot?: RevenantRerollSnapshot,
         generationTarget?: ForegroundGenerationContext['origin'],
         preparedContext?: ForegroundGenerationContext,
-        durableInputCommit?: ChatCommitSnapshot,
+        durableInputCommit?: PreparedChatReroll['durableInputCommit'],
     ) {
 
         const origin = generationTarget ?? (

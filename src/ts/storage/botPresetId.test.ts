@@ -21,6 +21,8 @@ vi.mock('../globalApi.svelte', () => ({
     saveAsset: () => Promise.resolve(''),
 }))
 
+vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
+
 vi.mock('../alert', () => ({
     notifySuccess: () => {},
     alertError: () => {},

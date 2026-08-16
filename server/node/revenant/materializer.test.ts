@@ -26,7 +26,6 @@ describe('revenant canonical materializer', () => {
             ],
         }
         let materialized = false
-        const fullChatStore = new Map([['character-1', new Map([['room-1', stored]])]])
         const repository = {
             getGenerationJob: () => ({
                 jobId: 'job-1', workflowId: 'workflow-1', characterId: 'character-1',
@@ -54,32 +53,27 @@ describe('revenant canonical materializer', () => {
             markGenerationMaterialized: () => { materialized = true; return true },
             updateGenerationWorkflowStep: vi.fn(),
         }
-        const persistDbCacheWithChats = vi.fn()
-        const broadcastDatabaseInvalidated = vi.fn()
-        const cachedDatabase = {
-            characters: [{ chaId: 'character-1', desc: 'old description', chats: [] }],
-            personaPrompt: 'old persona',
-        }
+        const commitGenerationResult = vi.fn(async (input: any) => {
+            await input.finalize()
+            return { chat: input.chat }
+        })
         const service = createRevenantMaterializer({
             repository,
-            queueStorageOperation: (operation: () => Promise<any>) => operation(),
-            ensureChatStore: vi.fn(),
-            getChatStorageState: () => ({
-                fullChatStore, saveTimers: {}, dbCache: { db: cachedDatabase },
-            }),
-            databaseHexKey: 'db',
-            persistDbCacheWithChats,
-            createBackupAndRotate: vi.fn(),
-            broadcastDatabaseInvalidated,
+            canonicalChatService: { commitGenerationResult },
         })
 
         const result = await service.materialize('job-1')
 
         expect(result.message).toMatchObject({ data: 'server result', chatId: 'message-1' })
-        expect(fullChatStore.get('character-1')?.get('room-1')).toEqual({ ...canonical, isStreaming: false })
-        expect(persistDbCacheWithChats).toHaveBeenCalledWith('db', 'database/database.bin')
-        expect(cachedDatabase.characters[0].desc).toBe('server description')
-        expect(cachedDatabase.personaPrompt).toBe('server persona')
+        expect(commitGenerationResult).toHaveBeenCalledWith(expect.objectContaining({
+            job: expect.objectContaining({ jobId: 'job-1' }),
+            workflow: expect.objectContaining({ workflowId: 'workflow-1' }),
+            chat: { ...canonical, isStreaming: false },
+            mutationPatch: {
+                character: { desc: 'server description' },
+                database: { personaPrompt: 'server persona' },
+            },
+        }))
         expect(repository.updateGenerationWorkflowStep).toHaveBeenCalledWith(
             'workflow-1',
             'message.materialize',
@@ -89,7 +83,6 @@ describe('revenant canonical materializer', () => {
             },
         )
         expect(materialized).toBe(true)
-        expect(broadcastDatabaseInvalidated).toHaveBeenCalledOnce()
     })
 
     it('rejects a stale materializer through the shared chat commit boundary', async () => {
@@ -123,7 +116,6 @@ describe('revenant canonical materializer', () => {
                 ],
             }],
         }
-        const fullChatStore = new Map([['character-1', new Map([['room-1', stored]])]])
         const repository = {
             getGenerationJob: () => ({
                 jobId: 'job-b', workflowId: 'workflow-b', characterId: 'character-1',
@@ -155,19 +147,17 @@ describe('revenant canonical materializer', () => {
         }
         const service = createRevenantMaterializer({
             repository,
-            queueStorageOperation: (operation: () => Promise<any>) => operation(),
-            ensureChatStore: vi.fn(),
-            getChatStorageState: () => ({ fullChatStore, saveTimers: {}, dbCache: { db: {} } }),
-            databaseHexKey: 'db',
-            persistDbCacheWithChats: vi.fn(),
-            createBackupAndRotate: vi.fn(),
+            canonicalChatService: {
+                commitGenerationResult: vi.fn(async () => {
+                    throw Object.assign(new Error('generation merge conflict'), { httpStatus: 409 })
+                }),
+            },
         })
 
         await expect(service.materialize('job-b')).rejects.toMatchObject({
             name: 'RevenantMaterializationError',
             status: 409,
         })
-        expect(fullChatStore.get('character-1')?.get('room-1')).toEqual(stored)
     })
 
     it('materializes a cancelled reroll partial from the server journal projection', async () => {
@@ -212,7 +202,6 @@ describe('revenant canonical materializer', () => {
                 metadata: { etag: computeChatEtag(inputChat) },
             }],
         }
-        const fullChatStore = new Map([['character-1', new Map([['room-1', inputChat]])]])
         const repository = {
             getGenerationWorkflow: () => workflow,
             listGenerationWorkflowJobs: () => [job],
@@ -225,16 +214,16 @@ describe('revenant canonical materializer', () => {
             setGenerationJobProjection: vi.fn(() => true),
             setGenerationJobProjectionError: vi.fn(() => true),
         }
-        const broadcastDatabaseInvalidated = vi.fn()
+        const commitGenerationResult = vi.fn(async (input: any) => {
+            await input.finalize()
+            return { chat: input.chat }
+        })
         const service = createRevenantMaterializer({
             repository,
-            queueStorageOperation: (operation: () => Promise<any>) => operation(),
-            ensureChatStore: vi.fn(),
-            getChatStorageState: () => ({ fullChatStore, saveTimers: {}, dbCache: { db: {} } }),
-            databaseHexKey: 'db',
-            persistDbCacheWithChats: vi.fn(),
-            createBackupAndRotate: vi.fn(),
-            broadcastDatabaseInvalidated,
+            canonicalChatService: {
+                commitGenerationResult,
+                publishCurrent: vi.fn(),
+            },
         })
 
         const result = await service.materializeCancellation('workflow-1')
@@ -245,12 +234,15 @@ describe('revenant canonical materializer', () => {
             swipes: ['original', 'partial response'],
             swipeId: 1,
         })
-        expect(fullChatStore.get('character-1')?.get('room-1')).toEqual(result.chat)
+        expect(commitGenerationResult).toHaveBeenCalledWith(expect.objectContaining({
+            job,
+            workflow,
+            chat: result.chat,
+        }))
         expect(repository.markGenerationMaterialized).toHaveBeenCalledWith('job-1')
         expect(repository.setGenerationJobProjection).toHaveBeenCalledWith(
             'job-1',
             expect.objectContaining({ source: 'server', content: 'partial response' }),
         )
-        expect(broadcastDatabaseInvalidated).toHaveBeenCalledOnce()
     })
 })

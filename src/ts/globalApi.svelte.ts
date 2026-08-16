@@ -16,19 +16,24 @@ import { getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, c
 import {
     acknowledgeProjectionOnlyChatConflict,
     discardAllChatWorkingCopies,
-    consumeServerAppliedChat,
-    observeChatGenerationProjection,
+    discardAllChatGenerationProjections,
+    consumeChatSyncApplied,
     isChatWorkingCopyDirty,
     listDirtyChatWorkingCopies,
     markChatWorkingCopyDirty,
-    markChatServerApplied,
+    markChatSyncApplied,
+    observeChatGenerationProjection,
 } from './storage/chatWorkingCopy';
 import { preparePatchConflictRebase } from "./storage/patchRebase";
 import {
     isClientWritableCharacterField,
     visitClientWritableRootValues,
 } from './storage/persistenceShape';
-import { AutoStorage } from "./storage/autoStorage";
+import { forageStorage } from "./storage/autoStorage";
+import {
+    registerSyncedDatabaseHandler,
+    type SyncedDatabaseOptions,
+} from './sync/databaseSync';
 import { ConflictError, getSyncClientId, type PersistWarning } from "./storage/nodeStorage";
 import { supportsPatchSync } from "./platform";
 import { updateAnimationSpeed } from "./gui/animation";
@@ -57,10 +62,16 @@ import {
 import { type RevenantGenerationRequest } from "./process/revenant";
 import {
     configureRevenantGenerationClient,
-    fetchViaGenerationJob,
 } from "./process/revenant/transport";
+import {
+    configureNativeFetchLogging,
+    fetchNative,
+    type FetchNativeArgs,
+} from './network/nativeFetch';
 
-export const forageStorage = new AutoStorage()
+export { fetchNative, type FetchNativeArgs }
+
+export { forageStorage }
 configureRevenantGenerationClient({
     createAuth: () => forageStorage.createAuth(),
     getSyncClientId,
@@ -75,6 +86,18 @@ function pushFetchLog(log: Omit<FetchLog, 'id' | 'timestamp' | 'clientId' | 'pla
     fetchLog.unshift(entry)
     return entry
 }
+
+configureNativeFetchLogging({
+    create: entry => pushFetchLog(entry as Parameters<typeof pushFetchLog>[0]).id,
+    update: (id, response, status, success) => {
+        const entry = fetchLog.find(log => log.id === id)
+        if (!entry) return
+        entry.response = formatFetchLogValue(response)
+        entry.responseType = 'stream'
+        if (status !== undefined) entry.status = status
+        if (success !== undefined) entry.success = success
+    },
+})
 
 export async function downloadFile(name: string, dat: Uint8Array | ArrayBuffer | string) {
     if (typeof (dat) === 'string') {
@@ -397,31 +420,6 @@ export function setPatchSyncBaseline(data: Database | null) {
     patchSyncBaseline = data ? safeStructuredClone(data) as Database : null
 }
 
-type SyncedDatabaseOptions = {
-    authoritativeChatReset?: boolean
-    serverAppliedChats?: Array<{
-        characterId: string
-        chatId: string
-    }>
-}
-
-let syncedDatabaseHandler: ((
-    data: Database,
-    etag: string | null,
-    options?: SyncedDatabaseOptions,
-) => Promise<void>) | null = null
-
-export async function applySyncedDatabase(
-    data: Database,
-    etag: string | null,
-    options?: SyncedDatabaseOptions,
-) {
-    while (!syncedDatabaseHandler) {
-        await sleep(20)
-    }
-    await syncedDatabaseHandler(data, etag, options)
-}
-
 export async function saveDb() {
     let changed = false
     let syncApplying = false
@@ -512,7 +510,7 @@ export async function saveDb() {
                 item?.chaId === target.characterId)
             const chat = character?.chats?.find(item => item?.id === target.chatId)
             if (chat && !chat._placeholder) {
-                markChatServerApplied(target.characterId, chat)
+                markChatSyncApplied(chat)
             }
         }
         await tick()
@@ -726,7 +724,7 @@ export async function saveDb() {
                 return
             }
 
-            if (consumeServerAppliedChat(activeChat)) return
+            if (consumeChatSyncApplied(activeChat)) return
 
             const projectionChange = observeChatGenerationProjection(activeChaId, activeChat)
             if (projectionChange === 'projection') return
@@ -750,11 +748,12 @@ export async function saveDb() {
         })
     })
 
-    syncedDatabaseHandler = async (data, etag, options) => {
+    registerSyncedDatabaseHandler(async (data, etag, options) => {
         syncApplying = true
         try {
             if (options?.authoritativeChatReset) {
                 discardAllChatWorkingCopies()
+                discardAllChatGenerationProjections()
             }
             await replaceRuntimeDatabase(data, options?.serverAppliedChats)
             updateColorScheme()
@@ -786,7 +785,7 @@ export async function saveDb() {
         } finally {
             syncApplying = false
         }
-    }
+    })
 
     function requeueTrackedChanges(toSave: toSaveType) {
         changeTracker.character = [...new Set([...toSave.character, ...changeTracker.character])]
@@ -2137,300 +2136,7 @@ export class AppendableBuffer {
     }
 }
 
-/**
- * Mirrors a streamed response into the matching request log while forwarding
- * the original bytes to the caller.
- */
-const updateFetchLogResponse = (fetchLogId: string, response: any, status?: number, success?: boolean) => {
-    const entry = fetchLog.find(log => log.id === fetchLogId)
-    if (!entry) return
-    entry.response = formatFetchLogValue(response)
-    entry.responseType = 'stream'
-    if (status !== undefined) entry.status = status
-    if (success !== undefined) entry.success = success
-}
-
-const pipeFetchLog = (
-    fetchLogId: string,
-    readableStream: ReadableStream<Uint8Array> | null,
-    status?: number,
-    suppressAbortError = false,
-) => {
-    if (!readableStream) return readableStream
-
-    const splited = readableStream.tee()
-
-    ;(async () => {
-        try {
-            const text = await (new Response(splited[0])).text()
-            updateFetchLogResponse(fetchLogId, text, status)
-        } catch (err) {
-            if (suppressAbortError && (
-                (err instanceof DOMException && err.name === 'AbortError')
-                || String(err).includes('AbortError')
-                || String(err).includes('Generation stream detached')
-            )) {
-                return
-            }
-            updateFetchLogResponse(fetchLogId, `${err}`, status, false)
-        }
-    })()
-
-    return splited[1]
-}
-
-const pipeFetchLogResponse = (fetchLogId: string, response: Response) => {
-    if (!response.body) return response
-    return new Response(pipeFetchLog(
-        fetchLogId,
-        response.body,
-        response.status,
-        response.headers.get('x-risu-revenant-generation') === '1',
-    ), {
-        headers: response.headers,
-        status: response.status,
-        statusText: response.statusText,
-    })
-}
-
-/**
- * Fetches data from a given URL using native fetch or through a proxy.
- * @param {string} url - The URL to fetch data from.
- * @param {Object} arg - The arguments for the fetch request.
- * @param {string} arg.body - The body of the request.
- * @param {Object} [arg.headers] - The headers of the request.
- * @param {string} [arg.method="POST"] - The HTTP method of the request.
- * @param {AbortSignal} [arg.signal] - The signal to abort the request.
- * @param {boolean} [arg.useRisuTk] - Whether to use Risu token.
- * @param {string} [arg.chatId] - The chat ID associated with the request.
- * @returns {Promise<Object>} - A promise that resolves to an object containing the response body, headers, and status.
- * @returns {ReadableStream<Uint8Array>} body - The response body as a readable stream.
- * @returns {Headers} headers - The response headers.
- * @returns {number} status - The response status code.
- * @throws {Error} - Throws an error if the request is aborted or if there is an error in the response.
- */
-export interface FetchNativeArgs {
-    body?: string | Uint8Array | ArrayBuffer,
-    headers?: { [key: string]: string },
-    method?: "POST" | "GET" | "PUT" | "DELETE",
-    signal?: AbortSignal,
-    useRisuTk?: boolean,
-    chatId?: string
-    generationRequest?: RevenantGenerationRequest
-    interceptor?: string
-    requestTimeoutMs?: number
-    networkRoute?: 'auto' | 'local_network'
-    llmExecutionPolicy?: import('./network/transportTypes').LLMExecutionPolicy
-}
-
-export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Response> {
-    const useInterceptor = !!arg.interceptor
-    if (arg.body === undefined && (arg.method === 'POST' || arg.method === 'PUT')) {
-        throw new Error('Body is required for POST and PUT requests')
-    }
-
-    arg.method = arg.method ?? 'POST'
-
-    const headers = arg.headers ?? {}
-    let realBody: Uint8Array | undefined
-
-    if (arg.method === 'GET' || arg.method === 'DELETE') {
-        realBody = undefined
-    }
-    else if (typeof arg.body === 'string') {
-        let body: string = arg.body
-        if(useInterceptor) {
-            for (const interceptor of bodyIntercepterStore) {
-                try {
-                    body = await interceptor.callback(body, arg.interceptor) || body
-                }
-                catch (e) {
-                    console.error(e)
-                }
-            }
-        }
-        realBody = new TextEncoder().encode(body)
-    }
-    else if (arg.body instanceof Uint8Array) {
-        realBody = arg.body
-    }
-    else if (arg.body instanceof ArrayBuffer) {
-        realBody = new Uint8Array(arg.body)
-    }
-    else {
-        throw new Error('Invalid body type')
-    }
-
-    let fetchLogId: string | null = null
-    const fetchLogBody = realBody ? new TextDecoder().decode(realBody) : ''
-    const withFetchLog = (response: Response) => fetchLogId ? pipeFetchLogResponse(fetchLogId, response) : response
-    const useLocalNetworkRoute = arg.networkRoute === 'local_network' && isLocalNetworkUrl(url)
-    const timeoutSignal = buildTimeoutSignal(arg.signal, arg.requestTimeoutMs)
-    const requestSignal = timeoutSignal.signal
-    try {
-        // Provider LLM requests are owned by the Node server. The raw
-        // response stream is persistently journaled on the server and replayed
-        // through the same Response interface. Main requests remain recoverable
-        // into chat; auxiliary requests are retained only as completed jobs.
-        const revenantRequest = arg.generationRequest
-        const useRevenantGenerationJob = !!revenantRequest
-            && !!arg.interceptor
-            && arg.method === 'POST'
-        if (revenantRequest && !arg.llmExecutionPolicy) {
-            throw new Error('LLM generation requests require an explicit execution policy')
-        }
-        if (
-            arg.llmExecutionPolicy?.kind === 'workflow'
-            && (
-                !revenantRequest?.workflow?.workflowId
-                || !revenantRequest.workflow.stepKey
-            )
-        ) {
-            throw new Error('Workflow LLM execution requires an active workflow step')
-        }
-        const durableRequired = arg.llmExecutionPolicy?.durability === 'required'
-            || !!revenantRequest?.job.dispatchPolicy
-            || !!revenantRequest?.workflow?.dependency
-        if (durableRequired && !useRevenantGenerationJob) {
-            throw new Error('Durable LLM transport requires a POST request with generation context and interceptor')
-        }
-
-        const attemptDurable = useRevenantGenerationJob && durableRequired
-        if (attemptDurable) {
-            try {
-                let revenantJobId = ''
-                const recordProviderRequest = (startedAt: number) => {
-                    if (!revenantJobId || fetchLogId) return
-                    fetchLogId = pushFetchLog({
-                        id: revenantJobId,
-                        timestamp: startedAt,
-                        body: fetchLogBody,
-                        header: JSON.stringify(arg.headers ?? {}, null, 2),
-                        response: 'Streamed Fetch',
-                        responseType: 'stream',
-                        success: true,
-                        date: new Date(startedAt).toLocaleTimeString(),
-                        url,
-                        chatId: revenantRequest.job.chatId,
-                    }).id
-                }
-                return withFetchLog(await fetchViaGenerationJob(url, {
-                    method: arg.method,
-                    headers,
-                    body: realBody,
-                    signal: requestSignal,
-                    requestTimeoutMs: arg.requestTimeoutMs,
-                    generationRequest: revenantRequest,
-                    onJobCreated: (jobId) => {
-                        revenantJobId = jobId
-                        revenantRequest.lifecycle?.onJobCreated?.(jobId)
-                        if (
-                            !revenantRequest.job.dispatchPolicy
-                            && !revenantRequest.workflow?.dependency
-                        ) {
-                            recordProviderRequest(Date.now())
-                        }
-                    },
-                    onProviderStarted: (startedAt) => {
-                        revenantRequest.lifecycle?.onProviderStarted?.(startedAt)
-                        recordProviderRequest(startedAt)
-                    },
-                    onTerminal: terminal => {
-                        revenantRequest.lifecycle?.onTerminal?.(terminal)
-                    },
-                }))
-            } catch (wsErr) {
-                revenantRequest.lifecycle?.onJobRegistrationUnavailable?.(wsErr)
-                // Registration failures are never downgraded to an ordinary
-                // provider request: the server may already own a live job.
-                throw wsErr
-            }
-        }
-
-        if (arg.llmExecutionPolicy?.providerRoute === 'server') {
-            return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
-                ...arg,
-                signal: requestSignal
-            }))
-        }
-
-        if (arg.llmExecutionPolicy?.providerRoute === 'direct') {
-            return withFetchLog(await fetch(url, {
-                body: realBody as any,
-                headers,
-                method: arg.method,
-                signal: requestSignal,
-            }))
-        }
-
-        // Generic local-network requests that are not LLM generations use the
-        // synchronous server proxy.
-        if (useLocalNetworkRoute) {
-            return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
-                ...arg,
-                signal: requestSignal
-            }))
-        }
-
-        // Try direct fetch first (upstream behavior), fall back to proxy on CORS/network error
-        try {
-            return withFetchLog(await fetch(url, {
-                body: realBody as any,
-                headers: headers,
-                method: arg.method,
-                signal: requestSignal,
-            }))
-        } catch (e) {
-            if (requestSignal?.aborted) throw e
-            return withFetchLog(await fetchViaProxy2(url, headers, realBody, {
-                ...arg,
-                signal: requestSignal
-            }))
-        }
-    } finally {
-        timeoutSignal.cleanup()
-    }
-}
-
-async function fetchViaProxy2(
-    url: string,
-    headers: Record<string, string>,
-    realBody: Uint8Array | undefined,
-    arg: { method?: string, signal?: AbortSignal, useRisuTk?: boolean, requestTimeoutMs?: number }
-): Promise<Response> {
-    const proxyHeaders: Record<string, string> = {
-        "risu-header": encodeURIComponent(JSON.stringify(headers)),
-        "risu-url": encodeURIComponent(url),
-        "risu-auth": await createRequiredNodeAuth(),
-        ...(arg.useRisuTk ? { "x-risu-tk": "use" } : {}),
-        ...(arg.requestTimeoutMs && { "risu-timeout-ms": Math.max(1, Math.floor(arg.requestTimeoutMs)).toString() }),
-        ...(DBState?.db?.requestLocation ? { "risu-location": DBState.db.requestLocation } : {}),
-    }
-
-    if (realBody) {
-        proxyHeaders["Content-Type"] = headers["Content-Type"] ?? headers["content-type"] ?? "application/json"
-    }
-
-    const r = await fetch(`/proxy2`, {
-        body: realBody as any,
-        headers: proxyHeaders,
-        method: arg.method,
-        signal: arg.signal
-    })
-
-    return new Response(r.body, {
-        headers: r.headers,
-        status: r.status
-    })
-}
-
-
-/**
- * Converts a ReadableStream of Uint8Array to a text string.
- * 
- * @param {ReadableStream<Uint8Array>} stream - The readable stream to convert.
- * @returns {Promise<string>} A promise that resolves to the text content of the stream.
- */
+/** Convert a byte stream to text. */
 export function textifyReadableStream(stream: ReadableStream<Uint8Array>) {
     return new Response(stream).text()
 }

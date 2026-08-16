@@ -1,7 +1,7 @@
 import { Packr, Unpackr, decode } from "msgpackr/index-no-eval";
 import * as fflate from "fflate";
 import { createBotPresetTemplate, getDatabase, type Database } from "./database.svelte";
-import { forageStorage } from "../globalApi.svelte";
+import { forageStorage } from "./autoStorage";
 import { chatToStub } from "./chatStorage";
 import {
     characterToClientWriteShape,

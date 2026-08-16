@@ -3,6 +3,12 @@
 const crypto = require('crypto');
 const { encodeRisuSaveLegacy, normalizeJSON } = require('./utils.cjs');
 const { characterToPersistentShape } = require('./persistenceShape.cjs');
+const {
+    ChatResultMergeConflict,
+    isStaleGenerationTargetWrite,
+    mergeConcurrentChatEdit,
+    mergeGenerationChatResult,
+} = require('./revenant/chatResultMerge.cjs');
 
 const MISSING_CHAT_ETAG = 'missing';
 
@@ -146,6 +152,246 @@ function findStubFlagLossChats(fullDb) {
     return losses;
 }
 
+class CanonicalChatCommitError extends Error {
+    constructor(status, message, options = {}) {
+        super(message);
+        this.name = 'CanonicalChatCommitError';
+        this.httpStatus = status;
+        this.currentEtag = options.currentEtag;
+        this.conflicts = options.conflicts;
+        this.code = options.code;
+    }
+}
+
+/**
+ * Own every canonical full-chat write after the payload store has been
+ * initialized. Generation input, materialized output, and browser edits all
+ * pass through the same queue, CAS, persistence, and publish boundary.
+ */
+function createCanonicalChatService(options) {
+    const {
+        queueStorageOperation,
+        ensureChatStore,
+        getChat,
+        replaceChat,
+        commitChatContent,
+        computeChatEtag,
+        getActiveGenerationWorkflow,
+        getLatestGenerationWorkflow,
+        persistNow,
+        schedulePersist,
+        publishChatCommitted,
+    } = options;
+
+    function conflict(message, currentChat, options = {}) {
+        return new CanonicalChatCommitError(409, message, {
+            currentEtag: computeChatEtag(currentChat),
+            ...options,
+        });
+    }
+
+    async function commitCandidate({
+        characterId,
+        chatId,
+        candidate,
+        expectedEtag,
+        persist,
+        reason,
+        originClientId,
+        finalize,
+    }) {
+        const previous = getChat(characterId, chatId);
+        const result = commitChatContent(
+            characterId,
+            chatId,
+            candidate,
+            expectedEtag,
+            { requireExpected: true },
+        );
+        if (!result.success) {
+            throw conflict('Chat content changed on another client', previous);
+        }
+        try {
+            await persist(result.chat);
+        } catch (error) {
+            replaceChat(characterId, chatId, previous);
+            throw error;
+        }
+        // Finalization lives in a separate durable store (the generation
+        // journal). Once the canonical chat is persisted, never roll it back
+        // merely because bookkeeping that can be retried failed afterward.
+        await finalize?.(result);
+        publishChatCommitted({
+            characterId,
+            chatId,
+            etag: result.etag,
+            reason,
+        }, originClientId);
+        return result;
+    }
+
+    async function commitGenerationInput({ characterId, chatId, chat, expectedEtag }) {
+        return queueStorageOperation(async () => {
+            await ensureChatStore();
+            return commitCandidate({
+                characterId,
+                chatId,
+                candidate: chat,
+                expectedEtag,
+                reason: 'generation-input',
+                persist: () => persistNow({
+                    characterId,
+                    generationInput: true,
+                }),
+            });
+        });
+    }
+
+    async function commitGenerationResult({
+        job,
+        workflow,
+        chat,
+        mutationPatch,
+        isAlreadyCommitted,
+        finalize,
+    }) {
+        return queueStorageOperation(async () => {
+            if (isAlreadyCommitted?.()) {
+                return { success: true, alreadyCommitted: true };
+            }
+            await ensureChatStore();
+            const currentChat = getChat(job.characterId, job.roomId);
+            if (!currentChat || !Array.isArray(currentChat.message)) {
+                throw new CanonicalChatCommitError(404, 'Target chat not found');
+            }
+            const baseChat = workflow?.context?.inputCommit?.chat;
+            if (!baseChat?.id || !Array.isArray(baseChat.message)) {
+                throw new CanonicalChatCommitError(409, 'Workflow has no durable chat merge base');
+            }
+            let candidate;
+            try {
+                candidate = mergeGenerationChatResult(
+                    baseChat,
+                    chat,
+                    currentChat,
+                    workflow.context?.postprocess,
+                );
+            } catch (error) {
+                throw new CanonicalChatCommitError(
+                    409,
+                    error instanceof Error ? error.message : String(error),
+                );
+            }
+            return commitCandidate({
+                characterId: job.characterId,
+                chatId: job.roomId,
+                candidate,
+                expectedEtag: computeChatEtag(currentChat),
+                reason: 'generation-result',
+                persist: () => persistNow({
+                    characterId: job.characterId,
+                    mutationPatch,
+                }),
+                finalize,
+            });
+        });
+    }
+
+    async function commitUserEdit({
+        characterId,
+        chatId,
+        chat,
+        expectedEtag,
+        originClientId,
+    }) {
+        return queueStorageOperation(async () => {
+            await ensureChatStore();
+            const activeWorkflow = getActiveGenerationWorkflow(characterId, chatId, true);
+            const latestWorkflow = activeWorkflow
+                ?? getLatestGenerationWorkflow(characterId, chatId, true);
+            const currentChat = getChat(characterId, chatId);
+            const staleTerminalProjection = !activeWorkflow
+                && latestWorkflow?.status !== 'active'
+                && isStaleGenerationTargetWrite(
+                    chat,
+                    currentChat,
+                    latestWorkflow?.context?.postprocess,
+                );
+            const mergeWorkflow = activeWorkflow ?? (staleTerminalProjection
+                ? latestWorkflow
+                : undefined);
+            const inputStep = mergeWorkflow?.steps?.find(step =>
+                step.key === 'input.commit' && step.status === 'completed');
+            const inputEtag = inputStep?.metadata?.etag;
+            const inputChat = mergeWorkflow?.context?.inputCommit?.chat;
+            const currentEtag = computeChatEtag(currentChat);
+            let candidate = chat;
+            let candidateEtag = expectedEtag;
+
+            if (
+                mergeWorkflow
+                && typeof inputEtag === 'string'
+                && inputChat?.id === chatId
+                && Array.isArray(inputChat.message)
+                && currentChat
+            ) {
+                const mergeBase = expectedEtag === currentEtag
+                    ? currentChat
+                    : expectedEtag === inputEtag
+                        ? inputChat
+                        : undefined;
+                if (!mergeBase) {
+                    throw conflict('Chat content changed on another client', currentChat);
+                }
+                try {
+                    candidate = mergeConcurrentChatEdit(
+                        mergeBase,
+                        chat,
+                        currentChat,
+                        mergeWorkflow.context?.postprocess,
+                    );
+                } catch (error) {
+                    if (!(error instanceof ChatResultMergeConflict)) throw error;
+                    throw conflict(error.message, currentChat, { conflicts: error.paths });
+                }
+                candidateEtag = currentEtag;
+            }
+
+            return commitCandidate({
+                characterId,
+                chatId,
+                candidate,
+                expectedEtag: candidateEtag,
+                reason: 'user-edit',
+                originClientId,
+                persist: async () => schedulePersist(),
+            });
+        });
+    }
+
+    async function publishCurrent(characterId, chatId, reason = 'canonical-handoff') {
+        return queueStorageOperation(async () => {
+            await ensureChatStore();
+            const chat = getChat(characterId, chatId);
+            if (!chat) return false;
+            publishChatCommitted({
+                characterId,
+                chatId,
+                etag: computeChatEtag(chat),
+                reason,
+            });
+            return true;
+        });
+    }
+
+    return {
+        commitGenerationInput,
+        commitGenerationResult,
+        commitUserEdit,
+        publishCurrent,
+    };
+}
+
 module.exports = {
     MISSING_CHAT_ETAG,
     computeChatEtag,
@@ -156,4 +402,6 @@ module.exports = {
     mergeChatStubWithFullChat,
     reassembleFullDb,
     findStubFlagLossChats,
+    CanonicalChatCommitError,
+    createCanonicalChatService,
 };

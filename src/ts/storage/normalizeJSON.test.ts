@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from 'vitest';
 // trigger module-level side effects (mirrors risuSavePatcher.test.ts).
 vi.mock('./database.svelte', () => ({}));
 vi.mock('./chatStorage', () => ({ chatToStub: (c: any) => c }));
-vi.mock('../globalApi.svelte', () => ({ forageStorage: { realStorage: null } }));
+vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }));
 
 const { normalizeJSON } = await import('./risuSave');
 

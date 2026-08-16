@@ -781,7 +781,7 @@ export class NodeStorage{
         chatIndex: number,
         chatId: string,
         chat: any,
-        commit?: { expectedEtag?: string, generationInput?: boolean },
+        commit?: { expectedEtag?: string },
     ): Promise<void> {
         const encoded = encodeRisuSaveLegacy(chat)
         const chatKey = `${chaId}\u0000${chatId}`
@@ -793,7 +793,6 @@ export class NodeStorage{
             ? commit.expectedEtag
             : this.chatEtags.get(chatKey)
         if (expectedEtag) headers['x-chat-if-match'] = expectedEtag
-        if (commit?.generationInput) headers['x-generation-input'] = '1'
         const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
             method: 'POST',
             headers,

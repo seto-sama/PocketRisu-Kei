@@ -140,7 +140,6 @@ export interface RevenantPostprocessRecipe {
     messageChatId: string
     isContinuation: boolean
     rerollSnapshot?: RevenantRerollSnapshot
-    baseChatEtag?: string
     providerBackend: 'http' | 'plugin' | 'echo'
     modelPreset: unknown
     auxProviders?: Partial<Record<'submodel' | 'emotion' | 'otherAx', {

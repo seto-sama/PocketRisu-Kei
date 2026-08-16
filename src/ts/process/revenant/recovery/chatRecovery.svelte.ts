@@ -40,7 +40,7 @@ import {
     type RevenantWorkflowResumeContext,
     updateRevenantWorkflowStep,
 } from '../workflow/workflow'
-import { commitCancelledGenerationProjection } from './chatCancellation'
+import { applyCancelledGenerationProjection } from './chatCancellation'
 import { serviceRevenantClientActions } from '../workflow/clientActions.svelte'
 import {
     clientActionRecoveryMode,
@@ -149,7 +149,7 @@ export function clearRevenantRecoveryForChat(
                 rerollTargetIndex: subscription.rerollSnapshot?.targetIndex,
             })
             const targetMessage = currentTarget?.message
-            commitCancelledGenerationProjection(chat, {
+            applyCancelledGenerationProjection(chat, {
                 messageChatId: subscription.messageChatId,
                 content: targetMessage?.recoveryDisplayData ?? '',
                 isContinuation: subscription.isContinuation,
@@ -324,7 +324,7 @@ async function restoreStoppedReroll(
     const chatIndex = character.chats.findIndex(item => item?.id === chat.id)
     if (chatIndex < 0) return
     const currentChat = character.chats[chatIndex]
-    commitCancelledGenerationProjection(currentChat, {
+    applyCancelledGenerationProjection(currentChat, {
         messageChatId: context.messageChatId,
         content: '',
         isContinuation: context.continue,
@@ -561,7 +561,7 @@ export async function recoverRevenantGenerationsForChat(
                     && !recoveredContent.startsWith(job.continuationPrefix)
                     ? job.continuationPrefix + recoveredContent
                     : recoveredContent
-                commitCancelledGenerationProjection(chat, {
+                applyCancelledGenerationProjection(chat, {
                     messageChatId,
                     content: projectedContent,
                     isContinuation: job.isContinuation === true,

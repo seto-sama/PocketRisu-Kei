@@ -1,4 +1,4 @@
-import { forageStorage } from "../globalApi.svelte"
+import { forageStorage } from "./autoStorage"
 
 // Per-chat composer drafts. The unsent text in the message input is stored
 // outside the chat content so that unmounting the chat view (e.g. opening

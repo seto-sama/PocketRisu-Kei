@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Chat, Message } from '../../../storage/database.svelte'
-import { commitCancelledGenerationProjection } from './chatCancellation'
+import { applyCancelledGenerationProjection } from './chatCancellation'
 
 function chat(message: Message[]): Chat {
     return { message, isStreaming: true } as Chat
 }
 
-describe('commitCancelledGenerationProjection', () => {
+describe('applyCancelledGenerationProjection', () => {
     it('keeps the response received before a detached generation was cancelled', () => {
         const recovering = {
             role: 'char', data: '', chatId: 'generation-1',
@@ -17,7 +17,7 @@ describe('commitCancelledGenerationProjection', () => {
             recovering,
         ])
 
-        commitCancelledGenerationProjection(current, {
+        applyCancelledGenerationProjection(current, {
             messageChatId: 'generation-1',
             content: recovering.recoveryDisplayData!,
             isContinuation: false,
@@ -37,7 +37,7 @@ describe('commitCancelledGenerationProjection', () => {
         } as Message
         const current = chat([recovering])
 
-        commitCancelledGenerationProjection(current, {
+        applyCancelledGenerationProjection(current, {
             messageChatId: 'generation-1',
             content: recovering.recoveryDisplayData!,
             isContinuation: true,
@@ -67,7 +67,7 @@ describe('commitCancelledGenerationProjection', () => {
             recovering,
         ])
 
-        commitCancelledGenerationProjection(current, {
+        applyCancelledGenerationProjection(current, {
             messageChatId: 'generation-1',
             content: recovering.recoveryDisplayData!,
             isContinuation: false,
@@ -94,7 +94,7 @@ describe('commitCancelledGenerationProjection', () => {
         } as Message
         const current = chat([recovering])
 
-        commitCancelledGenerationProjection(current, {
+        applyCancelledGenerationProjection(current, {
             messageChatId: 'generation-1',
             content: '',
             isContinuation: false,
@@ -120,7 +120,7 @@ describe('commitCancelledGenerationProjection', () => {
             placeholder,
         ])
 
-        commitCancelledGenerationProjection(current, {
+        applyCancelledGenerationProjection(current, {
             messageChatId: 'generation-1',
             content: '',
             isContinuation: false,

@@ -1,4 +1,4 @@
-import { forageStorage } from "../globalApi.svelte"
+import { forageStorage } from "./autoStorage"
 import { type Chat, type ChatStub, type ChatOrStub, isChatStub } from "./database.svelte"
 import { tick } from "svelte"
 import {
@@ -130,7 +130,6 @@ export function createChatCommitSnapshot(chaId: string, chat: Chat): ChatCommitS
 export async function saveChatCommitToServer(
     chatIndex: number,
     snapshot: ChatCommitSnapshot,
-    options: { generationInput?: boolean } = {},
 ): Promise<void> {
     const storage = forageStorage.realStorage
     await storage.saveChatContent(
@@ -140,7 +139,6 @@ export async function saveChatCommitToServer(
         snapshot.chat,
         {
             expectedEtag: snapshot.expectedEtag,
-            generationInput: options.generationInput,
         },
     )
     acknowledgeChatCommit(snapshot, storage.getChatEtag(snapshot.characterId, snapshot.chatId))

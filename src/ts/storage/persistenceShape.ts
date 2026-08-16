@@ -1,6 +1,15 @@
-/** Character fields that exist only to drive the current browser runtime. */
-const runtimeOnlyCharacterFields = new Set(['reloadKeys'])
-const serverOwnedCharacterFields = new Set(['lastInteraction'])
+import persistenceShape from '../../../shared/persistenceShape.json'
+
+/** One ownership manifest is consumed by both browser and Node persistence. */
+const runtimeOnlyCharacterFields = new Set(persistenceShape.runtimeOnlyCharacterFields)
+const serverOwnedCharacterFields = new Set(persistenceShape.serverOwnedCharacterFields)
+const serverOwnedRootFields = persistenceShape.serverOwnedRootFields as Record<string, string[]>
+
+function getServerOwnedRootFields(key: string) {
+    return Object.prototype.hasOwnProperty.call(serverOwnedRootFields, key)
+        ? serverOwnedRootFields[key]
+        : undefined
+}
 
 export function isRuntimeOnlyCharacterField(key: string): boolean {
     return runtimeOnlyCharacterFields.has(key)
@@ -27,9 +36,10 @@ export function characterToClientWriteShape<T extends Record<string, any>>(chara
 
 /** Root fields a browser may send in a full database write. */
 export function rootValueToClientWriteShape(key: string, value: any) {
-    if (key !== 'statics' || !value || typeof value !== 'object') return value
+    const serverOwned = getServerOwnedRootFields(key)
+    if (!serverOwned || !value || typeof value !== 'object') return value
     const writable = { ...value }
-    delete writable.messages
+    for (const field of serverOwned) delete writable[field]
     return writable
 }
 
@@ -39,23 +49,27 @@ export function visitClientWritableRootValues(
     value: any,
     visit: (value: any) => void,
 ) {
-    if (key !== 'statics' || !value || typeof value !== 'object') {
+    const serverOwned = getServerOwnedRootFields(key)
+    if (!serverOwned || !value || typeof value !== 'object') {
         visit(value)
         return
     }
     for (const staticsKey of Object.keys(value)) {
-        if (staticsKey !== 'messages') visit(value[staticsKey])
+        if (!serverOwned.includes(staticsKey)) visit(value[staticsKey])
     }
 }
 
 /** Keep server-owned values fixed to the patch baseline while diffing. */
 export function rootValueWithServerBaseline(key: string, value: any, baseline: any) {
-    if (key !== 'statics') return value
+    const serverOwned = getServerOwnedRootFields(key)
+    if (!serverOwned) return value
     const next = value && typeof value === 'object' ? { ...value } : {}
-    if (baseline && Object.prototype.hasOwnProperty.call(baseline, 'messages')) {
-        next.messages = baseline.messages
-    } else {
-        delete next.messages
+    for (const field of serverOwned) {
+        if (baseline && Object.prototype.hasOwnProperty.call(baseline, field)) {
+            next[field] = baseline[field]
+        } else {
+            delete next[field]
+        }
     }
     return next
 }

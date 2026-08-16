@@ -2,6 +2,8 @@
 
 const {
     removeRuntimeCharacterFields,
+    serverOwnedCharacterFields,
+    serverOwnedRootFields,
 } = require('../persistenceShape.cjs');
 
 /** Apply generation-owned metadata to the same database image as input commit. */
@@ -36,13 +38,20 @@ function restoreGenerationOwnedMetadata(incomingDatabase, currentDatabase) {
     if (!incomingDatabase || typeof incomingDatabase !== 'object') return incomingDatabase;
     if (!currentDatabase || typeof currentDatabase !== 'object') return incomingDatabase;
 
-    if (Object.prototype.hasOwnProperty.call(currentDatabase?.statics ?? {}, 'messages')) {
-        incomingDatabase.statics = {
-            ...(incomingDatabase.statics && typeof incomingDatabase.statics === 'object'
-                ? incomingDatabase.statics
-                : {}),
-            messages: currentDatabase.statics.messages,
-        };
+    for (const [rootKey, fields] of Object.entries(serverOwnedRootFields)) {
+        const currentRoot = currentDatabase[rootKey];
+        const incomingRoot = incomingDatabase[rootKey];
+        const nextRoot = incomingRoot && typeof incomingRoot === 'object'
+            ? { ...incomingRoot }
+            : {};
+        for (const field of fields) {
+            if (Object.prototype.hasOwnProperty.call(currentRoot ?? {}, field)) {
+                nextRoot[field] = currentRoot[field];
+            } else {
+                delete nextRoot[field];
+            }
+        }
+        incomingDatabase[rootKey] = nextRoot;
     }
 
     const currentCharacters = new Map(
@@ -53,8 +62,12 @@ function restoreGenerationOwnedMetadata(incomingDatabase, currentDatabase) {
     for (const incomingCharacter of incomingDatabase.characters ?? []) {
         const currentCharacter = currentCharacters.get(incomingCharacter?.chaId);
         if (!currentCharacter) continue;
-        if (Object.prototype.hasOwnProperty.call(currentCharacter, 'lastInteraction')) {
-            incomingCharacter.lastInteraction = currentCharacter.lastInteraction;
+        for (const field of serverOwnedCharacterFields) {
+            if (Object.prototype.hasOwnProperty.call(currentCharacter, field)) {
+                incomingCharacter[field] = currentCharacter[field];
+            } else {
+                delete incomingCharacter[field];
+            }
         }
     }
     return incomingDatabase;

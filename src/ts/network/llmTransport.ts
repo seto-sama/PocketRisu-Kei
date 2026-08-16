@@ -1,4 +1,4 @@
-import { fetchNative } from '../globalApi.svelte'
+import { fetchNative } from './nativeFetch'
 import type { RevenantGenerationRequest } from '../process/revenant'
 import { isLocalNetworkUrl } from './localNetwork'
 import {

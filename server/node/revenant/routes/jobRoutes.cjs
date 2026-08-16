@@ -26,6 +26,9 @@ const {
 } = require('../generation.cjs');
 const { createClientGenerationProjection } = require('../generationProjection.cjs');
 const { findReusableActiveMainJob } = require('./policy.cjs');
+const {
+    createGenerationJobCancellationService,
+} = require('../generationWorkflowService.cjs');
 
 function installRevenantJobRoutes(app, deps) {
     const {
@@ -51,6 +54,13 @@ function installRevenantJobRoutes(app, deps) {
         finishGenerationJob: deps.finishGenerationJob ?? finishGenerationJob,
         markGenerationMaterialized: deps.markGenerationMaterialized ?? markGenerationMaterialized,
     };
+    const cancellationService = createGenerationJobCancellationService({
+        repository: cancellationRepository,
+        generationRuntimeJobs,
+        terminateGenerationWorkflow,
+        notifyRevenantWorkflowUpdated,
+        isJobActive: isRevenantJobActive,
+    });
 
     // Unlike the legacy local-network proxy jobs, revenant jobs may target an
     // external provider. Metadata lives in save/revenant/revenant.db while exact
@@ -358,47 +368,7 @@ function installRevenantJobRoutes(app, deps) {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
         try {
-            const persisted = cancellationRepository.getGenerationJob(req.params.jobId, false);
-
-            // A model job inside a chat workflow is not independently owned.
-            // Route even legacy/stale job DELETE requests through the workflow
-            // terminator so its journal projection is materialized before the
-            // job is acknowledged. The old path marked it materialized first
-            // and made the workflow cancellation silently skip persistence.
-            if (persisted?.jobType === 'model' && persisted.workflowId) {
-                const result = await terminateGenerationWorkflow(
-                    persisted.workflowId,
-                    'cancelled',
-                );
-                notifyRevenantWorkflowUpdated(
-                    cancellationRepository.getGenerationWorkflow(persisted.workflowId),
-                );
-                res.send({
-                    success: true,
-                    workflowId: persisted.workflowId,
-                    ...(result.changed ? {} : { alreadyFinished: true }),
-                });
-                return;
-            }
-
-            const job = generationRuntimeJobs.get(req.params.jobId);
-            if (job && !job.done) {
-                job.abortController.abort();
-                cancellationRepository.finishGenerationJob(
-                    req.params.jobId,
-                    'cancelled',
-                    'user_cancelled',
-                );
-            } else if (persisted && isRevenantJobActive(persisted.status)) {
-                cancellationRepository.finishGenerationJob(
-                    req.params.jobId,
-                    'cancelled',
-                    'user_cancelled',
-                );
-            }
-            // Standalone and auxiliary jobs have no workflow materializer.
-            cancellationRepository.markGenerationMaterialized(req.params.jobId);
-            res.send({ success: true });
+            res.send(await cancellationService.cancel(req.params.jobId));
         } catch (error) {
             next(error);
         }

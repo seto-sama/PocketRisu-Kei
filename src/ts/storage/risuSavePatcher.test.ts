@@ -10,7 +10,7 @@ vi.mock('./chatStorage', () => ({
     // works.
     chatToStub: (c: any) => c,
 }))
-vi.mock('../globalApi.svelte', () => ({ forageStorage: { realStorage: null } }))
+vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: null } }))
 
 const { diffArrayWithIdGuard, RisuSavePatcher } = await import('./risuSave')
 const { compare } = await import('fast-json-patch')

@@ -4,7 +4,7 @@ const { fetchNativeMock } = vi.hoisted(() => ({
     fetchNativeMock: vi.fn(),
 }))
 
-vi.mock('../globalApi.svelte', () => ({
+vi.mock('./nativeFetch', () => ({
     fetchNative: fetchNativeMock,
 }))
 

@@ -1,10 +1,8 @@
 'use strict';
 
 const { applyRevenantStageTimingToMessage } = require('./generationTiming.cjs');
-const { commitChatContent, computeChatEtag } = require('../chatStore.cjs');
 const { applyGeneratedMessage } = require('./postprocessPipeline.cjs');
 const { projectGenerationJournal } = require('./generationProjection.cjs');
-const { mergeGenerationChatResult } = require('./chatResultMerge.cjs');
 
 class RevenantMaterializationError extends Error {
     constructor(status, message) {
@@ -86,146 +84,83 @@ function createRevenantMaterializer(options) {
         setGenerationJobProjectionError = () => false,
         updateGenerationWorkflowStep,
     } = repository;
-    const {
-        queueStorageOperation,
-        ensureChatStore,
-        getChatStorageState,
-        databaseHexKey,
-        persistDbCacheWithChats,
-        kvGet,
-        normalizeJSON,
-        decodeRisuSave,
-        reassembleFullDb,
-        stripChatsFromDb,
-        kvSet,
-        encodeRisuSaveLegacy,
-        initChatStore,
-        createBackupAndRotate,
-        broadcastDatabaseInvalidated = () => {},
-    } = options;
+    const { canonicalChatService } = options;
 
-    async function commitCanonicalChat(job, workflow, chat, mutationPatch) {
-        await ensureChatStore();
-        const { fullChatStore, saveTimers, dbCache } = getChatStorageState();
-        const storedChat = fullChatStore.get(job.characterId)?.get(job.roomId);
-        if (!storedChat || !Array.isArray(storedChat.message)) {
-            throw new RevenantMaterializationError(404, 'Target chat not found');
-        }
-
-        const baseChat = workflow?.context?.inputCommit?.chat;
-        if (!baseChat?.id || !Array.isArray(baseChat.message)) {
-            throw new RevenantMaterializationError(409, 'Workflow has no durable chat merge base');
-        }
-        let canonicalChat;
+    async function commitGenerationResult(args) {
         try {
-            canonicalChat = mergeGenerationChatResult(
-                baseChat,
-                chat,
-                storedChat,
-                workflow.context?.postprocess,
-            );
+            return await canonicalChatService.commitGenerationResult(args);
         } catch (error) {
-            throw new RevenantMaterializationError(
-                409,
-                error instanceof Error ? error.message : String(error),
-            );
+            if (Number.isInteger(error?.httpStatus)) {
+                throw new RevenantMaterializationError(error.httpStatus, error.message);
+            }
+            throw error;
         }
-        const commit = commitChatContent(
-            fullChatStore,
-            job.characterId,
-            job.roomId,
-            canonicalChat,
-            computeChatEtag(storedChat),
-        );
-        if (!commit.success) {
-            throw new RevenantMaterializationError(
-                409,
-                'Target chat changed after generation started',
-            );
-        }
-
-        if (saveTimers[databaseHexKey]) {
-            clearTimeout(saveTimers[databaseHexKey]);
-            delete saveTimers[databaseHexKey];
-        }
-        if (dbCache[databaseHexKey]) {
-            applyMutationPatch(dbCache[databaseHexKey], job.characterId, mutationPatch);
-            await persistDbCacheWithChats(databaseHexKey, 'database/database.bin');
-        }
-        else {
-            const raw = kvGet('database/database.bin');
-            if (!raw) throw new Error('Compatible database is missing');
-            const dbObj = normalizeJSON(await decodeRisuSave(raw));
-            const strippedDb = stripChatsFromDb(dbObj);
-            applyMutationPatch(strippedDb, job.characterId, mutationPatch);
-            const fullDb = reassembleFullDb(strippedDb);
-            kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
-            initChatStore(fullDb);
-        }
-        createBackupAndRotate();
-        return commit;
     }
 
     async function materialize(jobId) {
-        return queueStorageOperation(async () => {
-            const job = getGenerationJob(jobId, false);
-            if (!job) throw new RevenantMaterializationError(404, 'Generation job not found');
-            if (job.materializedAt) return { success: true, alreadyMaterialized: true };
-            if (!job.characterId || !job.roomId || !job.chatId) {
-                throw new RevenantMaterializationError(400, 'Generation job has no chat target');
-            }
-            if (['queued', 'generating'].includes(job.status)) {
-                throw new RevenantMaterializationError(409, 'Generation job is not complete');
-            }
-            const earlierJob = listRecoverableGenerationJobs(200).find(candidate =>
-                candidate.jobId !== job.jobId
-                && candidate.characterId === job.characterId
-                && candidate.roomId === job.roomId
-                && candidate.createdAt < job.createdAt);
-            if (earlierJob) {
-                throw new RevenantMaterializationError(
-                    409,
-                    `Earlier generation must materialize first: ${earlierJob.jobId}`,
-                );
-            }
-
-            const workflow = job.workflowId ? getGenerationWorkflow(job.workflowId) : undefined;
-            const serverChat = completedServerChat(workflow);
-            if (!serverChat) {
-                throw new RevenantMaterializationError(409, 'Server postprocess result is not ready');
-            }
-            const chat = structuredClone(serverChat);
-            const mutationPatch = completedServerMutationPatch(workflow);
-            let materializedMessage = chat.message.find(message => message?.chatId === job.chatId);
-            if (!materializedMessage || typeof materializedMessage.data !== 'string') {
-                throw new RevenantMaterializationError(409, 'Server postprocess result is not ready');
-            }
-            applyRevenantStageTimingToMessage(
-                materializedMessage,
-                workflow,
-                job.completedAt || job.updatedAt,
+        const job = getGenerationJob(jobId, false);
+        if (!job) throw new RevenantMaterializationError(404, 'Generation job not found');
+        if (job.materializedAt) return { success: true, alreadyMaterialized: true };
+        if (!job.characterId || !job.roomId || !job.chatId) {
+            throw new RevenantMaterializationError(400, 'Generation job has no chat target');
+        }
+        if (['queued', 'generating'].includes(job.status)) {
+            throw new RevenantMaterializationError(409, 'Generation job is not complete');
+        }
+        const earlierJob = listRecoverableGenerationJobs(200).find(candidate =>
+            candidate.jobId !== job.jobId
+            && candidate.characterId === job.characterId
+            && candidate.roomId === job.roomId
+            && candidate.createdAt < job.createdAt);
+        if (earlierJob) {
+            throw new RevenantMaterializationError(
+                409,
+                `Earlier generation must materialize first: ${earlierJob.jobId}`,
             );
-            const hypaMemory = workflow?.steps
-                ?.find(step => step.key === 'memory.hypav3' && step.status === 'completed')
-                ?.metadata?.hypaMemory;
-            if (hypaMemory && typeof hypaMemory === 'object' && Array.isArray(hypaMemory.summaries)) {
-                chat.hypaV3Data = structuredClone(hypaMemory);
-            }
-            chat.isStreaming = false;
+        }
 
-            updateGenerationWorkflowStep(workflow.workflowId, 'message.materialize', {
-                status: 'running',
-                metadata: { schemaVersion: 1, chat },
-            });
-            const commit = await commitCanonicalChat(job, workflow, chat, mutationPatch);
-            if (!markGenerationMaterialized(jobId)) {
-                throw new Error('Failed to mark generation materialized');
-            }
-            broadcastDatabaseInvalidated(undefined, {
-                chats: [{ characterId: job.characterId, chatId: job.roomId }],
-            });
-            return { success: true, message: materializedMessage, chat: commit.chat };
+        const workflow = job.workflowId ? getGenerationWorkflow(job.workflowId) : undefined;
+        const serverChat = completedServerChat(workflow);
+        if (!serverChat) {
+            throw new RevenantMaterializationError(409, 'Server postprocess result is not ready');
+        }
+        const chat = structuredClone(serverChat);
+        const mutationPatch = completedServerMutationPatch(workflow);
+        const materializedMessage = chat.message.find(message => message?.chatId === job.chatId);
+        if (!materializedMessage || typeof materializedMessage.data !== 'string') {
+            throw new RevenantMaterializationError(409, 'Server postprocess result is not ready');
+        }
+        applyRevenantStageTimingToMessage(
+            materializedMessage,
+            workflow,
+            job.completedAt || job.updatedAt,
+        );
+        const hypaMemory = workflow?.steps
+            ?.find(step => step.key === 'memory.hypav3' && step.status === 'completed')
+            ?.metadata?.hypaMemory;
+        if (hypaMemory && typeof hypaMemory === 'object' && Array.isArray(hypaMemory.summaries)) {
+            chat.hypaV3Data = structuredClone(hypaMemory);
+        }
+        chat.isStreaming = false;
+
+        updateGenerationWorkflowStep(workflow.workflowId, 'message.materialize', {
+            status: 'running',
+            metadata: { schemaVersion: 1, chat },
         });
+        const commit = await commitGenerationResult({
+            job,
+            workflow,
+            chat,
+            mutationPatch,
+            isAlreadyCommitted: () => !!getGenerationJob(jobId, false)?.materializedAt,
+            finalize: () => {
+                if (!markGenerationMaterialized(jobId)) {
+                    throw new Error('Failed to mark generation materialized');
+                }
+            },
+        });
+        if (commit.alreadyCommitted) return { success: true, alreadyMaterialized: true };
+        return { success: true, message: materializedMessage, chat: commit.chat };
     }
 
     /**
@@ -234,61 +169,71 @@ function createRevenantMaterializer(options) {
      * they never race to persist a partial response.
      */
     async function materializeCancellation(workflowId) {
-        return queueStorageOperation(async () => {
-            const workflow = getGenerationWorkflow(workflowId);
-            if (!workflow) throw new RevenantMaterializationError(404, 'Generation workflow not found');
-            if (workflow.status !== 'cancelled') {
-                return { success: true, notCancelled: true };
-            }
-            const job = listGenerationWorkflowJobs(workflowId)
-                .find(candidate => candidate.jobType === 'model'
-                    && candidate.characterId && candidate.roomId && candidate.chatId);
-            if (!job) return { success: true, noGenerationJob: true };
-            if (job.materializedAt) return { success: true, alreadyMaterialized: true };
+        const workflow = getGenerationWorkflow(workflowId);
+        if (!workflow) throw new RevenantMaterializationError(404, 'Generation workflow not found');
+        if (workflow.status !== 'cancelled') {
+            return { success: true, notCancelled: true };
+        }
+        const job = listGenerationWorkflowJobs(workflowId)
+            .find(candidate => candidate.jobType === 'model'
+                && candidate.characterId && candidate.roomId && candidate.chatId);
+        if (!job) {
+            await canonicalChatService.publishCurrent(
+                workflow.characterId,
+                workflow.roomId,
+                'generation-cancelled',
+            );
+            return { success: true, noGenerationJob: true };
+        }
+        if (job.materializedAt) return { success: true, alreadyMaterialized: true };
 
-            const inputChat = workflow.context?.inputCommit?.chat;
-            const recipe = workflow.context?.postprocess;
-            if (!inputChat?.id || !Array.isArray(inputChat.message) || !recipe?.chat) {
-                throw new RevenantMaterializationError(409, 'Workflow has no durable cancellation input');
-            }
+        const inputChat = workflow.context?.inputCommit?.chat;
+        const recipe = workflow.context?.postprocess;
+        if (!inputChat?.id || !Array.isArray(inputChat.message) || !recipe?.chat) {
+            throw new RevenantMaterializationError(409, 'Workflow has no durable cancellation input');
+        }
 
-            let projection = job.projection;
-            if (!projection && job.rawBytes > 0) {
-                try {
-                    projection = await projectGenerationJournal(job, readGenerationJobRaw(job.jobId));
-                    setGenerationJobProjection(job.jobId, projection);
-                } catch (error) {
-                    setGenerationJobProjectionError(job.jobId, String(error));
-                    throw new RevenantMaterializationError(
-                        409,
-                        'Cancelled generation journal projection is not ready',
-                    );
+        let projection = job.projection;
+        if (!projection && job.rawBytes > 0) {
+            try {
+                projection = await projectGenerationJournal(job, readGenerationJobRaw(job.jobId));
+                setGenerationJobProjection(job.jobId, projection);
+            } catch (error) {
+                setGenerationJobProjectionError(job.jobId, String(error));
+                throw new RevenantMaterializationError(
+                    409,
+                    'Cancelled generation journal projection is not ready',
+                );
+            }
+        }
+        const partial = String(projection?.content || '');
+        const projected = job.isContinuation
+            && job.continuationPrefix
+            && !partial.startsWith(job.continuationPrefix)
+            ? job.continuationPrefix + partial
+            : partial;
+        const chat = projected.trim()
+            ? applyGeneratedMessage(recipe.chat, recipe, job, projected)
+            : structuredClone(inputChat);
+        chat.isStreaming = false;
+
+        const commit = await commitGenerationResult({
+            job,
+            workflow,
+            chat,
+            isAlreadyCommitted: () => !!getGenerationJob(job.jobId, false)?.materializedAt,
+            finalize: () => {
+                if (!markGenerationMaterialized(job.jobId)) {
+                    throw new Error('Failed to mark cancelled generation materialized');
                 }
-            }
-            const partial = String(projection?.content || '');
-            const projected = job.isContinuation
-                && job.continuationPrefix
-                && !partial.startsWith(job.continuationPrefix)
-                ? job.continuationPrefix + partial
-                : partial;
-            const chat = projected.trim()
-                ? applyGeneratedMessage(recipe.chat, recipe, job, projected)
-                : structuredClone(inputChat);
-            chat.isStreaming = false;
-
-            const commit = await commitCanonicalChat(job, workflow, chat);
-            if (!markGenerationMaterialized(job.jobId)) {
-                throw new Error('Failed to mark cancelled generation materialized');
-            }
-            broadcastDatabaseInvalidated(undefined, {
-                chats: [{ characterId: job.characterId, chatId: job.roomId }],
-            });
-            return {
-                success: true,
-                chat: commit.chat,
-                message: commit.chat.message.find(item => item?.chatId === job.chatId),
-            };
+            },
         });
+        if (commit.alreadyCommitted) return { success: true, alreadyMaterialized: true };
+        return {
+            success: true,
+            chat: commit.chat,
+            message: commit.chat.message.find(item => item?.chatId === job.chatId),
+        };
     }
 
     return { materialize, materializeCancellation };

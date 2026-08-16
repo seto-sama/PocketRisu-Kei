@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import chatStorePkg from './chatStore.cjs'
 
 const {
@@ -9,7 +9,47 @@ const {
     stripChatsFromDb,
     reassembleFullDb,
     findStubFlagLossChats,
+    createCanonicalChatService,
+    CanonicalChatCommitError,
 } = chatStorePkg as any
+
+function createServiceHarness(initialChat: any, overrides: Record<string, any> = {}) {
+    const chats = new Map([[initialChat.id, structuredClone(initialChat)]])
+    const publishChatCommitted = vi.fn()
+    const persistNow = vi.fn(async () => {})
+    const schedulePersist = vi.fn()
+    const service = createCanonicalChatService({
+        queueStorageOperation: (operation: () => Promise<any>) => operation(),
+        ensureChatStore: vi.fn(),
+        getChat: (_characterId: string, chatId: string) => chats.get(chatId),
+        replaceChat: (_characterId: string, chatId: string, chat: any) => {
+            if (chat) chats.set(chatId, chat)
+            else chats.delete(chatId)
+        },
+        commitChatContent: (
+            characterId: string,
+            chatId: string,
+            chat: any,
+            expectedEtag: string,
+            options: any,
+        ) => commitChatContent(
+            new Map([[characterId, chats]]),
+            characterId,
+            chatId,
+            chat,
+            expectedEtag,
+            options,
+        ),
+        computeChatEtag,
+        getActiveGenerationWorkflow: () => undefined,
+        getLatestGenerationWorkflow: () => undefined,
+        persistNow,
+        schedulePersist,
+        publishChatCommitted,
+        ...overrides,
+    })
+    return { chats, persistNow, publishChatCommitted, schedulePersist, service }
+}
 
 describe('full chat payload store', () => {
     it('round-trips full chats through a metadata-only database view', () => {
@@ -95,5 +135,94 @@ describe('chat content compare-and-swap', () => {
 
         expect(result).toMatchObject({ success: false, conflict: true })
         expect(store.get('character')?.get('room')).toEqual(current)
+    })
+})
+
+describe('canonical chat service', () => {
+    it('commits generation input through the immediate durable boundary', async () => {
+        const initial = { id: 'room-1', message: [] }
+        const next = { id: 'room-1', message: [{ role: 'user', data: 'hello' }] }
+        const harness = createServiceHarness(initial)
+
+        const result = await harness.service.commitGenerationInput({
+            characterId: 'character-1',
+            chatId: 'room-1',
+            chat: next,
+            expectedEtag: computeChatEtag(initial),
+        })
+
+        expect(result.chat).toEqual(next)
+        expect(harness.persistNow).toHaveBeenCalledWith({
+            characterId: 'character-1',
+            generationInput: true,
+        })
+        expect(harness.publishChatCommitted).toHaveBeenCalledWith(
+            expect.objectContaining({ reason: 'generation-input', chatId: 'room-1' }),
+            undefined,
+        )
+    })
+
+    it('rolls memory back when immediate persistence fails', async () => {
+        const initial = { id: 'room-1', message: [] }
+        const failure = new Error('disk full')
+        const harness = createServiceHarness(initial, {
+            persistNow: vi.fn(async () => { throw failure }),
+        })
+
+        await expect(harness.service.commitGenerationInput({
+            characterId: 'character-1',
+            chatId: 'room-1',
+            chat: { id: 'room-1', message: [{ role: 'user', data: 'hello' }] },
+            expectedEtag: computeChatEtag(initial),
+        })).rejects.toBe(failure)
+        expect(harness.chats.get('room-1')).toEqual(initial)
+        expect(harness.publishChatCommitted).not.toHaveBeenCalled()
+    })
+
+    it('rejects a stale ordinary edit at the shared CAS boundary', async () => {
+        const initial = { id: 'room-1', message: [{ role: 'user', data: 'current' }] }
+        const harness = createServiceHarness(initial)
+
+        await expect(harness.service.commitUserEdit({
+            characterId: 'character-1',
+            chatId: 'room-1',
+            chat: { id: 'room-1', message: [{ role: 'user', data: 'stale' }] },
+            expectedEtag: 'stale-etag',
+        })).rejects.toBeInstanceOf(CanonicalChatCommitError)
+        expect(harness.schedulePersist).not.toHaveBeenCalled()
+    })
+
+    it('persists and finalizes a generation result before publishing it', async () => {
+        const input = {
+            id: 'room-1',
+            message: [{ role: 'user', data: 'hello', chatId: 'user-1' }],
+        }
+        const generated = {
+            id: 'room-1',
+            message: [
+                ...input.message,
+                { role: 'char', data: 'result', chatId: 'generated-1' },
+            ],
+        }
+        const calls: string[] = []
+        const harness = createServiceHarness(input, {
+            persistNow: vi.fn(async () => { calls.push('persist') }),
+            publishChatCommitted: vi.fn(() => { calls.push('publish') }),
+        })
+
+        const result = await harness.service.commitGenerationResult({
+            job: { characterId: 'character-1', roomId: 'room-1' },
+            workflow: {
+                context: {
+                    inputCommit: { chat: input },
+                    postprocess: { messageChatId: 'generated-1' },
+                },
+            },
+            chat: generated,
+            finalize: () => { calls.push('finalize') },
+        })
+
+        expect(result.chat).toEqual({ ...generated, isStreaming: false })
+        expect(calls).toEqual(['persist', 'finalize', 'publish'])
     })
 })

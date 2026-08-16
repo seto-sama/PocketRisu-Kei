@@ -90,3 +90,6 @@ export class AutoStorage{
     async scanCleanup() { await this.Init(); return this.realStorage.scanCleanup() }
     async executeCleanup() { await this.Init(); return this.realStorage.executeCleanup() }
 }
+
+/** Process-wide storage facade shared by persistence and network services. */
+export const forageStorage = new AutoStorage()
