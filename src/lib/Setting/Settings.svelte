@@ -79,13 +79,6 @@
                 class:w-full={window.innerWidth < 700 || $MobileGUI}
                 class:bg-darkbg={!$MobileGUI} class:bg-bgcolor={$MobileGUI}
             >
-                <button
-                    class="flex items-center gap-2 border border-darkborderc hover:border-borderc rounded-md px-2 py-1.5 text-textcolor2 transition-colors"
-                    onclick={() => { searchOpen = true }}
-                >
-                    <SearchIcon size={16} class="shrink-0" />
-                    <span class="text-sm">{language.searchSettingsPlaceholder}</span>
-                </button>
                 <IconButtonGroup
                     size="lg"
                     direction="vertical"
@@ -114,6 +107,15 @@
                             <span>{item.label}</span>
                         </button>
                     {/each}
+                {/if}
+                <button
+                    class="flex items-center risu-interactive-foreground text-textcolor2"
+                    onclick={() => { searchOpen = true }}
+                >
+                    <SearchIcon />
+                    <span>{language.searchSettingsButton}</span>
+                </button>
+                {#if !$isLite}
                     {#if devPanelEnabled}
                         <button class="flex items-center risu-interactive-foreground"
                             class:text-textcolor={$SettingsMenuIndex === 99}

@@ -2197,6 +2197,7 @@ export const languageKorean = {
   scrollButtonTypeOff: "사용 안 함",
   // 원격 접속 (Cloudflare Quick Tunnel)
   searchSettingsPlaceholder: "설정 검색...",
+  searchSettingsButton: "설정 검색",
   searchSettingsNoResults: "일치하는 설정이 없습니다",
   searchSettingsHint: "설정 이름이나 키워드로 검색하세요",
   connectionManagement: "연결 관리",
