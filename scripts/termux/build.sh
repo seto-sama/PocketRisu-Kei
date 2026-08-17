@@ -13,7 +13,7 @@ pkg install -y nodejs-lts python make clang pkg-config tar curl
 
 echo "[2/5] Enabling pnpm via corepack..."
 corepack enable
-corepack install --global pnpm@10
+corepack install --global pnpm@11.3.0
 
 echo "[3/5] Termux wake lock (best effort)..."
 termux-wake-lock 2>/dev/null || true
