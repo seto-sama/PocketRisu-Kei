@@ -523,7 +523,6 @@ export const languageChinese = {
     "language": "语言",
     "UiLanguage": "介面语言",
     "createfromScratch": "自行创建",
-    "importCharacter": "导入角色",
     "translator": "翻译器",
     "disabled": "关闭",
     "noPluginSelected": "已选择模型为插件，但未选择插件。",

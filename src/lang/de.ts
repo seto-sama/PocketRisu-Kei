@@ -523,7 +523,6 @@ export const languageGerman = {
     "language": "Sprache",
     "UiLanguage": "UI-Sprache",
     "createfromScratch": "Von Grund auf neu erstellen",
-    "importCharacter": "Charakter importieren",
     "translator": "Übersetzer",
     "disabled": "Deaktiviert",
     "noPluginSelected": "Modell als Plugin ausgewählt, aber kein Plugin ausgewählt",

@@ -442,7 +442,7 @@
             class="add-character-option"
             onclick={() => alertStore.set({ type: 'none', msg: 'importCharacter' })}
         >
-            <span>{language.importCharacter}</span>
+            <span>{language.importCharacterAndPackage}</span>
             <ChevronRightIcon size={18} />
         </button>
 
@@ -451,14 +451,6 @@
             onclick={() => alertStore.set({ type: 'none', msg: 'createfromScratch' })}
         >
             <span>{language.createfromScratch}</span>
-            <ChevronRightIcon size={18} />
-        </button>
-
-        <button
-            class="add-character-option"
-            onclick={() => alertStore.set({ type: 'none', msg: 'importPackage' })}
-        >
-            <span>{language.characterPackageImport}</span>
             <ChevronRightIcon size={18} />
         </button>
 

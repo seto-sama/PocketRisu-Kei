@@ -4,7 +4,7 @@ import { ensureChatHydrated } from "./storage/chatStorage";
 import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, alertWait, notifySuccess, notifyInfo } from "./alert";
 import { loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
-import { checkNullish, findCharacterbyId, getUserName, selectMultipleFile, selectSingleFile } from "./util";
+import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectMultipleFile, selectSingleFile } from "./util";
 import { v4 as uuidv4, v4 } from 'uuid';
 import { getImageType } from "./media";
 import { MobileGUIStack, OpenRealmStore, selectedCharID } from "./stores.svelte";
@@ -12,7 +12,7 @@ import { AppendableBuffer, changeChatTo, checkCharOrder, downloadFile, getFileSr
 import { updateInlayScreen } from "./process/inlayScreen";
 import { parseMarkdownSafe } from "./parser/parser.svelte";
 import { translateHTML } from "./translator/translator";
-import { importCharacter } from "./characterCards";
+import { importCharacterProcess } from "./characterCards";
 import { importCharacterPackage } from "./characterPackage";
 import { PngChunk } from "./pngChunk";
 import { PRODUCT_NAME } from "./branding";
@@ -22,6 +22,23 @@ export function createNewCharacter() {
     db.characters.push(createBlankChar())
     checkCharOrder()
     return db.characters.length - 1
+}
+
+async function importCharactersAndPackages() {
+    const files = await selectFileByDom(['png', 'jpg', 'jpeg', 'json', 'charx', 'zip'], 'multiple')
+    if (!files) return
+
+    for (const file of files) {
+        if (file.name.toLowerCase().endsWith('.zip')) {
+            await importCharacterPackage({
+                name: file.name,
+                data: new Uint8Array(await file.arrayBuffer()),
+            })
+        } else {
+            await importCharacterProcess({ name: file.name, data: file })
+            checkCharOrder()
+        }
+    }
 }
 
 export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgcss') {
@@ -878,10 +895,7 @@ export async function addCharacter(arg:{
             createNewCharacter()
             break
         case 'importCharacter':
-            await importCharacter()
-            break
-        case 'importPackage':
-            await importCharacterPackage()
+            await importCharactersAndPackages()
             break
         default:
             MobileGUIStack.set(1)

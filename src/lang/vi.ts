@@ -523,7 +523,6 @@ export const languageVietnamese = {
     "language": "Ngôn ngữ",
     "UiLanguage": "Ngôn ngữ giao diện người dùng",
     "createfromScratch": "Tạo từ đầu",
-    "importCharacter": "Nhập ký tự",
     "translator": "Người phiên dịch",
     "disabled": "Tàn tật",
     "noPluginSelected": "Mô hình được chọn làm plugin nhưng không có plugin nào được chọn.",

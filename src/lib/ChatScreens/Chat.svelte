@@ -115,6 +115,17 @@
         getScrollController = () => null,
     }: Props = $props();
 
+    function toggleMessageRole() {
+        const currentCharacter = DBState.db.characters[selIdState.selId]
+        const currentMessage = currentCharacter?.chats[currentCharacter.chatPage]?.message?.[idx]
+        if (!currentMessage) return
+        currentMessage.role = currentMessage.role === 'char' ? 'user' : 'char'
+        ReloadChatPointer.update((value) => {
+            value[idx] = (value[idx] ?? 0) + 1
+            return value
+        })
+    }
+
     let msgDisplay = $state('')
     let translated = $state(false)
     const translationTaskKey = $derived(renderCacheKey
@@ -1191,6 +1202,13 @@
 {#snippet minorIconButtonsBody(showNames:boolean)}
     <fieldset class="contents" disabled={generationOwned}>
     {#if idx > -1}
+        <IconButton size="lg" expanded={showNames} onclick={toggleMessageRole}>
+            <ArrowLeftRightIcon />
+            {#if showNames}
+                <span class="ml-1">{language.changeMessageRole}</span>
+            {/if}
+        </IconButton>
+
         <IconButton size="lg" expanded={showNames} active={isBookmarked} activeColor="primary" className="button-icon-bookmark" onclick={async () => {
             await sleep(1)
             toggleBookmark()

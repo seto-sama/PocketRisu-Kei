@@ -48,7 +48,8 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
     lightningRealmImport?:boolean
     returnCharacter?:T //note That this option only works with v3 charx
 }):Promise<T extends true ? character | number | null : number | null>{
-    if(f.name.endsWith('json')){
+    const fileName = f.name.toLowerCase()
+    if(fileName.endsWith('.json')){
         if(f.data instanceof ReadableStream){
             return null
         }
@@ -73,7 +74,7 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
     let db = getDatabase()
     db.statics.imports += 1
 
-    if(f.name.endsWith('charx') || f.name.endsWith('jpg') || f.name.endsWith('jpeg')){
+    if(fileName.endsWith('.charx') || fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')){
         console.log('reading charx')
         alertStore.set({
             type: 'wait',
@@ -113,7 +114,7 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
         return db.characters.length - 1
     }
 
-    if(!f.name.endsWith('png')){
+    if(!fileName.endsWith('.png')){
         alertError(language.errors.noData)
         return
     }

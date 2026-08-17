@@ -613,9 +613,9 @@ export async function exportCharacterPackage(
 
 // ── Import (new character) ──
 
-export async function importCharacterPackage(): Promise<void> {
+export async function importCharacterPackage(selectedFile?: { name: string, data: Uint8Array }): Promise<void> {
     try {
-        const file = await selectSingleFile(['zip'])
+        const file = selectedFile ?? await selectSingleFile(['zip'])
         if (!file) return
 
         const parsed = await parseAndValidatePackage(file)
@@ -631,7 +631,7 @@ export async function importCharacterPackage(): Promise<void> {
         const confirmed = await alertConfirm(summary)
         if (!confirmed) return
 
-        const progressLabel = language.characterPackageImport
+        const progressLabel = language.importCharacterAndPackage
         const importTotalSteps =
             1 /* character */
             + (manifest.personas && manifest.personas.length > 0 ? 1 : 0)
