@@ -17,14 +17,14 @@ const ensureHighlightStyle = () => {
     const style = document.createElement('style')
     style.id = highlightStyleId
     style.textContent = `
-::highlight(cbsnest3) { color: var(--color-amber-500); }
-::highlight(cbsnest2) { color: var(--color-green-500); }
-::highlight(cbsnest1) { color: var(--color-blue-500); }
-::highlight(cbsnest0) { color: var(--color-purple-500); }
-::highlight(cbsnest4) { color: var(--color-pink-500); }
-::highlight(cbsdisplay) { color: var(--color-cyan-500); }
-::highlight(comment) { color: var(--risu-theme-textcolor2); }
-::highlight(decorator) { color: var(--risu-theme-draculared); }
+::highlight(cbsnest0) { color: var(--color-syntax-depth-0); }
+::highlight(cbsnest1) { color: var(--color-syntax-depth-1); }
+::highlight(cbsnest2) { color: var(--color-syntax-depth-2); }
+::highlight(cbsnest3) { color: var(--color-syntax-depth-3); }
+::highlight(cbsnest4) { color: var(--color-syntax-depth-4); }
+::highlight(cbsdisplay) { color: var(--color-syntax-type); }
+::highlight(comment) { color: var(--color-syntax-comment); }
+::highlight(decorator) { color: var(--color-syntax-keyword); }
 ::highlight(deprecated) { color: var(--risu-theme-textcolor2); text-decoration: line-through; }
 `
     document.head.appendChild(style)

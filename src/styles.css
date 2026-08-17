@@ -37,6 +37,21 @@
   --color-highlight: var(--risu-theme-highlight);
   --color-accent: var(--risu-theme-accent);
 
+  /* CBS nesting keeps five distinct theme-aware hues before cycling. */
+  /* The parser's first nesting level is cbsnest1, then 2/3/4/0. */
+  --color-syntax-depth-0: var(--risu-theme-success);
+  --color-syntax-depth-1: var(--risu-theme-primary);
+  --color-syntax-depth-2: var(--risu-theme-scoped);
+  --color-syntax-depth-3: var(--risu-theme-highlight);
+  --color-syntax-depth-4: var(--risu-theme-accent);
+
+  /* Non-nesting syntax roles reuse the same theme hues. */
+  --color-syntax-comment: var(--risu-theme-textcolor2);
+  --color-syntax-type: var(--risu-theme-primary);
+  --color-syntax-keyword: var(--risu-theme-accent);
+  --color-syntax-variable: var(--risu-theme-highlight);
+  --color-syntax-literal: var(--risu-theme-scoped);
+
   --color-primary-50: var(--risu-theme-primary-50);
   --color-primary-100: var(--risu-theme-primary-100);
   --color-primary-200: var(--risu-theme-primary-200);
@@ -552,10 +567,6 @@ html {
 #app {
   width: 100%;
   height: 100%;
-}
-
-.bgc {
-  border-top: 1px solid rgba(98, 114, 164, 0.7);
 }
 
 /* Shared border treatment for text fields and compound input frames. */

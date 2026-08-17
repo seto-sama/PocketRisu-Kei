@@ -155,7 +155,6 @@
                 element.classList.add('chat-message-container')
                 const props = $state<ChatMountProps>({
                     message: displayMessage,
-                    isLastMemory: false,
                     idx: i,
                     // Chat only uses this value to refresh the five newest bodies.
                     totalLength: totalLengthPointer,

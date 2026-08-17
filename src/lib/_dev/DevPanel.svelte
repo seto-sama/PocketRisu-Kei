@@ -569,6 +569,8 @@ function hello(): string {
                 <ShButton variant="ghost">Ghost</ShButton>
                 <ShButton variant="primary">Primary</ShButton>
                 <ShButton variant="destructive">Destructive</ShButton>
+                <ShButton variant="attention">Attention</ShButton>
+                <ShButton variant="warning">Warning</ShButton>
                 <ShButton variant="success">Success</ShButton>
                 <ShButton variant="link">Link</ShButton>
             </div>
@@ -633,6 +635,7 @@ function hello(): string {
                 <ShBadge variant="destructive">destructive</ShBadge>
                 <ShBadge variant="outline">outline</ShBadge>
                 <ShBadge variant="ghost">ghost</ShBadge>
+                <ShBadge variant="attention">attention</ShBadge>
                 <ShBadge variant="warning">warning</ShBadge>
                 <ShBadge variant="info">info</ShBadge>
                 <ShBadge variant="success">success</ShBadge>

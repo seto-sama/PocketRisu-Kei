@@ -189,7 +189,6 @@
                                         rerollIcon={false}
                                         largePortrait={msg.speaker?.largePortrait ?? (chara as import('src/ts/storage/database.svelte').character).largePortrait}
                                         character={msg.speaker ? msg.saying : simpleChar}
-                                        isLastMemory={false}
                                     />
                             </div>
                         {/if}

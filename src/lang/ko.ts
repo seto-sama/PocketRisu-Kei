@@ -903,7 +903,6 @@ export const languageKorean = {
   CharVersion: "캐릭터 버전",
   Speech: "음성",
   useExperimental: "실험적 요소 보이기",
-  showMemoryLimit: "기억 한계치 보이기",
   showFirstMessagePages: "퍼스트 메시지 페이지 보이기",
   roundIcons: "둥근 아이콘",
   streaming: "스트리밍",
@@ -1165,7 +1164,6 @@ export const languageKorean = {
   openRouterSortAsc: "오름차순",
   openRouterSortDesc: "내림차순",
   geminiApiKey: "Gemini API Key",
-  memoryLimitThickness: "기억 한계선 두께",
   inputCardPassword: "카드 비밀번호 입력",
   ccv2Desc: "Character Card V2은 챗봇 프로그램에서 자주 사용되는 포맷입니다.",
   ccv3Desc: "Character Card V3은 발전된 기능을 제공하는 포맷입니다.",
@@ -1538,7 +1536,6 @@ export const languageKorean = {
   pluginVersionWarn:
     "이 플러그인은 {{plugin_version}} 버전입니다. 이 버전의 PocketRisu Kei와 호환되지 않습니다. 플러그인을 {{required_version}} 버전으로 업데이트하세요.",
   banCharacterset: "문자 집합으로 자동 재생성",
-  realmDirectOpen: "RisuRealm 미리보기에서 바로 열기",
   showPromptComparison: "프롬프트 비교 보기",
   inlayErrorResponse: "인레이 오류 응답",
   triggerOn: "활성화 조건",
@@ -2342,12 +2339,6 @@ export const languageKorean = {
   storageRowDbFile: "risuai.db",
   storageRowDbFileDesc:
     "PocketRisu Kei의 메인 SQLite 데이터베이스 파일. 모든 채팅·캐릭터·에셋·설정이 여기 들어갑니다.",
-  storageRowWal: "WAL (Write-Ahead Log)",
-  storageRowWalDesc:
-    "임시 트랜잭션 로그. 메인 DB로 합쳐지기 전의 변경사항을 임시로 모아두는 영역입니다.",
-  storageRowShm: "SHM (공유 메모리)",
-  storageRowShmDesc:
-    "WAL용 SQLite 공유 메모리 인덱스. 작고 휘발성이며 필요 시 재생성됩니다.",
   storageRowFileBackups: "디스크 백업 (.bin)",
   storageRowFileBackupsDesc:
     "수동으로 export한 백업 파일. backups/ 폴더에 보관됩니다.",
@@ -2372,7 +2363,7 @@ export const languageKorean = {
   storageRowKvColdStorageDesc: "레거시·휴면 저장 영역. 보통 비어 있습니다.",
   storageRowKvUncategorized: "기타 데이터",
   storageRowKvUncategorizedDesc:
-    "위 분류에 들어가지 않는 키. 마이그레이션 잔여물이나 임시 항목 등이 여기 잡힙니다.",
+    "위 분류에 들어가지 않는 저장 데이터와 WAL 같은 임시 DB 파일입니다.",
   storageRowSqliteOverhead: "DB 기본 공간",
   storageRowSqliteOverheadDesc:
     "DB가 작동하는 데에 필요한 헤더 등이 차지하는 공간입니다.",

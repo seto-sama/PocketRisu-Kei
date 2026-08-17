@@ -111,7 +111,6 @@ export const helpCn = {
         "settingsCloseButtonSize": "调整设置窗口右上角关闭(X)按钮的大小。默认值为24。",
         "showTypingEffect": "启用后，将在助手生成响应时显示打字指示器。",
         "dynamicOutputPrompt": "启用后，架构信息将包含在请求中。",
-        "realmDirectOpen": "启用后，点击 RisuRealm 预览中的角色将直接打开角色描述。",
         "openRouterProviderOrder": "使用提供商的顺序，将优先使用第一个提供商，若该提供商不可用，则会使用下一个提供商。详见 https://openrouter.ai/docs/guides/routing/provider-selection#ordering-specific-providers",
         "openRouterProviderOnly": "仅使用此列表中的提供商，若所有提供商都不可用，请求将会失败。详见 https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
         "openRouterProviderIgnore": "忽略此列表中的提供商，若所有提供商都被忽略，请求将会失败。详见 https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",

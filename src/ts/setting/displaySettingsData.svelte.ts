@@ -300,16 +300,6 @@ export const displaySizeSettingsItems: SettingItem[] = [
         keywords: ['animation', 'speed'],
     },
     {
-        id: 'display.memoryLimitThickness',
-        type: 'slider',
-        labelKey: 'memoryLimitThickness',
-        helpKey: 'memoryLimitThickness',
-        bindKey: 'memoryLimitThickness',
-        condition: (ctx) => ctx.db.showMemoryLimit,
-        options: { min: 1, max: 500, step: 1 },
-        keywords: ['memory', 'limit', 'thickness'],
-    },
-    {
         id: 'display.settingsCloseButtonSize',
         type: 'slider',
         labelKey: 'settingsCloseButtonSize',
@@ -322,7 +312,6 @@ export const displaySizeSettingsItems: SettingItem[] = [
 
 export const displayOtherHomeItems: SettingItem[] = [
     { id: 'display.hideRealm', type: 'check', labelKey: 'hideRealm', helpKey: 'hideRealm', bindKey: 'hideRealm', keywords: ['realm', 'hide'] },
-    { id: 'display.realmDirectOpen', type: 'check', labelKey: 'realmDirectOpen', helpKey: 'realmDirectOpen', bindKey: 'realmDirectOpen', keywords: ['realm', 'preview', 'direct', 'open'] },
     { id: 'display.showFolderName', type: 'check', labelKey: 'showFolderNameInIcon', helpKey: 'showFolderNameInIcon', bindKey: 'showFolderName', keywords: ['folder', 'name', 'icon'] },
     { id: 'display.roundIcons', type: 'check', labelKey: 'roundIcons', helpKey: 'roundIcons', bindKey: 'roundIcons', keywords: ['round', 'icons'] },
     { id: 'display.hideMessagePageCount', type: 'check', labelKey: 'hideMessagePageCount', helpKey: 'hideMessagePageCountDesc', bindKey: 'hideMessagePageCount', keywords: ['message', 'page', 'count', 'hide'] },
@@ -358,7 +347,6 @@ export const displayOtherChatItems: SettingItem[] = [
     },
     { id: 'display.dynamicAssets', type: 'check', labelKey: 'dynamicAssets', helpKey: 'dynamicAssets', bindKey: 'dynamicAssets', keywords: ['dynamic', 'assets', 'matching'] },
     { id: 'display.useAdditionalAssetsPreview', type: 'check', labelKey: 'useAdditionalAssetsPreview', helpKey: 'useAdditionalAssetsPreview', bindKey: 'useAdditionalAssetsPreview', keywords: ['additional', 'assets', 'preview'] },
-    { id: 'display.showMemoryLimit', type: 'check', labelKey: 'showMemoryLimit', helpKey: 'showMemoryLimit', bindKey: 'showMemoryLimit', keywords: ['memory', 'limit'] },
     { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
 ];
 

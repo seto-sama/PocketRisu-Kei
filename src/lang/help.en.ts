@@ -211,7 +211,6 @@ export const helpEn = {
         settingsCloseButtonSize: "Size of the settings close button.",
         showTypingEffect: "When enabled, it will show a typing indicator while the assistant is generating a response.",
         dynamicOutputPrompt: "When enabled, the schema information will be included in the request.",
-        realmDirectOpen: "If enabled, clicking a character in RisuRealm preview will directly open the character description.",
         openRouterProviderOrder:
             "The order of providers to use, the first provider will be used first, if the provider is not available, it will use the next provider. See datail on https://openrouter.ai/docs/guides/routing/provider-selection#ordering-specific-providers",
         openRouterProviderOnly:
@@ -371,11 +370,8 @@ export const helpEn = {
         sideBarSize: "Sidebar width step.",
         assetWidth: "Maximum width for in-chat asset images.",
         animationSpeed: "UI animation speed multiplier.",
-        memoryLimitThickness: "Thickness of the memory-limit line.",
         fullscreen:
             "Switch the browser into fullscreen mode. On mobile, this can hide browser UI such as the address bar and give the chat more space.",
-        showMemoryLimit:
-            "Show the current max-context limit as a visual line in the chat area. Messages above the line may not be sent to the model, so this helps show what the model can still remember.",
         hideRealm:
             "Start the Recently Uploaded section on the home screen collapsed. While collapsed it skips the RisuRealm fetch, speeding up initial load. You can expand it any time from the home screen.",
         showFolderNameInIcon:

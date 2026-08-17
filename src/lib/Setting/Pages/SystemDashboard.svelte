@@ -334,6 +334,7 @@
             get('assets/') + inlayKvTotal + get('remotes/') + get('coldstorage/')
             + get('cache/hypa-vector/') + get('cache/llm-translate/') + rawDbBlob
         const uncategorizedKv = Math.max(0, stats.kvTotalBytes - knownKv)
+        const otherData = uncategorizedKv + stats.files.wal + stats.files.shm
         // SQLite overhead splits into "structural" (always present — indexes,
         // page headers, alignment) and "reclaimable" (the freelist, removable
         // by VACUUM). Subtract the chunk table too — it lives in the file but
@@ -349,11 +350,9 @@
             { id: 'llm-translation',  label: language.storageRowLlmTranslationCache, desc: language.storageRowLlmTranslationCacheDesc, size: get('cache/llm-translate/'), color: 'bg-indigo-500' },
             { id: 'kv-remotes',      label: language.storageRowKvRemotes,      desc: language.storageRowKvRemotesDesc,      size: get('remotes/'),               color: 'bg-cyan-500' },
             { id: 'kv-cold',         label: language.storageRowKvColdStorage,  desc: language.storageRowKvColdStorageDesc,  size: get('coldstorage/'),           color: 'bg-stone-500' },
-            { id: 'kv-uncat',        label: language.storageRowKvUncategorized, desc: language.storageRowKvUncategorizedDesc, size: uncategorizedKv,             color: 'bg-stone-600' },
+            { id: 'kv-uncat',        label: language.storageRowKvUncategorized, desc: language.storageRowKvUncategorizedDesc, size: otherData,                   color: 'bg-stone-600' },
             { id: 'overhead',        label: language.storageRowSqliteOverhead, desc: language.storageRowSqliteOverheadDesc, size: structuralOverhead,            color: 'bg-zinc-500' },
-            { id: 'reclaimable',     label: language.storageRowReclaimablePages, desc: language.storageRowReclaimablePagesDesc, size: totalReclaimable,          color: 'bg-yellow-500' },
-            { id: 'wal',             label: language.storageRowWal,            desc: language.storageRowWalDesc,            size: stats.files.wal,               color: 'bg-sky-500' },
-            { id: 'shm',             label: language.storageRowShm,            desc: language.storageRowShmDesc,            size: stats.files.shm,               color: 'bg-lime-500' },
+            { id: 'reclaimable',     label: language.storageRowReclaimablePages, desc: language.storageRowReclaimablePagesDesc, size: totalReclaimable,          color: 'bg-warning' },
             // File backups are only on the same disk as save/ when sameAsSaveDir
             // is true. If user pointed backupsDir at a different mount, those
             // bytes don't belong in this chart's geometry — they're shown in

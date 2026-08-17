@@ -172,17 +172,18 @@
         activeName={label}
         onManage={() => { openOptions = true }}
         {disabled}
+        variant={(dangling || (warnIfEmpty && !value)) ? 'warning' : 'secondary'}
         className={bound ? 'border-selected text-textcolor'
-            : (dangling || (warnIfEmpty && !value)) ? 'border-amber-500 text-amber-500'
+            : (dangling || (warnIfEmpty && !value)) ? ''
             : 'text-textcolor2 opacity-75 risu-interactive-reveal'}
     />
 {:else}
     <ShButton
-        variant="default"
+        variant={(dangling || (warnIfEmpty && !value)) ? 'warning' : 'default'}
         size="default"
         className={`w-full min-w-0 justify-start${disabled ? ' opacity-50 pointer-events-none' : ''} ${
             bound ? 'border-selected text-textcolor'
-            : (dangling || (warnIfEmpty && !value)) ? 'border-amber-500 text-amber-500'
+            : (dangling || (warnIfEmpty && !value)) ? ''
             : 'text-textcolor2 opacity-75 risu-interactive-reveal'
         }`}
         onclick={() => { if (!disabled) { openOptions = true } }}

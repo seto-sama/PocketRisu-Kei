@@ -303,42 +303,42 @@
             const d = effect[p1]
             
             if(type === 'v2Comment' && p1 === 'value') {
-                return `<span class="text-gray-400">${d || ''}</span>`
+                return `<span class="text-syntax-comment">${d || ''}</span>`
             }
             
             if(typeof d === 'boolean'){
-                return `<span class="text-blue-500">${d ? 'true' : 'false'}</span>`
+                return `<span class="text-syntax-literal">${d ? 'true' : 'false'}</span>`
             }
             
             if(p1.endsWith('Type')){
-                return `<span class="text-blue-500">${d || 'null' }</span>`
+                return `<span class="text-syntax-type">${d || 'null' }</span>`
             }
             if(p1 === 'condition' || p1 === 'operator'){
-                return `<span class="text-green-500">${d || 'null'}</span>`
+                return `<span class="text-syntax-keyword">${d || 'null'}</span>`
             }
             if(effect[p1 + 'Type'] === 'var'){
-                return `<span class="text-yellow-500">${d || 'null'}</span>`
+                return `<span class="text-syntax-variable">${d || 'null'}</span>`
             }
             if(effect[p1 + 'Type'] === 'value'){
-                return `<span class="text-green-500">"${d}"</span>`
+                return `<span class="text-syntax-literal">"${d}"</span>`
             }
             if(effect.type === 'v2If' && p1 === 'source'){
-                return `<span class="text-yellow-500">${d || 'null'}</span>`
+                return `<span class="text-syntax-variable">${d || 'null'}</span>`
             }
             if(effect.type === 'v2SetVar' && p1 === 'var'){
-                return `<span class="text-yellow-500">${d || 'null'}</span>`
+                return `<span class="text-syntax-variable">${d || 'null'}</span>`
             }
             if(effect.type === 'v2DeclareLocalVar' && p1 === 'var'){
-                return `<span class="text-cyan-500">${d || 'null'}</span>`
+                return `<span class="text-syntax-variable">${d || 'null'}</span>`
             }
-            return `<span class="text-blue-500">${d || 'null'}</span>`
+            return `<span class="text-syntax-type">${d || 'null'}</span>`
         })
 
         if(type === 'v2Comment') {
-            return `<div class="text-gray-500 italic line-clamp-4" style="margin-left:${(effect as triggerEffectV2).indent}rem; word-break: break-all; overflow-wrap: break-word;">// ${txt}</div>`
+            return `<div class="text-syntax-comment italic line-clamp-4" style="margin-left:${(effect as triggerEffectV2).indent}rem; word-break: break-all; overflow-wrap: break-word;">// ${txt}</div>`
         }
 
-        return `<div class="text-purple-500 line-clamp-4" style="margin-left:${(effect as triggerEffectV2).indent}rem; word-break: break-all; overflow-wrap: break-word;">${txt}</div>`
+        return `<div class="text-textcolor line-clamp-4" style="margin-left:${(effect as triggerEffectV2).indent}rem; word-break: break-all; overflow-wrap: break-word;">${txt}</div>`
     }
     
     onMount(createTriggerListSortable)

@@ -3,7 +3,7 @@
     // desktop/mobile use (NodeOnly is also accessed via Tailscale on phones).
     // See .agent/guide/ui.md "Sh* sizing scale" for the rationale and the
     // coordination with ShInput / ShToggle / SelectInput.
-    export type ShButtonVariant = 'default' | 'outline' | 'secondary' | 'ghost' | 'destructive' | 'success' | 'primary' | 'link';
+    export type ShButtonVariant = 'default' | 'outline' | 'secondary' | 'ghost' | 'destructive' | 'attention' | 'warning' | 'success' | 'primary' | 'link';
     export type ShButtonSize = 'default' | 'xs' | 'sm' | 'lg' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg';
 </script>
 
@@ -48,6 +48,8 @@
         secondary:   'bg-darkbg text-textcolor border border-darkborderc risu-interactive-surface-solid',
         ghost:       'bg-transparent text-textcolor border border-transparent risu-interactive-surface',
         destructive: 'bg-draculared/20 text-draculared border border-draculared/40 hover:bg-draculared/30',
+        attention:   'bg-highlight/20 text-highlight border border-highlight/40 hover:bg-highlight/30',
+        warning:     'bg-warning/20 text-warning border border-warning/40 hover:bg-warning/30',
         success:     'bg-success/20 text-success border border-success/40 hover:bg-success/30',
         // Primary: filled-solid (shadcn vega original pattern, NOT muted).
         // Pairs with ShSwitch checked-track which is also a full bg-primary fill,
@@ -55,7 +57,7 @@
         // uses textcolor; primary hues per theme are picked dark enough that the
         // theme textcolor (mostly off-white) stays readable.
         primary:     'bg-primary text-textcolor border border-transparent risu-interactive-primary',
-        link:        'bg-transparent text-borderc border border-transparent underline-offset-4 hover:underline',
+        link:        'bg-transparent text-textcolor2 border border-transparent underline-offset-4 hover:underline',
     };
 
     const sizeClasses: Record<ShButtonSize, string> = {

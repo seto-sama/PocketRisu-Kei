@@ -1651,7 +1651,6 @@ import { isMobile } from 'src/ts/platform'
                         chat.fmIndex = (cur === -1) ? cha.alternateGreetings.length - 1 : cur - 1
                         DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = chat
                     }}
-                    isLastMemory={false}
                     currentPage={(Number.isFinite(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) ? (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) : -1) + 2}
                     totalPages={DBState.db.characters[$selectedCharID].alternateGreetings.length + 1}
                     renderCacheKey={`${currentChatRoomKey}:first-message`}

@@ -240,7 +240,6 @@ describe('Chat editing', () => {
                 role: 'user',
                 idx: 0,
                 totalLength: 2,
-                isLastMemory: false,
                 renderCacheKey: 'room:message',
             },
         })
@@ -270,7 +269,6 @@ describe('Chat editing', () => {
                 role: 'user',
                 idx: 0,
                 totalLength: 2,
-                isLastMemory: false,
                 renderCacheKey: 'room:message',
             },
         })
@@ -307,7 +305,6 @@ describe('Chat editing', () => {
                 role: 'user',
                 idx: 0,
                 totalLength: 2,
-                isLastMemory: false,
                 renderCacheKey: 'room:cached-message',
             },
         })
@@ -344,7 +341,6 @@ describe('Chat editing', () => {
                 role: 'user',
                 idx: 0,
                 totalLength: 2,
-                isLastMemory: false,
             },
         })
         mountedComponents.push(component)
@@ -423,7 +419,6 @@ describe('Chat editing', () => {
                 role: 'user',
                 idx: 0,
                 totalLength: 2,
-                isLastMemory: false,
                 renderCacheKey: 'room:translated-edit',
             },
         })
@@ -479,7 +474,6 @@ describe('Chat editing', () => {
                 role: 'char',
                 idx: 0,
                 totalLength: 1,
-                isLastMemory: false,
                 rerollIcon: true,
                 currentPage: 1,
                 totalPages: 2,
@@ -741,7 +735,6 @@ describe('Chat editing', () => {
                 role: 'user',
                 idx: 0,
                 totalLength: 2,
-                isLastMemory: false,
                 renderCacheKey: 'room:lua-message',
             },
         })
@@ -774,7 +767,6 @@ describe('Chat editing', () => {
                 idx: -1,
                 firstMessage: true,
                 totalLength: 1,
-                isLastMemory: false,
             },
         })
         mountedComponents.push(component)
@@ -798,7 +790,6 @@ describe('Chat editing', () => {
                 idx: -1,
                 messageGenerationInfo: { model: 'test-model' },
                 totalLength: 1,
-                isLastMemory: false,
             },
         })
         mountedComponents.push(component)
@@ -830,7 +821,6 @@ describe('Chat editing', () => {
                 idx: 0,
                 messageGenerationInfo: { model: 'test-model' },
                 totalLength: 2,
-                isLastMemory: false,
                 renderCacheKey: 'room:compact-mobile-actions',
             },
         })

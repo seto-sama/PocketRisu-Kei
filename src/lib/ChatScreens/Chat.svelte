@@ -55,7 +55,6 @@
         message?: string;
         name?: string;
         largePortrait?: boolean;
-        isLastMemory: boolean;
         img?: string|Promise<string>;
         idx?: number;
         messageGenerationInfo?: MessageGenerationInfo|null;
@@ -88,7 +87,6 @@
         message = '',
         name = '',
         largePortrait = false,
-        isLastMemory,
         img = '',
         idx = -1,
         rerollIcon = false,
@@ -1452,7 +1450,6 @@
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
      data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
-     style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid rgba(98, 114, 164, 0.7);` : ''}
      onclickcapture={handleButtonTriggerWithin}>
     <div class="text-textcolor grow max-w-full sm:px-4 py-4">
         {#if !blankMessage}
@@ -1495,7 +1492,6 @@
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
      data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
-     style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid rgba(98, 114, 164, 0.7);` : ''}
      onclickcapture={handleButtonTriggerWithin}>
     <div class="text-textcolor mt-1 ml-4 mr-4 mb-1 p-2 bg-transparent grow border-t-gray-900 border-opacity/30 border-transparent flexium items-start max-w-full" >
         {#if DBState.db.theme === 'mobilechat' && !blankMessage}

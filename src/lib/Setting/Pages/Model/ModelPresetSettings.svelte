@@ -642,7 +642,7 @@
                             <div class="flex flex-col min-w-0 grow">
                                 <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
                                     {#if getPresetUpdateStatus(preset) === 'updatable'}
-                                        <span class="w-2 h-2 rounded-full bg-amber-500 shrink-0" title={language.profileUpdateAvailable}></span>
+                                        <span class="w-2 h-2 rounded-full bg-highlight shrink-0" title={language.profileUpdateAvailable}></span>
                                     {/if}
                                     <span class="truncate">{preset.name}</span>
                                 </span>

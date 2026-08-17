@@ -111,7 +111,6 @@ export const helpEs = {
         "settingsCloseButtonSize": "Ajusta el tamaño del botón de cerrar (X) en la esquina superior derecha de la ventana de configuración. El valor predeterminado es 24.",
         "showTypingEffect": "Cuando está habilitado, mostrará un indicador de escritura mientras el asistente está generando una respuesta.",
         "dynamicOutputPrompt": "Cuando está habilitado, la información del esquema se incluirá en la solicitud.",
-        "realmDirectOpen": "Si está habilitado, al hacer clic en un personaje en la vista previa de RisuRealm se abrirá directamente la descripción del personaje.",
         "openRouterProviderOrder": "El orden de los proveedores a usar, el primer proveedor se usará primero, si el proveedor no está disponible, usará el siguiente proveedor. Ver detalles en https://openrouter.ai/docs/guides/routing/provider-selection#ordering-specific-providers",
         "openRouterProviderOnly": "Solo usar los proveedores en esta lista, si todos los proveedores no están disponibles, la solicitud fallará. Ver detalles en https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
         "openRouterProviderIgnore": "Ignorar los proveedores en esta lista, si todos los proveedores son ignorados, la solicitud fallará. Ver detalles en https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",

@@ -5,7 +5,6 @@ import type { alertData } from "./alert";
 import { moduleUpdate } from "./process/modules";
 import { deepTouch } from "./gui/deepTouch.svelte";
 import { resetScriptCache } from "./process/scripts";
-import type { hubType } from "./characterCards";
 import type { PluginSafetyErrors } from "./plugins/pluginSafety";
 
 function updateSize(){
@@ -86,7 +85,6 @@ export const ChatRoomReloadPointer = writable(0)
 export const ReloadChatPointer = writable({} as Record<number, number>)
 export const ScrollToMessageStore = $state({ value: -1, exact: false })
 export const OpenRealmStore = writable(false)
-export const RealmInitialOpenChar = writable<null | hubType>(null)
 export const PlaygroundStore = writable(0)
 export const HideIconStore = writable(false)
 export const CustomCSSStore = writable('')

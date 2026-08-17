@@ -1,6 +1,7 @@
 <script lang="ts">
     import { ChevronRightIcon } from "@lucide/svelte";
     import ShButton from "./ShButton.svelte";
+    import type { ShButtonVariant } from "./ShButton.svelte";
 
     interface Props {
         label: string;
@@ -8,6 +9,7 @@
         onManage: () => void;
         compact?: boolean;
         disabled?: boolean;
+        variant?: ShButtonVariant;
         className?: string;
     }
 
@@ -17,6 +19,7 @@
         onManage,
         compact = false,
         disabled = false,
+        variant = 'secondary',
         className = '',
     }: Props = $props();
 
@@ -30,7 +33,7 @@
 
 {#if compact}
     <ShButton
-        variant="secondary"
+        {variant}
         size="sm"
         className={`h-8 w-48 min-w-0 justify-start ${className}`}
         aria-label={`${label}: ${activeName}`}

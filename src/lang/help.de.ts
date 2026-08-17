@@ -111,7 +111,6 @@ export const helpDe = {
         "settingsCloseButtonSize": "Passt die Größe der Schließen-Schaltfläche (X) in der oberen rechten Ecke des Einstellungsfensters an. Standard ist 24.",
         "showTypingEffect": "Wenn aktiviert, wird während der Generierung einer Antwort durch den Assistenten eine Tippanzeige angezeigt.",
         "dynamicOutputPrompt": "Wenn aktiviert, werden die Schema-Informationen in die Anfrage aufgenommen.",
-        "realmDirectOpen": "Wenn aktiviert, öffnet ein Klick auf einen Charakter in der RisuRealm-Vorschau direkt die Charakterbeschreibung.",
         "openRouterProviderOrder": "Die Reihenfolge der zu verwendenden Anbieter. Der erste Anbieter wird zuerst verwendet. Wenn der Anbieter nicht verfügbar ist, wird der nächste Anbieter verwendet. Siehe Details unter https://openrouter.ai/docs/guides/routing/provider-selection#ordering-specific-providers",
         "openRouterProviderOnly": "Verwenden Sie nur die Anbieter in dieser Liste. Wenn alle Anbieter nicht verfügbar sind, schlägt die Anfrage fehl. Siehe Details unter https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
         "openRouterProviderIgnore": "Ignorieren Sie die Anbieter in dieser Liste. Wenn alle Anbieter ignoriert werden, schlägt die Anfrage fehl. Siehe Details unter https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",
