@@ -361,6 +361,16 @@ body {
   --risu-theme-success-900: #14532d;
 }
 
+/* The app root does not scroll, so a percentage height can remain pinned to
+   Mobile Chrome's initial layout viewport after the address bar collapses.
+   Keep the default mode synchronized with the currently visible viewport;
+   updateHeightMode() can still override this custom property inline. */
+@supports (height: 100dvh) {
+  :root {
+    --risu-height-size: 100dvh;
+  }
+}
+
 .risu-status-danger {
   background: var(--risu-status-danger-bg);
   border-color: var(--risu-status-danger-border);

@@ -1479,7 +1479,7 @@
                     <div class="min-w-0">
                         {@render genInfo()}
                     </div>
-                    <div class="w-full sm:w-auto ml-auto">
+                    <div class="chat-message-actions w-auto ml-auto">
                         {@render iconButtons()}
                     </div>
                 </div>

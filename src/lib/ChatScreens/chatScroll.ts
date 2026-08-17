@@ -11,6 +11,7 @@ const MESSAGE_NAVIGATION_THRESHOLD = 30
 const LAYOUT_ELEMENT_SELECTOR = '.chat-message-container, .risu-chat'
 const NATIVE_BOTTOM_ANCHOR_ATTRIBUTE = 'data-chat-scroll-anchor'
 const SCROLL_PHASE_ATTRIBUTE = 'data-chat-scroll-phase'
+const DIRECT_MANIPULATION_ATTRIBUTE = 'data-chat-direct-manipulation'
 export const CHAT_NEAR_BOTTOM_THRESHOLD = 100
 export const CHAT_HISTORY_LOAD_THRESHOLD = 100
 
@@ -300,9 +301,11 @@ export function createChatScrollController(
     const startDirectManipulation = () => {
         navigationAnchor = null
         directManipulationStart ??= container.scrollTop
+        container.setAttribute(DIRECT_MANIPULATION_ATTRIBUTE, '')
     }
     const finishDirectManipulation = () => {
         if (pointerActive || touchActive) return
+        container.removeAttribute(DIRECT_MANIPULATION_ATTRIBUTE)
         directManipulationStart = null
         scheduleLayout()
     }
@@ -436,7 +439,10 @@ export function createChatScrollController(
     }
 
     const handleObservedLayout = () => {
-        if (destroyed) return
+        // Mobile browser chrome can resize the visual viewport on every frame
+        // of a touch gesture. Never let bottom-follow corrections compete with
+        // the browser while the user is directly manipulating the scroller.
+        if (destroyed || pointerActive || touchActive) return
         if (followsNativeBottomAnchor()) {
             // Native anchoring owns healthy streamed frames. JS only recovers
             // a fractional phase mismatch and otherwise performs no scroll
@@ -484,6 +490,7 @@ export function createChatScrollController(
             layoutAnchors.clear()
             directManipulationStart = null
             navigationAnchor = null
+            container.removeAttribute(DIRECT_MANIPULATION_ATTRIBUTE)
             cancelAnimationFrame(layoutFrame)
             container.removeEventListener('wheel', handleWheel)
             container.removeEventListener('scroll', handleScroll)

@@ -461,6 +461,55 @@ describe('forward chat scroll controller', () => {
         controller.destroy()
     })
 
+    it('suspends native bottom correction throughout direct touch manipulation', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const phase = document.createElement('div')
+        phase.setAttribute('data-chat-scroll-phase', '')
+        phase.style.height = '0px'
+        const nativeAnchor = document.createElement('div')
+        nativeAnchor.setAttribute('data-chat-scroll-anchor', '')
+        container.append(phase, nativeAnchor)
+        const metrics = { scrollHeight: 1000, clientHeight: 200 }
+        setScrollMetrics(container, metrics)
+        let scrollTop = 800
+        let writes = 0
+        Object.defineProperty(container, 'scrollTop', {
+            configurable: true,
+            get: () => scrollTop,
+            set: value => {
+                scrollTop = Math.min(value, metrics.scrollHeight - metrics.clientHeight)
+                writes += 1
+            },
+        })
+        vi.spyOn(container, 'getBoundingClientRect')
+            .mockImplementation(() => new DOMRect(0, 0, 100, 200))
+        vi.spyOn(phase, 'getBoundingClientRect').mockImplementation(() => {
+            const height = Number.parseFloat(phase.style.height || '0')
+            return new DOMRect(0, 0, 100, height)
+        })
+        let anchorBottom = 200
+        vi.spyOn(nativeAnchor, 'getBoundingClientRect')
+            .mockImplementation(() => new DOMRect(0, anchorBottom - 1, 100, 1))
+        const controller = createController(container)
+        observers.flushFrames()
+
+        writes = 0
+        container.dispatchEvent(new Event('touchstart'))
+        expect(container.hasAttribute('data-chat-direct-manipulation')).toBe(true)
+
+        anchorBottom = 199.35
+        observers.notifyResize()
+        observers.notifyMutation()
+        observers.flushFrames()
+        expect(phase.style.height).toBe('0px')
+        expect(writes).toBe(0)
+
+        window.dispatchEvent(new Event('touchend'))
+        expect(container.hasAttribute('data-chat-direct-manipulation')).toBe(false)
+        controller.destroy()
+    })
+
     it('releases the bottom latch when direct manipulation actually moves', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
