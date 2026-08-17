@@ -160,7 +160,7 @@ describe('revenant canonical materializer', () => {
         })
     })
 
-    it('materializes a cancelled reroll partial from the server journal projection', async () => {
+    it('refreshes a stale client checkpoint from the complete journal before materializing cancellation', async () => {
         const original = {
             role: 'char', data: 'original', chatId: 'original-message',
             swipes: ['original'], swipeId: 0,
@@ -183,6 +183,12 @@ describe('revenant canonical materializer', () => {
             status: 'cancelled', rawBytes: 80, streaming: true,
             adapterKind: 'openai-compatible', responseStatus: 200,
             responseHeaders: { 'content-type': 'text/event-stream' },
+            projection: {
+                schemaVersion: 1,
+                source: 'client',
+                adapterKind: 'openai-compatible',
+                content: 'before refresh',
+            },
             rerollSnapshot,
         }
         const workflow = {
@@ -207,7 +213,9 @@ describe('revenant canonical materializer', () => {
             listGenerationWorkflowJobs: () => [job],
             markGenerationMaterialized: vi.fn(() => true),
             readGenerationJobRaw: vi.fn(() => Buffer.from([
-                'data: {"choices":[{"delta":{"content":"partial response"}}]}',
+                'data: {"choices":[{"delta":{"content":"before refresh"}}]}',
+                '',
+                'data: {"choices":[{"delta":{"content":" after refresh"}}]}',
                 '',
                 'data: {"choices":[',
             ].join('\n'))),
@@ -230,8 +238,8 @@ describe('revenant canonical materializer', () => {
 
         expect(result.message).toMatchObject({
             chatId: 'partial-message',
-            data: 'partial response',
-            swipes: ['original', 'partial response'],
+            data: 'before refresh after refresh',
+            swipes: ['original', 'before refresh after refresh'],
             swipeId: 1,
         })
         expect(commitGenerationResult).toHaveBeenCalledWith(expect.objectContaining({
@@ -242,7 +250,11 @@ describe('revenant canonical materializer', () => {
         expect(repository.markGenerationMaterialized).toHaveBeenCalledWith('job-1')
         expect(repository.setGenerationJobProjection).toHaveBeenCalledWith(
             'job-1',
-            expect.objectContaining({ source: 'server', content: 'partial response' }),
+            expect.objectContaining({
+                source: 'server',
+                content: 'before refresh after refresh',
+                journalBytes: expect.any(Number),
+            }),
         )
     })
 })

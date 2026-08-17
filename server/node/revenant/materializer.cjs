@@ -2,7 +2,10 @@
 
 const { applyRevenantStageTimingToMessage } = require('./generationTiming.cjs');
 const { applyGeneratedMessage } = require('./postprocessPipeline.cjs');
-const { projectGenerationJournal } = require('./generationProjection.cjs');
+const {
+    isGenerationProjectionCurrent,
+    projectGenerationJournal,
+} = require('./generationProjection.cjs');
 
 class RevenantMaterializationError extends Error {
     constructor(status, message) {
@@ -194,9 +197,13 @@ function createRevenantMaterializer(options) {
         }
 
         let projection = job.projection;
-        if (!projection && job.rawBytes > 0) {
+        const rawResponse = readGenerationJobRaw(job.jobId);
+        if (
+            rawResponse.length > 0
+            && !isGenerationProjectionCurrent(projection, rawResponse.length)
+        ) {
             try {
-                projection = await projectGenerationJournal(job, readGenerationJobRaw(job.jobId));
+                projection = await projectGenerationJournal(job, rawResponse);
                 setGenerationJobProjection(job.jobId, projection);
             } catch (error) {
                 setGenerationJobProjectionError(job.jobId, String(error));

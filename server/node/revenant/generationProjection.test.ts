@@ -10,6 +10,7 @@ const { createClientGenerationProjection, projectGenerationJournal } = projectio
         source: string
         adapterKind: string
         content: string
+        journalBytes?: number
     }
     projectGenerationJournal: (
         job: Record<string, unknown>,
@@ -19,6 +20,7 @@ const { createClientGenerationProjection, projectGenerationJournal } = projectio
         source: string
         adapterKind: string
         content: string
+        journalBytes: number
     }>
 }
 
@@ -49,6 +51,7 @@ describe('generation normalized projection', () => {
             source: 'server',
             adapterKind: 'openai-compatible',
             content: 'summary',
+            journalBytes: 66,
         })
     })
 

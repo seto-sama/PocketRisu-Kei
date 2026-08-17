@@ -24,12 +24,15 @@ const {
 
 const NORMALIZED_PROJECTION_SCHEMA_VERSION = 1;
 
-function createProjection(job, content, source) {
+function createProjection(job, content, source, journalBytes) {
     return {
         schemaVersion: NORMALIZED_PROJECTION_SCHEMA_VERSION,
         source,
         adapterKind: job.adapterKind || 'openai-compatible',
         content: String(content ?? ''),
+        ...(Number.isSafeInteger(journalBytes) && journalBytes >= 0
+            ? { journalBytes }
+            : {}),
     };
 }
 
@@ -38,7 +41,8 @@ function createClientGenerationProjection(job, content) {
 }
 
 async function projectGenerationJournal(job, rawResponse) {
-    const response = new Response(Buffer.from(rawResponse || Buffer.alloc(0)));
+    const journal = Buffer.from(rawResponse || Buffer.alloc(0));
+    const response = new Response(journal);
     if (!response.body) throw new Error('Generation journal has no readable body');
     const content = await decodeRevenantGenerationJournal(
         {
@@ -50,11 +54,19 @@ async function projectGenerationJournal(job, rawResponse) {
         },
         response.body,
     );
-    return createProjection(job, content, 'server');
+    return createProjection(job, content, 'server', journal.length);
+}
+
+function isGenerationProjectionCurrent(projection, journalBytes) {
+    return projection?.source === 'server'
+        && Number.isSafeInteger(journalBytes)
+        && journalBytes >= 0
+        && projection.journalBytes === journalBytes;
 }
 
 module.exports = {
     NORMALIZED_PROJECTION_SCHEMA_VERSION,
     createClientGenerationProjection,
+    isGenerationProjectionCurrent,
     projectGenerationJournal,
 };
