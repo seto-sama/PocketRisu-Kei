@@ -371,11 +371,8 @@ export const helpEn = {
         sideBarSize: "Sidebar width step.",
         assetWidth: "Maximum width for in-chat asset images.",
         animationSpeed: "UI animation speed multiplier.",
-        memoryLimitThickness: "Thickness of the memory-limit line.",
         fullscreen:
             "Switch the browser into fullscreen mode. On mobile, this can hide browser UI such as the address bar and give the chat more space.",
-        showMemoryLimit:
-            "Show the current max-context limit as a visual line in the chat area. Messages above the line may not be sent to the model, so this helps show what the model can still remember.",
         hideRealm:
             "Start the Recently Uploaded section on the home screen collapsed. While collapsed it skips the RisuRealm fetch, speeding up initial load. You can expand it any time from the home screen.",
         showFolderNameInIcon:

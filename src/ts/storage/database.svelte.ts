@@ -315,9 +315,6 @@ export function setDatabase(data:Database){
     if(checkNullish(data.voicevoxUrl)){
         data.voicevoxUrl = ''
     }
-    if(checkNullish(data.showMemoryLimit)){
-        data.showMemoryLimit = false
-    }
     if(checkNullish(data.showFirstMessagePages)){
         data.showFirstMessagePages = false
     }
@@ -551,7 +548,6 @@ export function setDatabase(data:Database){
     data.promptSettings.maxThoughtTagDepth ??= -1
     data.openrouterFallback ??= true
     data.openrouterMiddleOut ??= false
-    data.memoryLimitThickness ??= 1
     data.modules ??= []
     data.moduleFolders ??= []
     data.enabledModules ??= []
@@ -1112,7 +1108,6 @@ export interface Database{
     allowV2Plugin:boolean
     elevenLabKey:string
     voicevoxUrl:string
-    showMemoryLimit:boolean
     roundIcons:boolean
     useStreaming:boolean
     voyageApiKey:string
@@ -1235,7 +1230,6 @@ export interface Database{
     top_a:number
     claudeAws:boolean
     lastPatchNoteCheckVersion?:string,
-    memoryLimitThickness?:number
     modules: RisuModule[]
     /** User-defined groups for organizing modules. */
     moduleFolders?: PromptPresetFolder[]
@@ -1877,10 +1871,8 @@ export interface themePreset{
     sideBarSize: number
     assetWidth: number
     animationSpeed: number
-    memoryLimitThickness?: number
     settingsCloseButtonSize: number
     // Others tab (submenu 2)
-    showMemoryLimit: boolean
     showFirstMessagePages: boolean
     hideRealm: boolean
     hideAllImages?: boolean
@@ -2321,9 +2313,7 @@ export const themePresetTemplate: themePreset = {
     sideBarSize: 0,
     assetWidth: -1,
     animationSpeed: 0.4,
-    memoryLimitThickness: 1,
     settingsCloseButtonSize: 24,
-    showMemoryLimit: false,
     showFirstMessagePages: false,
     hideRealm: false,
     hideAllImages: false,
@@ -2665,9 +2655,7 @@ export function saveCurrentThemePreset(){
         sideBarSize: db.sideBarSize,
         assetWidth: db.assetWidth,
         animationSpeed: db.animationSpeed,
-        memoryLimitThickness: db.memoryLimitThickness,
         settingsCloseButtonSize: db.settingsCloseButtonSize,
-        showMemoryLimit: db.showMemoryLimit,
         showFirstMessagePages: db.showFirstMessagePages,
         hideRealm: db.hideRealm,
         hideAllImages: db.hideAllImages,
@@ -2733,9 +2721,7 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.sideBarSize = p.sideBarSize ?? db.sideBarSize
     db.assetWidth = p.assetWidth ?? db.assetWidth
     db.animationSpeed = p.animationSpeed ?? db.animationSpeed
-    db.memoryLimitThickness = p.memoryLimitThickness ?? db.memoryLimitThickness
     db.settingsCloseButtonSize = p.settingsCloseButtonSize ?? db.settingsCloseButtonSize
-    db.showMemoryLimit = p.showMemoryLimit ?? db.showMemoryLimit
     db.showFirstMessagePages = p.showFirstMessagePages ?? db.showFirstMessagePages
     db.hideMessagePageCount = p.hideMessagePageCount ?? db.hideMessagePageCount
     db.hideRealm = p.hideRealm ?? db.hideRealm
