@@ -402,6 +402,9 @@ body {
   --error-text: var(--risu-theme-draculared) !important;
   --error-border: var(--risu-status-danger-border) !important;
   font-family: inherit;
+  /* bits-ui dialogs disable pointer events on body while modal. Sonner is a
+     sibling portal, so explicitly keep its interaction surface available. */
+  pointer-events: auto;
 }
 
 .risu-toast {

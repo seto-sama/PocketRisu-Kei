@@ -80,6 +80,15 @@
         'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95';
+
+    function handleInteractOutside(event: PointerEvent) {
+        const target = event.target
+        if (target instanceof Element && target.closest('[data-sonner-toaster]')) {
+            // Toasts live in their own portal. They are intentionally usable
+            // above dialogs and must not be treated as backdrop interaction.
+            event.preventDefault()
+        }
+    }
 </script>
 
 <Dialog.Root bind:open {onOpenChange}>
@@ -91,6 +100,7 @@
             class={cn(contentBase, tierClasses[tier], sizeClasses[size], contentClass)}
             escapeKeydownBehavior={closeOnEscape ? 'close' : 'ignore'}
             interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
+            onInteractOutside={handleInteractOutside}
             {onCloseAutoFocus}
         >
             {#if title || description || closable}
