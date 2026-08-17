@@ -74,6 +74,7 @@
         swipeNavigationOnly?: boolean;
         isStreamingDisplay?: boolean;
         generationOwned?: boolean;
+        hideSender?: boolean;
         isComment?: boolean;
         disabled?: boolean | 'allBefore';
         renderCacheKey?: string;
@@ -106,6 +107,7 @@
         swipeNavigationOnly = false,
         isStreamingDisplay = false,
         generationOwned = false,
+        hideSender = false,
         isComment = false,
         disabled = false,
         renderCacheKey = '',
@@ -1282,7 +1284,7 @@
 {/snippet}
 
 {#snippet senderIcon(options:{rounded?:boolean,styleFix?:string} = {})}
-    {#if !blankMessage && !$HideIconStore}
+    {#if !blankMessage && !$HideIconStore && !hideSender}
         {#await img}
             <div class="shadow-lg bg-textcolor2" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
             class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
@@ -1459,13 +1461,15 @@
                 DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
                 'max-w-3xl'}
             <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto py-6 px-4 sm:px-8 bg-bgcolor sm:rounded-lg">
-                <!-- Header: icon + name -->
-                <div class="flex items-center gap-3 mb-4">
-                    {@render senderIcon({rounded: DBState.db.roundIcons})}
-                    {#if !$HideIconStore}
-                        <span class="text-lg sm:text-xl text-textcolor">{name}</span>
-                    {/if}
-                </div>
+                {#if !hideSender}
+                    <!-- Header: icon + name -->
+                    <div class="flex items-center gap-3 mb-4">
+                        {@render senderIcon({rounded: DBState.db.roundIcons})}
+                        {#if !$HideIconStore}
+                            <span class="text-lg sm:text-xl text-textcolor">{name}</span>
+                        {/if}
+                    </div>
+                {/if}
                 <!-- Body: message text -->
                 <div class="mb-3 leading-relaxed">
                     {@render textBox()}
@@ -1526,13 +1530,14 @@
             <div class="w-full flex flex-col px-0 sm:px-4 py-4 relative">
                 <div class="bg-linear-to-b from-bgcolor to-darkbg rounded-lg shadow-lg border-darkborderc border p-4 flex flex-col">
                     <div class="flex gap-4 mt-2 flex-col sm:flex-row">
-                        <div class="flex flex-col items-center">
-                            <div class="sm:h-96 sm:w-72 sm:min-w-72 w-48 h-64">
-                                {@render senderIcon({rounded: false, styleFix:'height:100%;width:100%;'})}
+                        {#if !hideSender}
+                            <div class="flex flex-col items-center">
+                                <div class="sm:h-96 sm:w-72 sm:min-w-72 w-48 h-64">
+                                    {@render senderIcon({rounded: false, styleFix:'height:100%;width:100%;'})}
+                                </div>
+                                <h2 class="text-base font-bold text-textcolor2 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
                             </div>
-                            <h2 class="text-base font-bold text-textcolor2 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
-
-                        </div>
+                        {/if}
                         {#if editMode}
                             <textarea class="grow h-138 sm:h-96 overflow-y-auto bg-transparent text-textcolor p-2 mb-2 resize-none message-edit-area" bind:value={editDraft}></textarea>
                         {:else}
@@ -1552,7 +1557,7 @@
             {@render senderIcon({rounded: DBState.db.roundIcons})}
             <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
                 <div class="flexium items-center chat-width">
-                    {#if !blankMessage && !$HideIconStore}
+                    {#if !blankMessage && !$HideIconStore && !hideSender}
                         <div class="chat-width text-xl unmargin text-textcolor flex items-center">
                             <span>{name}</span>
                         </div>
@@ -1566,7 +1571,7 @@
             {@render senderIcon({rounded: DBState.db.roundIcons})}
             <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
                 <div class="flexium items-center chat-width">
-                    {#if !blankMessage && !$HideIconStore}
+                    {#if !blankMessage && !$HideIconStore && !hideSender}
                         <div class="chat-width text-xl unmargin text-textcolor flex items-center">
                             <span>{name}</span>
                         </div>

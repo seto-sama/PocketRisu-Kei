@@ -82,7 +82,7 @@ export async function loadLoreBookV3Prompt(options: {
     const chatLore = char.chats[page].localLore ?? []
     const moduleLorebook = options.includeModuleLorebooks === false ? [] : getModuleLorebooks()
     const fullLore = safeStructuredClone(characterLore.concat(chatLore).concat(moduleLorebook))
-    const currentChat = char.chats[page].message
+    const currentChat = char.chats[page].message.filter(message => message.kind !== 'imageGeneration')
     const loreDepth = char.loreSettings?.scanDepth ?? DBState.db.loreBookDepth
     const loreToken = char.loreSettings?.tokenBudget ?? DBState.db.loreBookToken
     const fullWordMatchingSetting = char.loreSettings?.fullWordMatching ?? false

@@ -631,7 +631,7 @@ export async function removeInlayAssets(ids: string[]): Promise<number> {
 
 export async function setInlayMetaFields(
     id: string,
-    patch: Partial<Pick<InlayAssetMeta, 'charId' | 'chatId' | 'createdAt' | 'updatedAt'>>
+    patch: Partial<Pick<InlayAssetMeta, 'charId' | 'chatId' | 'createdAt' | 'updatedAt' | 'imageGeneration'>>
 ): Promise<void> {
     const existing = await getInlayMeta(id)
     const now = Date.now()
@@ -642,6 +642,7 @@ export async function setInlayMetaFields(
         updatedAt: (typeof patch.updatedAt === 'number' && patch.updatedAt > 0) ? patch.updatedAt : now,
         charId: typeof patch.charId === 'string' ? patch.charId : existing?.charId,
         chatId: typeof patch.chatId === 'string' ? patch.chatId : existing?.chatId,
+        imageGeneration: patch.imageGeneration ?? existing?.imageGeneration,
     }
     await setInlayMeta(id, next)
 }

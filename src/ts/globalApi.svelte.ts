@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { tick } from "svelte";
 import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
-import { setDatabase, type Chat, type Database, type Message, defaultSdDataFunc, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat } from "./storage/database.svelte";
+import { setDatabase, type Chat, type Database, type Message, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";

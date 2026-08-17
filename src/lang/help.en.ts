@@ -43,7 +43,6 @@ export const helpEn = {
         bias: "bias is a key-value data which modifies the likelihood of string appearing.\nit can be -100 to 100, higher values will be more likely to appear, and lower values will be more unlikely to appear. \nAdditionaly, if its set to -101, it would work as 'strong ban word' for some models. \nWarning: if the tokenizer is wrong, it not work properly.",
         emotion:
             "Emotion Images option shows image depending at character's emotion which is analized by character's response. you must input emotion name as words *(like joy, happy, fear and etc.)* .emotion named **neutral** will be default emotion if it exists. must be more then 3 images to work properly.",
-        imggen: "After analyzing the chat, apply the prompt to {{slot}}.",
         regexScript:
             "Regex Script is a custom regex that replaces string that matches IN to OUT.\n\nThere four type options." +
             "\n\n- **Modify Input** modifies user's input" +

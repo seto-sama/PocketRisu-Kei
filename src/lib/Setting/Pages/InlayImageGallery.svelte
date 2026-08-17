@@ -8,7 +8,6 @@
   import ShSelect from '../../UI/GUI/ShSelect.svelte'
 
   import { language } from 'src/lang'
-  import { SizeStore } from 'src/ts/stores.svelte'
   import { alertConfirm, notifySuccess, notifyError } from 'src/ts/alert'
   import { downloadFile } from 'src/ts/globalApi.svelte'
   import {
@@ -28,10 +27,10 @@
   import SettingRenderer from '../SettingRenderer.svelte'
   import { inlayImageSettingsItems } from 'src/ts/setting/inlayImageSettingsData'
   import FullscreenImageViewer from '../../UI/GUI/FullscreenImageViewer.svelte'
+  import IconButton from '../../UI/GUI/IconButton.svelte'
+  import { createIncrementalList } from '../../UI/incrementalList.svelte'
 
   let submenu = $state(0)
-
-  const PAGE_SIZE = 40
 
   type SortKey = 'created-desc' | 'created-asc' | 'updated-desc' | 'updated-asc'
   type SpecialFilter = 'all' | 'meta-missing' | 'orphan-character' | 'orphan-chat' | 'orphan-message'
@@ -39,11 +38,8 @@
   // Data state
   let allItems = $state<InlayExplorerItem[]>([])
   let characterIndex = $state<CharacterChatIndexItem[]>([])
-  let displayCount = $state(PAGE_SIZE)
   let loading = $state(true)
-  let paging = $state(false)
   let galleryScrollContainer: HTMLDivElement | null = $state(null)
-  let loadMoreSentinel: HTMLDivElement | null = $state(null)
   let selection = $state<Set<string>>(new SvelteSet())
   let failedVideoThumbnails = $state<Set<string>>(new SvelteSet())
 
@@ -63,8 +59,12 @@
   let viewerUrl = $state('')
   let viewerLoading = $state(false)
   let viewerError = $state('')
-  // Mobile defaults to preview-only — a narrow info panel would dominate the viewport.
-  let infoPanelOpen = $state($SizeStore.w >= 768)
+  const incrementalList = createIncrementalList({
+    pageSize: 40,
+    rootMargin: '200px 0px',
+    getRoot: () => findGalleryScrollRoot(),
+  })
+  const observePagingSentinel = incrementalList.observeSentinel
 
   // --- Derived ---
   const activeFilterCount = $derived(
@@ -100,18 +100,30 @@
     })
   })
 
-  const displayedItems = $derived(sortedItems.slice(0, displayCount))
-  const hasMore = $derived(displayCount < sortedItems.length)
+  const displayedItems = $derived(incrementalList.slice(sortedItems))
+  const hasMore = $derived(incrementalList.hasMore(sortedItems.length))
   const hasSelection = $derived(selection.size > 0)
   const currentViewerItem = $derived(sortedItems.find((item) => item.id === viewerId) ?? null)
   const viewerIndex = $derived(sortedItems.findIndex((item) => item.id === viewerId))
-  const canGoPrev = $derived(viewerIndex > 0)
-  const canGoNext = $derived(viewerIndex >= 0 && viewerIndex < sortedItems.length - 1)
+  const canGoPrev = $derived(viewerIndex >= 0 && sortedItems.length > 1)
+  const canGoNext = $derived(viewerIndex >= 0 && sortedItems.length > 1)
 
   // --- Helpers ---
   function getSortTimestamp(item: InlayExplorerItem, key: SortKey): number {
     if (key.startsWith('created')) return item.meta?.createdAt ?? 0
     return item.meta?.updatedAt ?? 0
+  }
+
+  function findGalleryScrollRoot(): HTMLElement | null {
+    let element = galleryScrollContainer?.parentElement ?? null
+    while (element) {
+      const overflowY = getComputedStyle(element).overflowY
+      if ((overflowY === 'auto' || overflowY === 'scroll') && element.scrollHeight > element.clientHeight) {
+        return element
+      }
+      element = element.parentElement
+    }
+    return null
   }
 
   function getCharacterName(item: InlayExplorerItem | null): string | null {
@@ -239,9 +251,9 @@
   }
 
   function goToNeighbor(offset: -1 | 1) {
-    if (viewerIndex < 0) return
-    const nextItem = sortedItems[viewerIndex + offset]
-    if (!nextItem) return
+    if (viewerIndex < 0 || sortedItems.length < 2) return
+    const nextIndex = (viewerIndex + offset + sortedItems.length) % sortedItems.length
+    const nextItem = sortedItems[nextIndex]
     openViewer(nextItem.id)
   }
 
@@ -270,13 +282,15 @@
 
   const deleteAsset = async (id: string, name: string) => {
     if (!(await alertConfirm(language.playground.inlayDeleteConfirm.replace('{name}', name)))) return
+    const currentIndex = sortedItems.findIndex((item) => item.id === id)
+    const neighborId = currentIndex >= 0
+      ? (sortedItems[currentIndex + 1] ?? sortedItems[currentIndex - 1])?.id
+      : undefined
     await removeInlayAsset(id)
     selection.delete(id)
     allItems = allItems.filter((item) => item.id !== id)
     if (viewerId === id) {
-      const currentIndex = sortedItems.findIndex((item) => item.id === id)
-      const nextItem = sortedItems[currentIndex + 1] ?? sortedItems[currentIndex - 1] ?? null
-      if (nextItem) openViewer(nextItem.id)
+      if (neighborId) openViewer(neighborId)
       else closeViewer()
     }
   }
@@ -311,7 +325,7 @@
     characterFilter
     chatFilter
     specialFilter
-    displayCount = PAGE_SIZE
+    incrementalList.reset()
     galleryScrollContainer?.scrollTo({ top: 0 })
   })
 
@@ -322,47 +336,7 @@
     }
   })
 
-  // Infinite scroll.
-  // The component's own `flex-1 overflow-y-auto` container never actually
-  // scrolls because the Settings layout doesn't propagate a height to it —
-  // real scrolling happens on an ancestor (rs-setting-cont-4). So we resolve
-  // the closest scrollable ancestor at runtime and use it as the observer root.
-  let observer: IntersectionObserver | null = null
-  $effect(() => {
-    if (!galleryScrollContainer || !loadMoreSentinel || !hasMore) {
-      observer?.disconnect()
-      return
-    }
-    let rootEl: HTMLElement | null = null
-    let p: HTMLElement | null = galleryScrollContainer.parentElement
-    while (p) {
-      const oy = getComputedStyle(p).overflowY
-      if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) {
-        rootEl = p
-        break
-      }
-      p = p.parentElement
-    }
-    const loadMore = () => {
-      if (!hasMore || loading || paging) return
-      paging = true
-      displayCount += PAGE_SIZE
-      queueMicrotask(() => { paging = false })
-    }
-    observer?.disconnect()
-    observer = new IntersectionObserver(
-      (entries) => { if (entries[0]?.isIntersecting) loadMore() },
-      { root: rootEl, rootMargin: '200px 0px', threshold: 0 }
-    )
-    observer.observe(loadMoreSentinel)
-    return () => {
-      observer?.disconnect()
-      observer = null
-    }
-  })
-
   onDestroy(() => {
-    observer?.disconnect()
     revokeViewerUrl()
   })
 
@@ -560,21 +534,7 @@
                     onclick={(e) => { e.stopPropagation(); copyInlayReference(item.id) }}
                     title={language.copy}
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="11"
-                      height="11"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      class="lucide-icon lucide lucide-copy"
-                    >
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
+                    <Copy size={11} />
                   </button>
                   <div class="flex gap-1.5 justify-end">
                     <button
@@ -599,7 +559,7 @@
         </div>
 
         {#if hasMore}
-          <div bind:this={loadMoreSentinel} class="flex items-center justify-center py-10">
+          <div use:observePagingSentinel={sortedItems.length} class="flex items-center justify-center py-10">
             <div class="w-7 h-7 border-4 border-darkborderc border-t-borderc rounded-full animate-spin"></div>
           </div>
         {/if}
@@ -614,6 +574,7 @@
   src={viewerUrl}
   alt={currentViewerItem?.name ?? viewerId}
   title={currentViewerItem?.name ?? viewerId}
+  subtitle={viewerId}
   position={viewerIndex}
   total={sortedItems.length}
   loading={viewerLoading}
@@ -621,14 +582,11 @@
   loadingLabel={language.playground.inlayLoadingOriginal}
   {canGoPrev}
   {canGoNext}
-  bind:infoOpen={infoPanelOpen}
-  infoLabel={language.playground.inlayInfo}
-  downloadLabel={language.download}
+  metadataLabel={language.playground.inlayInfo}
   closeLabel={language.goback}
   onClose={closeViewer}
   onPrev={() => goToNeighbor(-1)}
   onNext={() => goToNeighbor(1)}
-  onDownload={() => currentViewerItem && downloadCurrent(currentViewerItem)}
 >
   {#snippet viewerContent()}
     {#if currentViewerItem?.type === 'video'}
@@ -655,65 +613,73 @@
     {/if}
   {/snippet}
 
-  {#snippet statusOverlay()}
-    {#if getStatusLabel(currentViewerItem)}
-      <div class="risu-status-warning absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full text-xs font-medium">
-        {getStatusLabel(currentViewerItem)}
-      </div>
+  {#snippet actions()}
+    {#if currentViewerItem}
+      <IconButton onclick={() => copyInlayReference(currentViewerItem.id)} title={language.copy} aria-label={language.copy} className="text-textcolor">
+        <Copy />
+      </IconButton>
+      <IconButton onclick={() => downloadCurrent(currentViewerItem)} title={language.download} aria-label={language.download} className="text-textcolor">
+        <Download />
+      </IconButton>
+      <IconButton tone="destructive" onclick={() => deleteAsset(currentViewerItem.id, currentViewerItem.name)} title={language.playground.inlayDelete} aria-label={language.playground.inlayDelete} className="text-textcolor">
+        <Trash2 />
+      </IconButton>
     {/if}
   {/snippet}
 
-  {#snippet info()}
-    <div class="px-4 py-3 space-y-1.5">
-      <p class="text-textcolor text-sm font-medium break-all leading-snug" title={currentViewerItem?.name}>
-        {currentViewerItem?.name ?? viewerId}
-      </p>
-      <p class="text-textcolor2/60 text-xs font-mono break-all leading-snug">{viewerId}</p>
-      {#if currentViewerItem?.ext}
-        <p class="text-textcolor2 text-xs uppercase font-mono">{currentViewerItem.ext}</p>
-      {/if}
-      {#if currentViewerItem?.width && currentViewerItem?.height}
-        <p class="text-textcolor2 text-xs">{currentViewerItem.width} × {currentViewerItem.height} px</p>
-      {/if}
-      {#if getCharacterName(currentViewerItem)}
-        <p class="text-textcolor2 text-xs">{language.character}: {getCharacterName(currentViewerItem)}</p>
-      {/if}
-      {#if getChatName(currentViewerItem)}
-        <p class="text-textcolor2 text-xs">{language.Chat}: {getChatName(currentViewerItem)}</p>
-      {/if}
-      {#if formatTimestamp(currentViewerItem?.meta?.createdAt)}
-        <p class="text-textcolor2/70 text-xs">{language.playground.inlayCreatedAt} {formatTimestamp(currentViewerItem?.meta?.createdAt)}</p>
-      {/if}
-    </div>
-
-    <div class="px-4 py-4 space-y-2">
-      <h3 class="text-textcolor2 text-[11px] font-semibold uppercase tracking-wider">
-        {language.playground.inlayActions}
-      </h3>
-      <button
-        type="button"
-        onclick={() => currentViewerItem && copyInlayReference(currentViewerItem.id)}
-        class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc risu-interactive-surface-strong text-textcolor2 risu-interactive-foreground text-sm transition-colors"
-      >
-        <Copy size={14} />
-        {language.copy}
-      </button>
-      <button
-        type="button"
-        onclick={() => currentViewerItem && downloadCurrent(currentViewerItem)}
-        class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc risu-interactive-surface-strong text-textcolor2 risu-interactive-foreground text-sm transition-colors"
-      >
-        <Download size={12} />
-        {language.download}
-      </button>
-      <button
-        type="button"
-        onclick={() => currentViewerItem && deleteAsset(currentViewerItem.id, currentViewerItem.name)}
-        class="w-full flex items-center gap-2 px-3 py-2 rounded border border-draculared/40 hover:bg-draculared/15 text-draculared text-sm transition-colors"
-      >
-        <Trash2 size={12} />
-        {language.playground.inlayDelete}
-      </button>
-    </div>
+  {#snippet metadataOverlay()}
+    {#if currentViewerItem}
+      <div class="space-y-2 text-xs">
+        {#if !currentViewerItem.hasMeta}
+          <span class="risu-status-warning inline-flex rounded px-1.5 py-0.5 text-[9px] font-medium">
+            {language.playground.inlayFilterMetaMissing}
+          </span>
+        {/if}
+        <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+          {#if getCharacterName(currentViewerItem)}
+            <dt class="text-textcolor2">{language.character}</dt>
+            <dd class="flex min-w-0 items-center gap-1.5 text-textcolor">
+              <span class="truncate">{getCharacterName(currentViewerItem)}</span>
+              {#if isOrphanCharacter(currentViewerItem)}
+                <span class="risu-status-warning shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium">
+                  {language.playground.inlayFilterOrphanCharacter}
+                </span>
+              {/if}
+            </dd>
+          {/if}
+          {#if getChatName(currentViewerItem)}
+            <dt class="text-textcolor2">{language.Chat}</dt>
+            <dd class="flex min-w-0 items-center gap-1.5 text-textcolor">
+              <span class="truncate">{getChatName(currentViewerItem)}</span>
+              {#if isOrphanChat(currentViewerItem)}
+                <span class="risu-status-warning shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium">
+                  {language.playground.inlayFilterOrphanChat}
+                </span>
+              {/if}
+            </dd>
+          {/if}
+          {#if formatTimestamp(currentViewerItem.meta?.createdAt)}
+            <dt class="text-textcolor2">{language.requestDiagnostics.createdAt}</dt>
+            <dd class="text-textcolor">{formatTimestamp(currentViewerItem.meta?.createdAt)}</dd>
+          {/if}
+          <dt class="text-textcolor2">{language.extensionInfo}</dt>
+          <dd class="text-textcolor">
+            {currentViewerItem.ext?.toUpperCase() ?? ''}{#if currentViewerItem.ext && currentViewerItem.width && currentViewerItem.height}{', '}{/if}{#if currentViewerItem.width && currentViewerItem.height}{currentViewerItem.width} × {currentViewerItem.height}px{/if}
+          </dd>
+        </dl>
+        {#if currentViewerItem.meta?.imageGeneration?.prompt}
+          <div class="space-y-0.5 border-t border-darkborderc pt-2">
+            <p class="text-textcolor2">{language.positivePrompt}</p>
+            <p class="whitespace-pre-wrap break-words text-textcolor">{currentViewerItem.meta.imageGeneration.prompt}</p>
+          </div>
+        {/if}
+        {#if currentViewerItem.meta?.imageGeneration?.negativePrompt}
+          <div class="space-y-0.5 border-t border-darkborderc pt-2">
+            <p class="text-textcolor2">{language.negativePrompt}</p>
+            <p class="whitespace-pre-wrap break-words text-textcolor">{currentViewerItem.meta.imageGeneration.negativePrompt}</p>
+          </div>
+        {/if}
+      </div>
+    {/if}
   {/snippet}
 </FullscreenImageViewer>

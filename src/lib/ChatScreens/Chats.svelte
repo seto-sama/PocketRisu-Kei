@@ -108,6 +108,7 @@
         for(let i=loadStart ; i <= loadEnd; i++){
             if(i >= messages.length) break;
             const message = messages[i];
+            const isImageGeneration = message.kind === 'imageGeneration';
             const displayMessage = message.recoveryDisplayData ?? message.data;
             const messageLargePortrait = message.role === 'user' ? (userIconPortrait ?? false) : ((currentCharacter as character).largePortrait ?? false);
             const isRerollTarget = i === lastRealCharIdx;
@@ -167,6 +168,7 @@
                     swipeNavigationOnly: showHistoricalSwipes,
                     isStreamingDisplay: isStreamingMessage,
                     generationOwned,
+                    hideSender: isImageGeneration,
                     character: simpleChar,
                     largePortrait: messageLargePortrait,
                     messageGenerationInfo: message.generationInfo ? { ...message.generationInfo } : undefined,
@@ -204,6 +206,7 @@
                     if (props.swipeNavigationOnly !== showHistoricalSwipes) props.swipeNavigationOnly = showHistoricalSwipes
                     if (props.isStreamingDisplay !== isStreamingMessage) props.isStreamingDisplay = isStreamingMessage
                     if (props.generationOwned !== generationOwned) props.generationOwned = generationOwned
+                    if (props.hideSender !== isImageGeneration) props.hideSender = isImageGeneration
                     if (entry.characterSource !== simpleChar) {
                         props.character = simpleChar
                         entry.characterSource = simpleChar

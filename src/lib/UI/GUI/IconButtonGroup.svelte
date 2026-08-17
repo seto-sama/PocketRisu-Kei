@@ -6,6 +6,8 @@
 
     type Props = HTMLAttributes<HTMLDivElement> & {
         size?: IconButtonSize;
+        iconSize?: number;
+        cellSize?: number;
         direction?: 'horizontal' | 'vertical';
         className?: string;
         children: Snippet;
@@ -13,6 +15,8 @@
 
     let {
         size = 'default',
+        iconSize,
+        cellSize,
         direction = 'horizontal',
         class: classAttr = '',
         className = '',
@@ -22,7 +26,7 @@
     }: Props = $props();
 
     const inlineStyle = $derived([
-        `--icon-size:${iconButtonSizeValues[size].icon}px;--icon-cell-size:${iconButtonSizeValues[size].cell}px;--icon-label-gap:${iconButtonSizeValues[size].labelGap}px;--icon-label-padding:${iconButtonSizeValues[size].labelPadding}px`,
+        `--icon-size:${iconSize ?? iconButtonSizeValues[size].icon}px;--icon-cell-size:${cellSize ?? iconButtonSizeValues[size].cell}px;--icon-label-gap:${iconButtonSizeValues[size].labelGap}px;--icon-label-padding:${iconButtonSizeValues[size].labelPadding}px`,
         typeof style === 'string' ? style : '',
     ].filter(Boolean).join(';'));
 </script>

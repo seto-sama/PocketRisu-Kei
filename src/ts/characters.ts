@@ -1,5 +1,5 @@
 import { get } from "svelte/store";
-import { saveImage, setDatabase, type character, type Chat, defaultSdDataFunc, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
+import { saveImage, setDatabase, type character, type Chat, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
 import { ensureChatHydrated } from "./storage/chatStorage";
 import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, alertWait, notifySuccess, notifyInfo } from "./alert";
 import { loadingOverlayStore, chatDeselected } from "./stores.svelte";
@@ -602,9 +602,6 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
     if(!cha.chaId){
         cha.chaId = uuidv4()
     }
-    if(checkNullish(cha.sdData)){
-        cha.sdData = defaultSdDataFunc()
-    }
     if(checkNullish(cha.utilityBot)){
         cha.utilityBot = false
     }
@@ -648,9 +645,8 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
     cha.backgroundCSS ??= ''
     cha.creation_date ??= Date.now()
     cha.globalLore = updateLorebooks(cha.globalLore)
-    if(!cha.newGenData){
-        cha = updateInlayScreen(cha)
-    }
+    if((cha.viewScreen as string) === 'imggen') cha.viewScreen = 'none'
+    cha = updateInlayScreen(cha)
     // Migrate legacy 'none' value to '' for UI dropdown compatibility
     // Using '' because it's falsy, so `if (ttsMode)` correctly detects enabled TTS
     if (cha.ttsMode === 'none') {
@@ -717,7 +713,6 @@ export function createBlankChar():character{
         globalLore: [],
         chaId: uuidv4(),
         type: 'character',
-        sdData: defaultSdDataFunc(),
         utilityBot: false,
         lowLevelAccess: false,
         hideChatIcon: false,
