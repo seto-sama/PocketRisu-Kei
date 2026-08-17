@@ -102,6 +102,7 @@ export interface SettingOptions {
     hideText?: boolean;     // For password-like inputs
     suggestions?: string[]; // Optional datalist suggestions; free-form input remains allowed
     defaultValue?: unknown; // Display value when a bound field is undefined
+    showTokenCount?: boolean; // Show the CBS-expanded token count below a textarea
     
     // number
     inputClassName?: string;

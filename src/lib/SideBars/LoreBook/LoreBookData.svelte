@@ -9,12 +9,12 @@
     import TextInput from "../../UI/GUI/TextInput.svelte";
     import NumberInput from "../../UI/GUI/NumberInput.svelte";
     import TextAreaInput from "../../UI/GUI/TextAreaInput.svelte";
-    import { tokenizeAccurate } from "src/ts/tokenizer";
     import { DBState } from "src/ts/stores.svelte";
     import LoreBookList from "./LoreBookList.svelte";
     import ShDisclosureList from "../../UI/GUI/ShDisclosureList.svelte";
     import IconButton from "../../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../../UI/GUI/IconButtonGroup.svelte";
+    import TokenCount from "../../UI/GUI/TokenCount.svelte";
 
     interface Props {
         value: loreBook;
@@ -50,27 +50,6 @@
     
     let open = $derived(isOpen)
     const itemIconSize = 18
-
-    let tokens = $state(0)
-    let tokenTimer: ReturnType<typeof setTimeout> | null = null
-    let tokenSeq = 0
-    // Re-count tokens on a debounce instead of on every content change — the
-    // tokenizer runs a full CBS parse + encode, which is too heavy to do live.
-    // Only when this entry is open: the token count UI renders only while open,
-    // so closed entries (a big lorebook can have hundreds) must not tokenize.
-    // The generation is bumped here (on content change), not in the timer, so an
-    // in-flight tokenize is invalidated the moment the input changes — not only
-    // once the next debounce fires 400ms later.
-    $effect(() => {
-        if (!open) return
-        const content = value.content
-        const seq = ++tokenSeq
-        if (tokenTimer) clearTimeout(tokenTimer)
-        tokenTimer = setTimeout(() => {
-            tokenizeAccurate(content).then(result => { if (seq === tokenSeq) tokens = result })
-        }, 400)
-        return () => { if (tokenTimer) clearTimeout(tokenTimer) }
-    })
 
     function isLocallyActivated(book: loreBook){
         return book.id ? getCurrentChat()?.localLore.some(e => e.id === book.id) : false
@@ -323,7 +302,7 @@
                 <div data-disclosure-label>{language.prompt}</div>
                 <div data-disclosure-control><TextAreaInput highlight autocomplete="off" bind:value={value.content} /></div>
             </div>
-            <span class="text-textcolor2 mb-2 text-sm">{tokens} {language.tokens}</span>
+            <TokenCount value={value.content} className="mb-2" />
 
             {#if !moduleMode && !(value.activationPercent === undefined || value.activationPercent === null)}
                 <div data-disclosure-field>

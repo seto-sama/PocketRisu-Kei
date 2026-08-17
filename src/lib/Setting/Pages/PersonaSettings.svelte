@@ -46,6 +46,7 @@
         bindKey: 'personaPrompt',
         options: {
             placeholder: 'Put the description of this persona here.\nExample: [<user> is a 20 year old girl.]',
+            showTokenCount: true,
         },
     }];
 

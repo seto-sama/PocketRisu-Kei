@@ -1,6 +1,5 @@
 <script lang="ts">
     import { language } from "../../lang";
-    import { tokenizeAccurate } from "../../ts/tokenizer";
     import { saveImage as saveAsset, type character, getCurrentCharacter } from "../../ts/storage/database.svelte";
     import { convertCharacterToModule } from "src/ts/interchangeability";
     import { notifySuccess } from "src/ts/alert";
@@ -36,6 +35,7 @@
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import AdditionalAssetsEditor from "../UI/AdditionalAssetsEditor.svelte";
+    import TokenCount from "../UI/GUI/TokenCount.svelte";
 
     let pkgIncludeCharacter = $state(true)
     let pkgIncludeChats = $state(true)
@@ -43,57 +43,6 @@
     let pkgIncludeInlays = $state(false)
     let addingCreatorNotesLang = $state(false)
     let viewSubMenu = $state(0)
-    let tokens = $state({
-        desc: 0,
-        firstMsg: 0,
-        localNote: 0,
-        charaNote: 0,
-        alternateGreetings: [] as number[]
-    })
-
-    // Per-field debounced token counts. Each field is its own effect so a change
-    // to one can't disturb another, and the generation is bumped in the effect
-    // (on input change) — not in the timer — so an in-flight tokenize is
-    // invalidated the moment the input changes, not 400ms later when the timer
-    // fires. Tokenizing is heavy (full CBS parse + encode), so it stays debounced
-    // off the keystroke path.
-    const tokenizeField = (
-        getValue: () => string,
-        apply: (n: number) => void,
-        timerRef: { t: ReturnType<typeof setTimeout> | null, seq: number }
-    ) => {
-        const value = getValue()
-        const seq = ++timerRef.seq
-        if (timerRef.t) clearTimeout(timerRef.t)
-        timerRef.t = setTimeout(() => {
-            tokenizeAccurate(value).then(n => { if (seq === timerRef.seq) apply(n) })
-        }, 400)
-    }
-    const descTok = { t: null as ReturnType<typeof setTimeout> | null, seq: 0 }
-    const firstMsgTok = { t: null as ReturnType<typeof setTimeout> | null, seq: 0 }
-    const localNoteTok = { t: null as ReturnType<typeof setTimeout> | null, seq: 0 }
-    const alternateGreetingsTok = { t: null as ReturnType<typeof setTimeout> | null, seq: 0 }
-    $effect.pre(() => {
-        tokenizeField(() => (DBState.db.characters[$selectedCharID] as character).desc ?? '', n => tokens.desc = n, descTok)
-    });
-    $effect.pre(() => {
-        tokenizeField(() => DBState.db.characters[$selectedCharID].firstMessage ?? '', n => tokens.firstMsg = n, firstMsgTok)
-    });
-    $effect.pre(() => {
-        const chara = DBState.db.characters[$selectedCharID]
-        tokenizeField(() => chara.chats[chara.chatPage].note ?? '', n => tokens.localNote = n, localNoteTok)
-    });
-    $effect.pre(() => {
-        const greetings = [...(DBState.db.characters[$selectedCharID].alternateGreetings ?? [])]
-        const seq = ++alternateGreetingsTok.seq
-        if (alternateGreetingsTok.t) clearTimeout(alternateGreetingsTok.t)
-        alternateGreetingsTok.t = setTimeout(async () => {
-            const counts = await Promise.all(greetings.map(greeting => tokenizeAccurate(greeting)))
-            if (seq === alternateGreetingsTok.seq) tokens.alternateGreetings = counts
-        }, 400)
-    });
-
-
     let licensed = $state((DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : '')
 
 
@@ -248,7 +197,7 @@
         <ShInput className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].nickname}/>
         <span class="text-textcolor">{language.description}<Help key="charDesc"/></span>
         <TextAreaInput highlight margin="both" autocomplete="off" bind:value={(DBState.db.characters[$selectedCharID] as character).desc}></TextAreaInput>
-        <span class="text-textcolor2 mb-4 text-sm">{tokens.desc} {language.tokens}</span>
+        <TokenCount value={(DBState.db.characters[$selectedCharID] as character).desc} className="mb-4" />
     {/if}
     <span class="text-textcolor">{language.authorNote}<Help key="chatNote"/></span>
     <TextAreaInput
@@ -258,11 +207,11 @@
         highlight
         placeholder={getAuthorNoteDefaultText()}
     />
-    <span class="text-textcolor2 mb-4 text-sm">{tokens.localNote} {language.tokens}</span>
+    <TokenCount value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note} className="mb-4" />
     {#if licensed !== 'private'}
         <span class="text-textcolor">{language.firstMessage}<Help key="charFirstMessage"/></span>
         <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></TextAreaInput>
-        <span class="text-textcolor2 mb-4 text-sm">{tokens.firstMsg} {language.tokens}</span>
+        <TokenCount value={DBState.db.characters[$selectedCharID].firstMessage} className="mb-4" />
 
         <div class="flex w-full items-center justify-between text-textcolor">
             <span>{language.altGreet}</span>
@@ -304,7 +253,7 @@
                         </button>
                     </div>
                 </div>
-                <span class="text-textcolor2 text-sm">{tokens.alternateGreetings[i] ?? 0} {language.tokens}</span>
+                <TokenCount value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} />
             </div>
         {/each}
     {/if}
