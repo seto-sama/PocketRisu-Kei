@@ -70,6 +70,8 @@ export function getActiveSwipeMetadata(message: Message): MessageSwipeMetadata |
  * streamed/non-streamed content update must update both views atomically.
  */
 export function setGenerationMessageContent(message: Message, content: string): void {
+    delete message.isRecovering
+    delete message.recoveryDisplayData
     message.data = content
     if (
         Array.isArray(message.swipes)
@@ -79,6 +81,16 @@ export function setGenerationMessageContent(message: Message, content: string): 
     ) {
         message.swipes[message.swipeId as number] = content
     }
+}
+
+/** Install the generation-owned placeholder before prompt/provider work starts. */
+export function beginGenerationMessageProjection(
+    chat: Chat,
+    options: GenerationMessageTargetOptions,
+): { message: Message, index: number } {
+    const target = ensureGenerationMessageTarget(chat, options)
+    target.message.isRecovering = true
+    return target
 }
 
 /** Keeps completed diagnostics identical on the message and selected swipe. */

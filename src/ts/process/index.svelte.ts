@@ -166,8 +166,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     rerollSnapshot?: RevenantRerollSnapshot
     /** Chat state to commit before generation, before any prompt-only mutation. */
     durableInputCommit?: ChatCommitSnapshot
+    /** Stable id of a generation projection installed before prompt work. */
+    messageChatId?: string
     detachSignal?: AbortSignal
     onDetached?: () => void
+    onWorkflowStarted?: (workflowId: string) => void
     generationTarget?: {
         characterId: string
         roomId: string
@@ -394,6 +397,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                             signal: abortSignal,
                             detachSignal: arg.detachSignal,
                             onDetached: arg.onDetached,
+                            onWorkflowStarted: arg.onWorkflowStarted,
                             generationTarget: arg.generationTarget,
                         })
                     }
@@ -478,7 +482,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return v
     })
 
-    const messageChatId = arg.revenantResume?.context.messageChatId ?? v4()
+    const messageChatId = arg.revenantResume?.context.messageChatId
+        ?? arg.messageChatId
+        ?? v4()
     const outgoingChat = nowChatroom.chats[selectedChat]
     workflowSession = createChatGenerationSession(
         { characterId: nowChatroom.chaId, roomId: outgoingChat.id },
@@ -1242,6 +1248,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         msReseted = false
         for(let i=currentChat.message.length -1;i>=0;i--){
             const d = currentChat.message[i]
+            if(d.isRecovering === true){
+                continue
+            }
             if(d.disabled === true){
                 continue
             }
@@ -2094,6 +2103,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 // job through the same ordinary request path as HTTP adapters.
                 pluginProvider: false,
             }))
+            beginChatGenerationProjection(nowChatroom.chaId, durableInputChat, {
+                messageChatId,
+                isContinuation,
+                rerollSnapshot,
+            })
             const workflow = await beginRevenantWorkflow({
                 characterId: nowChatroom.chaId,
                 roomId: outgoingChat.id,
@@ -2101,11 +2115,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 plan,
             })
             workflowSession.adopt(workflow.workflowId)
-            beginChatGenerationProjection(nowChatroom.chaId, durableInputChat, {
-                messageChatId,
-                isContinuation,
-                rerollSnapshot,
-            })
+            arg.onWorkflowStarted?.(workflow.workflowId)
             const committedInputEtag = workflow.steps
                 .find(step => step.key === 'input.commit' && step.status === 'completed')
                 ?.metadata?.etag
@@ -2115,6 +2125,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
         }
         catch(error){
+            endChatGenerationProjection(nowChatroom.chaId, outgoingChat.id)
             const message = error instanceof RevenantWorkflowBusyError
                 ? 'This room already has a generation waiting to finish or recover.'
                 : error instanceof Error ? error.message : String(error)
@@ -2623,6 +2634,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             signal: abortSignal,
             detachSignal: arg.detachSignal,
             onDetached: arg.onDetached,
+            onWorkflowStarted: arg.onWorkflowStarted,
             generationTarget: arg.generationTarget,
         })
     }
