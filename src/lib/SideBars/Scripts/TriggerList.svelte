@@ -106,7 +106,7 @@
     </div>
 </div>
 {#if v1Enabled}
-    <span class="text-draculared">{language.triggerV1Warning}</span>
+    <span class="text-xs text-draculared">{language.triggerV1Warning}</span>
 {/if}
 {#if triggerMode === 'lua'}
     <TextAreaInput margin="both" autocomplete="off" bind:value={(value[0].effect[0] as triggerCode).code}></TextAreaInput>
