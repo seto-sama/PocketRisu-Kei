@@ -917,7 +917,6 @@ export const languageChineseTraditional = {
     "log": "記錄",
     "popularityLevelDesc": "人氣會隨著下載量等增加。3.7 人氣約等於 1 次下載。",
     "additionalParams": "額外參數",
-    "heightMode": "高度模式",
     "useAdvancedEditor": "使用進階編輯器",
     "antiClaudeOverload": "防止 Claude 因過載而中斷請求",
     "activeTabChange": "由於其他分頁正在運行，目前分頁已暫停。點擊「確定」以切換回此分頁。",

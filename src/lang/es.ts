@@ -849,7 +849,6 @@ export const languageSpanish = {
     "log": "Registro",
     "popularityLevelDesc": "La popularidad aumenta con las descargas, etc. Para estimar, 3.7 de popularidad equivale a aproximadamente 1 descarga.",
     "additionalParams": "Parámetros Adicionales",
-    "heightMode": "Modo de Altura",
     "useAdvancedEditor": "Usar Editor Avanzado",
     "antiClaudeOverload": "Anti-Sobrecarga de Claude",
     "activeTabChange": "La pestaña actual se desactivó porque otra pestaña está activa. para activar esta pestaña, haz clic en Aceptar",

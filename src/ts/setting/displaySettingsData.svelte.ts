@@ -423,24 +423,6 @@ export const displayOtherQuoteItems: SettingItem[] = [
 ];
 
 export const displayOtherAdvancedItems: SettingItem[] = [
-    {
-        id: 'display.heightMode',
-        type: 'select',
-        labelKey: 'heightMode',
-        helpKey: 'heightMode',
-        bindKey: 'heightMode',
-        options: {
-            selectOptions: [
-                { value: 'normal', label: 'Normal' },
-                { value: 'percent', label: 'Percent' },
-                { value: 'vh', label: 'VH' },
-                { value: 'dvh', label: 'DVH' },
-                { value: 'svh', label: 'SVH' },
-                { value: 'lvh', label: 'LVH' },
-            ],
-        },
-        keywords: ['height', 'viewport', 'vh', 'dvh', 'svh', 'lvh'],
-    },
     { id: 'display.hideApiKey', type: 'check', labelKey: 'hideApiKeys', helpKey: 'hideApiKeys', bindKey: 'hideApiKey', keywords: ['api', 'key', 'hide'] },
     { id: 'display.showPromptComparison', type: 'check', labelKey: 'showPromptComparison', helpKey: 'showPromptComparison', bindKey: 'showPromptComparison', keywords: ['prompt', 'comparison'] },
     {

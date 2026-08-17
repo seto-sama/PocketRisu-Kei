@@ -557,7 +557,6 @@ export function setDatabase(data:Database){
     data.enabledModules ??= []
     data.personaEnabledModules ??= {}
     data.additionalParams ??= []
-    data.heightMode ??= 'normal'
     data.antiClaudeOverload ??= false
     data.ollamaURL ??= ''
     data.ollamaModel ??= ''
@@ -1245,7 +1244,6 @@ export interface Database{
     sideMenuRerollButton?:boolean
     requestInfoInsideChat?:boolean
     additionalParams:[string, string][]
-    heightMode:string
     antiClaudeOverload:boolean
     ollamaURL:string
     ollamaModel:string

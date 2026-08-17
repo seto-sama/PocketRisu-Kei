@@ -321,8 +321,6 @@ export const helpEn = {
             "Maximum number of tokens lorebook entries may occupy in one response. When the limit is exceeded, lower-priority entries are cut first.",
         assetMaxDifference:
             "Allowed difference when matching dynamic asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
-        heightMode:
-            "CSS unit used to measure chat screen height. If the mobile browser address bar cuts off the screen, try another unit (`svh`, `lvh`, `dvh`).\n\n- **Normal**: automatic (`100%`)\n- **Percent / VH**: traditional units, sometimes broken on mobile\n- **DVH**: dynamic viewport, changes with address-bar size\n- **SVH**: small viewport, safest visible area\n- **LVH**: large viewport, address bar hidden",
         newOAIHandle:
             "Use the newer OpenAI response-handling path. Try this when a model or response breaks under the legacy handler. The default is recommended for normal use.",
         newImageHandlingBeta:
