@@ -28,10 +28,9 @@
   import SettingRenderer from '../SettingRenderer.svelte'
   import { inlayImageSettingsItems } from 'src/ts/setting/inlayImageSettingsData'
   import FullscreenImageViewer from '../../UI/GUI/FullscreenImageViewer.svelte'
+  import { createIncrementalList } from '../../UI/incrementalList.svelte'
 
   let submenu = $state(0)
-
-  const PAGE_SIZE = 40
 
   type SortKey = 'created-desc' | 'created-asc' | 'updated-desc' | 'updated-asc'
   type SpecialFilter = 'all' | 'meta-missing' | 'orphan-character' | 'orphan-chat' | 'orphan-message'
@@ -39,11 +38,8 @@
   // Data state
   let allItems = $state<InlayExplorerItem[]>([])
   let characterIndex = $state<CharacterChatIndexItem[]>([])
-  let displayCount = $state(PAGE_SIZE)
   let loading = $state(true)
-  let paging = $state(false)
   let galleryScrollContainer: HTMLDivElement | null = $state(null)
-  let loadMoreSentinel: HTMLDivElement | null = $state(null)
   let selection = $state<Set<string>>(new SvelteSet())
   let failedVideoThumbnails = $state<Set<string>>(new SvelteSet())
 
@@ -65,6 +61,13 @@
   let viewerError = $state('')
   // Mobile defaults to preview-only — a narrow info panel would dominate the viewport.
   let infoPanelOpen = $state($SizeStore.w >= 768)
+
+  const incrementalList = createIncrementalList({
+    pageSize: 40,
+    rootMargin: '200px 0px',
+    getRoot: () => findGalleryScrollRoot(),
+  })
+  const observePagingSentinel = incrementalList.observeSentinel
 
   // --- Derived ---
   const activeFilterCount = $derived(
@@ -100,8 +103,8 @@
     })
   })
 
-  const displayedItems = $derived(sortedItems.slice(0, displayCount))
-  const hasMore = $derived(displayCount < sortedItems.length)
+  const displayedItems = $derived(incrementalList.slice(sortedItems))
+  const hasMore = $derived(incrementalList.hasMore(sortedItems.length))
   const hasSelection = $derived(selection.size > 0)
   const currentViewerItem = $derived(sortedItems.find((item) => item.id === viewerId) ?? null)
   const viewerIndex = $derived(sortedItems.findIndex((item) => item.id === viewerId))
@@ -112,6 +115,18 @@
   function getSortTimestamp(item: InlayExplorerItem, key: SortKey): number {
     if (key.startsWith('created')) return item.meta?.createdAt ?? 0
     return item.meta?.updatedAt ?? 0
+  }
+
+  function findGalleryScrollRoot(): HTMLElement | null {
+    let element = galleryScrollContainer?.parentElement ?? null
+    while (element) {
+      const overflowY = getComputedStyle(element).overflowY
+      if ((overflowY === 'auto' || overflowY === 'scroll') && element.scrollHeight > element.clientHeight) {
+        return element
+      }
+      element = element.parentElement
+    }
+    return null
   }
 
   function getCharacterName(item: InlayExplorerItem | null): string | null {
@@ -311,7 +326,7 @@
     characterFilter
     chatFilter
     specialFilter
-    displayCount = PAGE_SIZE
+    incrementalList.reset()
     galleryScrollContainer?.scrollTo({ top: 0 })
   })
 
@@ -322,47 +337,7 @@
     }
   })
 
-  // Infinite scroll.
-  // The component's own `flex-1 overflow-y-auto` container never actually
-  // scrolls because the Settings layout doesn't propagate a height to it —
-  // real scrolling happens on an ancestor (rs-setting-cont-4). So we resolve
-  // the closest scrollable ancestor at runtime and use it as the observer root.
-  let observer: IntersectionObserver | null = null
-  $effect(() => {
-    if (!galleryScrollContainer || !loadMoreSentinel || !hasMore) {
-      observer?.disconnect()
-      return
-    }
-    let rootEl: HTMLElement | null = null
-    let p: HTMLElement | null = galleryScrollContainer.parentElement
-    while (p) {
-      const oy = getComputedStyle(p).overflowY
-      if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) {
-        rootEl = p
-        break
-      }
-      p = p.parentElement
-    }
-    const loadMore = () => {
-      if (!hasMore || loading || paging) return
-      paging = true
-      displayCount += PAGE_SIZE
-      queueMicrotask(() => { paging = false })
-    }
-    observer?.disconnect()
-    observer = new IntersectionObserver(
-      (entries) => { if (entries[0]?.isIntersecting) loadMore() },
-      { root: rootEl, rootMargin: '200px 0px', threshold: 0 }
-    )
-    observer.observe(loadMoreSentinel)
-    return () => {
-      observer?.disconnect()
-      observer = null
-    }
-  })
-
   onDestroy(() => {
-    observer?.disconnect()
     revokeViewerUrl()
   })
 
@@ -560,21 +535,7 @@
                     onclick={(e) => { e.stopPropagation(); copyInlayReference(item.id) }}
                     title={language.copy}
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="11"
-                      height="11"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      class="lucide-icon lucide lucide-copy"
-                    >
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
+                    <Copy size={11} />
                   </button>
                   <div class="flex gap-1.5 justify-end">
                     <button
@@ -599,7 +560,7 @@
         </div>
 
         {#if hasMore}
-          <div bind:this={loadMoreSentinel} class="flex items-center justify-center py-10">
+          <div use:observePagingSentinel={sortedItems.length} class="flex items-center justify-center py-10">
             <div class="w-7 h-7 border-4 border-darkborderc border-t-borderc rounded-full animate-spin"></div>
           </div>
         {/if}

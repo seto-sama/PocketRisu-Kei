@@ -5,10 +5,12 @@
     import { downloadFile, getFileSrc, saveAsset } from 'src/ts/globalApi.svelte';
     import { DBState, SizeStore } from 'src/ts/stores.svelte';
     import { selectMultipleFile } from 'src/ts/util';
+    import { onDestroy } from 'svelte';
     import FullscreenImageViewer from './GUI/FullscreenImageViewer.svelte';
     import IconButton from './GUI/IconButton.svelte';
     import IconButtonGroup from './GUI/IconButtonGroup.svelte';
     import ShInput from './GUI/ShInput.svelte';
+    import { createIncrementalList } from './incrementalList.svelte';
 
     type AdditionalAsset = [string, string, string];
 
@@ -35,10 +37,16 @@
     }: Props = $props();
 
     const previewableImageExtensions = ['png', 'webp', 'jpeg', 'jpg', 'gif', 'svg', 'avif'];
+    const loadingAssetPaths = new Set<string>();
+    const observedAssetPaths = new WeakMap<Element, string>();
+    let assetObserver: IntersectionObserver | null = null;
+    let destroyed = false;
     let assetFilePaths = $state<Record<string, string>>({});
     let assetImageDimensions = $state<Record<string, { width: number, height: number }>>({});
     let previewIndex = $state(-1);
     let previewInfoOpen = $state(false);
+    const incrementalList = createIncrementalList({ pageSize: 40, rootMargin: '400px 0px' });
+    const observePagingSentinel = incrementalList.observeSentinel;
 
     const extensionOf = (asset: AdditionalAsset) => (asset[2] || asset[1].split('.').pop() || '').toLowerCase();
     let previewIndexes = $derived.by(() => assets
@@ -49,22 +57,74 @@
     let previewAsset = $derived(previewIndex >= 0 ? assets[previewIndex] ?? null : null);
     let previewPath = $derived(previewAsset ? assetFilePaths[previewAsset[1]] ?? '' : '');
     let previewDimensions = $derived(previewAsset ? assetImageDimensions[previewAsset[1]] : undefined);
+    let displayedAssets = $derived(incrementalList.slice(assets));
+    let hasMoreAssets = $derived(incrementalList.hasMore(assets.length));
+    let currentAssetPaths = $derived(new Set(assets.map((asset) => asset[1])));
 
-    $effect(() => {
-        if(!DBState.db.useAdditionalAssetsPreview){
+    function loadAssetPreview(path: string) {
+        if(assetFilePaths[path] || loadingAssetPaths.has(path)){
             return;
         }
-        const paths = assets.map((asset) => asset[1]);
-        for(const path of paths){
-            if(assetFilePaths[path]){
-                continue;
-            }
-            getFileSrc(path).then((filePath) => {
-                if(assets.some((asset) => asset[1] === path)){
+        loadingAssetPaths.add(path);
+        void getFileSrc(path)
+            .then((filePath) => {
+                if(!destroyed && filePath && currentAssetPaths.has(path)){
                     assetFilePaths[path] = filePath;
                 }
+            })
+            .finally(() => {
+                loadingAssetPaths.delete(path);
             });
+    }
+
+    function getAssetObserver() {
+        if(assetObserver || typeof IntersectionObserver === 'undefined'){
+            return assetObserver;
         }
+        assetObserver = new IntersectionObserver((entries) => {
+            for(const entry of entries){
+                if(!entry.isIntersecting){
+                    continue;
+                }
+                const path = observedAssetPaths.get(entry.target);
+                assetObserver?.unobserve(entry.target);
+                if(path){
+                    loadAssetPreview(path);
+                }
+            }
+        }, { rootMargin: '200px 0px' });
+        return assetObserver;
+    }
+
+    function lazyLoadAssetPreview(
+        node: HTMLElement,
+        options: { path: string, enabled: boolean },
+    ) {
+        function observe({ path, enabled }: typeof options) {
+            assetObserver?.unobserve(node);
+            observedAssetPaths.set(node, path);
+            if(!enabled || assetFilePaths[path]){
+                return;
+            }
+            const observer = getAssetObserver();
+            if(observer){
+                observer.observe(node);
+            }
+            else {
+                loadAssetPreview(path);
+            }
+        }
+
+        observe(options);
+        return {
+            update: observe,
+            destroy: () => assetObserver?.unobserve(node),
+        };
+    }
+
+    onDestroy(() => {
+        destroyed = true;
+        assetObserver?.disconnect();
     });
 
     $effect(() => {
@@ -193,10 +253,13 @@
             {language.noData}
         </div>
     {:else}
-        {#each assets as asset, i}
+        {#each displayedAssets as asset, i}
             {@const extension = extensionOf(asset)}
             <div class="flex min-w-0 items-center gap-2 p-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
-                <div class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-textcolor2">
+                <div
+                    class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-textcolor2"
+                    use:lazyLoadAssetPreview={{ path: asset[1], enabled: DBState.db.useAdditionalAssetsPreview }}
+                >
                     {#if assetFilePaths[asset[1]] && DBState.db.useAdditionalAssetsPreview}
                         {#if previewAllAsImages || previewableImageExtensions.includes(extension)}
                             <button
@@ -209,12 +272,14 @@
                                     src={assetFilePaths[asset[1]]}
                                     class="w-full h-full object-cover object-top"
                                     alt={asset[0]}
+                                    loading="lazy"
+                                    decoding="async"
                                     onload={(event) => recordImageDimensions(event, asset[1])}
                                 />
                             </button>
                         {:else if ['mp4', 'webm'].includes(extension)}
                             <!-- svelte-ignore a11y_media_has_caption -->
-                            <video class="w-full h-full object-cover"><source src={assetFilePaths[asset[1]]} /></video>
+                            <video class="w-full h-full object-cover" preload="none"><source src={assetFilePaths[asset[1]]} /></video>
                         {:else if extension === 'mp3'}
                             <FileMusicIcon size={22} />
                         {:else}
@@ -255,6 +320,9 @@
                 </IconButtonGroup>
             </div>
         {/each}
+        {#if hasMoreAssets}
+            <div use:observePagingSentinel={assets.length} class="h-px w-full" aria-hidden="true"></div>
+        {/if}
     {/if}
 </div>
 <div class="mt-2 flex justify-start">
