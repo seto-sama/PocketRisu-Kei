@@ -107,4 +107,25 @@ describe('SidebarAvatar folder borders', () => {
         expect(unselectedAvatar.querySelector('.avatar-selection-particles')).toBeNull()
         expect(selectedAvatar.querySelectorAll('.avatar-selection-particle')).toHaveLength(1)
     })
+
+    it('uses the avatar overlay for a folder merge target', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(SidebarAvatar, {
+            target,
+            props: {
+                src: '/character.png',
+                size: '56',
+                rounded: false,
+                name: 'Merge target',
+                mergeTarget: true,
+            },
+        })
+        mountedComponents.push(component)
+        await tick()
+
+        const avatar = target.querySelector<HTMLElement>('.avatar')!
+        expect(avatar.dataset.mergeTarget).toBe('true')
+        expect(avatar.querySelector('.avatar-border-overlay')).not.toBeNull()
+    })
 })

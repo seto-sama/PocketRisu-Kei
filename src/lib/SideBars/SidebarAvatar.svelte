@@ -14,6 +14,7 @@
     backgroundimg?: string|Promise<string>;
     children?: import('svelte').Snippet;
     selected?: boolean;
+    mergeTarget?: boolean;
     oncontextmenu?: (event: MouseEvent & {
         currentTarget: EventTarget & HTMLDivElement;
     }) => any
@@ -31,6 +32,7 @@
     backgroundimg = '',
     children,
     selected = false,
+    mergeTarget = false,
     oncontextmenu,
     chaId
   }: Props = $props();
@@ -112,6 +114,7 @@
       tabindex="0"
       data-char-id={chaId}
       data-selected={selected}
+      data-merge-target={mergeTarget}
 >
   {#if src}
     {#if src === "slot"}
@@ -217,6 +220,14 @@
 
   .avatar-state-border[data-selected="true"] > .avatar-border-overlay {
     border-color: var(--risu-theme-primary);
+  }
+
+  .avatar-state-border[data-merge-target="true"] > .avatar-border-overlay {
+    border-color: color-mix(in srgb, var(--risu-theme-primary) 82%, white);
+    background: color-mix(in srgb, var(--risu-theme-primary) 7%, transparent);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--risu-theme-primary) 32%, transparent),
+      0 0 10px color-mix(in srgb, var(--risu-theme-primary) 30%, transparent);
   }
 
   .avatar[data-selected="true"]::after {

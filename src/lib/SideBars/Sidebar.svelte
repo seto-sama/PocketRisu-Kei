@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onDestroy } from "svelte";
     import {
     CharEmotion,
     DynamicGUI,
@@ -18,7 +19,7 @@
 
 
   } from "../../ts/stores.svelte";
-    import { setDatabase, type folder } from "../../ts/storage/database.svelte";
+    import { setDatabase } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import BarIcon from "./BarIcon.svelte";
     import {
@@ -46,7 +47,7 @@
     import SidebarAvatar from "./SidebarAvatar.svelte";
     import ShSwitch from "../UI/GUI/ShSwitch.svelte";
     import ShSortableList from "../UI/GUI/ShSortableList.svelte";
-    import type { MoveEvent } from "sortablejs";
+    import type { SortableEvent } from "sortablejs";
     import BaseRoundedButton from "../UI/BaseRoundedButton.svelte";
     import { getCharacterIndexObject, makeAgoText, selectSingleFile } from "src/ts/util";
     import { v4 } from "uuid";
@@ -54,6 +55,16 @@
     import { alertInput, alertSelect } from "src/ts/alert";
     import SideChatList from "./SideChatList.svelte";
     import { folderColorOptions } from "./folderColors";
+    import {
+      applySidebarDrop,
+      createSidebarDragController,
+      readSidebarOrderFromDom,
+      SIDEBAR_DEFAULT_FOLDER_NAME,
+      SIDEBAR_FOLDER_ITEM_SIZE,
+      SIDEBAR_ROOT_ITEM_SIZE,
+      SIDEBAR_SORTABLE_GROUP,
+      type SidebarDropTarget,
+    } from "./sidebarDrag";
 
   import { sideBarSize } from "src/ts/gui/guisize";
   import DevTool from "./DevTool.svelte";
@@ -96,7 +107,16 @@
   let IconRounded = $state(false)
   let openFolders:string[] = $state([])
   let sidebarSortElement: HTMLDivElement | undefined = $state()
-  let mergeTargetId: string | null = null
+  let mergeTargetId: string | null = $state(null)
+  let folderDropTargetId: string | null = $state(null)
+  const sidebarDragController = createSidebarDragController({
+    root: () => sidebarSortElement,
+    onTargetChange: (target: SidebarDropTarget | null) => {
+      mergeTargetId = target?.kind === 'merge' ? target.id : null
+      folderDropTargetId = target?.kind === 'folder' ? target.id : null
+    },
+  })
+  const sidebarSortableBehavior = sidebarDragController.sortableOptions
   interface Props {
     openGrid?: any;
     onNavigate?: () => void;
@@ -158,85 +178,35 @@
   })
 
 
-  function syncSidebarOrderFromDom() {
-    if (!sidebarSortElement) return
-    const existingFolders = new Map(
-      DBState.db.characterOrder
-        .filter((item): item is folder => typeof item !== 'string')
-        .map(item => [item.id, item])
-    )
-    const nextOrder: (string | folder)[] = []
-    const seenCharacterIds = new Set<string>()
-
-    for (const element of sidebarSortElement.querySelectorAll<HTMLElement>(':scope > [data-sidebar-order-key]')) {
-      const key = element.dataset.sidebarOrderKey
-      if (!key) continue
-      const existingFolder = existingFolders.get(key)
-      if (existingFolder) {
-        const folderContainer = element.querySelector<HTMLElement>(`:scope [data-sortable-container-key="${CSS.escape(key)}"]`)
-        if (folderContainer) {
-          existingFolder.data = Array.from(
-            folderContainer.querySelectorAll<HTMLElement>(':scope > [data-sidebar-order-key]')
-          ).map(child => child.dataset.sidebarOrderKey ?? '').filter(id => id && !seenCharacterIds.has(id))
-        }
-        existingFolder.data.forEach(id => seenCharacterIds.add(id))
-        nextOrder.push(existingFolder)
-      } else if (!seenCharacterIds.has(key)) {
-        seenCharacterIds.add(key)
-        nextOrder.push(key)
-      }
-    }
-
+  function commitSidebarOrder(nextOrder: typeof DBState.db.characterOrder) {
     DBState.db.characterOrder = nextOrder
     checkCharOrder()
   }
 
-  function createFolderById(sourceId: string, targetId: string) {
-    if (sourceId === targetId) return
-    const order = DBState.db.characterOrder
-    const sourceIndex = order.indexOf(sourceId)
-    const targetIndex = order.indexOf(targetId)
-    const sourceFolder = sourceIndex === -1
-      ? order.find((item): item is folder => typeof item !== 'string' && item.data.includes(sourceId))
-      : undefined
-    if ((!sourceFolder && sourceIndex === -1) || targetIndex === -1) return
-    const newFolder: folder = {
-      name: "New Folder",
-      data: [sourceId, targetId],
-      color: "",
-      id: v4(),
-    }
-    order[targetIndex] = newFolder
-    if (sourceFolder) {
-      sourceFolder.data.splice(sourceFolder.data.indexOf(sourceId), 1)
-    } else {
-      order.splice(sourceIndex, 1)
-    }
-    DBState.db.characterOrder = order
-    checkCharOrder()
+  function syncSidebarOrderUnlessDropping(_orderedKeys: string[], event: SortableEvent) {
+    if (!sidebarSortElement || !sidebarDragController.shouldSyncOrder(event)) return
+    commitSidebarOrder(readSidebarOrderFromDom(sidebarSortElement, DBState.db.characterOrder))
   }
 
-  function moveSidebarItem(event: MoveEvent, originalEvent: Event) {
-    const dragged = event.dragged as HTMLElement
-    const related = event.related as HTMLElement
-    if (dragged.dataset.sidebarKind === 'folder' && event.to !== sidebarSortElement) return false
-    if (
-      event.to === sidebarSortElement &&
-      dragged.dataset.sidebarKind === 'character' &&
-      related.dataset.sidebarKind === 'character'
-    ) {
-      const pointerY = originalEvent instanceof TouchEvent
-        ? originalEvent.touches[0]?.clientY
-        : (originalEvent as MouseEvent).clientY
-      const rect = related.getBoundingClientRect()
-      const inCenter = pointerY !== undefined && pointerY > rect.top + rect.height * 0.3 && pointerY < rect.bottom - rect.height * 0.3
-      mergeTargetId = inCenter ? related.dataset.sidebarOrderKey ?? null : null
-      if (inCenter) return false
-    } else {
-      mergeTargetId = null
-    }
-    return true
+  function finishSidebarDrag(sourceId: string, event: SortableEvent) {
+    const target = sidebarDragController.end(event)
+    const nextOrder = applySidebarDrop(DBState.db.characterOrder, sourceId, target, () => ({
+      id: v4(),
+      name: SIDEBAR_DEFAULT_FOLDER_NAME,
+      color: '',
+    }))
+    if (nextOrder) commitSidebarOrder(nextOrder)
+    suppressNextClick = true
+    requestAnimationFrame(() => { suppressNextClick = false })
   }
+
+  function startSidebarDrag(sourceId: string, event: SortableEvent) {
+    sidebarDragController.start(sourceId, event)
+  }
+
+  onDestroy(() => {
+    sidebarDragController.destroy()
+  })
 
   function scrollToActiveCharacter() {
     const selectedId = $selectedCharID
@@ -476,7 +446,11 @@
       {/if}
     </IconButtonGroup>
   </div>
-  <div class="character-list flex grow w-full flex-col items-center overflow-x-hidden overflow-y-auto pr-0" class:max-xs:hidden={$leftBarCollapsed}>
+  <div
+    class="character-list flex grow w-full flex-col items-center overflow-x-hidden overflow-y-auto pr-0"
+    class:max-xs:hidden={$leftBarCollapsed}
+    role="list"
+  >
     <ShSortableList
       bind:element={sidebarSortElement}
       disabled={sidebarSortingDisabled}
@@ -484,27 +458,23 @@
       draggable="[data-sidebar-order-key]"
       dataAttribute="data-sidebar-order-key"
       options={{
+        ...sidebarSortableBehavior,
         group: {
-          name: 'sidebar-characters',
+          name: SIDEBAR_SORTABLE_GROUP,
           pull: true,
           put: true,
         },
-        onMove: moveSidebarItem,
       }}
-      onReorder={syncSidebarOrderFromDom}
-      onDragStart={() => { mergeTargetId = null }}
-      onDragEnd={(sourceId) => {
-        if (mergeTargetId) createFolderById(sourceId, mergeTargetId)
-        mergeTargetId = null
-        suppressNextClick = true
-        requestAnimationFrame(() => { suppressNextClick = false })
-      }}
+      onReorder={syncSidebarOrderUnlessDropping}
+      onDragStart={startSidebarDrag}
+      onDragEnd={finishSidebarDrag}
     >
     {#each charImages as char, ind}
       <div
         class="flex flex-col items-center"
         data-sidebar-order-key={char.type === 'normal' ? DBState.db.characters[char.index]?.chaId : char.id}
         data-sidebar-kind={char.type === 'normal' ? 'character' : 'folder'}
+        data-sortable-no-scale
       >
       <div class="group relative flex items-center"
         role="listitem"
@@ -529,17 +499,19 @@
           {#if char.type === 'normal'}
             <SidebarAvatar 
               src={char.img ? getCharImage(char.img, "plain") : ""}
-              size="56" 
+              size={String(SIDEBAR_ROOT_ITEM_SIZE)}
               rounded={IconRounded} 
               name={char.name}
               chaId={DBState.db.characters[char.index]?.chaId}
               selected={$selectedCharID === char.index && sideBarMode !== 1}
+              mergeTarget={mergeTargetId === DBState.db.characters[char.index]?.chaId}
             />
           {:else if char.type === "folder"}
             {#key char.color}
             {#key char.name}
-              <SidebarAvatar src="slot" size="56" rounded={IconRounded} bordered name={char.name} color={char.color} backgroundimg={char.img ? getCharImage(char.img, "plain") : ""}
+            <SidebarAvatar src="slot" size={String(SIDEBAR_ROOT_ITEM_SIZE)} rounded={IconRounded} bordered name={char.name} color={char.color} backgroundimg={char.img ? getCharImage(char.img, "plain") : ""}
               selected={sideBarMode !== 1 && char.folder.some(folderChar => folderChar.index === $selectedCharID)}
+              mergeTarget={folderDropTargetId === char.id}
               oncontextmenu={async (e) => {
                 e.preventDefault()
                 const remoteVisibilityLabel = char.localOnly
@@ -655,24 +627,23 @@
             draggable="[data-sidebar-order-key]"
             dataAttribute="data-sidebar-order-key"
             options={{
+              ...sidebarSortableBehavior,
               group: {
-                name: 'sidebar-characters',
+                name: SIDEBAR_SORTABLE_GROUP,
                 pull: true,
                 put: (_to, _from, dragged) => (dragged as HTMLElement).dataset.sidebarKind === 'character',
               },
-              onMove: moveSidebarItem,
             }}
-            onReorder={syncSidebarOrderFromDom}
-            onDragEnd={() => {
-              suppressNextClick = true
-              requestAnimationFrame(() => { suppressNextClick = false })
-            }}
+            onReorder={syncSidebarOrderUnlessDropping}
+            onDragStart={startSidebarDrag}
+            onDragEnd={finishSidebarDrag}
           >
           {#each char.folder as char2, ind}
               <div class="group relative flex items-center z-10"
               role="listitem"
               data-sidebar-order-key={DBState.db.characters[char2.index]?.chaId}
               data-sidebar-kind="character"
+              data-sortable-no-scale
             >
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <div
@@ -693,7 +664,7 @@
                 >
                 <SidebarAvatar 
                   src={char2.img ? getCharImage(char2.img, "plain") : ""}
-                  size="48"
+                  size={String(SIDEBAR_FOLDER_ITEM_SIZE)}
                   rounded={IconRounded} 
                   name={char2.name}
                   chaId={DBState.db.characters[char2.index]?.chaId}
@@ -885,6 +856,26 @@
 {/if}
 
 <style>
+  :global(.risu-ghost-item[data-sidebar-kind="character"]),
+  :global(.sidebar-sortable-fallback[data-sidebar-kind="character"]) {
+    width: var(--sidebar-drag-size) !important;
+    height: var(--sidebar-drag-size) !important;
+    min-width: var(--sidebar-drag-size) !important;
+  }
+
+  :global(.risu-ghost-item .avatar),
+  :global(.risu-ghost-item .avatar-tile),
+  :global(.sidebar-sortable-fallback .avatar),
+  :global(.sidebar-sortable-fallback .avatar-tile) {
+    width: var(--sidebar-drag-size) !important;
+    height: var(--sidebar-drag-size) !important;
+    min-width: var(--sidebar-drag-size) !important;
+  }
+
+  :global(.sidebar-sortable-fallback) {
+    opacity: 0.82 !important;
+  }
+
   .sidebar-mode-switch {
     position: relative;
     bottom: 1.5rem;
