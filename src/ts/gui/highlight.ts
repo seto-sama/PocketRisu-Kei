@@ -1,4 +1,6 @@
-type HighlightType = 'decorator'|'deprecated'|'cbsnest0'|'cbsnest1'|'cbsnest2'|'cbsnest3'|'cbsnest4'|'cbsdisplay'|'comment'
+import { getCBSDefinitions } from 'src/ts/cbs'
+
+export type HighlightType = 'decorator'|'deprecated'|'cbsnest0'|'cbsnest1'|'cbsnest2'|'cbsnest3'|'cbsnest4'|'cbsdisplay'|'comment'
 
 type HighLightRange = [number, number]
 type HighlightInt = [HighLightRange, HighlightType]
@@ -55,7 +57,7 @@ export const highlighter = (highlightDom:HTMLElement, id:number) => {
             fullText = fullText.toLocaleLowerCase()
     
             const ranges:HighlightIntRanged[] = []
-            const parsed = simpleCBSHighlightParser(fullText)
+            const parsed = getCBSHighlightRanges(fullText)
 
             const convertToDomRange = (start:number, end:number):Range[] => {
                 const startNodeIndex = nodePointers.findIndex((pointer) => pointer >= start);
@@ -94,21 +96,6 @@ export const highlighter = (highlightDom:HTMLElement, id:number) => {
                 }
             }
 
-            for(const syntax of highlighterSyntax){
-                const regex = syntax.regex
-                let match:RegExpExecArray | null;
-                while ((match = regex.exec(fullText)) !== null) {
-                    const length = match[0].length;
-                    const index = match.index;
-                    const converted = convertToDomRange(index, index + length);
-                    if (converted) {
-                        for(const range of converted){
-                            ranges.push([range, syntax.type]);
-                        }
-                    }
-                }
-            }
-    
             highLights.set(id, ranges)
     
             runHighlight()
@@ -147,47 +134,29 @@ export const removeHighlight = (id:number) => {
     highLights.delete(id)
 }
 
-const normalCBS = [
-    'char', 'user', 'char_persona', 'description', 'char_desc', 'example_dialogue', 'previous_char_chat',
-    'lastcharmessage', 'previous_user_chat', 'lastusermessage',
-    'example_message', 'persona', 'user_persona', 'lorebook', 'world_info', 'history', 'messages',
-    'chat_index', 'first_msg_index', 'blank', 'none', 'message_time', 'message_date', 'time',
-    'date', 'isotime', 'isodate', 'message_idle_duration', 'idle_duration', 'br', 'newline',
-    'model', 'axmodel', 'role', 'jbtoggled', 'random', 'maxcontext', 'lastmessage', 'lastmessageid',
-    'lastmessageindex', 'emotionlist', 'assetlist', 'prefill_supported', 'unixtime', 'slot', 'module_enabled',
-    'is_first_message', '/', '/if', '/each', '/pure', '/if_pure', '/func', '/pure_display'
-]
-
-const normalCBSwithParams = [
-    'getvar', 'calc', 'addvar', 'setvar', 'setdefaultvar', 'button', 'equal', 'not_equal', 'file',
-    'startswith', 'endswith', 'contains', 'replace', 'split', 'join', 'spread', 'trim', 'length',
-    'arraylength', 'array_length', 'lower', 'upper', 'capitalize', 'round', 'floor', 'ceil', 'abs',
-    'previous_chat_log', 'tonumber', 'arrayelement', 'array_element', 'arrayshift', 'array_shift',
-    'arraypop', 'array_pop', 'arraypush', 'array_push', 'arraysplice', 'array_splice',
-    'makearray', 'array', 'a', 'make_array', 'history', 'messages', 'range', 'date', 'time', 'datetimeformat', 'date_time_format',
-    'random', 'pick', 'roll', 'datetimeformat', 'hidden_key', 'reverse', 'getglobalvar', 'position', 'slot', 'rollp',
-    'and', 'or', 'not', 'message_time_array', 'filter', 'greater', 'less', 'greater_equal', 'less_equal', 'arg'
-]
-
 const displayRelatedCBS = [
     'raw', 'img', 'video', 'audio', 'bg', 'emotion', 'asset', 'video-img', 'comment', 'image'
 ];
 
-const nestedCBS = [
-    '#if', '#if_pure ', '#pure ', '#each ', '#func', '#pure_display'
-]
+const cbsDefinitions = getCBSDefinitions().filter(definition => !definition.internalOnly)
+const knownCBSNames = new Set<string>(['/'])
+const deprecatedCBSNames = new Set<string>()
 
-const specialCBS = [
-    'random:', 'pick:', 'roll:', 'datetimeformat:', '? ', 'hidden_key: ', 'reverse: ', ...nestedCBS
-]
-
-const deprecatedCBS = [
-    'personality', 'scenario', 'main_prompt', 'system_prompt', 'ujb', 'global_note', 'system_note',
-]
-
-const deprecatedCBSwithParams = [
-    'remaind', 'pow'
-]
+for (const definition of cbsDefinitions) {
+    for (const name of [definition.name, ...definition.alias]) {
+        const normalizedName = name.toLocaleLowerCase()
+        knownCBSNames.add(normalizedName)
+        // Deprecated block syntax remains valid and common in existing
+        // presets. Keep its nesting color instead of presenting it as deleted.
+        if (definition.deprecated && !normalizedName.startsWith('#')) {
+            deprecatedCBSNames.add(normalizedName)
+        }
+        if (normalizedName.startsWith('#')) {
+            const closingName = `/${normalizedName.slice(1)}`
+            knownCBSNames.add(closingName)
+        }
+    }
+}
 
 export const decorators = [
     'activate_only_after', 'activate_only_every', 'keep_activate_after_match', 'dont_activate_after_match', 'depth', 'reverse_depth',
@@ -198,10 +167,6 @@ export const decorators = [
 const deprecatedDecorators = [
     'end', 'assistant', 'user', 'system'
 ]
-
-export const AllCBS = [...normalCBS, ...(normalCBSwithParams.concat(displayRelatedCBS).map((v) => {
-    return v + ':'
-})), ...nestedCBS]
 
 const highlighterSyntax = [
     {
@@ -219,87 +184,64 @@ const highlighterSyntax = [
 ] as const
 
 
+export function getCBSHighlightRanges(text:string): HighlightInt[] {
+    const normalizedText = text.toLocaleLowerCase()
+    const ranges = simpleCBSHighlightParser(normalizedText)
+
+    for(const syntax of highlighterSyntax){
+        syntax.regex.lastIndex = 0
+        let match:RegExpExecArray | null
+        while ((match = syntax.regex.exec(normalizedText)) !== null) {
+            ranges.push([[match.index, match.index + match[0].length], syntax.type])
+        }
+    }
+
+    return ranges
+}
+
 function simpleCBSHighlightParser(text:string){
     let depth = 0
     let pointer = 0
-    let depthStarts = new Uint8Array(100)
-    let highlightMode = new Uint8Array(100)
+    const tokenStarts: number[] = []
+    const segmentStarts: number[] = []
+    const highlightMode: number[] = []
 
     const ranges:HighlightInt[] = []
     const excludesRanges:[number,number][] = []
 
     text = text.toLowerCase()
 
-    const checkHighlight = () => {
+    const checkHighlight = (rangeEnd: number) => {
         if(depth !== 0 && highlightMode[depth] === 0){
             highlightMode[depth] = 10
-            const upString = text.slice(depthStarts[depth], pointer)
+            const upString = text.slice(tokenStarts[depth], pointer).trimStart()
+            const token = upString.split(/::|\s/, 1)[0]
+            const legacyToken = token.split(':', 1)[0]
+            const resolvedName = knownCBSNames.has(token)
+                ? token
+                : knownCBSNames.has(legacyToken) ? legacyToken : ''
 
-            if(highlightMode[depth] === 10){
-                for(const arg of normalCBS){
-                    if(upString === arg){
-                        highlightMode[depth] = 1
-                        break
-                    }
-                }
-            }
-
-            if(highlightMode[depth] === 10){
-                for(const arg of deprecatedCBS){
-                    if(upString === arg){
-                        highlightMode[depth] = 3
-                        break
-                    }
-                }
-            }
-
-            if(highlightMode[depth] === 10){
-                for(const arg of normalCBSwithParams){
-                    if(upString.startsWith(arg + '::')){
-                        highlightMode[depth] = 1
-                        break
-                    }
-                }
-            }
-
-            if(highlightMode[depth] === 10){
-                for(const arg of deprecatedCBSwithParams){
-                    if(upString.startsWith(arg + '::')){
-                        highlightMode[depth] = 3
-                        break
-                    }
-                }
-            }
-            
-            if(highlightMode[depth] === 10){
-                for(const arg of displayRelatedCBS){
-                    if(upString.startsWith(arg + '::')){
-                        highlightMode[depth] = 2
-                        break
-                    }
-                }
-            }
-
-            if(highlightMode[depth] === 10){
-                for(const arg of specialCBS){
-                    if(upString.startsWith(arg)){
-                        highlightMode[depth] = 1
-                        break
-                    }
-                }
-            }
-
-            if(upString.startsWith('// ')){
+            if(upString.startsWith('//')){
                 highlightMode[depth] = 4
             }
+            else if (resolvedName && deprecatedCBSNames.has(resolvedName)) {
+                highlightMode[depth] = 3
+            }
+            else if (resolvedName && displayRelatedCBS.includes(resolvedName)) {
+                highlightMode[depth] = 2
+            }
+            else if (resolvedName) {
+                highlightMode[depth] = 1
+            }
 
-            colorHighlight()
+            colorHighlight(rangeEnd)
         }
     }
 
-    const colorHighlight = () => {
+    const colorHighlight = (rangeEnd: number) => {
         if(highlightMode[depth] !== 10){
-            const range:HighLightRange = [depthStarts[depth] - 2, pointer + 2]
+            const range:HighLightRange = [segmentStarts[depth], rangeEnd]
+            if (range[0] >= range[1]) return
             switch(highlightMode[depth]){
                 case 1:
                     ranges.push([range, `cbsnest${depth % 5}` as HighlightType])
@@ -317,25 +259,26 @@ function simpleCBSHighlightParser(text:string){
         }
     }
 
+    const finishSegment = (rangeEnd: number) => {
+        if (highlightMode[depth] === 0) checkHighlight(rangeEnd)
+        else colorHighlight(rangeEnd)
+    }
+
     while(pointer < text.length){
         const c = text[pointer]
         const nextC = text[pointer + 1]
         if(c === '{' && nextC === '{'){
-            checkHighlight()
+            if (depth !== 0) finishSegment(pointer)
             depth++
             pointer++
-            depthStarts[depth] = pointer + 1
+            tokenStarts[depth] = pointer + 1
+            segmentStarts[depth] = pointer - 1
             highlightMode[depth] = 0
         }else if(c === '}' && nextC === '}'){
-            if(highlightMode[depth] === 0){
-                checkHighlight()
-            }
-            else{
-                colorHighlight()
-            }
+            finishSegment(pointer + 2)
             depth--
             pointer++
-            depthStarts[depth] = pointer
+            segmentStarts[depth] = pointer + 1
         }
         pointer++
     }

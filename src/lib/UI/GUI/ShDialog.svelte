@@ -23,6 +23,9 @@
         closable?: boolean;
         closeOnEscape?: boolean;
         closeOnOutsideClick?: boolean;
+        /** Intercepts user-initiated close actions (Escape, backdrop, close
+         * button) so callers can confirm before actually changing `open`. */
+        onRequestClose?: () => void;
         contentClass?: string;
         bodyClass?: string;
         overlayClass?: string;
@@ -47,6 +50,7 @@
         closable = true,
         closeOnEscape = false,
         closeOnOutsideClick = true,
+        onRequestClose,
         contentClass = '',
         bodyClass = '',
         overlayClass = '',
@@ -87,7 +91,18 @@
             // Toasts live in their own portal. They are intentionally usable
             // above dialogs and must not be treated as backdrop interaction.
             event.preventDefault()
+            return
         }
+        if (onRequestClose && closeOnOutsideClick) {
+            event.preventDefault()
+            onRequestClose()
+        }
+    }
+
+    function handleEscapeKeydown(event: KeyboardEvent) {
+        if (!onRequestClose || !closeOnEscape) return
+        event.preventDefault()
+        onRequestClose()
     }
 </script>
 
@@ -100,6 +115,7 @@
             class={cn(contentBase, tierClasses[tier], sizeClasses[size], contentClass)}
             escapeKeydownBehavior={closeOnEscape ? 'close' : 'ignore'}
             interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
+            onEscapeKeydown={handleEscapeKeydown}
             onInteractOutside={handleInteractOutside}
             {onCloseAutoFocus}
         >
@@ -116,12 +132,23 @@
                         </Dialog.Description>
                     {/if}
                     {#if closable}
-                        <Dialog.Close
-                            class="absolute right-0 top-0 rounded-sm border border-transparent text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
-                            aria-label="Close"
-                        >
-                            <XIcon size={18} />
-                        </Dialog.Close>
+                        {#if onRequestClose}
+                            <button
+                                type="button"
+                                class="absolute right-0 top-0 rounded-sm border border-transparent text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
+                                aria-label="Close"
+                                onclick={onRequestClose}
+                            >
+                                <XIcon size={18} />
+                            </button>
+                        {:else}
+                            <Dialog.Close
+                                class="absolute right-0 top-0 rounded-sm border border-transparent text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
+                                aria-label="Close"
+                            >
+                                <XIcon size={18} />
+                            </Dialog.Close>
+                        {/if}
                     {/if}
                 </div>
             {/if}

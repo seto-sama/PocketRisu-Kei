@@ -20,6 +20,18 @@ importers:
       '@browsermt/bergamot-translator':
         specifier: ^0.4.9
         version: 0.4.9
+      '@codemirror/autocomplete':
+        specifier: ^6.20.3
+        version: 6.20.3
+      '@codemirror/search':
+        specifier: ^6.7.1
+        version: 6.7.1
+      '@codemirror/state':
+        specifier: ^6.7.1
+        version: 6.7.1
+      '@codemirror/view':
+        specifier: ^6.43.6
+        version: 6.43.6
       '@dqbd/tiktoken':
         specifier: ^1.0.22
         version: 1.0.22

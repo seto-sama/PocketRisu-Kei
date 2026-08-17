@@ -239,6 +239,7 @@
             value: prettyPrint(entry.str),
             title: entry.key,
             formatJson: true,
+            mode: 'plain',
             metadata: [
                 { label: language.pluginStorageMetaType, value: entry.type },
                 { label: language.pluginStorageMetaSize, value: formatSize(entry.size) },

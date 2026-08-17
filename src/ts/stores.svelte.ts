@@ -219,23 +219,28 @@ export interface PopupEditorOptions {
     title?: string
     metadata?: PopupEditorMetadata[]
     formatJson?: boolean
+    mode?: 'plain' | 'cbs'
     onSave: (value: string) => boolean | Promise<boolean>
 }
 
 export const popUpEditorStore = $state({
     open: false,
     value: '',
+    originalValue: '',
     title: '',
     metadata: [] as PopupEditorMetadata[],
     formatJson: false,
+    mode: 'cbs' as 'plain' | 'cbs',
     onSave: null as null | ((value: string) => boolean | Promise<boolean>)
 })
 
 export function showPopupEditor(options: PopupEditorOptions) {
     popUpEditorStore.value = options.value
+    popUpEditorStore.originalValue = options.value
     popUpEditorStore.title = options.title ?? ''
     popUpEditorStore.metadata = options.metadata ?? []
     popUpEditorStore.formatJson = options.formatJson ?? false
+    popUpEditorStore.mode = options.mode ?? 'cbs'
     popUpEditorStore.onSave = options.onSave
     popUpEditorStore.open = true
 }
