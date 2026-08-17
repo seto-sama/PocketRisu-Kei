@@ -1224,7 +1224,6 @@ export const languageKorean = {
   textAreaTextSize: "입력 텍스트 크기",
   sideBarSize: "사이드바 크기",
   embedding: "임베딩",
-  syntax: "문법",
   run: "실행",
   noMessage: "무언가 입력하여 채팅을 시작하세요.",
   combineTranslation: "결합 번역",
@@ -1521,11 +1520,6 @@ export const languageKorean = {
   staticsDisclaimer:
     "통계는 2024년 7월 이후의 데이터를 기반으로 하며, 정확하지 않을 수 있습니다.",
   cumulativeActivity: "누적 기록",
-  subtitles: "자막",
-  subtitlesWarning1:
-    "이 기능을 사용하려면 오디오/비디오 입력을 지원하는 모델을 사용해야 합니다.",
-  subtitlesWarning2:
-    "이 기능을 사용하려면 스트리밍 기능을 지원하는 모델을 사용해야 합니다.",
   reset: "초기화",
   clearInputConfirm: "이 입력란의 내용을 모두 지울까요?",
   assetMaxDifference: "에셋 최대 차이",
@@ -1538,7 +1532,6 @@ export const languageKorean = {
   showSavingIcon: "저장 아이콘 표시",
   pluginVersionWarn:
     "이 플러그인은 {{plugin_version}} 버전입니다. 이 버전의 PocketRisu Kei와 호환되지 않습니다. 플러그인을 {{required_version}} 버전으로 업데이트하세요.",
-  imageTranslation: "이미지 번역",
   banCharacterset: "문자 집합으로 자동 재생성",
   realmDirectOpen: "RisuRealm 미리보기에서 바로 열기",
   showPromptComparison: "프롬프트 비교 보기",

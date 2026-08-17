@@ -5,19 +5,13 @@
     import PlaygroundEmbedding from "./PlaygroundEmbedding.svelte";
     import PlaygroundTokenizer from "./PlaygroundTokenizer.svelte";
     import PlaygroundJinja from "./PlaygroundJinja.svelte";
-    import PlaygroundSyntax from "./PlaygroundSyntax.svelte";
     import PlaygroundImageGen from "./PlaygroundImageGen.svelte";
     import PlaygroundParser from "./PlaygroundParser.svelte";
     import ToolConversion from "./ToolConversion.svelte";
 
-    import PlaygroundSubtitle from "./PlaygroundSubtitle.svelte";
-    import PlaygroundImageTrans from "./PlaygroundImageTrans.svelte";
     import PlaygroundTranslation from "./PlaygroundTranslation.svelte";
     import PlaygroundMcp from "./PlaygroundMCP.svelte";
     import PlaygroundDocs from "./PlaygroundDocs.svelte";
-    import { openSettings, SettingsRoute } from 'src/ts/routing';
-
-    let easterEggTouch = $state(0)
 
 </script>
 
@@ -41,11 +35,6 @@
                 <h1 class="text-2xl font-bold text-start">{language.tokenizer}</h1>
             </button>
             <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
-                PlaygroundStore.set(5)
-            }}>
-                <h1 class="text-2xl font-bold text-start">{language.syntax}</h1>
-            </button>
-            <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
                 PlaygroundStore.set(6)
             }}>
                 <h1 class="text-2xl font-bold text-start">Jinja</h1>
@@ -61,16 +50,6 @@
                 <h1 class="text-2xl font-bold text-start">Parser</h1>
             </button>
             <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
-                PlaygroundStore.set(9)
-            }}>
-                <h1 class="text-2xl font-bold text-start">{language.subtitles}</h1>
-            </button>
-            <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
-                PlaygroundStore.set(10)
-            }}>
-                <h1 class="text-2xl font-bold text-start">{language.imageTranslation}</h1>
-            </button>
-            <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
                 PlaygroundStore.set(11)
             }}>
                 <h1 class="text-2xl font-bold text-start">{language.translator}</h1>
@@ -81,28 +60,9 @@
                 <h1 class="text-2xl font-bold text-start">MCP</h1>
             </button>
             <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
-                openSettings(SettingsRoute.InlayImageGallery)
-            }}>
-                <h1 class="text-2xl font-bold text-start">{language.playground.inlayImageGallery}</h1>
-            </button>
-            <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
                 PlaygroundStore.set(101)
             }}>
                 <h1 class="text-2xl font-bold text-start">{language.promptConvertion}</h1>
-            </button>
-
-            <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
-                easterEggTouch += 1
-            }}>
-                <h1 class="text-2xl font-bold text-start">
-                    {#if easterEggTouch <= 10}
-                        🤗 Coming soon
-                    {:else if easterEggTouch <= 30}
-                        🤗 Still coming soon
-                    {:else if easterEggTouch <= 50}
-                        😇 Really soon
-                    {/if}
-                </h1>
             </button>
         </div>
     {:else}
@@ -122,9 +82,6 @@
             {#if $PlaygroundStore === 4}
                 <PlaygroundTokenizer/>
             {/if}
-            {#if $PlaygroundStore === 5}
-                <PlaygroundSyntax/>
-            {/if}
             {#if $PlaygroundStore === 6}
                 <PlaygroundJinja/>
             {/if}
@@ -134,12 +91,6 @@
             {#if $PlaygroundStore === 8}
                 <PlaygroundParser/>
             {/if}  
-            {#if $PlaygroundStore === 9}
-                <PlaygroundSubtitle/>
-            {/if}
-            {#if $PlaygroundStore === 10}
-               <PlaygroundImageTrans/>
-            {/if}
             {#if $PlaygroundStore === 11}
                 <PlaygroundTranslation/>
             {/if}
