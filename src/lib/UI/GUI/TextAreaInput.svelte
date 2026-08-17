@@ -145,7 +145,8 @@
 </div>
 <script lang="ts">
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
-    import { highlighter, getNewHighlightId, removeHighlight, AllCBS } from 'src/ts/gui/highlight'
+    import { highlighter, getNewHighlightId, removeHighlight } from 'src/ts/gui/highlight'
+    import { AllCBS } from 'src/ts/cbs'
     import { onDestroy, onMount, tick } from 'svelte';
   import { DBState, disableHighlight, showPopupEditor } from 'src/ts/stores.svelte';
   import { isMobile } from 'src/ts/platform'

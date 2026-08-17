@@ -404,7 +404,7 @@
             </IconButton>
         </IconButtonGroup>
 
-        {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground' && !$chatDeselected}
+        {#if !$chatDeselected}
             {#if DBState.db.showModelInSidebar}
                 <ModelBind />
             {/if}

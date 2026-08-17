@@ -5,6 +5,7 @@
     export type ShBadgeVariant =
         | 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost' | 'link'
         | 'attention' | 'warning' | 'info' | 'success';
+    export type ShBadgeSize = 'xs' | 'sm' | 'md';
 </script>
 
 <script lang="ts">
@@ -14,18 +15,26 @@
 
     interface Props extends HTMLAttributes<HTMLSpanElement> {
         variant?: ShBadgeVariant;
+        size?: ShBadgeSize;
         className?: string;
         children?: Snippet;
     }
 
     let {
         variant = 'default',
+        size = 'sm',
         className = '',
         children,
         ...rest
     }: Props = $props();
 
-    const base = 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap shrink-0 transition-colors';
+    const base = 'inline-flex items-center border font-medium whitespace-nowrap shrink-0 transition-colors';
+
+    const sizeClasses: Record<ShBadgeSize, string> = {
+        xs: 'gap-0.5 rounded-sm px-1.5 py-0.5 text-[10px] leading-none',
+        sm: 'gap-1 rounded-md px-1.5 py-0.5 text-xs',
+        md: 'gap-1.5 rounded-md px-2.5 py-1 text-sm',
+    };
 
     const variantClasses: Record<ShBadgeVariant, string> = {
         default: 'bg-selected/60 text-textcolor border-darkborderc',
@@ -41,6 +50,6 @@
     };
 </script>
 
-<span class={cn(base, variantClasses[variant], className)} {...rest}>
+<span class={cn(base, sizeClasses[size], variantClasses[variant], className)} {...rest}>
     {@render children?.()}
 </span>

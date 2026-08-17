@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, CopyIcon, PowerOff, GitBranch, HamburgerIcon, LanguagesIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, UserIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
+    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, CopyIcon, PowerOff, GitBranch, HamburgerIcon, LanguagesIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
     import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createChatCopyName } from "src/ts/globalApi.svelte"
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme"
     import { getModelInfo } from "src/ts/model/modellist"
@@ -74,6 +74,7 @@
         swipeNavigationOnly?: boolean;
         isStreamingDisplay?: boolean;
         generationOwned?: boolean;
+        hideSender?: boolean;
         isComment?: boolean;
         disabled?: boolean | 'allBefore';
         renderCacheKey?: string;
@@ -106,6 +107,7 @@
         swipeNavigationOnly = false,
         isStreamingDisplay = false,
         generationOwned = false,
+        hideSender = false,
         isComment = false,
         disabled = false,
         renderCacheKey = '',
@@ -114,6 +116,17 @@
         translationRecoveryTarget,
         getScrollController = () => null,
     }: Props = $props();
+
+    function toggleMessageRole() {
+        const currentCharacter = DBState.db.characters[selIdState.selId]
+        const currentMessage = currentCharacter?.chats[currentCharacter.chatPage]?.message?.[idx]
+        if (!currentMessage) return
+        currentMessage.role = currentMessage.role === 'char' ? 'user' : 'char'
+        ReloadChatPointer.update((value) => {
+            value[idx] = (value[idx] ?? 0) + 1
+            return value
+        })
+    }
 
     let msgDisplay = $state('')
     let translated = $state(false)
@@ -1191,6 +1204,13 @@
 {#snippet minorIconButtonsBody(showNames:boolean)}
     <fieldset class="contents" disabled={generationOwned}>
     {#if idx > -1}
+        <IconButton size="lg" expanded={showNames} onclick={toggleMessageRole}>
+            <ArrowLeftRightIcon />
+            {#if showNames}
+                <span class="ml-1">{language.changeMessageRole}</span>
+            {/if}
+        </IconButton>
+
         <IconButton size="lg" expanded={showNames} active={isBookmarked} activeColor="primary" className="button-icon-bookmark" onclick={async () => {
             await sleep(1)
             toggleBookmark()
@@ -1264,30 +1284,19 @@
 {/snippet}
 
 {#snippet senderIcon(options:{rounded?:boolean,styleFix?:string} = {})}
-    {#if !blankMessage && !$HideIconStore}
-        {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground"}
-        <div class="shadow-lg border-textcolor2 border flex justify-center items-center text-textcolor2" style={options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
-            class:rounded-md={options?.rounded} class:rounded-full={options?.rounded}>
-                {#if name === 'assistant'}
-                    <BotIcon />
-                {:else}
-                    <UserIcon />
-                {/if}
-            </div>
-        {:else}
-            {#await img}
-                <div class="shadow-lg bg-textcolor2" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
+    {#if !blankMessage && !$HideIconStore && !hideSender}
+        {#await img}
+            <div class="shadow-lg bg-textcolor2" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
+            class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
+        {:then m}
+            {#if largePortrait && (!options?.rounded)}
+                <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100 / 0.75}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
                 class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
-            {:then m}
-                {#if largePortrait && (!options?.rounded)}
-                    <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100 / 0.75}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
-                    class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
-                {:else}
-                    <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
-                    class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
-                {/if}
-            {/await}
-        {/if}
+            {:else}
+                <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
+                class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
+            {/if}
+        {/await}
     {/if}
 {/snippet}
 
@@ -1452,24 +1461,15 @@
                 DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
                 'max-w-3xl'}
             <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto py-6 px-4 sm:px-8 bg-bgcolor sm:rounded-lg">
-                <!-- Header: icon + name -->
-                <div class="flex items-center gap-3 mb-4">
-                    {@render senderIcon({rounded: DBState.db.roundIcons})}
-                    {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
-                        <span class="text-lg sm:text-xl text-textcolor flex items-center">
-                            <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
-                            <button class="ml-2 text-textcolor2 risu-interactive-foreground" onclick={() => {
-                                DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'user' : 'char'
-                                ReloadChatPointer.update((v) => {
-                                    v[idx] = (v[idx] ?? 0) + 1
-                                    return v
-                                })
-                            }}><ArrowLeftRightIcon size="18" /></button>
-                        </span>
-                    {:else if !$HideIconStore}
-                        <span class="text-lg sm:text-xl text-textcolor">{name}</span>
-                    {/if}
-                </div>
+                {#if !hideSender}
+                    <!-- Header: icon + name -->
+                    <div class="flex items-center gap-3 mb-4">
+                        {@render senderIcon({rounded: DBState.db.roundIcons})}
+                        {#if !$HideIconStore}
+                            <span class="text-lg sm:text-xl text-textcolor">{name}</span>
+                        {/if}
+                    </div>
+                {/if}
                 <!-- Body: message text -->
                 <div class="mb-3 leading-relaxed">
                     {@render textBox()}
@@ -1530,13 +1530,14 @@
             <div class="w-full flex flex-col px-0 sm:px-4 py-4 relative">
                 <div class="bg-linear-to-b from-bgcolor to-darkbg rounded-lg shadow-lg border-darkborderc border p-4 flex flex-col">
                     <div class="flex gap-4 mt-2 flex-col sm:flex-row">
-                        <div class="flex flex-col items-center">
-                            <div class="sm:h-96 sm:w-72 sm:min-w-72 w-48 h-64">
-                                {@render senderIcon({rounded: false, styleFix:'height:100%;width:100%;'})}
+                        {#if !hideSender}
+                            <div class="flex flex-col items-center">
+                                <div class="sm:h-96 sm:w-72 sm:min-w-72 w-48 h-64">
+                                    {@render senderIcon({rounded: false, styleFix:'height:100%;width:100%;'})}
+                                </div>
+                                <h2 class="text-base font-bold text-textcolor2 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
                             </div>
-                            <h2 class="text-base font-bold text-textcolor2 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
-
-                        </div>
+                        {/if}
                         {#if editMode}
                             <textarea class="grow h-138 sm:h-96 overflow-y-auto bg-transparent text-textcolor p-2 mb-2 resize-none message-edit-area" bind:value={editDraft}></textarea>
                         {:else}
@@ -1556,18 +1557,7 @@
             {@render senderIcon({rounded: DBState.db.roundIcons})}
             <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
                 <div class="flexium items-center chat-width">
-                    {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && !blankMessage && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
-                        <span class="chat-width text-xl border-darkborderc flex items-center text-textcolor">
-                            <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
-                            <button class="ml-2 text-textcolor2 risu-interactive-foreground" onclick={() => {
-                                DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'user' : 'char'
-                                ReloadChatPointer.update((v) => {
-                                    v[idx] = (v[idx] ?? 0) + 1
-                                    return v
-                                })
-                            }}><ArrowLeftRightIcon size="18" /></button>
-                        </span>
-                    {:else if !blankMessage && !$HideIconStore}
+                    {#if !blankMessage && !$HideIconStore && !hideSender}
                         <div class="chat-width text-xl unmargin text-textcolor flex items-center">
                             <span>{name}</span>
                         </div>
@@ -1581,18 +1571,7 @@
             {@render senderIcon({rounded: DBState.db.roundIcons})}
             <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
                 <div class="flexium items-center chat-width">
-                    {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && !blankMessage && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
-                        <span class="chat-width text-xl border-darkborderc flex items-center text-textcolor">
-                            <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
-                            <button class="ml-2 text-textcolor2 risu-interactive-foreground" onclick={() => {
-                                DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'user' : 'char'
-                                ReloadChatPointer.update((v) => {
-                                    v[idx] = (v[idx] ?? 0) + 1
-                                    return v
-                                })
-                            }}><ArrowLeftRightIcon size="18" /></button>
-                        </span>
-                    {:else if !blankMessage && !$HideIconStore}
+                    {#if !blankMessage && !$HideIconStore && !hideSender}
                         <div class="chat-width text-xl unmargin text-textcolor flex items-center">
                             <span>{name}</span>
                         </div>

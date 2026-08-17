@@ -9,7 +9,6 @@ import { parseChatML } from "../parser/chatML";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserName, parseToggleSyntax, prebuiltAssetCommand } from "../util";
 import { requestChatData } from "./request/request";
-import { stableDiff } from "./stableDiff";
 import { processScript, processScriptFull, risuChatParser } from "./scripts";
 import { exampleMessage } from "./exampleMessages";
 import { sayTTS } from "./tts";
@@ -941,12 +940,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 content: currentChar.newGenData.emotionInstructions.replaceAll('{{slot}}', currentChar.emotionImages.map((v) => v[0]).join(', '))
             })
         }
-        if(currentChar.viewScreen === 'imggen'){
-            unformated.postEverything.push({
-                role: 'system',
-                content: currentChar.newGenData.instructions
-            })
-        }
     }
 
     const postEverythingLorebooks = lorepmt.actives.filter(v => {
@@ -1252,6 +1245,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         msReseted = false
         for(let i=currentChat.message.length -1;i>=0;i--){
             const d = currentChat.message[i]
+            if(d.kind === 'imageGeneration'){
+                continue
+            }
             if(d.isRecovering === true){
                 continue
             }
@@ -2882,22 +2878,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             return await finishSuccessfulWorkflow()
 
 
-        }
-        else if(currentChar.viewScreen === 'imggen'){
-            const msgs = DBState.db.characters[selectedChar].chats[selectedChat].message
-            let msgStr = ''
-            for(let i = (msgs.length - 1);i>=0;i--){
-                if(msgs[i].role === 'char'){
-                    msgStr = `character: ${msgs[i].data.replace(/\n/g, ' ')} \n` + msgStr
-                }
-                else{
-                    msgStr = `user: ${msgs[i].data.replace(/\n/g, ' ')} \n` + msgStr
-                    break
-                }
-            }
-
-
-            await stableDiff(currentChar, msgStr)
         }
     }
 

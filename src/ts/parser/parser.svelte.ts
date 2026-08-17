@@ -798,8 +798,18 @@ export function parseInlayAssets(data:string){
 }
 
 // Global resolve queue for inlay placeholders
-const resolveQueue: { el: HTMLElement, id: string, type: string }[] = []
+const resolveQueue: { el: HTMLElement, id: string }[] = []
 let isResolvingPlaceholders = false
+
+function fillInlayPlaceholder(el: HTMLElement, id: string, content?: Node): boolean {
+    if(el.getAttribute('data-inlay-id') !== id) return false
+    el.removeAttribute('data-inlay-id')
+    el.removeAttribute('data-inlay-type')
+    el.classList.remove('risu-inlay-placeholder', 'x-risu-risu-inlay-placeholder')
+    el.style.removeProperty('min-height')
+    el.replaceChildren(...(content ? [content] : []))
+    return true
+}
 
 async function processInlayQueue() {
     if (isResolvingPlaceholders || resolveQueue.length === 0) return
@@ -836,7 +846,7 @@ async function processInlayQueue() {
 
         for (const { el, id } of batch) {
             try {
-                if (!el.parentNode) continue
+                if (!el.parentNode || el.getAttribute('data-inlay-id') !== id) continue
 
                 const cached = blobUrlCache.get(id)
                 const url = cached?.url ?? assetUrl(`inlay/${id}`)
@@ -845,7 +855,7 @@ async function processInlayQueue() {
 
                 switch (type) {
                     case 'image':
-                        if (DBState.db.hideAllImages) { el.remove(); break }
+                        if (DBState.db.hideAllImages) { fillInlayPlaceholder(el, id); break }
                         const img = document.createElement('img')
                         img.src = url
                         img.style.animation = 'risu-fade-in 0.3s ease-out'
@@ -878,7 +888,7 @@ async function processInlayQueue() {
                                 img.replaceWith(createMissingInlayPlaceholder(id))
                             }
                         }
-                        el.replaceWith(img)
+                        fillInlayPlaceholder(el, id, img)
                         break
                     case 'video': {
                         const video = document.createElement('video')
@@ -887,7 +897,7 @@ async function processInlayQueue() {
                         source.src = url
                         source.type = 'video/mp4'
                         video.appendChild(source)
-                        el.replaceWith(video)
+                        fillInlayPlaceholder(el, id, video)
                         break
                     }
                     case 'audio': {
@@ -897,14 +907,14 @@ async function processInlayQueue() {
                         source.src = url
                         source.type = 'audio/mpeg'
                         audio.appendChild(source)
-                        el.replaceWith(audio)
+                        fillInlayPlaceholder(el, id, audio)
                         break
                     }
                 }
             } catch (e) {
                 console.error(`[Inlay] Failed to load ${id}`, e)
                 if (el.parentNode) {
-                    el.replaceWith(createMissingInlayPlaceholder(id))
+                    fillInlayPlaceholder(el, id, createMissingInlayPlaceholder(id))
                 }
             }
         }
@@ -913,19 +923,18 @@ async function processInlayQueue() {
     isResolvingPlaceholders = false
 }
 
-export function resolveInlayPlaceholders(root: HTMLElement) {
-    if (!root) return
+export function resolveInlayPlaceholders(root: HTMLElement): () => void {
+    if (!root) return () => {}
     const placeholders = Array.from(root.querySelectorAll('[data-inlay-id]')) as HTMLElement[]
-    if (placeholders.length === 0) return
+    if (placeholders.length === 0) return () => {}
 
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting) {
                 const el = entry.target as HTMLElement
                 const id = el.getAttribute('data-inlay-id')
-                const type = el.getAttribute('data-inlay-type')
                 if (id) {
-                    resolveQueue.push({ el, id, type: type || 'inlay' })
+                    resolveQueue.push({ el, id })
                     observer.unobserve(el)
                     processInlayQueue()
                 }
@@ -934,6 +943,7 @@ export function resolveInlayPlaceholders(root: HTMLElement) {
     }, { rootMargin: '200px' }) // Start loading a bit before they scroll into view
 
     placeholders.forEach(el => observer.observe(el))
+    return () => observer.disconnect()
 }
 
 export interface simpleCharacterArgument{

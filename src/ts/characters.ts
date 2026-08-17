@@ -1,10 +1,10 @@
-import { get, writable } from "svelte/store";
-import { saveImage, setDatabase, type character, type Chat, defaultSdDataFunc, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
+import { get } from "svelte/store";
+import { saveImage, setDatabase, type character, type Chat, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
 import { ensureChatHydrated } from "./storage/chatStorage";
 import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, alertWait, notifySuccess, notifyInfo } from "./alert";
 import { loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
-import { checkNullish, findCharacterbyId, getUserName, selectMultipleFile, selectSingleFile } from "./util";
+import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleFile } from "./util";
 import { v4 as uuidv4, v4 } from 'uuid';
 import { getImageType } from "./media";
 import { MobileGUIStack, OpenRealmStore, selectedCharID } from "./stores.svelte";
@@ -12,7 +12,7 @@ import { AppendableBuffer, changeChatTo, checkCharOrder, downloadFile, getFileSr
 import { updateInlayScreen } from "./process/inlayScreen";
 import { parseMarkdownSafe } from "./parser/parser.svelte";
 import { translateHTML } from "./translator/translator";
-import { importCharacter } from "./characterCards";
+import { importCharacterProcess } from "./characterCards";
 import { importCharacterPackage } from "./characterPackage";
 import { PngChunk } from "./pngChunk";
 import { PRODUCT_NAME } from "./branding";
@@ -22,6 +22,23 @@ export function createNewCharacter() {
     db.characters.push(createBlankChar())
     checkCharOrder()
     return db.characters.length - 1
+}
+
+async function importCharactersAndPackages() {
+    const files = await selectFileByDom(['png', 'jpg', 'jpeg', 'json', 'charx', 'zip'], 'multiple')
+    if (!files) return
+
+    for (const file of files) {
+        if (file.name.toLowerCase().endsWith('.zip')) {
+            await importCharacterPackage({
+                name: file.name,
+                data: new Uint8Array(await file.arrayBuffer()),
+            })
+        } else {
+            await importCharacterProcess({ name: file.name, data: file })
+            checkCharOrder()
+        }
+    }
 }
 
 export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgcss') {
@@ -131,34 +148,6 @@ export function changeCharImage(charIndex:number,changeIndex:number) {
     db.characters[charIndex] = char
 }
 
-
-export const addingEmotion = writable(false)
-
-export async function addCharEmotion(charId:number) {
-    addingEmotion.set(true)
-    const selected = await selectMultipleFile(['png', 'webp', 'gif'])
-    if(!selected){
-        addingEmotion.set(false)
-        return
-    }
-    let db = getDatabase()
-    for(const f of selected){
-        const img = f.data
-        const imgp = await saveImage(img)
-        const name = f.name.replace('.png','').replace('.webp','')
-        let dbChar = db.characters[charId]
-        dbChar.emotionImages.push([name,imgp])
-        db.characters[charId] = dbChar
-    }
-    addingEmotion.set(false)
-}
-
-export function rmCharEmotion(charId:number, emotionId:number) {
-    let db = getDatabase()
-    let dbChar = db.characters[charId]
-    dbChar.emotionImages.splice(emotionId, 1)
-    db.characters[charId] = dbChar
-}
 
 function getCurrentExportTheme() {
     const styles = getComputedStyle(document.documentElement)
@@ -613,9 +602,6 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
     if(!cha.chaId){
         cha.chaId = uuidv4()
     }
-    if(checkNullish(cha.sdData)){
-        cha.sdData = defaultSdDataFunc()
-    }
     if(checkNullish(cha.utilityBot)){
         cha.utilityBot = false
     }
@@ -659,9 +645,8 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
     cha.backgroundCSS ??= ''
     cha.creation_date ??= Date.now()
     cha.globalLore = updateLorebooks(cha.globalLore)
-    if(!cha.newGenData){
-        cha = updateInlayScreen(cha)
-    }
+    if((cha.viewScreen as string) === 'imggen') cha.viewScreen = 'none'
+    cha = updateInlayScreen(cha)
     // Migrate legacy 'none' value to '' for UI dropdown compatibility
     // Using '' because it's falsy, so `if (ttsMode)` correctly detects enabled TTS
     if (cha.ttsMode === 'none') {
@@ -728,7 +713,6 @@ export function createBlankChar():character{
         globalLore: [],
         chaId: uuidv4(),
         type: 'character',
-        sdData: defaultSdDataFunc(),
         utilityBot: false,
         lowLevelAccess: false,
         hideChatIcon: false,
@@ -878,10 +862,7 @@ export async function addCharacter(arg:{
             createNewCharacter()
             break
         case 'importCharacter':
-            await importCharacter()
-            break
-        case 'importPackage':
-            await importCharacterPackage()
+            await importCharactersAndPackages()
             break
         default:
             MobileGUIStack.set(1)

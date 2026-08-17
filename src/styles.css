@@ -37,8 +37,15 @@
   --color-highlight: var(--risu-theme-highlight);
   --color-accent: var(--risu-theme-accent);
 
-  /* Syntax roles deliberately reuse theme hues without assigning status
-     meanings such as success/warning to code tokens. */
+  /* CBS nesting keeps five distinct theme-aware hues before cycling. */
+  /* The parser's first nesting level is cbsnest1, then 2/3/4/0. */
+  --color-syntax-depth-0: var(--risu-theme-success);
+  --color-syntax-depth-1: var(--risu-theme-primary);
+  --color-syntax-depth-2: var(--risu-theme-scoped);
+  --color-syntax-depth-3: var(--risu-theme-highlight);
+  --color-syntax-depth-4: var(--risu-theme-accent);
+
+  /* Non-nesting syntax roles reuse the same theme hues. */
   --color-syntax-comment: var(--risu-theme-textcolor2);
   --color-syntax-type: var(--risu-theme-primary);
   --color-syntax-keyword: var(--risu-theme-accent);

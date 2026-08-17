@@ -8,15 +8,12 @@
     import { ChevronRightIcon, User } from '@lucide/svelte';
     import { hubURL, isCharacterHasAssets } from 'src/ts/characterCards';
     import TextInput from '../UI/GUI/TextInput.svelte';
-    import { openURL, getFetchLogs, downloadFile } from 'src/ts/globalApi.svelte';
-    import Button from '../UI/GUI/Button.svelte';
+    import { openURL, downloadFile } from 'src/ts/globalApi.svelte';
+    import ShButton from '../UI/GUI/ShButton.svelte';
     import ShDialog from '../UI/GUI/ShDialog.svelte';
     import ShAlertDialog from '../UI/GUI/ShAlertDialog.svelte';
     import ShLoadingDialog from '../UI/GUI/ShLoadingDialog.svelte';
-    import ShButton from '../UI/GUI/ShButton.svelte';
     import { XIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, PencilIcon, TrashIcon, EllipsisVerticalIcon, RefreshCwIcon, PlusIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
-    import hljs from 'highlight.js/lib/core';
-    import json from 'highlight.js/lib/languages/json';
     import SelectInput from "../UI/GUI/SelectInput.svelte";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
     import { language } from 'src/lang';
@@ -39,7 +36,6 @@
     import { selectSingleFile } from "src/ts/util";
     import { translateStackTrace } from "../../ts/sourcemap";
     import { getDetailedOSLabel, getFallbackOSLabel, getRisuEnvironmentLabel } from "src/ts/platform";
-    import { formatRequestBody, formatResponseBody, getResponseBodyDetails } from "src/ts/requestLogFormat";
     import { PRODUCT_NAME } from "src/ts/branding";
     import RequestDiagnosticsModal from "./RequestDiagnosticsModal.svelte";
 
@@ -82,8 +78,6 @@
         y:number,
         content:string,
     } = $state(null)
-    let expandedLogs: Set<number> = $state(new Set())
-    let allExpanded = $state(false)
     let copiedKey: string | null = $state(null)
     let togglePresetShowAll = $state(false)
     let suppressInputFocusRestore = false
@@ -105,19 +99,6 @@
                 type2: cardExportType2,
             }),
         })
-    }
-
-    // Register JSON language for syntax highlighting
-    if (!hljs.getLanguage('json')) {
-        hljs.registerLanguage('json', json)
-    }
-
-    function highlightJson(code: string): string {
-        try {
-            return hljs.highlight(code, { language: 'json' }).value
-        } catch {
-            return code.replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        }
     }
 
     async function copyToClipboard(text: string, key: string) {
@@ -157,10 +138,6 @@
             cardExportType = ''
             cardExportType2 = ''
             cardLicense = ''
-        }
-        if($alertStore.type !== 'requestlogs'){
-            expandedLogs = new Set()
-            allExpanded = false
         }
     });
 
@@ -223,7 +200,7 @@
     }}
 />
 
-{#if $alertStore.type !== 'none' && $alertStore.type !== 'requestdata' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'branches' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'requestlogs' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress' && $alertStore.type !== 'confirmMulti' && $alertStore.type !== 'addchar'}
+{#if $alertStore.type !== 'none' && $alertStore.type !== 'requestdata' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'branches' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress' && $alertStore.type !== 'confirmMulti' && $alertStore.type !== 'addchar'}
     <div class="risu-modal-backdrop z-50 flex justify-center items-center">
         <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
             {#if $alertStore.type === 'selectChar'}
@@ -332,7 +309,7 @@
                     <ShSwitch className="shrink-0" bind:checked={DBState.db.imageCompression} />
                 </div>
             {/if}
-            <Button className="mt-4" onclick={() => {
+            <ShButton className="mt-4" onclick={() => {
                 alertStore.set({
                     type: 'none',
                     msg: JSON.stringify({
@@ -340,7 +317,7 @@
                         type2: cardExportType2
                     })
                 })
-            }}>{language.export}</Button>
+            }}>{language.export}</ShButton>
         </div>
     </div>
 
@@ -433,175 +410,6 @@
             {/if}
         {/each}
     </div>
-{:else if $alertStore.type === 'requestlogs'}
-    {@const logs = getFetchLogs()}
-    <div class="risu-modal-backdrop z-50 flex justify-center items-start overflow-y-auto p-4">
-        <div class="bg-darkbg rounded-lg w-full max-w-4xl my-4 flex flex-col max-h-[90vh]">
-            <div class="flex items-center justify-between p-4 border-b border-darkborderc sticky top-0 bg-darkbg z-10">
-                <h1 class="text-xl font-bold text-textcolor">{language.ShowLog}</h1>
-                <div class="flex items-center gap-2">
-                    <Button size="sm" onclick={() => {
-                        if(allExpanded) {
-                            expandedLogs = new Set()
-                        } else {
-                            expandedLogs = new Set(logs.map((_, i) => i))
-                        }
-                        allExpanded = !allExpanded
-                    }}>
-                        {allExpanded ? language.collapseAll : language.expandAll}
-                    </Button>
-                    <IconButton size="lg" onclick={() => {
-                        alertStore.set({ type: 'none', msg: '' })
-                    }}>
-                        <XIcon />
-                    </IconButton>
-                </div>
-            </div>
-            <div class="flex-1 overflow-y-auto p-4">
-                {#if logs.length === 0}
-                    <div class="text-textcolor2 text-center py-8">{language.noRequestLogs}</div>
-                {:else}
-                    <div class="flex flex-col gap-2">
-                        {#each logs as log, i}
-                            {@const isExpanded = expandedLogs.has(i)}
-                            {@const requestBody = formatRequestBody(log.body)}
-                            {@const responseBody = formatResponseBody(log)}
-                            {@const responseDetails = getResponseBodyDetails(log)}
-                            <div class="border border-darkborderc rounded-lg overflow-hidden">
-                                <button
-                                    class="w-full flex items-center justify-between p-3 hover:bg-bgcolor/50 transition-colors"
-                                    onclick={() => {
-                                        const newSet = new Set(expandedLogs)
-                                        if(isExpanded) {
-                                            newSet.delete(i)
-                                        } else {
-                                            newSet.add(i)
-                                        }
-                                        expandedLogs = newSet
-                                    }}
-                                >
-                                    <div class="flex items-center gap-3 min-w-0 flex-1">
-                                        <span class="px-2 py-1 rounded text-xs font-bold font-mono {log.success ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}">
-                                            {log.status ?? (log.success ? 'OK' : 'ERR')}
-                                        </span>
-                                        <span class="text-textcolor text-sm truncate flex-1 text-left font-mono" title={log.url}>
-                                            {log.url}
-                                        </span>
-                                        <span class="text-textcolor text-xs whitespace-nowrap opacity-70">{log.date}</span>
-                                    </div>
-                                    <div class="ml-2 text-textcolor">
-                                        {#if isExpanded}
-                                            <ChevronUpIcon size={20} />
-                                        {:else}
-                                            <ChevronDownIcon size={20} />
-                                        {/if}
-                                    </div>
-                                </button>
-                                {#if isExpanded}
-                                    <div class="border-t border-darkborderc p-4 bg-bgcolor/30">
-                                        <div class="space-y-4">
-                                            <div>
-                                                <div class="flex items-center justify-between mb-2">
-                                                    <span class="text-textcolor text-sm font-semibold">URL</span>
-                                                    <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-url` ? 'text-green-500' : 'text-textcolor2 risu-interactive-foreground'}"
-                                                        onclick={(e) => { e.stopPropagation(); copyToClipboard(log.url, `${i}-url`) }}
-                                                        title="Copy"
-                                                    >
-                                                        {#if copiedKey === `${i}-url`}
-                                                            <CheckIcon size={12} />
-                                                        {:else}
-                                                            <CopyIcon size={12} />
-                                                        {/if}
-                                                    </button>
-                                                </div>
-                                                <pre class="request-log-code hljs text-sm">{log.url}</pre>
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center justify-between mb-2">
-                                                    <span class="text-textcolor text-sm font-semibold">Request Body</span>
-                                                    <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-body` ? 'text-green-500' : 'text-textcolor2 risu-interactive-foreground'}"
-                                                        onclick={(e) => { e.stopPropagation(); copyToClipboard(log.body, `${i}-body`) }}
-                                                        title="Copy"
-                                                    >
-                                                        {#if copiedKey === `${i}-body`}
-                                                            <CheckIcon size={12} />
-                                                        {:else}
-                                                            <CopyIcon size={12} />
-                                                        {/if}
-                                                    </button>
-                                                </div>
-                                                <pre class="request-log-code hljs">{@html highlightJson(requestBody)}</pre>
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center justify-between mb-2">
-                                                    <span class="text-textcolor text-sm font-semibold">Request Header</span>
-                                                    <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-header` ? 'text-green-500' : 'text-textcolor2 risu-interactive-foreground'}"
-                                                        onclick={(e) => { e.stopPropagation(); copyToClipboard(log.header, `${i}-header`) }}
-                                                        title="Copy"
-                                                    >
-                                                        {#if copiedKey === `${i}-header`}
-                                                            <CheckIcon size={12} />
-                                                        {:else}
-                                                            <CopyIcon size={12} />
-                                                        {/if}
-                                                    </button>
-                                                </div>
-                                                <pre class="request-log-code hljs max-h-32">{@html highlightJson(log.header)}</pre>
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center justify-between mb-2">
-                                                    <span class="text-textcolor text-sm font-semibold">Response</span>
-                                                    <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-response` ? 'text-green-500' : 'text-textcolor2 risu-interactive-foreground'}"
-                                                        onclick={(e) => { e.stopPropagation(); copyToClipboard(responseBody, `${i}-response`) }}
-                                                        title="Copy"
-                                                    >
-                                                        {#if copiedKey === `${i}-response`}
-                                                            <CheckIcon size={12} />
-                                                        {:else}
-                                                            <CopyIcon size={12} />
-                                                        {/if}
-                                                    </button>
-                                                </div>
-                                                {#if responseDetails}
-                                                    <div class="space-y-2">
-                                                        {#each responseDetails.groups as group (group.event)}
-                                                            <details class="border border-darkborderc rounded-md text-textcolor2">
-                                                                <summary class="cursor-pointer select-none p-2 font-mono text-sm">
-                                                                    {group.summary}
-                                                                </summary>
-                                                                <pre class="request-log-code hljs max-h-64 border-t border-darkborderc rounded-none">{group.readable}</pre>
-                                                                <details class="border-t border-darkborderc">
-                                                                    <summary class="cursor-pointer select-none p-2 font-mono text-sm">Raw</summary>
-                                                                    <pre class="request-log-code hljs max-h-64 border-t border-darkborderc rounded-none">{@html highlightJson(group.raw)}</pre>
-                                                                </details>
-                                                            </details>
-                                                        {/each}
-                                                    </div>
-                                                    {#if responseDetails.remainder}
-                                                        <pre class="request-log-code hljs max-h-64 mt-2">{responseDetails.remainder}</pre>
-                                                        <details class="mt-2 border border-darkborderc rounded-md text-textcolor2">
-                                                            <summary class="cursor-pointer select-none p-2 font-mono text-sm">Raw remaining events</summary>
-                                                            <pre class="request-log-code hljs max-h-64 border-t border-darkborderc rounded-none">{@html highlightJson(responseDetails.rawRemainder)}</pre>
-                                                        </details>
-                                                    {/if}
-                                                {:else}
-                                                    <pre class="request-log-code hljs max-h-64">{@html highlightJson(responseBody)}</pre>
-                                                {/if}
-                                            </div>
-                                        </div>
-                                    </div>
-                                {/if}
-                            </div>
-                        {/each}
-                    </div>
-                {/if}
-            </div>
-        </div>
-    </div>
 {/if}
 
 <ShDialog
@@ -634,7 +442,7 @@
             class="add-character-option"
             onclick={() => alertStore.set({ type: 'none', msg: 'importCharacter' })}
         >
-            <span>{language.importCharacter}</span>
+            <span>{language.importCharacterAndPackage}</span>
             <ChevronRightIcon size={18} />
         </button>
 
@@ -643,14 +451,6 @@
             onclick={() => alertStore.set({ type: 'none', msg: 'createfromScratch' })}
         >
             <span>{language.createfromScratch}</span>
-            <ChevronRightIcon size={18} />
-        </button>
-
-        <button
-            class="add-character-option"
-            onclick={() => alertStore.set({ type: 'none', msg: 'importPackage' })}
-        >
-            <span>{language.characterPackageImport}</span>
             <ChevronRightIcon size={18} />
         </button>
 
@@ -678,14 +478,14 @@
 
         {#if $alertStore.stackTrace}
             <div class="mt-2">
-                <Button styled="outlined" size="sm" onclick={() => showDetails = !showDetails}>
+                <ShButton variant="outline" size="sm" onclick={() => showDetails = !showDetails}>
                     {showDetails ? language.hideErrorDetails : language.showErrorDetails}
                     {#if showDetails}
                         <XIcon class="inline ml-2" />
                     {:else}
                         <ChevronRightIcon class="inline ml-2" />
                     {/if}
-                </Button>
+                </ShButton>
                 {#if showDetails}
                     <div class="stack-trace-wrap">
                         <button
@@ -1250,18 +1050,4 @@
         color: var(--risu-theme-textcolor);
     }
 
-    .request-log-code {
-        background-color: #1a1a2e;
-        color: #e0e0e0;
-        border: 1px solid var(--risu-theme-darkborderc);
-        border-radius: 0.375rem;
-        padding: 0.75rem;
-        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-        font-size: 0.75rem;
-        line-height: 1.5;
-        white-space: pre-wrap;
-        word-break: break-all;
-        max-height: 12rem;
-        overflow: auto;
-    }
 </style>

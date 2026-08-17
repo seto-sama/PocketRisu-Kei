@@ -586,7 +586,7 @@
                     <div class="text-textcolor font-medium">{language.usageEmpty}</div>
                 </div>
             {:else}
-                <SettingLayout variant="list" scrollable>
+                <SettingLayout variant="list" scrollable className="max-h-[75vh]">
                     {#each displayedEntries as entry (entry.jobId)}
                         <SettingLayout variant="item" className="gap-2">
                             <div class="flex flex-1 min-w-0 flex-col gap-1">

@@ -12,7 +12,7 @@ import { getInlayAsset, writeInlayImage } from '../../files/inlays'
 import { requestModelPresetData } from '../../request/request'
 import { collectStreamingText } from '../../request/shared'
 import { extractLuaLlmInlays, normalizeLuaLlmPrompt } from '../../luaLlmCore'
-import { generateAIImage } from '../../stableDiff'
+import { generateAIImageInlay } from '../../stableDiff'
 import { sayTTS } from '../../tts'
 import { runInlayScreen } from '../../inlayScreen'
 import { loadLoreBookV3Prompt } from '../../lorebook.svelte'
@@ -320,13 +320,12 @@ async function executeClientAction(
             return JSON.stringify({ status: response.status, data: await response.text() })
         }
         case 'image.generate': {
-            const image = await generateAIImage(
+            const inlay = await generateAIImageInlay(
                 String(payload.prompt ?? ''),
                 character,
                 String(payload.negativePrompt ?? ''),
-                'inlay',
             )
-            return image ? imageToInlay(image) : 'Error: Image generation failed'
+            return inlay || 'Error: Image generation failed'
         }
         case 'asset.character-image': return assetToInlay(character.image)
         case 'asset.persona-image': return assetToInlay(getUserIcon())

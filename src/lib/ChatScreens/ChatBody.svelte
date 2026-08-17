@@ -117,6 +117,7 @@
     let currentMarkParsingSettled = false
     let committedRender = $state<ChatBodyRenderResult | null>(null)
     let committedRenderPromise: Promise<ChatBodyRenderResult> | null = null
+    let stopInlayObservation = () => {}
     let skipNextTranslatedRender:boolean|null = null
     const renderController = createChatBodyRenderController(
         (delta) => onTranslationTaskChange(delta),
@@ -138,6 +139,7 @@
         ChatBodyRenderResult
     >(runMarkParsingRequest)
     onDestroy(() => {
+        stopInlayObservation()
         markParsingQueue.destroy()
         renderController.dispose()
     })
@@ -688,6 +690,8 @@
 
     $effect(() => {
         const promise = markParsingResult
+        stopInlayObservation()
+        stopInlayObservation = () => {}
         committedRenderPromise = promise
         checkImg()
         void promise.then(async (result) => {
@@ -696,7 +700,10 @@
             await tick()
             if (committedRenderPromise !== promise) return
             checkImg()
-            if (bodyRoot) resolveInlayPlaceholders(bodyRoot)
+            if (bodyRoot) {
+                const cleanup = resolveInlayPlaceholders(bodyRoot)
+                stopInlayObservation = typeof cleanup === 'function' ? cleanup : () => {}
+            }
         }, () => {})
     })
 </script>

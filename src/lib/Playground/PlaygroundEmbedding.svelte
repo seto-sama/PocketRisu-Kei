@@ -3,7 +3,7 @@
     import TextInput from "../UI/GUI/TextInput.svelte";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
-    import Button from "../UI/GUI/Button.svelte";
+    import ShButton from "../UI/GUI/ShButton.svelte";
     import { HypaProcesser } from "src/ts/process/memory/hypamemory";
     import { DBState } from "src/ts/stores.svelte"
 
@@ -72,10 +72,10 @@
 {#each data as item, i}
     <TextInput bind:value={data[i]} fullwidth marginBottom />
 {/each}
-<Button styled="outlined" onclick={() => {
+<ShButton variant="outline" onclick={() => {
     data.push("");
     data = data
-}}>+</Button>
+}}>+</ShButton>
 
 <span class="text-textcolor text-lg mt-6">Result</span>
 {#if dataresult.length === 0}
@@ -88,7 +88,7 @@
     </div>
 {/each}
 
-<Button className="mt-6 flex justify-center" size="lg" onclick={() => {
+<ShButton className="mt-6" size="lg" onclick={() => {
     run()
 }}>
     {#if running}
@@ -96,4 +96,4 @@
     {:else}
         {language.run?.toLocaleUpperCase()}
     {/if}
-</Button>
+</ShButton>

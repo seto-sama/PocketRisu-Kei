@@ -353,7 +353,7 @@
             loading={!cacheInitialized || cacheLoading} loadingLabel={language.loading} error={cacheLoadError} />
 
         {#if displayedCacheEntries.length > 0}
-            <SettingLayout variant="list" scrollable>
+            <SettingLayout variant="list" scrollable className="max-h-[75vh]">
                 {#each displayedCacheEntries as entry (entry.key)}
                     <Collapsible.Root
                         open={expandedCacheEntries[entry.key] === true}

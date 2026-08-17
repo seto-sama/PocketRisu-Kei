@@ -1,7 +1,7 @@
 import { changeFullscreen, checkNullish } from "./util"
 import { v4 as uuidv4 } from 'uuid';
 import { get } from "svelte/store";
-import { setDatabase, defaultSdDataFunc, getDatabase, changeToThemePreset, type Database } from "./storage/database.svelte";
+import { setDatabase, getDatabase, changeToThemePreset, type Database } from "./storage/database.svelte";
 import { chatDraftKey, sweepOrphanDrafts } from "./storage/chatDraft";
 import { checkRisuUpdate } from "./update";
 import { fetchPublicStats } from "./publicStats";
@@ -529,18 +529,7 @@ async function checkNewFormat(): Promise<void> {
 
         db.formatversion = 2;
     }
-    if (db.formatversion < 3) {
-        for (let i = 0; i < db.characters.length; i++) {
-            let cha = db.characters[i];
-            if (cha.type === 'character') {
-                if (checkNullish(cha.sdData)) {
-                    cha.sdData = defaultSdDataFunc();
-                }
-            }
-        }
-
-        db.formatversion = 3;
-    }
+    if (db.formatversion < 3) db.formatversion = 3;
     if (db.formatversion < 4) {
         //migration removed due to issues
         db.formatversion = 4;

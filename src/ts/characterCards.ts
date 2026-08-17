@@ -1,6 +1,6 @@
 import { writable, type Writable } from "svelte/store"
 import { alertCardExport, alertConfirm, alertError, alertInput, alertStore, alertTOS, alertWait, notifySuccess, notifyError } from "./alert"
-import { defaultSdDataFunc, type character, setDatabase, type customscript, type loreSettings, type loreBook, type triggerscript, importPreset, getDatabase, setDatabaseLite, appVer, newChatModelDefaults } from "./storage/database.svelte"
+import { type character, setDatabase, type customscript, type loreSettings, type loreBook, type triggerscript, importPreset, getDatabase, setDatabaseLite, appVer, newChatModelDefaults } from "./storage/database.svelte"
 import { checkNullish, decryptBuffer, isKnownUri, selectFileByDom, sleep } from "./util"
 import { language } from "src/lang"
 import { v4 as uuidv4, v4 } from 'uuid';
@@ -48,7 +48,8 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
     lightningRealmImport?:boolean
     returnCharacter?:T //note That this option only works with v3 charx
 }):Promise<T extends true ? character | number | null : number | null>{
-    if(f.name.endsWith('json')){
+    const fileName = f.name.toLowerCase()
+    if(fileName.endsWith('.json')){
         if(f.data instanceof ReadableStream){
             return null
         }
@@ -73,7 +74,7 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
     let db = getDatabase()
     db.statics.imports += 1
 
-    if(f.name.endsWith('charx') || f.name.endsWith('jpg') || f.name.endsWith('jpeg')){
+    if(fileName.endsWith('.charx') || fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')){
         console.log('reading charx')
         alertStore.set({
             type: 'wait',
@@ -113,7 +114,7 @@ export async function importCharacterProcess<T extends boolean = false>(f:{
         return db.characters.length - 1
     }
 
-    if(!f.name.endsWith('png')){
+    if(!fileName.endsWith('.png')){
         alertError(language.errors.noData)
         return
     }
@@ -584,7 +585,6 @@ function convertOffSpecCards(charaData:OldTavernChar|CharacterCardV2Risu, imgp:s
         globalLore: lorebook,
         viewScreen: 'none',
         chaId: uuidv4(),
-        sdData: defaultSdDataFunc(),
         utilityBot: false,
         lowLevelAccess: false,
         hideChatIcon: false,
@@ -649,10 +649,9 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
     const risuext = safeStructuredClone(data.extensions.risuai)
     let emotions:[string, string][] = []
     let bias:[string, number][] = []
-    let viewScreen: "none" | "emotion" | "imggen" = 'none'
+    let viewScreen: "none" | "emotion" = 'none'
     let customScripts:customscript[] = []
     let utilityBot = false
-    let sdData = defaultSdDataFunc()
     let extAssets:[string,string,string][] = []
     let ccAssets:{
         type: string
@@ -747,10 +746,9 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
 
         if(risuext){
             bias = risuext.bias ?? bias
-            viewScreen = risuext.viewScreen ?? viewScreen
+            viewScreen = risuext.viewScreen === 'emotion' ? 'emotion' : 'none'
             customScripts = risuext.customScripts ?? customScripts
             utilityBot = risuext.utilityBot ?? utilityBot
-            sdData = risuext.sdData ?? sdData
         }
     }
     if(card.spec === 'chara_card_v3'){
@@ -823,10 +821,9 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
 
         if(risuext){
             bias = risuext.bias ?? bias
-            viewScreen = risuext.viewScreen ?? viewScreen
+            viewScreen = risuext.viewScreen === 'emotion' ? 'emotion' : 'none'
             customScripts = risuext.customScripts ?? customScripts
             utilityBot = risuext.utilityBot ?? utilityBot
-            sdData = risuext.sdData ?? sdData
         }
     }
 
@@ -885,7 +882,6 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         globalLore: lorebook, //lorebook
         viewScreen: viewScreen,
         chaId: uuidv4(),
-        sdData: sdData,
         utilityBot: utilityBot,
         hideChatIcon: data?.extensions?.risuai?.hideChatIcon ?? false,
         escapeOutput: data?.extensions?.risuai?.escapeOutput ?? false,
@@ -1130,7 +1126,6 @@ function createBaseV2(char:character) {
                     viewScreen: char.viewScreen,
                     customScripts: char.customscript,
                     utilityBot: char.utilityBot,
-                    sdData: char.sdData,
                     // additionalAssets: char.additionalAssets,
                     backgroundHTML: char.backgroundHTML,
                     license: char.license,
@@ -1538,7 +1533,6 @@ export function createBaseV3(char:character){
                     viewScreen: char.viewScreen,
                     customScripts: char.customscript,
                     utilityBot: char.utilityBot,
-                    sdData: char.sdData,
                     backgroundHTML: char.backgroundHTML,
                     license: char.license,
                     triggerscript: char.triggerscript,
@@ -1584,7 +1578,7 @@ export type hubType = {
     id: string,
     img: string
     tags: string[],
-    viewScreen: "none" | "emotion" | "imggen"
+    viewScreen: "none" | "emotion"
     hasLore:boolean
     hasEmotion:boolean
     hasAsset:boolean
@@ -1753,7 +1747,6 @@ type CharacterCardV2Risu = {
                 viewScreen?: any,
                 customScripts?:customscript[]
                 utilityBot?: boolean,
-                sdData?:[string,string][],
                 additionalAssets?:[string,string,string][],
                 backgroundHTML?:string,
                 license?:string,
@@ -1764,9 +1757,6 @@ type CharacterCardV2Risu = {
                 largePortrait?:boolean
                 inlayViewScreen?:boolean
                 newGenData?: {
-                    prompt: string,
-                    negative: string,
-                    instructions: string,
                     emotionInstructions: string,
                 },
                 vits?: {[key:string]:string}

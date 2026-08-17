@@ -4,7 +4,7 @@
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     
     import { DBState } from 'src/ts/stores.svelte';
-    import Button from "src/lib/UI/GUI/Button.svelte";
+    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
@@ -403,27 +403,27 @@
 {:else if mode === 1}
     <SettingPage title={language.createModule}>
     <ModuleMenu bind:currentModule={tempModule}/>
-    <Button className="mt-6" onclick={() => {
+    <ShButton className="mt-6" onclick={() => {
         DBState.db.modules.push(tempModule)
         notifySuccess(language.moduleCreated)
         mode = 0
-    }}>{language.createModule}</Button>
+    }}>{language.createModule}</ShButton>
     </SettingPage>
 {:else if mode === 2}
     <SettingPage title={language.editModule}>
     <ModuleMenu bind:currentModule={tempModule}/>
     {#if tempModule.name !== ''}
-        <Button className="mt-6" onclick={() => {
+        <ShButton className="mt-6" onclick={() => {
             DBState.db.modules[editModuleIndex] = tempModule
             notifySuccess(language.moduleUpdated)
             mode = 0
-        }}>{language.editModule}</Button>
-        <Button className="mt-2" onclick={() => {
+        }}>{language.editModule}</ShButton>
+        <ShButton className="mt-2" onclick={() => {
             const char = convertModuleToCharacter(tempModule)
             DBState.db.characters.push(char)
             checkCharOrder()
             notifySuccess(language.successfullyConverted)
-        }}>{language.convertToCharacter}</Button>
+        }}>{language.convertToCharacter}</ShButton>
     {/if}
     </SettingPage>
 {/if}

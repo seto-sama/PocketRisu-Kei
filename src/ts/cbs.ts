@@ -80,19 +80,21 @@ export type RegisterCallback = (str: string, matcherArg: matcherArg, args:string
     var: { [key: string]: string }
 } | string | null
 
+export type CBSDefinition = {
+    name: string,
+    callback: RegisterCallback|'doc_only',
+    alias: string[]
+    description: string
+    deprecated?: {
+        message: string,
+        since?: string,
+        replacement?: string
+    }
+    internalOnly?: boolean
+}
+
 export type CBSRegisterArg = {
-    registerFunction: (arg:{
-        name: string,
-        callback: RegisterCallback|'doc_only',
-        alias: string[]
-        description: string
-        deprecated?: {
-            message: string,
-            since?: string,
-            replacement?: string
-        }
-        internalOnly?: boolean
-    }) => void | Promise<void>,
+    registerFunction: (arg:CBSDefinition) => void | Promise<void>,
     getDatabase: () => Database,
     getUserName: () => string,
     getTriggerId: () => string | null,
@@ -2487,3 +2489,68 @@ Usage:: {{#each A as V}} ... {{slot::V}} ... {{/each}}`,
         description: 'Defines the position which can be used in various features such as @@position <positionName> decorator.\n\nUsage:: {{position::positionName}}',
     })
 }
+
+let cachedCBSDefinitions: readonly CBSDefinition[] | undefined
+
+/**
+ * Returns the same built-in CBS definitions used by the runtime parser.
+ * Editor tooling derives its completion and highlighting names from this
+ * registry so new syntax doesn't require a second hardcoded list.
+ */
+export function getCBSDefinitions(): readonly CBSDefinition[] {
+    if (cachedCBSDefinitions) return cachedCBSDefinitions
+
+    const definitions: CBSDefinition[] = []
+    registerCBS({
+        ...defaultCBSRegisterArg,
+        registerFunction: definition => { definitions.push(definition) },
+    })
+    cachedCBSDefinitions = definitions
+    return cachedCBSDefinitions
+}
+
+export function getCBSCompletionNames(): string[] {
+    return getCBSCompletionEntries().map(entry => entry.name)
+}
+
+export type CBSCompletionEntry = {
+    name: string
+    description: string
+    detail: string
+    deprecated: boolean
+}
+
+/** Editor-facing CBS metadata derived from the runtime registry. */
+export function getCBSCompletionEntries(): CBSCompletionEntry[] {
+    const entries = new Map<string, CBSCompletionEntry>()
+
+    for (const definition of getCBSDefinitions()) {
+        if (definition.internalOnly) continue
+        for (const name of [definition.name, ...definition.alias]) {
+            const isAlias = name !== definition.name
+            if (!entries.has(name)) {
+                entries.set(name, {
+                    name,
+                    description: definition.description,
+                    detail: isAlias ? `alias of ${definition.name}` : name.startsWith('#') ? 'block' : '',
+                    deprecated: !!definition.deprecated,
+                })
+            }
+            if (name.startsWith('#')) {
+                const closingName = `/${name.slice(1)}`
+                if (!entries.has(closingName)) {
+                    entries.set(closingName, {
+                        name: closingName,
+                        description: `Closes the ${name} block.\n\n${definition.description}`,
+                        detail: `closes ${name}`,
+                        deprecated: !!definition.deprecated,
+                    })
+                }
+            }
+        }
+    }
+
+    return [...entries.values()]
+}
+
+export const AllCBS = getCBSCompletionNames()

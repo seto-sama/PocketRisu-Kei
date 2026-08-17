@@ -1,13 +1,12 @@
 import { get } from "svelte/store"
 import { getDatabase, type character } from "../storage/database.svelte"
-import { requestChatData } from "./request/request"
 import { alertError, notifyError } from "../alert"
 import { fetchNative, globalFetch, readImage } from "../globalApi.svelte"
 import { CharEmotion } from "../stores.svelte"
-import type { OpenAIChat } from "./index.svelte"
 import { processZip } from "./processzip"
 import random from "lodash/random"
 import { getApiKey } from "../preset/apiKeyPool"
+import { setInlayMetaFields, writeInlayImage } from "./files/inlays"
 
 // Vite replaces this expression at build time. With the default (undefined/false),
 // the minifier removes the optional provider branches from production bundles.
@@ -20,61 +19,13 @@ function getImageApiKey(provider: ImageKeyProvider, directKey = ''): string {
     return (getApiKey(db.imageApiKeyRefs?.[provider])?.key ?? directKey).trim()
 }
 
-export async function stableDiff(currentChar:character,prompt:string){
-    let db = getDatabase()
-
-    if(db.sdProvider === ''){
-        notifyError("Stable diffusion is not set in settings.")
-        return false
-    }
-
-
-    const promptItem = `Chat:\n${prompt}`
-
-    const promptbody:OpenAIChat[] = [
-        {
-
-            role:'system',
-            content: currentChar.newGenData.instructions
-        },
-        {
-            role: 'user',
-            content: promptItem
-        },
-    ]
-
-    const rq = await requestChatData({
-        formated: promptbody,
-        currentChar: currentChar,
-        temperature: 0.2,
-        maxTokens: 300,
-        bias: {},
-        useStreaming: false,
-        noMultiGen: true
-    }, 'submodel')
-
-
-    if(rq.type === 'fail'){
-        notifyError(rq.result)
-        return false
-    }
-    if(rq.type === 'streaming' || rq.type === 'multiline'){
-        notifyError('Unexpected response type')
-        return false
-    }
-
-    const r = rq.result.replace(/<Thoughts>[\s\S]*?<\/Thoughts>/g, '').trim()
-
-
-    const genPrompt = currentChar.newGenData.prompt.replaceAll('{{slot}}', r)
-    const neg = currentChar.newGenData.negative
-
-    return await generateAIImage(genPrompt, currentChar, neg, '')
-}
-
-export async function generateAIImage(genPrompt:string, currentChar:character, neg:string, returnSdData:string):Promise<string|false>{
+export async function generateAIImage(
+    genPrompt:string,
+    currentChar:character,
+    neg:string,
+    returnSdData:string,
+):Promise<string|false>{
     const db = getDatabase()
-    console.log(db.sdProvider)
     if(ENABLE_EXTRA_IMAGE_PROVIDERS && db.sdProvider === 'webui'){
 
 
@@ -113,7 +64,6 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
             else if(da.ok){
                 let charemotions = get(CharEmotion)
                 const img = `data:image/png;base64,${da.data.images[0]}`
-                console.log(img)
                 const emos:[string, string,number][] = [[img, img, Date.now()]]
                 charemotions[currentChar.chaId] = emos
                 CharEmotion.set(charemotions)
@@ -339,8 +289,6 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
         }
 
         if(db.NAII2I){
-            let seed = random(0, 1000000000);
-
             let base64img = ''
             if(!db.NAIImgConfig.image || db.NAIImgConfig.image === ''){
                 const charimg = currentChar.image;
@@ -362,13 +310,10 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
                 reqlist.body.parameters.noise = db.NAIImgConfig.noise || 0;
             }
             
-            console.log({img2img:reqlist});
         }else{
 
             reqlist = commonReq;
             reqlist.body.action = 'generate';
-
-            console.log({nothing:reqlist});
            
         }
         try {
@@ -418,8 +363,6 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
                 "Authorization": "Bearer " + getImageApiKey('openai', db.openAIKey)
             }
         })
-
-        console.log(da)
 
         if(returnSdData === 'inlay'){
             let res = da?.data?.data?.[0]?.b64_json
@@ -512,10 +455,8 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
         }
 
         const fetchWrapper = async (url: string, options = {}) => {
-            console.log(url)
             const response = await globalFetch(url, options)
             if (!response.ok) {
-                console.log(JSON.stringify(response.data))
                 throw new Error(JSON.stringify(response.data))
             }
             return response.data
@@ -554,8 +495,6 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
                 headers: { 'Content-Type': 'application/json' },
                 body: { 'prompt': prompt }
             })
-            console.log(`prompt id: ${id}`)
-
             let item
 
             const startTime = Date.now()
@@ -564,7 +503,6 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
                 headers: { 'Content-Type': 'application/json' },
                 method: 'GET'
             })).json())[id])) {
-                console.log("Checking /history...")
                 if (Date.now() - startTime >= timeout) {
                     alertError("Error: Image generation took longer than expected.");
                     return false
@@ -991,4 +929,30 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
         }
     }
     return ''
+}
+
+export async function generateAIImageInlay(
+    prompt: string,
+    currentChar: character,
+    negativePrompt = '',
+    target?: { characterId: string, chatId: string },
+): Promise<string | false> {
+    const generated = await generateAIImage(prompt, currentChar, negativePrompt, 'inlay')
+    if(!generated) return false
+
+    const image = new Image()
+    const inlayPromise = writeInlayImage(image)
+    const loadError = new Promise<never>((_, reject) => {
+        image.onerror = () => reject(new Error('Failed to load the generated image.'))
+    })
+    image.src = generated
+    const inlayId = await Promise.race([inlayPromise, loadError])
+    const targetCharacterId = target?.characterId ?? currentChar.chaId
+    const targetChatId = target?.chatId ?? currentChar.chats?.[currentChar.chatPage]?.id
+    await setInlayMetaFields(inlayId, {
+        charId: targetCharacterId,
+        chatId: targetChatId,
+        imageGeneration: { prompt, negativePrompt },
+    })
+    return `{{inlayed::${inlayId}}}`
 }

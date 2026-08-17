@@ -359,7 +359,7 @@
                         {#if profile.profileStatus !== 'current'}
                             <ShBadge
                                 variant={profile.profileStatus === 'deprecated' ? 'destructive' : 'attention'}
-                                className="text-[10px] leading-none"
+                                size="xs"
                             >
                                 {profile.profileStatus === 'deprecated' ? language.profileStatusDeprecated : language.profileStatusOutdated}
                             </ShBadge>

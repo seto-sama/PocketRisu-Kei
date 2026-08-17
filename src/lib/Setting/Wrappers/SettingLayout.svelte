@@ -107,7 +107,6 @@
         class:border={!embedded}
         class:border-darkborderc={!embedded}
         class:rounded-md={!embedded}
-        class:max-h-[75vh]={scrollable}
         class:overflow-y-auto={scrollable}
     >
         {@render children?.()}

@@ -1,6 +1,6 @@
 <script lang="ts">
 
-    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, Plus, RefreshCcwIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, ZapIcon, Maximize2, Minimize2 } from "@lucide/svelte";
+    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, ZapIcon, Maximize2, Minimize2, WandSparklesIcon } from "@lucide/svelte";
     import ShDropdownMenu from 'src/lib/UI/GUI/ShDropdownMenu.svelte';
     import ShDropdownMenuTrigger from 'src/lib/UI/GUI/ShDropdownMenuTrigger.svelte';
     import ShDropdownMenuContent from 'src/lib/UI/GUI/ShDropdownMenuContent.svelte';
@@ -10,7 +10,7 @@
     import { onDestroy, tick, untrack } from 'svelte';
     import Chat from "./Chat.svelte";
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
-    import { type Chat as ChatData, type Message } from "../../ts/storage/database.svelte";
+    import { type Chat as ChatData, type Message, type character } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
     import { chatProcessStage, doingChat, recoverRevenantGenerationsForChat, sendChat } from "../../ts/process/index.svelte";
@@ -42,7 +42,7 @@ import { isMobile } from 'src/ts/platform'
     import { v4 } from 'uuid';
     import { processMultiCommand } from 'src/ts/process/command';
     import { postChatFile } from 'src/ts/process/files/multisend';
-    import { getInlayAsset } from 'src/ts/process/files/inlays';
+    import { getInlayAsset, getInlayMeta } from 'src/ts/process/files/inlays';
     import { quickMenu } from 'src/ts/hotkey';
     import { loadChatDraft, scheduleSaveChatDraft, flushChatDraft, removeChatDraft } from 'src/ts/storage/chatDraft';
     import {
@@ -59,9 +59,11 @@ import { isMobile } from 'src/ts/platform'
 
     import Chats from './Chats.svelte';
     import PartialEditManager from './PartialEditManager.svelte';
-    import Button from '../UI/GUI/Button.svelte';
+    import ShButton from '../UI/GUI/ShButton.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
     import Portal from '../UI/GUI/Portal.svelte';
+    import ImageGenerationDialog from './ImageGenerationDialog.svelte';
+    import { generateAIImageInlay } from 'src/ts/process/stableDiff';
 
     const loadPlaygroundMenu = () => import('../Playground/PlaygroundMenu.svelte').then(m => m.default);
 
@@ -88,6 +90,8 @@ import { isMobile } from 'src/ts/platform'
     let messageInput:string = $state('')
     let messageInputTranslate:string = $state('')
     let openMenu = $state(false)
+    let imageGenerationOpen = $state(false)
+    let imageRerollingTarget = $state.raw<{ roomId: string, messageId: string } | null>(null)
     let loadPages = $state(getInitialChatLoadPages(DBState.db))
     let doingChatInputTranslate = false
     let toggleStickers:boolean = $state(false)
@@ -108,6 +112,82 @@ import { isMobile } from 'src/ts/platform'
     let currentChatFmIndex = $derived(currentChatReady ? (currentChatSlot.fmIndex ?? -1) : -1)
     let loadPagesRoomKey = $state('')
     let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter?.chatPage ?? -1}:${currentChatSlot?.id ?? ''}`)
+    let currentRoomHasImageReroll = $derived(imageRerollingTarget?.roomId === currentChatSlot?.id)
+
+    async function insertGeneratedImage(
+        reference: string,
+        target: { characterId: string, chatId: string },
+    ) {
+        const character = DBState.db.characters.find(item => item?.chaId === target.characterId)
+        if(character?.type !== 'character') return
+        const chat = character.chats.find(item => item?.id === target.chatId)
+        if(!chat || !Array.isArray(chat.message)) return
+        chat.message = [...chat.message, {
+            role: 'char',
+            data: reference,
+            kind: 'imageGeneration',
+            saying: character.chaId,
+            chatId: v4(),
+            time: Date.now(),
+        }]
+        character.reloadKeys += 1
+        await tick()
+        if(currentChatSlot?.id === chat.id) scrollToBottom()
+    }
+
+    function getLastActiveMessage() {
+        return currentChat.findLast(message => !message.isComment && !message.disabled)
+    }
+
+    async function rerollGeneratedImage(message: Message) {
+        if(
+            imageRerollingTarget
+            || message.kind !== 'imageGeneration'
+            || currentCharacter?.type !== 'character'
+            || !currentChatSlot?.id
+        ) return
+        if(!DBState.db.sdProvider) {
+            notifyError(language.imageProviderNotConfigured)
+            return
+        }
+
+        const character = currentCharacter
+        const chat = currentChatSlot
+        const messageId = message.chatId ?? v4()
+        message.chatId = messageId
+        imageRerollingTarget = { roomId: chat.id, messageId }
+        try {
+            const inlayId = message.data.match(/\{\{(?:inlay|inlayed|inlayeddata)::(.+?)\}\}/)?.[1]
+            const prompt = inlayId ? (await getInlayMeta(inlayId))?.imageGeneration : undefined
+            if(!prompt) {
+                notifyError(language.imageGenerationPromptNotFound)
+                return
+            }
+            const reference = await generateAIImageInlay(
+                prompt.prompt,
+                character,
+                prompt.negativePrompt,
+                { characterId: character.chaId, chatId: chat.id },
+            )
+            if(!reference) return
+
+            const target = chat.message.find(item => item.chatId === messageId)
+            if(!target || target.kind !== 'imageGeneration') return
+            target.swipes = [...(target.swipes ?? [target.data]), reference]
+            target.swipeId = target.swipes.length - 1
+            target.data = reference
+            target.time = Date.now()
+            character.reloadKeys += 1
+            await tick()
+            if(currentChatSlot?.id === chat.id) scrollToBottom()
+        }
+        catch(error) {
+            notifyError(`${error}`)
+        }
+        finally {
+            if(imageRerollingTarget?.messageId === messageId) imageRerollingTarget = null
+        }
+    }
 
     $effect(() => {
         void currentChatRoomKey
@@ -671,6 +751,11 @@ import { isMobile } from 'src/ts/platform'
 
     async function reroll() {
         if(currentRoomHasMainGeneration) return
+        const activeMessage = getLastActiveMessage()
+        if(activeMessage?.kind === 'imageGeneration') {
+            await rerollGeneratedImage(activeMessage)
+            return
+        }
         const selectedChar = $selectedCharID
         const rerollCharacter = DBState.db.characters[selectedChar]
         const rerollChat = rerollCharacter?.chats?.[rerollCharacter.chatPage]
@@ -1099,6 +1184,13 @@ import { isMobile } from 'src/ts/platform'
 
 
 <div class="w-full h-full relative" style={customStyle}>
+    {#if currentCharacter?.type === 'character'}
+        <ImageGenerationDialog
+            bind:open={imageGenerationOpen}
+            character={currentCharacter as character}
+            onGenerated={insertGeneratedImage}
+        />
+    {/if}
     
     {#if DBState.db.nodeOnlyScrollButtonType !== 'off' && currentChat.length > 0}
         <Portal>
@@ -1213,7 +1305,6 @@ import { isMobile } from 'src/ts/platform'
                      relied on the pre-redesign container class. Keep it so they can still find/anchor their UI,
                      and it scopes the timer re-flow rules in <style> below. -->
                 <IconButtonGroup size="lg" className="risu-field-border flex-wrap gap-1 rounded-3xl bg-bgcolor px-2 py-1.5 plugin-compat-items-stretch">
-                {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
                     <ShDropdownMenu bind:open={openMenu}>
                         <ShDropdownMenuTrigger>
                             {#snippet child({ props })}
@@ -1261,6 +1352,11 @@ import { isMobile } from 'src/ts/platform'
                                 }}>
                                     <ImagePlusIcon /><span>{language.postFile}</span>
                                 </ShDropdownMenuItem>
+                                {#if currentCharacter?.type === 'character'}
+                                    <ShDropdownMenuItem onSelect={() => { imageGenerationOpen = true }}>
+                                        <WandSparklesIcon /><span>{language.imageGeneration}</span>
+                                    </ShDropdownMenuItem>
+                                {/if}
                                 <ShDropdownMenuItem onSelect={() => {
                                     DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules ??= []
                                     openModuleList = true
@@ -1275,19 +1371,6 @@ import { isMobile } from 'src/ts/platform'
                             </IconButtonGroup>
                         </ShDropdownMenuContent>
                     </ShDropdownMenu>
-                {:else}
-                    <button type="button" onclick={(e) => {
-                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.push({
-                            role: 'char',
-                            data: ''
-                        })
-                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
-                    }}
-                         class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit text-textcolor risu-interactive-primary-soft transition-colors cursor-pointer"
-                    >
-                        <Plus />
-                    </button>
-                {/if}
 
                 {#if DBState.db.useChatSticker}
                     <button type="button" onclick={()=>{toggleStickers = !toggleStickers}}
@@ -1394,7 +1477,7 @@ import { isMobile } from 'src/ts/platform'
                 </IconButtonGroup>
               </div>
             </div>
-            {#if DBState.db.useAutoTranslateInput && DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
+            {#if DBState.db.useAutoTranslateInput}
                 <div class="flex items-center mt-2 mb-2">
                     <label for='messageInputTranslate' class="text-textcolor ml-4">
                         <LanguagesIcon size={20} />
@@ -1505,12 +1588,12 @@ import { isMobile } from 'src/ts/platform'
 
             {#if chatFoldedStateMessageIndex.index !== -1}
                 <button class="w-full flex justify-center max-w-full p-4">
-                    <Button className="max-w-xl w-full" onclick={() => {
+                    <ShButton className="max-w-xl w-full" onclick={() => {
                         loadPages += chatFoldedStateMessageIndex.index + 1
                         chatFoldedState.data = null
                     }}>
                         {language.loadMore}
-                    </Button>
+                    </ShButton>
                 </button>
             {/if}
             
@@ -1594,7 +1677,7 @@ import { isMobile } from 'src/ts/platform'
                 userIcon={userIcon}
                 chatRoomId={currentChatSlot?.id ?? ''}
                 roomIsStreaming={currentChatSlot?.isStreaming ?? false}
-                roomIsResponding={currentRoomHasMainGeneration}
+                roomIsResponding={currentRoomHasMainGeneration || currentRoomHasImageReroll}
                 userIconPortrait={userIconPortrait}
                 bind:hasNewUnreadMessage={showNewMessageButton}
             />

@@ -12,6 +12,7 @@
     import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
     import ShInput from "src/lib/UI/GUI/ShInput.svelte";
     import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
 
     let open = $state(false);
     let query = $state("");
@@ -125,29 +126,31 @@
                 </ShButton>
             </div>
 
-            <div class="border border-darkborderc rounded-md divide-y divide-darkborderc max-h-[55vh] overflow-y-auto">
+            <SettingLayout variant="list" scrollable className="max-h-[55vh]">
                 {#if filteredProviders.length === 0}
                     <p class="text-sm text-textcolor2 py-6 text-center">
                         {language.modelProviderFilterNoMatch}
                     </p>
                 {:else}
                     {#each filteredProviders as provider (provider.id)}
-                        <div class="flex items-center justify-between gap-3 px-3 py-2.5">
-                            <div class="flex flex-col min-w-0">
+                        <SettingLayout variant="item" className="py-2.5">
+                            <div class="flex flex-1 flex-col min-w-0">
                                 <span class="text-sm text-textcolor truncate">{provider.label}</span>
                                 <span class="text-xs text-textcolor2 truncate">
                                     {provider.id} · {language.modelProviderFilterProfileCount(provider.profileCount)}
                                 </span>
                             </div>
-                            <ShSwitch
-                                checked={!draftHiddenProviderSet.has(provider.id)}
-                                ariaLabel={`${provider.label}: ${language.modelProviderFilter}`}
-                                onCheckedChange={(checked) => setProviderVisible(provider.id, checked)}
-                            />
-                        </div>
+                            {#snippet control()}
+                                <ShSwitch
+                                    checked={!draftHiddenProviderSet.has(provider.id)}
+                                    ariaLabel={`${provider.label}: ${language.modelProviderFilter}`}
+                                    onCheckedChange={(checked) => setProviderVisible(provider.id, checked)}
+                                />
+                            {/snippet}
+                        </SettingLayout>
                     {/each}
                 {/if}
-            </div>
+            </SettingLayout>
         </div>
     {/if}
 

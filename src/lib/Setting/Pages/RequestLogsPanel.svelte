@@ -241,7 +241,7 @@
     </div>
 {:else}
     <Tooltip.Provider delayDuration={300}>
-        <SettingLayout variant="list" scrollable>
+        <SettingLayout variant="list" scrollable className="max-h-[75vh]">
             {#each displayedRequestLogs as log (log.id)}
                 <Collapsible.Root
                     open={requestExpanded[log.id] === true}

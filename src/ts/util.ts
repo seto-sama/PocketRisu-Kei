@@ -260,15 +260,6 @@ export async function getEmotion(db:Database,chaEmotion:{[key:string]: [string, 
                 datas.push(im)
             }
         }
-        else if(currentChar.viewScreen === 'imggen'){
-            const currEmotion = chaEmotion[currentChar.chaId]
-            if(!currEmotion || currEmotion.length === 0){
-                datas.push(await getCharImage(currentChar.image ?? '', 'plain'))
-            }
-            else{
-                datas.push(currEmotion[currEmotion.length - 1][1])
-            }
-        }
     }
     return datas
 }

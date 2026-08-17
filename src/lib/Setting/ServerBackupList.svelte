@@ -162,7 +162,7 @@
 {:else if backups.length === 0}
     <p class="text-textcolor2 text-sm">{language.serverBackupEmpty}</p>
 {:else}
-    <SettingLayout variant="list" scrollable>
+    <SettingLayout variant="list" scrollable className="max-h-[75vh]">
         {#each backups as backup (backup.filename)}
             <SettingLayout variant="item" className="text-textcolor">
                 <div class="flex flex-col min-w-0 flex-1">

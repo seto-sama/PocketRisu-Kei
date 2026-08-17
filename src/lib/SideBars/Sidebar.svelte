@@ -777,8 +777,6 @@
           {/if}
         </div>
       {/if}
-    {:else if DBState.db.characters[$selectedCharID]?.chaId === '§playground'}
-      <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} />
     {:else}
       <nav class="sidebar-mode-switch" aria-label={language.sidebarView}>
         <IconButtonGroup size="sm" className="contents">

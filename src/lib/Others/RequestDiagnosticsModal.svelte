@@ -298,7 +298,7 @@
                         {:else}
                             <div class="flex flex-wrap gap-2 rounded-md border border-darkborderc bg-bgcolor/30 p-3">
                                 {#each promptInfo.promptToggles ?? [] as toggle}
-                                    <ShBadge variant="secondary" className="gap-3 px-2.5 py-1 text-sm">
+                                    <ShBadge variant="secondary" size="md" className="gap-3">
                                         <span class="font-medium text-textcolor">{toggle.key}</span>
                                         <span>{toggle.value}</span>
                                     </ShBadge>
