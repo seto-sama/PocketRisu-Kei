@@ -1536,7 +1536,6 @@ export const languageKorean = {
   pluginVersionWarn:
     "이 플러그인은 {{plugin_version}} 버전입니다. 이 버전의 PocketRisu Kei와 호환되지 않습니다. 플러그인을 {{required_version}} 버전으로 업데이트하세요.",
   banCharacterset: "문자 집합으로 자동 재생성",
-  realmDirectOpen: "RisuRealm 미리보기에서 바로 열기",
   showPromptComparison: "프롬프트 비교 보기",
   inlayErrorResponse: "인레이 오류 응답",
   triggerOn: "활성화 조건",

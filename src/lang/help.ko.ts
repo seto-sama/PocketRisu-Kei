@@ -137,7 +137,6 @@ export const helpKo = {
         "settingsCloseButtonSize": "설정 창 닫기(X) 버튼 크기입니다.",
         "showTypingEffect": "활성화하면 어시스턴트가 응답을 생성하는 동안 타이핑 표시기가 표시됩니다.",
         "dynamicOutputPrompt": "활성화하면 스키마 정보가 요청에 포함됩니다.",
-        "realmDirectOpen": "활성화되면 RisuRealm 미리보기에서 캐릭터를 클릭할 때 캐릭터 설명이 바로 열립니다.",
         "openRouterProviderOrder": "사용할 제공자 순서입니다. 첫 번째 제공자가 먼저 사용되며, 제공자를 사용할 수 없는 경우 다음 제공자를 사용합니다. 자세한 내용은 https://openrouter.ai/docs/guides/routing/provider-selection#ordering-specific-providers 를 참조하세요",
         "openRouterProviderOnly": "이 목록의 제공자만 사용합니다. 모든 제공자를 사용할 수 없는 경우 요청이 실패합니다. 자세한 내용은 https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers 를 참조하세요",
         "openRouterProviderIgnore": "이 목록의 제공자를 무시합니다. 모든 제공자가 무시되면 요청이 실패합니다. 자세한 내용은 https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers 를 참조하세요",

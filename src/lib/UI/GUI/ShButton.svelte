@@ -57,7 +57,7 @@
         // uses textcolor; primary hues per theme are picked dark enough that the
         // theme textcolor (mostly off-white) stays readable.
         primary:     'bg-primary text-textcolor border border-transparent risu-interactive-primary',
-        link:        'bg-transparent text-borderc border border-transparent underline-offset-4 hover:underline',
+        link:        'bg-transparent text-textcolor2 border border-transparent underline-offset-4 hover:underline',
     };
 
     const sizeClasses: Record<ShButtonSize, string> = {

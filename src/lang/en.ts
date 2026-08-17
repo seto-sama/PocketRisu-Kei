@@ -1429,7 +1429,6 @@ export const languageEnglish = {
     pluginVersionWarn:
         "This is {{plugin_version}} version of the plugin. which is not compatible with this version of PocketRisu Kei. please update the plugin to {{required_version}} version.",
     banCharacterset: "Auto Regenerate On Characterset",
-    realmDirectOpen: "Directly open character in RisuRealm",
     showPromptComparison: "Show Prompt Comparison",
     inlayErrorResponse: "Inlay Error Response",
     triggerOn: "Trigger On",

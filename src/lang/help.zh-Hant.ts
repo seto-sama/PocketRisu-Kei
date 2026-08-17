@@ -112,7 +112,6 @@ export const helpZhHant = {
         "settingsCloseButtonSize": "調整設定視窗右上角關閉(X)按鈕的大小。預設值為24。",
         "showTypingEffect": "啟用後，當助理生成回應時，將顯示打字指示器。",
         "dynamicOutputPrompt": "啟用後，JSON Schema 資訊將包含在請求中。",
-        "realmDirectOpen": "啟用後，點擊 RisuRealm 預覽中的角色將直接開啟角色描述。",
         "openRouterProviderOrder": "供應商使用順序，優先使用第一個供應商，若該供應商不可用，將使用下一個。詳情請參閱 https://openrouter.ai/docs/guides/routing/provider-selection#ordering-specific-providers",
         "openRouterProviderOnly": "僅使用此列表中的供應商，若所有供應商均不可用，請求將失敗。詳情請參閱 https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
         "openRouterProviderIgnore": "忽略此列表中的供應商，若所有供應商均被忽略，請求將失敗。詳情請參閱 https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",

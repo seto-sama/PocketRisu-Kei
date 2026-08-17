@@ -675,7 +675,6 @@ export function setDatabase(data:Database){
     normalizeTranslatorPresetState(data)
     data.showDeprecatedTriggerV2 ??= false
     data.returnCSSError ??= true
-    data.realmDirectOpen ??= false
     data.checkCorruption ??= false
     data.toggleConfirmRecommendedPreset ??= false
     data.useExperimentalGoogleTranslator ??= false
@@ -1338,7 +1337,6 @@ export interface Database{
     hypaV3Presets: HypaV3Preset[]
     hypaV3PresetId: number
     hypaV3PresetFolders?: PromptPresetFolder[]
-    realmDirectOpen:boolean
     OaiCompAPIKeys: {[key:string]:string}
     inlayErrorResponse:boolean
     reasoningEffort:number
