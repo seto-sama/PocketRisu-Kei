@@ -226,6 +226,7 @@ export interface PopupEditorOptions {
 export const popUpEditorStore = $state({
     open: false,
     value: '',
+    originalValue: '',
     title: '',
     metadata: [] as PopupEditorMetadata[],
     formatJson: false,
@@ -235,6 +236,7 @@ export const popUpEditorStore = $state({
 
 export function showPopupEditor(options: PopupEditorOptions) {
     popUpEditorStore.value = options.value
+    popUpEditorStore.originalValue = options.value
     popUpEditorStore.title = options.title ?? ''
     popUpEditorStore.metadata = options.metadata ?? []
     popUpEditorStore.formatJson = options.formatJson ?? false

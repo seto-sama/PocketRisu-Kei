@@ -43,6 +43,26 @@ describe('CBSCodeEditor', () => {
         expect(editor.state.doc.toString()).toBe('{{char}}')
     })
 
+    it('completes syntax added to the shared CBS registry', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(CBSCodeEditor, {
+            target,
+            props: { value: '{{#wh', wordWrap: true },
+        })
+        mounted.push(component)
+        await tick()
+
+        const content = target.querySelector<HTMLElement>('.cm-content')!
+        const editor = EditorView.findFromDOM(content)!
+        editor.dispatch({ selection: { anchor: editor.state.doc.length } })
+        content.focus()
+        startCompletion(editor)
+        await new Promise(resolve => setTimeout(resolve, 150))
+
+        expect(currentCompletions(editor.state).map(option => option.label)).toContain('#when')
+    })
+
     it('renders CBS highlighting and opens replace search with Ctrl+H', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
@@ -54,7 +74,7 @@ describe('CBSCodeEditor', () => {
         await tick()
 
         const content = target.querySelector<HTMLElement>('.cm-content')!
-        expect(target.querySelector('.cm-cbs-type')?.textContent).toBe('{{char}}')
+        expect(target.querySelector('.cm-cbs-depth-1')?.textContent).toBe('{{char}}')
 
         content.focus()
         content.dispatchEvent(new KeyboardEvent('keydown', {
@@ -68,5 +88,21 @@ describe('CBSCodeEditor', () => {
 
         expect(target.querySelector('input[name="search"]')).not.toBeNull()
         expect(target.querySelector('input[name="replace"]')).not.toBeNull()
+        expect(target.querySelector('.risu-search-panel')).not.toBeNull()
+
+        const replaceToggle = target.querySelector<HTMLButtonElement>('.risu-search-expand')!
+        replaceToggle.click()
+        expect(target.querySelector<HTMLDivElement>('.risu-search-replace-row')!.hidden).toBe(true)
+        replaceToggle.click()
+
+        content.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Escape',
+            code: 'Escape',
+            bubbles: true,
+            cancelable: true,
+        }))
+        await tick()
+
+        expect(target.querySelector('input[name="search"]')).toBeNull()
     })
 })

@@ -1,3 +1,5 @@
+import { getCBSDefinitions } from 'src/ts/cbs'
+
 export type HighlightType = 'decorator'|'deprecated'|'cbsnest0'|'cbsnest1'|'cbsnest2'|'cbsnest3'|'cbsnest4'|'cbsdisplay'|'comment'
 
 type HighLightRange = [number, number]
@@ -132,47 +134,26 @@ export const removeHighlight = (id:number) => {
     highLights.delete(id)
 }
 
-const normalCBS = [
-    'char', 'user', 'char_persona', 'description', 'char_desc', 'example_dialogue', 'previous_char_chat',
-    'lastcharmessage', 'previous_user_chat', 'lastusermessage',
-    'example_message', 'persona', 'user_persona', 'lorebook', 'world_info', 'history', 'messages',
-    'chat_index', 'first_msg_index', 'blank', 'none', 'message_time', 'message_date', 'time',
-    'date', 'isotime', 'isodate', 'message_idle_duration', 'idle_duration', 'br', 'newline',
-    'model', 'axmodel', 'role', 'jbtoggled', 'random', 'maxcontext', 'lastmessage', 'lastmessageid',
-    'lastmessageindex', 'emotionlist', 'assetlist', 'prefill_supported', 'unixtime', 'slot', 'module_enabled',
-    'is_first_message', '/', '/if', '/each', '/pure', '/if_pure', '/func', '/pure_display'
-]
-
-const normalCBSwithParams = [
-    'getvar', 'calc', 'addvar', 'setvar', 'setdefaultvar', 'button', 'equal', 'not_equal', 'file',
-    'startswith', 'endswith', 'contains', 'replace', 'split', 'join', 'spread', 'trim', 'length',
-    'arraylength', 'array_length', 'lower', 'upper', 'capitalize', 'round', 'floor', 'ceil', 'abs',
-    'previous_chat_log', 'tonumber', 'arrayelement', 'array_element', 'arrayshift', 'array_shift',
-    'arraypop', 'array_pop', 'arraypush', 'array_push', 'arraysplice', 'array_splice',
-    'makearray', 'array', 'a', 'make_array', 'history', 'messages', 'range', 'date', 'time', 'datetimeformat', 'date_time_format',
-    'random', 'pick', 'roll', 'datetimeformat', 'hidden_key', 'reverse', 'getglobalvar', 'position', 'slot', 'rollp',
-    'and', 'or', 'not', 'message_time_array', 'filter', 'greater', 'less', 'greater_equal', 'less_equal', 'arg'
-]
-
 const displayRelatedCBS = [
     'raw', 'img', 'video', 'audio', 'bg', 'emotion', 'asset', 'video-img', 'comment', 'image'
 ];
 
-const nestedCBS = [
-    '#if', '#if_pure ', '#pure ', '#each ', '#func', '#pure_display'
-]
+const cbsDefinitions = getCBSDefinitions().filter(definition => !definition.internalOnly)
+const knownCBSNames = new Set<string>(['/'])
+const deprecatedCBSNames = new Set<string>()
 
-const specialCBS = [
-    'random:', 'pick:', 'roll:', 'datetimeformat:', '? ', 'hidden_key: ', 'reverse: ', ...nestedCBS
-]
-
-const deprecatedCBS = [
-    'personality', 'scenario', 'main_prompt', 'system_prompt', 'ujb', 'global_note', 'system_note',
-]
-
-const deprecatedCBSwithParams = [
-    'remaind', 'pow'
-]
+for (const definition of cbsDefinitions) {
+    for (const name of [definition.name, ...definition.alias]) {
+        const normalizedName = name.toLocaleLowerCase()
+        knownCBSNames.add(normalizedName)
+        if (definition.deprecated) deprecatedCBSNames.add(normalizedName)
+        if (normalizedName.startsWith('#')) {
+            const closingName = `/${normalizedName.slice(1)}`
+            knownCBSNames.add(closingName)
+            if (definition.deprecated) deprecatedCBSNames.add(closingName)
+        }
+    }
+}
 
 export const decorators = [
     'activate_only_after', 'activate_only_every', 'keep_activate_after_match', 'dont_activate_after_match', 'depth', 'reverse_depth',
@@ -183,10 +164,6 @@ export const decorators = [
 const deprecatedDecorators = [
     'end', 'assistant', 'user', 'system'
 ]
-
-export const AllCBS = [...normalCBS, ...(normalCBSwithParams.concat(displayRelatedCBS).map((v) => {
-    return v + ':'
-})), ...nestedCBS]
 
 const highlighterSyntax = [
     {
@@ -233,64 +210,24 @@ function simpleCBSHighlightParser(text:string){
     const checkHighlight = () => {
         if(depth !== 0 && highlightMode[depth] === 0){
             highlightMode[depth] = 10
-            const upString = text.slice(depthStarts[depth], pointer)
+            const upString = text.slice(depthStarts[depth], pointer).trimStart()
+            const token = upString.split(/::|\s/, 1)[0]
+            const legacyToken = token.split(':', 1)[0]
+            const resolvedName = knownCBSNames.has(token)
+                ? token
+                : knownCBSNames.has(legacyToken) ? legacyToken : ''
 
-            if(highlightMode[depth] === 10){
-                for(const arg of normalCBS){
-                    if(upString === arg){
-                        highlightMode[depth] = 1
-                        break
-                    }
-                }
-            }
-
-            if(highlightMode[depth] === 10){
-                for(const arg of deprecatedCBS){
-                    if(upString === arg){
-                        highlightMode[depth] = 3
-                        break
-                    }
-                }
-            }
-
-            if(highlightMode[depth] === 10){
-                for(const arg of normalCBSwithParams){
-                    if(upString.startsWith(arg + '::')){
-                        highlightMode[depth] = 1
-                        break
-                    }
-                }
-            }
-
-            if(highlightMode[depth] === 10){
-                for(const arg of deprecatedCBSwithParams){
-                    if(upString.startsWith(arg + '::')){
-                        highlightMode[depth] = 3
-                        break
-                    }
-                }
-            }
-            
-            if(highlightMode[depth] === 10){
-                for(const arg of displayRelatedCBS){
-                    if(upString.startsWith(arg + '::')){
-                        highlightMode[depth] = 2
-                        break
-                    }
-                }
-            }
-
-            if(highlightMode[depth] === 10){
-                for(const arg of specialCBS){
-                    if(upString.startsWith(arg)){
-                        highlightMode[depth] = 1
-                        break
-                    }
-                }
-            }
-
-            if(upString.startsWith('// ')){
+            if(upString.startsWith('//')){
                 highlightMode[depth] = 4
+            }
+            else if (resolvedName && deprecatedCBSNames.has(resolvedName)) {
+                highlightMode[depth] = 3
+            }
+            else if (resolvedName && displayRelatedCBS.includes(resolvedName)) {
+                highlightMode[depth] = 2
+            }
+            else if (resolvedName) {
+                highlightMode[depth] = 1
             }
 
             colorHighlight()

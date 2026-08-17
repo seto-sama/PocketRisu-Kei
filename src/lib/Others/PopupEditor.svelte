@@ -1,7 +1,7 @@
 <script lang="ts">
     import { AlignLeftIcon, CheckIcon, MenuIcon, SaveIcon, TextWrapIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
-    import { notifyError } from 'src/ts/alert'
+    import { alertConfirm, notifyError } from 'src/ts/alert'
     import { textAreaTextSize } from 'src/ts/gui/guisize'
     import { popUpEditorStore } from 'src/ts/stores.svelte'
     import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
@@ -14,15 +14,31 @@
     import CBSCodeEditor from 'src/lib/UI/GUI/CBSCodeEditor.svelte'
 
     let saving = $state(false)
+    let confirmingClose = $state(false)
     let wordWrap = $state(true)
 
-    function requestClose() {
+    function closeEditor() {
         popUpEditorStore.open = false
+        popUpEditorStore.value = ''
+        popUpEditorStore.originalValue = ''
         popUpEditorStore.onSave = null
         popUpEditorStore.title = ''
         popUpEditorStore.metadata = []
         popUpEditorStore.formatJson = false
         popUpEditorStore.mode = 'plain'
+    }
+
+    async function requestClose() {
+        if (saving || confirmingClose) return
+        if (popUpEditorStore.value !== popUpEditorStore.originalValue) {
+            confirmingClose = true
+            try {
+                if (!await alertConfirm(language.popupEditorDiscardConfirm)) return
+            } finally {
+                confirmingClose = false
+            }
+        }
+        closeEditor()
     }
 
     async function requestSave() {
@@ -31,7 +47,7 @@
         saving = true
         try {
             const canClose = await popUpEditorStore.onSave(popUpEditorStore.value)
-            if (canClose !== false) requestClose()
+            if (canClose !== false) closeEditor()
         } finally {
             saving = false
         }
@@ -56,10 +72,10 @@
 
 <ShDialog
     open={popUpEditorStore.open}
-    onOpenChange={(open) => { if (!open) requestClose() }}
     size="xl"
-    tier="alert"
+    tier="base"
     closeOnEscape
+    onRequestClose={() => void requestClose()}
     contentClass="h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] sm:h-[90vh] sm:max-h-[90vh] gap-3 overflow-hidden p-3 sm:p-4"
     bodyClass="flex min-h-0 flex-1 flex-col"
 >
@@ -164,7 +180,7 @@
                 {/if}
             </div>
             <div class="ml-auto flex items-center gap-2">
-                <ShButton size="sm" variant="outline" onclick={requestClose} disabled={saving}>
+                <ShButton size="sm" variant="outline" onclick={() => void requestClose()} disabled={saving || confirmingClose}>
                     {language.cancel}
                 </ShButton>
                 <ShButton size="sm" variant="primary" onclick={requestSave} disabled={saving}>
