@@ -59,7 +59,7 @@ import { isMobile } from 'src/ts/platform'
 
     import Chats from './Chats.svelte';
     import PartialEditManager from './PartialEditManager.svelte';
-    import Button from '../UI/GUI/Button.svelte';
+    import ShButton from '../UI/GUI/ShButton.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
     import Portal from '../UI/GUI/Portal.svelte';
 
@@ -1505,12 +1505,12 @@ import { isMobile } from 'src/ts/platform'
 
             {#if chatFoldedStateMessageIndex.index !== -1}
                 <button class="w-full flex justify-center max-w-full p-4">
-                    <Button className="max-w-xl w-full" onclick={() => {
+                    <ShButton className="max-w-xl w-full" onclick={() => {
                         loadPages += chatFoldedStateMessageIndex.index + 1
                         chatFoldedState.data = null
                     }}>
                         {language.loadMore}
-                    </Button>
+                    </ShButton>
                 </button>
             {/if}
             

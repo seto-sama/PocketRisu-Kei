@@ -4,7 +4,6 @@
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
     import ShAccordion from "src/lib/UI/GUI/ShAccordion.svelte";
-    import Button from "src/lib/UI/GUI/Button.svelte";
     import { alertConfirm } from "src/ts/alert";
     import {
         LoadLocalBackup,
@@ -34,41 +33,41 @@
     </ShAlert>
 
     <!-- Migration: upstream RisuAI ↔ NodeOnly ─────────────────────────── -->
-    <Button
+    <ShButton
         onclick={async () => {
             if (await alertConfirm(language.saveBackupForUpstreamConfirm)) {
                 SaveLocalBackupForUpstream();
             }
         }} className="mt-2">
         {language.saveBackupForUpstream}
-    </Button>
+    </ShButton>
 
-    <Button
+    <ShButton
         onclick={async () => {
             if ((await alertConfirm(language.backupLoadConfirm)) && (await alertConfirm(language.backupLoadConfirm2))) {
                 LoadLocalBackup();
             }
         }} className="mt-2">
         {language.migrationLoadUpstreamBackup}
-    </Button>
+    </ShButton>
 
     <!-- Legacy backup options (collapsed by default) ──────────────────── -->
     <div class="mt-6">
         <ShAccordion name={language.migrationLegacyAccordion} variant="card">
             <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.migrationLegacyDesc}</p>
             <div class="flex flex-col gap-2">
-                <Button
+                <ShButton
                     onclick={async () => {
                         if (await alertConfirm(language.backupConfirm)) {
                             SavePartialLocalBackup();
                         }
                     }} className="w-full">
                     {language.savePartialLocalBackup}
-                </Button>
+                </ShButton>
 
-                <Button onclick={exportAsDataset} className="w-full">
+                <ShButton onclick={exportAsDataset} className="w-full">
                     {language.exportAsDataset}
-                </Button>
+                </ShButton>
             </div>
         </ShAccordion>
     </div>

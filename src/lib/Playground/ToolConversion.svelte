@@ -1,6 +1,6 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import Button from "../UI/GUI/Button.svelte";
+    import ShButton from "../UI/GUI/ShButton.svelte";
     import { selectMultipleFile } from "src/ts/util";
     import { detectPromptJSONType, promptConvertion } from "src/ts/process/prompt";
 
@@ -39,11 +39,11 @@
                 {/if}
                 <span>{file.name}</span>
             </div>
-            <Button>Delete</Button>
+            <ShButton>Delete</ShButton>
         </div>
     {/each}
-    <Button onclick={addFile}>Add</Button>
+    <ShButton onclick={addFile}>Add</ShButton>
 </div>
-<Button className="mt-6" onclick={() => {
+<ShButton className="mt-6" onclick={() => {
     promptConvertion(files)
-}}>Run</Button>
+}}>Run</ShButton>

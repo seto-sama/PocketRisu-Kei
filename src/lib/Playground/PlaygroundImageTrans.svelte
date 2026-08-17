@@ -2,7 +2,7 @@
     import { language } from "src/lang";
     import TextInput from "../UI/GUI/TextInput.svelte";
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
-    import Button from "../UI/GUI/Button.svelte";
+    import ShButton from "../UI/GUI/ShButton.svelte";
     import { jsonOutputTrimmer, selectSingleFile } from "src/ts/util";
     import { requestChatData } from "src/ts/process/request/request";
     import { notifyError } from "src/ts/alert";
@@ -348,14 +348,14 @@
 <NumberInput bind:value={fontSize} />
 
 {#if mode === 'manual'}
-    <Button className="mt-4" onclick={selectFile}>
+    <ShButton className="mt-4" onclick={selectFile}>
         {language.image}
-    </Button>
+    </ShButton>
 {/if}
 
-<Button className="mt-4" onclick={() => imageTranslate(0)}>
+<ShButton className="mt-4" onclick={() => imageTranslate(0)}>
     {loading ? 'loading' : language.imageTranslation}
-</Button>
+</ShButton>
 
 
 

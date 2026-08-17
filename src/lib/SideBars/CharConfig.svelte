@@ -18,7 +18,7 @@
     import ShInput from "../UI/GUI/ShInput.svelte";
     import NumberInput from "../UI/GUI/NumberInput.svelte";
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
-    import Button from "../UI/GUI/Button.svelte";
+    import ShButton from "../UI/GUI/ShButton.svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
     import RegexList from "./Scripts/RegexList.svelte";
@@ -31,7 +31,6 @@
     import { exportRegex, importRegex } from "src/ts/process/scripts";
     import SliderInput from "../UI/GUI/SliderInput.svelte";
     import Accordion from "../UI/Accordion.svelte";
-    import ShButton from "../UI/GUI/ShButton.svelte";
     import ShSettings from "../UI/GUI/ShSettings.svelte";
     import ShSwitch from "../UI/GUI/ShSwitch.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
@@ -618,17 +617,17 @@
     {/if}
 
     {#if !licenseRestricted}
-        <Button size="md" onclick={async () => {
+        <ShButton onclick={async () => {
             const res = await exportChar($selectedCharID)
-        }} className="mt-6">{language.exportCharacter}</Button>
+        }} className="mt-6">{language.exportCharacter}</ShButton>
     {/if}
 
-    <Button size="md" className="mt-2" onclick={async () => {
+    <ShButton className="mt-2" onclick={async () => {
         const char = getCurrentCharacter()
         const m = convertCharacterToModule(char)
         DBState.db.modules.push(m)
         notifySuccess(language.successfullyConverted)
-    }}>{language.convertToModule}</Button>
+    }}>{language.convertToModule}</ShButton>
 
     {#if DBState.db.characters[$selectedCharID].type === 'character'}
         {@const char = DBState.db.characters[$selectedCharID] as character}
@@ -652,17 +651,17 @@
                     <CheckInput bind:check={pkgIncludeInlays} name={language.characterPackageInlays} margin={false} />
                 </div>
             {/key}
-            <Button size="md" className="mt-2 w-full" onclick={async () => {
+            <ShButton className="mt-2 w-full" onclick={async () => {
                 await exportCharacterPackage($selectedCharID, {
                     includeCharacter: licenseRestricted ? false : pkgIncludeCharacter,
                     includeChats: pkgIncludeChats,
                     includePersona: pkgIncludePersona,
                     includeInlays: pkgIncludeInlays
                 })
-            }}>{language.characterPackageExport}</Button>
-            <Button size="md" className="mt-2 w-full" onclick={async () => {
+            }}>{language.characterPackageExport}</ShButton>
+            <ShButton className="mt-2 w-full" onclick={async () => {
                 await importPackageToCharacter($selectedCharID)
-            }}>{language.characterPackageImportToChar}</Button>
+            }}>{language.characterPackageImportToChar}</ShButton>
         </div>
     {/if}
 
@@ -827,12 +826,12 @@
             {:else}
                 <span class="text-textcolor">No Model</span>
             {/if}
-            <Button onclick={async () => {
+            <ShButton onclick={async () => {
                 const model = await registerOnnxModel()
                 if(model && DBState.db.characters[$selectedCharID].type === 'character'){
                     DBState.db.characters[$selectedCharID].vits = model
                 }
-            }}>{language.selectModel}</Button>
+            }}>{language.selectModel}</ShButton>
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'gptsovits'}
             <span class="text-textcolor">Volume</span>
             <SliderInput min={0.0} max={1.0} step={0.01} fixed={2} bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.volume}/>
@@ -851,7 +850,7 @@
             <Check bind:check={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}/>
 
             <span class="text-textcolor">Reference Audio Data (3~10s audio file)</span>
-            <Button onclick={async () => {
+            <ShButton onclick={async () => {
                 const audio = await selectSingleFile([
                     'wav',
                     'ogg',
@@ -875,7 +874,7 @@
                 {:else}
                     {DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_data.fileName}
                 {/if}
-            </Button>
+            </ShButton>
             <span class="text-textcolor">Text Language</span>
             <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_lang}>
                 <OptionInput value="auto">Multi-language Mixed</OptionInput>

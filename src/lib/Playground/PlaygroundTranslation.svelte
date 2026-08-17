@@ -3,7 +3,7 @@
     import { language } from "src/lang";
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
     import { clearLLMCache, runTranslator } from "src/ts/translator/translator";
-    import Button from "../UI/GUI/Button.svelte";
+    import ShButton from "../UI/GUI/ShButton.svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
     import { getLanguageCodes } from "src/ts/globalApi.svelte";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
@@ -50,7 +50,7 @@
     </CheckInput>
 {/if}
 
-<Button className="mt-4" onclick={async () => {
+<ShButton className="mt-4" onclick={async () => {
     bulkProgressText = ''
     if(bulk){
 
@@ -151,9 +151,9 @@
     {:else}
         Translate
     {/if}
-</Button>
-<Button className="mt-4" onclick={() => {
+</ShButton>
+<ShButton className="mt-4" onclick={() => {
     clearLLMCache()
 }}>
     Clear Cache
-</Button>
+</ShButton>

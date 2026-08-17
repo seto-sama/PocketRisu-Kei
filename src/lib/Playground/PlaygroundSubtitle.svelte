@@ -3,7 +3,7 @@
     import { language } from "src/lang";
     import TextInput from "../UI/GUI/TextInput.svelte";
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
-    import Button from "../UI/GUI/Button.svelte";
+    import ShButton from "../UI/GUI/ShButton.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import { getGenerationModelMetadata } from "src/ts/process/models/modelString";
     import { requestChatData } from "src/ts/process/request/request";
@@ -471,7 +471,7 @@
 {/if}
 
 {#if !outputText}
-    <Button className="mt-4" onclick={() => {
+    <ShButton className="mt-4" onclick={() => {
         if(mode === 'llm'){
             runLLMMode()
         }
@@ -480,7 +480,7 @@
         }
     }}>
         {language.run}
-    </Button>
+    </ShButton>
 {:else if vttB64 && fileB64}
     <details class="mt-4">
         <pre>{outputText}</pre>
@@ -500,15 +500,15 @@
 
     <span class="text-textcolor text-lg mt-4">{language.download}</span>
 
-    <Button className="mt-4" onclick={() => {
+    <ShButton className="mt-4" onclick={() => {
         outputText = ''
         fileB64 = ''
         vttB64 = ''
     }}>
         {language.reset}
-    </Button>
+    </ShButton>
 
-    <Button className="mt-4" onclick={async () => {
+    <ShButton className="mt-4" onclick={async () => {
         const sel = parseInt(await alertSelect([
             'WebVTT',
             'SRT'
@@ -528,5 +528,5 @@
         }
     }}>
         {language.download}
-    </Button>
+    </ShButton>
 {/if}

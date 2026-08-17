@@ -9,11 +9,10 @@
     import { hubURL, isCharacterHasAssets } from 'src/ts/characterCards';
     import TextInput from '../UI/GUI/TextInput.svelte';
     import { openURL, downloadFile } from 'src/ts/globalApi.svelte';
-    import Button from '../UI/GUI/Button.svelte';
+    import ShButton from '../UI/GUI/ShButton.svelte';
     import ShDialog from '../UI/GUI/ShDialog.svelte';
     import ShAlertDialog from '../UI/GUI/ShAlertDialog.svelte';
     import ShLoadingDialog from '../UI/GUI/ShLoadingDialog.svelte';
-    import ShButton from '../UI/GUI/ShButton.svelte';
     import { XIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, PencilIcon, TrashIcon, EllipsisVerticalIcon, RefreshCwIcon, PlusIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
@@ -310,7 +309,7 @@
                     <ShSwitch className="shrink-0" bind:checked={DBState.db.imageCompression} />
                 </div>
             {/if}
-            <Button className="mt-4" onclick={() => {
+            <ShButton className="mt-4" onclick={() => {
                 alertStore.set({
                     type: 'none',
                     msg: JSON.stringify({
@@ -318,7 +317,7 @@
                         type2: cardExportType2
                     })
                 })
-            }}>{language.export}</Button>
+            }}>{language.export}</ShButton>
         </div>
     </div>
 
@@ -487,14 +486,14 @@
 
         {#if $alertStore.stackTrace}
             <div class="mt-2">
-                <Button styled="outlined" size="sm" onclick={() => showDetails = !showDetails}>
+                <ShButton variant="outline" size="sm" onclick={() => showDetails = !showDetails}>
                     {showDetails ? language.hideErrorDetails : language.showErrorDetails}
                     {#if showDetails}
                         <XIcon class="inline ml-2" />
                     {:else}
                         <ChevronRightIcon class="inline ml-2" />
                     {/if}
-                </Button>
+                </ShButton>
                 {#if showDetails}
                     <div class="stack-trace-wrap">
                         <button
