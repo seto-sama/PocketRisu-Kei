@@ -36,6 +36,7 @@ import {
     type TTSHookFn,
 } from "src/ts/process/ttsHooks";
 import { classifyPluginProviderFetch, type PluginProviderFetchOptions } from "./providerFetchClassification";
+import { getInlayAsset } from "src/ts/process/files/inlays";
 
 /*
     V3 API for RisuAI Plugins
@@ -918,6 +919,9 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         setDatabase: oldApis.setDatabase,
         loadPlugins: oldApis.loadPlugins,
         readImage: oldApis.readImage,
+        readInlay: async (id: string) => {
+            return await getInlayAsset(id);
+        },
         saveAsset: oldApis.saveAsset,
         //Same functionality, but new implementation
         getDatabase: async (includeOnly:string[]|'all' = 'all') => {
