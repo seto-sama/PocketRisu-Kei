@@ -1120,6 +1120,8 @@ export const languageKorean = {
   inlayViewScreen: "인레이 스크린",
   enableEmotionImages: "감정 이미지 켜기",
   emotionInstructions: "감정 이미지 지시사항",
+  extensionInfo: "확장자 정보",
+  positivePrompt: "긍정 프롬프트",
   negativePrompt: "네거티브 프롬프트",
   generateImage: "이미지 생성",
   imageProviderNotConfigured: "먼저 이미지 생성 프로바이더를 설정해주세요.",

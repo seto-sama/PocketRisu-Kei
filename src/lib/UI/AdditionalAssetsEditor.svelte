@@ -3,7 +3,7 @@
     import { language } from 'src/lang';
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert';
     import { downloadFile, getFileSrc, saveAsset } from 'src/ts/globalApi.svelte';
-    import { DBState, SizeStore } from 'src/ts/stores.svelte';
+    import { DBState } from 'src/ts/stores.svelte';
     import { selectMultipleFile } from 'src/ts/util';
     import { onDestroy } from 'svelte';
     import FullscreenImageViewer from './GUI/FullscreenImageViewer.svelte';
@@ -44,7 +44,6 @@
     let assetFilePaths = $state<Record<string, string>>({});
     let assetImageDimensions = $state<Record<string, { width: number, height: number }>>({});
     let previewIndex = $state(-1);
-    let previewInfoOpen = $state(false);
     const incrementalList = createIncrementalList({ pageSize: 40, rootMargin: '400px 0px' });
     const observePagingSentinel = incrementalList.observeSentinel;
 
@@ -153,7 +152,6 @@
 
     function openPreview(index: number) {
         previewIndex = index;
-        previewInfoOpen = $SizeStore.w >= 768;
     }
 
     function recordImageDimensions(event: Event, assetPath: string) {
@@ -237,13 +235,11 @@
     }
 
     function goToPreviewNeighbor(offset: -1 | 1) {
-        if(previewPosition < 0){
+        if(previewPosition < 0 || previewIndexes.length < 2){
             return;
         }
-        const nextIndex = previewIndexes[previewPosition + offset];
-        if(nextIndex !== undefined){
-            previewIndex = nextIndex;
-        }
+        const nextPosition = (previewPosition + offset + previewIndexes.length) % previewIndexes.length;
+        previewIndex = previewIndexes[nextPosition];
     }
 </script>
 
@@ -336,62 +332,39 @@
     src={previewPath}
     alt={previewAsset?.[0] ?? ''}
     title={previewAsset?.[0] ?? ''}
+    subtitle={previewAsset?.[1] ?? ''}
     position={previewPosition}
     total={previewIndexes.length}
-    canGoPrev={previewPosition > 0}
-    canGoNext={previewPosition >= 0 && previewPosition < previewIndexes.length - 1}
-    bind:infoOpen={previewInfoOpen}
-    infoLabel={language.playground.inlayInfo}
-    downloadLabel={language.download}
+    canGoPrev={previewPosition >= 0 && previewIndexes.length > 1}
+    canGoNext={previewPosition >= 0 && previewIndexes.length > 1}
+    metadataLabel={language.playground.inlayInfo}
     closeLabel={language.goback}
     onClose={() => (previewIndex = -1)}
     onPrev={() => goToPreviewNeighbor(-1)}
     onNext={() => goToPreviewNeighbor(1)}
-    onDownload={downloadPreview}
 >
-    {#snippet info()}
+    {#snippet actions()}
         {#if previewAsset}
-            <div class="px-4 py-3 space-y-1.5">
-                <p class="text-textcolor text-sm font-medium break-all leading-snug" title={previewAsset[0]}>
-                    {previewAsset[0]}
-                </p>
-                {#if previewAsset[2]}
-                    <p class="text-textcolor2 text-xs uppercase font-mono">{previewAsset[2]}</p>
-                {/if}
-                {#if previewDimensions}
-                    <p class="text-textcolor2 text-xs">{previewDimensions.width} × {previewDimensions.height} px</p>
-                {/if}
-            </div>
+            <IconButton onclick={() => copyRawReference(previewAsset[0])} title={language.copy} aria-label={language.copy} className="text-textcolor">
+                <Copy />
+            </IconButton>
+            <IconButton onclick={downloadPreview} title={language.download} aria-label={language.download} className="text-textcolor">
+                <DownloadIcon />
+            </IconButton>
+            <IconButton tone="destructive" onclick={() => deleteAsset(previewIndex, true)} title={language.remove} aria-label={language.remove} className="text-textcolor">
+                <TrashIcon />
+            </IconButton>
+        {/if}
+    {/snippet}
 
-            <div class="px-4 py-4 space-y-2">
-                <h3 class="text-textcolor2 text-[11px] font-semibold uppercase tracking-wider">
-                    {language.playground.inlayActions}
-                </h3>
-                <button
-                    type="button"
-                    onclick={() => copyRawReference(previewAsset[0])}
-                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc risu-interactive-surface-strong text-textcolor2 risu-interactive-foreground text-sm transition-colors"
-                >
-                    <Copy size={14} />
-                    {language.copy}
-                </button>
-                <button
-                    type="button"
-                    onclick={downloadPreview}
-                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc risu-interactive-surface-strong text-textcolor2 risu-interactive-foreground text-sm transition-colors"
-                >
-                    <DownloadIcon size={12} />
-                    {language.download}
-                </button>
-                <button
-                    type="button"
-                    onclick={() => deleteAsset(previewIndex, true)}
-                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-draculared/40 hover:bg-draculared/15 text-draculared text-sm transition-colors"
-                >
-                    <TrashIcon size={12} />
-                    {language.remove}
-                </button>
-            </div>
+    {#snippet metadataOverlay()}
+        {#if previewAsset}
+            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+                <dt class="text-textcolor2">{language.extensionInfo}</dt>
+                <dd class="text-textcolor">
+                    {previewAsset[2]?.toUpperCase() ?? ''}{#if previewAsset[2] && previewDimensions}{', '}{/if}{#if previewDimensions}{previewDimensions.width} × {previewDimensions.height}px{/if}
+                </dd>
+            </dl>
         {/if}
     {/snippet}
 </FullscreenImageViewer>

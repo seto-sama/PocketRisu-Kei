@@ -1047,6 +1047,8 @@ export const languageEnglish = {
     inlayViewScreen: "Inlay Screen",
     enableEmotionImages: "Enable Emotion Images",
     emotionInstructions: "Emotion Image Instructions",
+    extensionInfo: "Extension Info",
+    positivePrompt: "Positive Prompt",
     negativePrompt: "Negative Prompt",
     generateImage: "Generate Image",
     imageProviderNotConfigured: "Configure an image generation provider first.",

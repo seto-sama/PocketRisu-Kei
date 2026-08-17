@@ -1,13 +1,16 @@
 <script lang="ts">
     import type { Snippet } from 'svelte';
-    import { ChevronLeft, ChevronRight, Download, Info, X } from '@lucide/svelte';
+    import { ChevronLeft, ChevronRight, Info, X } from '@lucide/svelte';
     import Portal from './Portal.svelte';
+    import IconButton from './IconButton.svelte';
+    import IconButtonGroup from './IconButtonGroup.svelte';
 
     interface Props {
         open?: boolean;
         src?: string;
         alt?: string;
         title?: string;
+        subtitle?: string;
         position?: number;
         total?: number;
         loading?: boolean;
@@ -15,19 +18,16 @@
         loadingLabel?: string;
         canGoPrev?: boolean;
         canGoNext?: boolean;
-        infoOpen?: boolean;
-        infoLabel?: string;
-        downloadLabel?: string;
+        metadataLabel?: string;
         closeLabel?: string;
         previousLabel?: string;
         nextLabel?: string;
         onClose: () => void;
         onPrev?: () => void;
         onNext?: () => void;
-        onDownload?: () => void | Promise<void>;
         viewerContent?: Snippet;
-        info?: Snippet;
-        statusOverlay?: Snippet;
+        actions?: Snippet;
+        metadataOverlay?: Snippet;
     }
 
     let {
@@ -35,6 +35,7 @@
         src = '',
         alt = '',
         title = '',
+        subtitle = '',
         position = -1,
         total = 0,
         loading = false,
@@ -42,20 +43,18 @@
         loadingLabel = 'Loading...',
         canGoPrev = false,
         canGoNext = false,
-        infoOpen = $bindable(false),
-        infoLabel = 'Info',
-        downloadLabel = 'Download',
+        metadataLabel = 'Info',
         closeLabel = 'Close',
         previousLabel = 'Previous image',
         nextLabel = 'Next image',
         onClose,
         onPrev,
         onNext,
-        onDownload,
         viewerContent,
-        info,
-        statusOverlay,
+        actions,
+        metadataOverlay,
     }: Props = $props();
+    let metadataOpen = $state(true);
 
     function handleKeydown(event: KeyboardEvent) {
         if(!open){
@@ -86,46 +85,45 @@
             <div class="absolute top-0 inset-x-0 z-10 flex items-center gap-3 px-4 py-3 bg-gradient-to-b from-darkbg/90 to-transparent pointer-events-none">
                 <div class="flex-1 min-w-0">
                     <p class="text-textcolor text-sm font-semibold truncate">{title}</p>
-                    {#if position >= 0 && total > 0}
-                        <p class="text-textcolor2 text-xs">{position + 1} / {total}</p>
+                    {#if subtitle || (position >= 0 && total > 0)}
+                        <p class="flex min-w-0 items-center gap-2 text-textcolor2 text-xs">
+                            {#if subtitle}<span class="truncate">{subtitle}</span>{/if}
+                            {#if subtitle && position >= 0 && total > 0}<span class="h-3 w-px shrink-0 bg-textcolor2/40"></span>{/if}
+                            {#if position >= 0 && total > 0}<span class="shrink-0">{position + 1}/{total}</span>{/if}
+                        </p>
                     {/if}
                 </div>
-                <div class="flex gap-2 shrink-0 pointer-events-auto">
-                    {#if info}
-                        <button
-                            type="button"
-                            class="w-9 h-9 rounded-full border border-darkborderc bg-darkbutton risu-interactive-surface-solid flex items-center justify-center text-textcolor transition-colors"
-                            onclick={() => (infoOpen = !infoOpen)}
-                            title={infoLabel}
+                <IconButtonGroup size="lg" cellSize={32} className="shrink-0 gap-1 pointer-events-auto [&_[data-icon-button]]:rounded-sm [&_[data-icon-button]]:risu-interactive-surface">
+                    {#if metadataOverlay}
+                        <IconButton
+                            onclick={() => (metadataOpen = !metadataOpen)}
+                            title={metadataLabel}
+                            aria-label={metadataLabel}
+                            aria-pressed={metadataOpen}
+                            active={metadataOpen}
+                            className="text-textcolor"
                         >
-                            <Info size={16} />
-                        </button>
+                            <Info />
+                        </IconButton>
                     {/if}
-                    {#if onDownload}
-                        <button
-                            type="button"
-                            class="w-9 h-9 rounded-full border border-darkborderc bg-darkbutton risu-interactive-surface-solid flex items-center justify-center text-textcolor transition-colors"
-                            onclick={onDownload}
-                            title={downloadLabel}
-                        >
-                            <Download size={16} />
-                        </button>
+                    {#if actions}
+                        {@render actions()}
                     {/if}
-                    <button
-                        type="button"
-                        class="w-9 h-9 rounded-full border border-darkborderc bg-darkbutton risu-interactive-surface-solid flex items-center justify-center text-textcolor transition-colors"
+                    <IconButton
                         onclick={onClose}
                         title={closeLabel}
+                        aria-label={closeLabel}
+                        className="text-textcolor"
                     >
-                        <X size={16} />
-                    </button>
-                </div>
+                        <X />
+                    </IconButton>
+                </IconButtonGroup>
             </div>
 
             {#if canGoPrev}
                 <button
                     type="button"
-                    class="absolute left-3 z-10 w-11 h-11 rounded-full border border-darkborderc bg-darkbutton risu-interactive-surface-solid flex items-center justify-center text-textcolor transition-colors"
+                    class="absolute left-3 z-10 w-11 h-11 rounded-md bg-transparent risu-interactive-surface flex items-center justify-center text-textcolor transition-colors"
                     onclick={onPrev}
                     aria-label={previousLabel}
                 >
@@ -158,7 +156,7 @@
             {#if canGoNext}
                 <button
                     type="button"
-                    class="absolute right-3 z-10 w-11 h-11 rounded-full border border-darkborderc bg-darkbutton risu-interactive-surface-solid flex items-center justify-center text-textcolor transition-colors"
+                    class="absolute right-3 z-10 w-11 h-11 rounded-md bg-transparent risu-interactive-surface flex items-center justify-center text-textcolor transition-colors"
                     onclick={onNext}
                     aria-label={nextLabel}
                 >
@@ -166,29 +164,12 @@
                 </button>
             {/if}
 
-            {#if statusOverlay}
-                {@render statusOverlay()}
+            {#if metadataOpen && metadataOverlay}
+                <div class="absolute bottom-3 left-3 right-3 z-10 max-h-[42vh] overflow-y-auto rounded-md border border-darkborderc bg-darkbg/90 px-3 py-2 shadow-lg backdrop-blur-sm sm:right-auto sm:max-w-md">
+                    {@render metadataOverlay()}
+                </div>
             {/if}
         </div>
-
-        {#if infoOpen && info}
-            <div class="w-72 xl:w-80 shrink-0 flex flex-col overflow-hidden border-l border-darkborderc bg-darkbg">
-                <div class="flex items-center justify-between px-4 py-3">
-                    <span class="text-textcolor text-sm font-semibold">{infoLabel}</span>
-                    <button
-                        type="button"
-                        class="text-textcolor2 risu-interactive-foreground transition-colors"
-                        onclick={() => (infoOpen = false)}
-                        aria-label={closeLabel}
-                    >
-                        <X size={16} />
-                    </button>
-                </div>
-                <div class="flex-1 overflow-y-auto">
-                    {@render info()}
-                </div>
-            </div>
-        {/if}
     </div>
     </Portal>
 {/if}
