@@ -686,7 +686,7 @@
     {:else if snapshots.length === 0 && !snapshotLoading}
         <p class="text-textcolor2 text-sm">{language.backupSnapshotEmpty}</p>
     {:else if snapshots.length > 0}
-        <SettingLayout variant="list" scrollable>
+        <SettingLayout variant="list" scrollable className="max-h-[75vh]">
             {#each snapshots as snap (snap.key)}
                 <SettingLayout variant="item">
                     <div class="flex flex-col min-w-0 flex-1">
@@ -717,7 +717,7 @@
     {#if manualSnapshots.length === 0 && !manualSnapshotLoading}
         <p class="text-textcolor2 text-sm">{language.manualSnapshotEmpty}</p>
     {:else if manualSnapshots.length > 0}
-        <SettingLayout variant="list" scrollable>
+        <SettingLayout variant="list" scrollable className="max-h-[75vh]">
             {#each manualSnapshots as snap (snap.filename)}
                 <SettingLayout variant="item">
                     <div class="flex flex-col min-w-0 flex-1">

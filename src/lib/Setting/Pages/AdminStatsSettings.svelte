@@ -455,7 +455,7 @@
         </div>
     {:else}
         <Tooltip.Provider delayDuration={300}>
-            <SettingLayout variant="list" scrollable>
+            <SettingLayout variant="list" scrollable className="max-h-[75vh]">
                 {#each displayed as entry (entry.id)}
                     <Collapsible.Root
                         open={expanded[entry.id] === true}
