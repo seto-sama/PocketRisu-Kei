@@ -1,10 +1,10 @@
-import { get, writable } from "svelte/store";
+import { get } from "svelte/store";
 import { saveImage, setDatabase, type character, type Chat, defaultSdDataFunc, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat, newChatModelDefaults } from "./storage/database.svelte";
 import { ensureChatHydrated } from "./storage/chatStorage";
 import { alertAddCharacter, alertConfirm, alertError, alertSelect, alertStore, alertWait, notifySuccess, notifyInfo } from "./alert";
 import { loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
-import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectMultipleFile, selectSingleFile } from "./util";
+import { checkNullish, findCharacterbyId, getUserName, selectFileByDom, selectSingleFile } from "./util";
 import { v4 as uuidv4, v4 } from 'uuid';
 import { getImageType } from "./media";
 import { MobileGUIStack, OpenRealmStore, selectedCharID } from "./stores.svelte";
@@ -148,34 +148,6 @@ export function changeCharImage(charIndex:number,changeIndex:number) {
     db.characters[charIndex] = char
 }
 
-
-export const addingEmotion = writable(false)
-
-export async function addCharEmotion(charId:number) {
-    addingEmotion.set(true)
-    const selected = await selectMultipleFile(['png', 'webp', 'gif'])
-    if(!selected){
-        addingEmotion.set(false)
-        return
-    }
-    let db = getDatabase()
-    for(const f of selected){
-        const img = f.data
-        const imgp = await saveImage(img)
-        const name = f.name.replace('.png','').replace('.webp','')
-        let dbChar = db.characters[charId]
-        dbChar.emotionImages.push([name,imgp])
-        db.characters[charId] = dbChar
-    }
-    addingEmotion.set(false)
-}
-
-export function rmCharEmotion(charId:number, emotionId:number) {
-    let db = getDatabase()
-    let dbChar = db.characters[charId]
-    dbChar.emotionImages.splice(emotionId, 1)
-    db.characters[charId] = dbChar
-}
 
 function getCurrentExportTheme() {
     const styles = getComputedStyle(document.documentElement)

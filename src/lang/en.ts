@@ -1045,6 +1045,8 @@ export const languageEnglish = {
     exactTokens: "Exact Tokens",
     fixedTokens: "Approximate Tokens",
     inlayViewScreen: "Inlay Screen",
+    enableEmotionImages: "Enable Emotion Images",
+    emotionInstructions: "Emotion Image Instructions",
     imgGenPrompt: "Image Generation Prompt",
     imgGenNegatives: "Image Generation Negative Prompt",
     imgGenInstructions: "Image Generation Instructions",

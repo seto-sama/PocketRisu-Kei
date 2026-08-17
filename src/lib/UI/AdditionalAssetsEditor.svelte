@@ -19,6 +19,8 @@
         showExclusionToggle?: boolean;
         excludedPaths?: string[];
         onExcludedPathsChange?: (paths: string[]) => void;
+        acceptedExtensions?: string[];
+        previewAllAsImages?: boolean;
     }
 
     let {
@@ -28,9 +30,10 @@
         showExclusionToggle = false,
         excludedPaths = [],
         onExcludedPathsChange,
+        acceptedExtensions = ['png', 'webp', 'mp4', 'mp3', 'gif', 'jpeg', 'jpg', 'ttf', 'otf', 'css', 'webm', 'woff', 'woff2', 'svg', 'avif'],
+        previewAllAsImages = false,
     }: Props = $props();
 
-    const acceptedExtensions = ['png', 'webp', 'mp4', 'mp3', 'gif', 'jpeg', 'jpg', 'ttf', 'otf', 'css', 'webm', 'woff', 'woff2', 'svg', 'avif'];
     const previewableImageExtensions = ['png', 'webp', 'jpeg', 'jpg', 'gif', 'svg', 'avif'];
     let assetFilePaths = $state<Record<string, string>>({});
     let assetImageDimensions = $state<Record<string, { width: number, height: number }>>({});
@@ -40,7 +43,7 @@
     const extensionOf = (asset: AdditionalAsset) => (asset[2] || asset[1].split('.').pop() || '').toLowerCase();
     let previewIndexes = $derived.by(() => assets
         .map((asset, index) => ({ asset, index }))
-        .filter(({ asset }) => previewableImageExtensions.includes(extensionOf(asset)) && !!assetFilePaths[asset[1]])
+        .filter(({ asset }) => (previewAllAsImages || previewableImageExtensions.includes(extensionOf(asset))) && !!assetFilePaths[asset[1]])
         .map(({ index }) => index));
     let previewPosition = $derived(previewIndexes.indexOf(previewIndex));
     let previewAsset = $derived(previewIndex >= 0 ? assets[previewIndex] ?? null : null);
@@ -195,7 +198,7 @@
             <div class="flex min-w-0 items-center gap-2 p-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
                 <div class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-textcolor2">
                     {#if assetFilePaths[asset[1]] && DBState.db.useAdditionalAssetsPreview}
-                        {#if previewableImageExtensions.includes(extension)}
+                        {#if previewAllAsImages || previewableImageExtensions.includes(extension)}
                             <button
                                 class="w-full h-full cursor-zoom-in"
                                 onclick={() => openPreview(i)}

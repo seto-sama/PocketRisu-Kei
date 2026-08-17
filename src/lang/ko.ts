@@ -1118,6 +1118,8 @@ export const languageKorean = {
   exactTokens: "정확 토큰",
   fixedTokens: "대략적 토큰",
   inlayViewScreen: "인레이 스크린",
+  enableEmotionImages: "감정 이미지 켜기",
+  emotionInstructions: "감정 이미지 지시사항",
   imgGenPrompt: "이미지 생성 프롬프트",
   imgGenNegatives: "이미지 생성 네거티브 프롬프트",
   imgGenInstructions: "이미지 생성 지시사항",

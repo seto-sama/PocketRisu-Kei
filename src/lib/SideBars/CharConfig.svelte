@@ -8,7 +8,7 @@
     import { CharConfigSubMenu, MobileGUI, selectedCharID } from "../../ts/stores.svelte";
     import { PlusIcon, TrashIcon, DownloadIcon, HardDriveUploadIcon, ArrowUp, ArrowDown, TriangleAlertIcon } from '@lucide/svelte'
     import Check from "../UI/GUI/CheckInput.svelte";
-    import { addCharEmotion, addingEmotion, getCharImage, rmCharEmotion, selectCharImg, removeChar, changeCharImage } from "../../ts/characters";
+    import { getCharImage, selectCharImg, removeChar, changeCharImage } from "../../ts/characters";
     import LoreBook from "./LoreBook/LoreBookSetting.svelte";
     import { getAuthorNoteDefaultText, selectSingleFile } from "../../ts/util";
     import Help from "../Others/Help.svelte";
@@ -43,7 +43,6 @@
     let pkgIncludeInlays = $state(false)
     let addingCreatorNotesLang = $state(false)
     let viewSubMenu = $state(0)
-    let emos:[string, string][] = $state([])
     let tokens = $state({
         desc: 0,
         firstMsg: 0,
@@ -97,14 +96,33 @@
 
     let licensed = $state((DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : '')
 
-    $effect.pre(() => {
-        emos = DBState.db.characters[$selectedCharID].emotionImages
-    });
-
 
     $effect.pre(() => {
         licensed = (DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : ''
     });
+
+    let emotionAssets = $derived(
+        ((DBState.db.characters[$selectedCharID] as character)?.emotionImages ?? [])
+            .map(([name, path]) => [name, path, 'png'] as [string, string, string])
+    )
+
+    function setEmotionImagesEnabled(enabled: boolean) {
+        const char = DBState.db.characters[$selectedCharID] as character
+        char.viewScreen = enabled ? 'emotion' : 'none'
+        if(!enabled) char.inlayViewScreen = false
+        DBState.db.characters[$selectedCharID] = updateInlayScreen(char)
+    }
+
+    function setEmotionInlayEnabled(enabled: boolean) {
+        const char = DBState.db.characters[$selectedCharID] as character
+        char.inlayViewScreen = enabled
+        DBState.db.characters[$selectedCharID] = updateInlayScreen(char)
+    }
+
+    function setEmotionAssets(assets: [string, string, string][]) {
+        const char = DBState.db.characters[$selectedCharID] as character
+        char.emotionImages = assets.map(([name, path]) => [name, path])
+    }
 
     $effect.pre(() => {
         if (DBState.db.characters[$selectedCharID].ttsMode === 'novelai' && (DBState.db.characters[$selectedCharID] as character).naittsConfig === undefined) {
@@ -319,7 +337,7 @@
         <button onclick={() => {
             viewSubMenu = 1
         }} class="flex min-h-10 flex-1 items-center justify-center border-r border-l border-selected p-2" class:bg-selected={viewSubMenu === 1}>
-            <span>{language.viewScreen}</span>
+            <span>{language.emotionImage}</span>
         </button>
         <button onclick={() => {
             viewSubMenu = 2
@@ -410,101 +428,37 @@
 
 
     {:else if viewSubMenu === 1}
-        <!-- svelte-ignore block_empty -->
-
-            <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].viewScreen} onchange={() => {
-                DBState.db.characters[$selectedCharID] = updateInlayScreen((DBState.db.characters[$selectedCharID] as character))
-            }}>
-                <OptionInput value="none">{language.none}</OptionInput>
-                <OptionInput value="emotion">{language.emotionImage}</OptionInput>
-                <OptionInput value="imggen">{language.imageGeneration}</OptionInput>
-            </SelectInput>
+        <ShSettings spacing="divided" className="mb-3">
+            <ShSettings variant="row">
+                <span class="min-w-0 text-textcolor">{language.enableEmotionImages}</span>
+                <ShSwitch
+                    checked={DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
+                    onCheckedChange={setEmotionImagesEnabled}
+                />
+            </ShSettings>
+            {#if DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
+                <ShSettings variant="row">
+                    <span class="min-w-0 text-textcolor">{language.inlayViewScreen}</span>
+                    <ShSwitch
+                        checked={(DBState.db.characters[$selectedCharID] as character).inlayViewScreen}
+                        onCheckedChange={setEmotionInlayEnabled}
+                    />
+                </ShSettings>
+            {/if}
+        </ShSettings>
 
         {#if DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
-            <span class="text-textcolor mt-6">{language.emotionImage}<Help key="emotion"/></span>
-            <span class="text-textcolor2 text-xs">{language.emotionWarn}</span>
-
-            <div class="w-full max-w-full border border-selected p-2 rounded-md">
-
-                <table class="w-full max-w-full tabler">
-                    <tbody>
-                    <tr>
-                        <th class="font-medium w-1/3">{language.image}</th>
-                        <th class="font-medium w-1/2">{language.emotion}</th>
-                        <th class="font-medium"></th>
-                    </tr>
-                    {#if DBState.db.characters[$selectedCharID].emotionImages.length === 0}
-                        <tr>
-                            <td colspan="3">{language.noImages}</td>
-                        </tr>
-                    {:else}
-                        {#each emos as emo, i}
-                            <tr>
-                                {#await getCharImage(emo[1], 'plain')}
-                                    <td class="font-medium truncate w-1/3"></td>
-                                {:then im}
-                                    <td class="font-medium truncate w-1/3"><img src={im} alt="img" class="w-full"></td>                        
-                                {/await}
-                                <td class="font-medium truncate w-1/2">
-                                    <TextInput marginBottom size='lg' bind:value={DBState.db.characters[$selectedCharID].emotionImages[i][0]} />
-                                </td>
-                                <td>
-                                    <IconButton tone="destructive" onclick={() => {
-                                        rmCharEmotion($selectedCharID,i)
-                                    }}><TrashIcon /></IconButton>
-                                </td>
-
-                            </tr>
-                        {/each}
-                    {/if}
-                    </tbody>
-                </table>
-
-            </div>
-
-            <div class="mt-2 flex">
-                {#if !$addingEmotion}
-                    <IconButton onclick={() => {addCharEmotion($selectedCharID)}}>
-                        <PlusIcon />
-                    </IconButton>
-                {:else}
-                    <span>Loading...</span>
-                {/if}
-            </div>
+            <AdditionalAssetsEditor
+                assets={emotionAssets}
+                onChange={setEmotionAssets}
+                acceptedExtensions={['png', 'webp', 'gif', 'jpeg', 'jpg', 'svg', 'avif']}
+                previewAllAsImages
+            />
 
             {#if (DBState.db.characters[$selectedCharID] as character).inlayViewScreen}
-                <span class="text-textcolor mt-2">{language.imgGenInstructions}</span>
+                <span class="mt-3 block text-textcolor">{language.emotionInstructions}</span>
                 <TextAreaInput highlight bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.emotionInstructions} />
             {/if}
-
-            <CheckInput bind:check={(DBState.db.characters[$selectedCharID] as character).inlayViewScreen} name={language.inlayViewScreen} onChange={() => {
-                if(DBState.db.characters[$selectedCharID].type === 'character'){
-                    if((DBState.db.characters[$selectedCharID] as character).inlayViewScreen && (DBState.db.characters[$selectedCharID] as character).additionalAssets === undefined){
-                        (DBState.db.characters[$selectedCharID] as character).additionalAssets = []
-                    }else if(!(DBState.db.characters[$selectedCharID] as character).inlayViewScreen && (DBState.db.characters[$selectedCharID] as character).additionalAssets.length === 0){
-                        (DBState.db.characters[$selectedCharID] as character).additionalAssets = undefined
-                    }
-                    
-                    DBState.db.characters[$selectedCharID] = updateInlayScreen((DBState.db.characters[$selectedCharID] as character))
-                }
-            }}/>
-        {/if}
-        {#if DBState.db.characters[$selectedCharID].viewScreen === 'imggen'}
-            <span class="text-textcolor mt-6">{language.imageGeneration}<Help key="imggen"/></span>
-            <span class="text-textcolor2 text-xs">{language.emotionWarn}</span>
-            
-            <span class="text-textcolor mt-2">{language.imgGenPrompt}</span>
-            <TextAreaInput highlight bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.prompt} />
-            <span class="text-textcolor mt-2">{language.imgGenNegatives}</span>
-            <TextAreaInput highlight bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.negative} />
-            <span class="text-textcolor mt-2">{language.imgGenInstructions}</span>
-            <TextAreaInput highlight bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.instructions} />
-
-            <CheckInput bind:check={(DBState.db.characters[$selectedCharID] as character).inlayViewScreen} name={language.inlayViewScreen} onChange={() => {
-                if((DBState.db.characters[$selectedCharID] as character).type === 'character'){
-                    (DBState.db.characters[$selectedCharID] as character) = updateInlayScreen((DBState.db.characters[$selectedCharID] as character))
-                }
-            }}/>
         {/if}
     {:else if viewSubMenu === 2}
 
