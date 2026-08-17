@@ -1,9 +1,10 @@
 <script lang="ts" module>
     // shadcn Badge variants — core set from shadcn-svelte (default/secondary/destructive/outline/ghost/link)
-    // plus semantic additions (warning/info/success) for status/log UI.
+    // plus semantic additions for status/log UI. `attention` is an actionable
+    // highlight; `warning` means configuration or data needs correction.
     export type ShBadgeVariant =
         | 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost' | 'link'
-        | 'warning' | 'info' | 'success';
+        | 'attention' | 'warning' | 'info' | 'success';
 </script>
 
 <script lang="ts">
@@ -33,6 +34,7 @@
         outline: 'bg-transparent text-textcolor2 border-darkborderc',
         ghost: 'bg-transparent text-textcolor2 border-transparent risu-interactive-surface',
         link: 'bg-transparent text-borderc border-transparent underline-offset-4 hover:underline',
+        attention: 'bg-highlight/20 text-highlight border-highlight/40',
         warning: 'bg-warning/20 text-warning border-warning/40',
         info: 'bg-accent/20 text-accent border-accent/40',
         success: 'bg-success/20 text-success border-success/40',

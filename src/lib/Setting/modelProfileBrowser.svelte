@@ -41,6 +41,7 @@
         pluginPresetAbilityDefaults,
     } from "src/ts/preset/pluginModels";
     import TextInput from "../UI/GUI/TextInput.svelte";
+    import ShBadge from "../UI/GUI/ShBadge.svelte";
     import { v4 as uuidv4 } from "uuid";
     import { onMount } from "svelte";
 
@@ -323,8 +324,14 @@
         </div>
 
         <div class="shrink-0 flex w-full rounded-md border border-selected mb-3">
-            <button class="p-1.5 flex-1 text-sm" class:bg-selected={activeTab === 'official'} onclick={() => { activeTab = 'official' }}>{language.profileTabOfficial}</button>
-            <button class="p-1.5 flex-1 text-sm" class:bg-selected={activeTab === 'custom'} onclick={() => { activeTab = 'custom' }}>{language.profileTabCustom}</button>
+            <button
+                class="p-1.5 flex-1 text-sm transition-colors {activeTab === 'official' ? 'bg-selected text-textcolor' : 'text-textcolor2 risu-interactive-foreground'}"
+                onclick={() => { activeTab = 'official' }}
+            >{language.profileTabOfficial}</button>
+            <button
+                class="p-1.5 flex-1 text-sm transition-colors {activeTab === 'custom' ? 'bg-selected text-textcolor' : 'text-textcolor2 risu-interactive-foreground'}"
+                onclick={() => { activeTab = 'custom' }}
+            >{language.profileTabCustom}</button>
         </div>
 
         <div class="flex items-center gap-2 mb-3 shrink-0">
@@ -350,12 +357,12 @@
                     <div class="flex items-center gap-2">
                         <span class="text-sm text-textcolor truncate">{localizeDisplayName(profile)}</span>
                         {#if profile.profileStatus !== 'current'}
-                            <span
-                                class="text-[10px] leading-none px-1.5 py-0.5 rounded shrink-0
-                                {profile.profileStatus === 'deprecated' ? 'bg-red-500/15 text-draculared' : 'bg-amber-500/15 text-amber-500'}"
+                            <ShBadge
+                                variant={profile.profileStatus === 'deprecated' ? 'destructive' : 'attention'}
+                                className="text-[10px] leading-none"
                             >
                                 {profile.profileStatus === 'deprecated' ? language.profileStatusDeprecated : language.profileStatusOutdated}
-                            </span>
+                            </ShBadge>
                         {/if}
                         {#if baseProvider}
                             <span class="text-xs text-textcolor2 shrink-0">[{baseProvider.displayName}]</span>
