@@ -146,11 +146,14 @@ for (const definition of cbsDefinitions) {
     for (const name of [definition.name, ...definition.alias]) {
         const normalizedName = name.toLocaleLowerCase()
         knownCBSNames.add(normalizedName)
-        if (definition.deprecated) deprecatedCBSNames.add(normalizedName)
+        // Deprecated block syntax remains valid and common in existing
+        // presets. Keep its nesting color instead of presenting it as deleted.
+        if (definition.deprecated && !normalizedName.startsWith('#')) {
+            deprecatedCBSNames.add(normalizedName)
+        }
         if (normalizedName.startsWith('#')) {
             const closingName = `/${normalizedName.slice(1)}`
             knownCBSNames.add(closingName)
-            if (definition.deprecated) deprecatedCBSNames.add(closingName)
         }
     }
 }
@@ -199,7 +202,8 @@ export function getCBSHighlightRanges(text:string): HighlightInt[] {
 function simpleCBSHighlightParser(text:string){
     let depth = 0
     let pointer = 0
-    const depthStarts: number[] = []
+    const tokenStarts: number[] = []
+    const segmentStarts: number[] = []
     const highlightMode: number[] = []
 
     const ranges:HighlightInt[] = []
@@ -207,10 +211,10 @@ function simpleCBSHighlightParser(text:string){
 
     text = text.toLowerCase()
 
-    const checkHighlight = () => {
+    const checkHighlight = (rangeEnd: number) => {
         if(depth !== 0 && highlightMode[depth] === 0){
             highlightMode[depth] = 10
-            const upString = text.slice(depthStarts[depth], pointer).trimStart()
+            const upString = text.slice(tokenStarts[depth], pointer).trimStart()
             const token = upString.split(/::|\s/, 1)[0]
             const legacyToken = token.split(':', 1)[0]
             const resolvedName = knownCBSNames.has(token)
@@ -230,13 +234,14 @@ function simpleCBSHighlightParser(text:string){
                 highlightMode[depth] = 1
             }
 
-            colorHighlight()
+            colorHighlight(rangeEnd)
         }
     }
 
-    const colorHighlight = () => {
+    const colorHighlight = (rangeEnd: number) => {
         if(highlightMode[depth] !== 10){
-            const range:HighLightRange = [depthStarts[depth] - 2, pointer + 2]
+            const range:HighLightRange = [segmentStarts[depth], rangeEnd]
+            if (range[0] >= range[1]) return
             switch(highlightMode[depth]){
                 case 1:
                     ranges.push([range, `cbsnest${depth % 5}` as HighlightType])
@@ -254,25 +259,26 @@ function simpleCBSHighlightParser(text:string){
         }
     }
 
+    const finishSegment = (rangeEnd: number) => {
+        if (highlightMode[depth] === 0) checkHighlight(rangeEnd)
+        else colorHighlight(rangeEnd)
+    }
+
     while(pointer < text.length){
         const c = text[pointer]
         const nextC = text[pointer + 1]
         if(c === '{' && nextC === '{'){
-            checkHighlight()
+            if (depth !== 0) finishSegment(pointer)
             depth++
             pointer++
-            depthStarts[depth] = pointer + 1
+            tokenStarts[depth] = pointer + 1
+            segmentStarts[depth] = pointer - 1
             highlightMode[depth] = 0
         }else if(c === '}' && nextC === '}'){
-            if(highlightMode[depth] === 0){
-                checkHighlight()
-            }
-            else{
-                colorHighlight()
-            }
+            finishSegment(pointer + 2)
             depth--
             pointer++
-            depthStarts[depth] = pointer
+            segmentStarts[depth] = pointer + 1
         }
         pointer++
     }

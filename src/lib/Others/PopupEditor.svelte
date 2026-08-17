@@ -25,7 +25,7 @@
         popUpEditorStore.title = ''
         popUpEditorStore.metadata = []
         popUpEditorStore.formatJson = false
-        popUpEditorStore.mode = 'plain'
+        popUpEditorStore.mode = 'cbs'
     }
 
     async function requestClose() {

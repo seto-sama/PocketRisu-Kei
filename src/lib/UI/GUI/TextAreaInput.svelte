@@ -347,7 +347,6 @@
     const openPopupEditor = () => {
         showPopupEditor({
             value,
-            mode: highlight ? 'cbs' : 'plain',
             onSave: (nextValue) => {
                 value = nextValue
                 onInput()
