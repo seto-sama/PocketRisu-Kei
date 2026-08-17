@@ -1101,8 +1101,9 @@ import { isMobile } from 'src/ts/platform'
 <div class="w-full h-full relative" style={customStyle}>
     
     {#if DBState.db.nodeOnlyScrollButtonType !== 'off' && currentChat.length > 0}
+        <Portal>
         <div
-            class="absolute right-3 bottom-16 z-40 flex flex-col rounded-lg bg-bgcolor/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
+            class="fixed right-3 bottom-16 z-40 flex flex-col rounded-lg bg-bgcolor/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
             class:opacity-0={!showScrollNav}
             class:pointer-events-none={!showScrollNav}
         >
@@ -1138,6 +1139,7 @@ import { isMobile } from 'src/ts/platform'
                 </button>
             {/if}
         </div>
+        </Portal>
     {/if}
 
     {#if showNewMessageButton && DBState.db.newMessageButtonStyle !== 'off'}
@@ -1472,7 +1474,7 @@ import { isMobile } from 'src/ts/platform'
 
         {/snippet}
 
-        <div class="h-full w-full flex flex-col overflow-y-auto relative default-chat-screen"
+        <div class="h-full w-full flex flex-col overflow-y-auto overscroll-y-contain relative default-chat-screen"
             bind:this={chatScreenRoot}
             class:nodeonly-standard={DBState.db.theme === ''}
             class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
@@ -1671,6 +1673,7 @@ import { isMobile } from 'src/ts/platform'
         width: 100%;
         height: 0;
         min-height: 0;
+        margin-top: auto;
         flex: 0 0 auto;
         overflow-anchor: none;
         pointer-events: none;
@@ -1683,6 +1686,12 @@ import { isMobile } from 'src/ts/platform'
         flex: 0 0 1px;
         overflow-anchor: auto;
         pointer-events: none;
+    }
+
+    /* While a finger or pointer owns the scroll position, browser viewport
+       resizing must not make the native bottom anchor pull against it. */
+    :global(.default-chat-screen[data-chat-direct-manipulation] > [data-chat-scroll-anchor]) {
+        overflow-anchor: none;
     }
 
     .chat-process-stage-1{

@@ -302,7 +302,6 @@ body {
   --risu-status-info-border: color-mix(in srgb, var(--risu-theme-accent) 45%, var(--risu-theme-darkborderc));
   --risu-status-success-bg: color-mix(in srgb, var(--risu-theme-success) 15%, var(--risu-theme-darkbg));
   --risu-status-success-border: color-mix(in srgb, var(--risu-theme-success) 45%, var(--risu-theme-darkborderc));
-  --risu-height-size: 100%;
   --risu-font-family: Arial, sans-serif, serif;
 
   --risu-theme-neutral-50: #f9fafb;
@@ -423,7 +422,8 @@ body {
 
 html,
 body {
-  height: var(--risu-height-size);
+  height: 100%;
+  height: 100dvh;
 }
 
 .chattext p {

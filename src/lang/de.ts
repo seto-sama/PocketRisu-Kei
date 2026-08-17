@@ -849,7 +849,6 @@ export const languageGerman = {
     "log": "Protokoll",
     "popularityLevelDesc": "Beliebtheit steigt mit Downloads usw. Zur Schätzung: 3,7 Beliebtheit entspricht etwa 1 Download.",
     "additionalParams": "Zusätzliche Parameter",
-    "heightMode": "Höhenmodus",
     "useAdvancedEditor": "Erweiterten Editor verwenden",
     "antiClaudeOverload": "Anti-Claude-Überlastung",
     "activeTabChange": "Aktueller Tab ist inaktiv, da ein anderer Tab aktiv ist. Um diesen Tab zu aktivieren, klicken Sie auf OK",

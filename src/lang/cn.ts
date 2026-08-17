@@ -849,7 +849,6 @@ export const languageChinese = {
     "log": "记录",
     "popularityLevelDesc": "人气会随着下载量等增加。3.7 人气约等于 1 次下载。",
     "additionalParams": "额外参数",
-    "heightMode": "高度模式",
     "useAdvancedEditor": "使用高级编辑器",
     "antiClaudeOverload": "防止 Claude 超载",
     "activeTabChange": "目前的标签已停用，因其他标签处于活动中。若要激活此标签，请按“确定”。",

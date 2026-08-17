@@ -1206,7 +1206,6 @@ export const languageKorean = {
   additionalParams: "추가 파라미터",
   tokenizerOverride: "토크나이저 오버라이드",
   tokenizerAuto: "자동",
-  heightMode: "높이 모드",
   useAdvancedEditor: "고급 에디터 사용",
   antiClaudeOverload: "Claude 오버로드 방지",
   activeTabChange:

@@ -169,7 +169,6 @@ export async function loadData() {
             updateColorScheme()
             updateTextThemeAndCSS()
             updateAnimationSpeed()
-            updateHeightMode()
             updateErrorHandling()
             updateGuisize()
             initHotkey()
@@ -389,34 +388,6 @@ function updateErrorHandling() {
     };
     window.addEventListener('error', errorHandler);
     window.addEventListener('unhandledrejection', rejectHandler);
-}
-
-/**
- * Updates the height mode of the document based on the value stored in the database.
- */
-function updateHeightMode() {
-    const db = getDatabase()
-    const root = document.querySelector(':root') as HTMLElement;
-    switch (db.heightMode) {
-        case 'auto':
-            root.style.setProperty('--risu-height-size', '100%');
-            break
-        case 'vh':
-            root.style.setProperty('--risu-height-size', '100vh');
-            break
-        case 'dvh':
-            root.style.setProperty('--risu-height-size', '100dvh');
-            break
-        case 'lvh':
-            root.style.setProperty('--risu-height-size', '100lvh');
-            break
-        case 'svh':
-            root.style.setProperty('--risu-height-size', '100svh');
-            break
-        case 'percent':
-            root.style.setProperty('--risu-height-size', '100%');
-            break
-    }
 }
 
 /**

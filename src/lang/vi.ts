@@ -849,7 +849,6 @@ export const languageVietnamese = {
     "log": "Nhật ký",
     "popularityLevelDesc": "Mức độ phổ biến tăng theo số lượt tải xuống, v.v. để ước tính, mức độ phổ biến 3.7 là khoảng 1 lượt tải xuống.",
     "additionalParams": "Tham số bổ sung",
-    "heightMode": "Chế độ chiều cao",
     "useAdvancedEditor": "Sử dụng trình biên tập nâng cao",
     "antiClaudeOverload": "Chống quá tải Claude",
     "activeTabChange": "Tab hiện tại bị vô hiệu hóa vì tab khác đang hoạt động. Để kích hoạt tab này, nhấp OK",

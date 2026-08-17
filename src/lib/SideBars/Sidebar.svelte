@@ -1120,6 +1120,11 @@
   .character-list {
     scrollbar-width: none;
   }
+  .rs-sidebar:not(.sidebar-menu-bottom) .character-list::after {
+    content: '';
+    width: 100%;
+    flex: 0 0 1rem;
+  }
   .character-list::-webkit-scrollbar {
     display: none;
   }

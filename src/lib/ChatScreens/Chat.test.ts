@@ -811,6 +811,48 @@ describe('Chat editing', () => {
         expect(modelLabel?.classList.contains('sm:inline')).toBe(true)
     })
 
+    it('keeps NodeOnly message actions on one row until their content needs wrapping', async () => {
+        DBState.db.theme = ''
+        DBState.db.requestInfoInsideChat = true
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        translatorMocks.getLLMCache.mockResolvedValue('Translated user message')
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                messageGenerationInfo: { model: 'test-model' },
+                totalLength: 2,
+                isLastMemory: false,
+                renderCacheKey: 'room:compact-mobile-actions',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await waitForTranslationButtonState(target, true)
+
+        const actions = target.querySelector('.chat-message-actions')
+        expect(actions?.classList.contains('w-auto')).toBe(true)
+        expect(actions?.classList.contains('w-full')).toBe(false)
+
+        const retranslationButton = target.querySelector<HTMLButtonElement>(
+            `.chat-generation-info button[aria-label="retranslate"]`,
+        )
+        expect(retranslationButton).not.toBeNull()
+        expect(retranslationButton?.getAttribute('data-expanded')).toBe('true')
+        expect(retranslationButton?.querySelector('svg')).not.toBeNull()
+        expect(retranslationButton?.querySelector('span')?.textContent).toBe('retranslate')
+    })
+
     it('updates every non-final editor independently in a four-message blank chat', async () => {
         const messages: Message[] = [
             { role: 'user', data: '', chatId: 'message-0' },

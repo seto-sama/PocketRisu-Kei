@@ -1128,7 +1128,6 @@ export const languageEnglish = {
     tokenizerOverride: "Tokenizer Override",
     tokenizerOverrideHelp: "Used for token counting. Leave Auto to use the profile recommendation.",
     tokenizerAuto: "Auto",
-    heightMode: "Height Mode",
     useAdvancedEditor: "Use Advanced Editor",
     antiClaudeOverload: "Anti-Claude Overload",
     activeTabChange: "Current tab is inactivated since other tab is active. to activate this tab, click OK",
