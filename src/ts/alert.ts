@@ -27,7 +27,7 @@ export interface alertData{
     type: 'error'|'normal'|'none'|'ask'|'wait'|'selectChar'
             |'input'|'wait2'|'markdown'|'select'|'login'
             |'tos'|'cardexport'|'requestdata'|'addchar'|'selectModule'
-            |'pukmakkurit'|'branches'|'progress'|'pluginconfirm'|'requestlogs'
+            |'pukmakkurit'|'branches'|'progress'|'pluginconfirm'
             |'confirmMulti',
     msg: string,
     submsg?: string
@@ -431,13 +431,6 @@ export function alertRequestData(info:AlertGenerationInfoStoreData){
     alertStoreImported.set({
         'type': 'requestdata',
         'msg': info.genInfo.generationId ?? 'none'
-    })
-}
-
-export function alertRequestLogs(){
-    alertStoreImported.set({
-        'type': 'requestlogs',
-        'msg': ''
     })
 }
 
