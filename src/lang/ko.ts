@@ -2342,12 +2342,6 @@ export const languageKorean = {
   storageRowDbFile: "risuai.db",
   storageRowDbFileDesc:
     "PocketRisu Kei의 메인 SQLite 데이터베이스 파일. 모든 채팅·캐릭터·에셋·설정이 여기 들어갑니다.",
-  storageRowWal: "WAL (Write-Ahead Log)",
-  storageRowWalDesc:
-    "임시 트랜잭션 로그. 메인 DB로 합쳐지기 전의 변경사항을 임시로 모아두는 영역입니다.",
-  storageRowShm: "SHM (공유 메모리)",
-  storageRowShmDesc:
-    "WAL용 SQLite 공유 메모리 인덱스. 작고 휘발성이며 필요 시 재생성됩니다.",
   storageRowFileBackups: "디스크 백업 (.bin)",
   storageRowFileBackupsDesc:
     "수동으로 export한 백업 파일. backups/ 폴더에 보관됩니다.",
@@ -2372,7 +2366,7 @@ export const languageKorean = {
   storageRowKvColdStorageDesc: "레거시·휴면 저장 영역. 보통 비어 있습니다.",
   storageRowKvUncategorized: "기타 데이터",
   storageRowKvUncategorizedDesc:
-    "위 분류에 들어가지 않는 키. 마이그레이션 잔여물이나 임시 항목 등이 여기 잡힙니다.",
+    "위 분류에 들어가지 않는 저장 데이터와 WAL 같은 임시 DB 파일입니다.",
   storageRowSqliteOverhead: "DB 기본 공간",
   storageRowSqliteOverheadDesc:
     "DB가 작동하는 데에 필요한 헤더 등이 차지하는 공간입니다.",
