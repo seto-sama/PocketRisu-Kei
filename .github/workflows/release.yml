@@ -331,7 +331,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           generate_release_notes: true
-          draft: true
+          draft: false
           files: |
             PocketRisu-*
             RisuAI-NodeOnly-*

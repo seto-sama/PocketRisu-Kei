@@ -126,7 +126,7 @@
       </h1>
         <div class="grid w-full grid-cols-1 gap-4 p-2 md:grid-cols-2">
           <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
-            openURL("https://github.com/seto-sama/PocketRisu-Kei")
+            openURL("https://github.com/PocketRisu/PocketRisu")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
               <h2 class="text-2xl font-bold tracking-tight text-textcolor">{language.relatedGithub}</h2>
@@ -152,16 +152,16 @@
             </div>
           </button>
           <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
-            openURL("https://github.com/seto-sama")
+            openURL("https://discord.gg/Exy3NrqkGm")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
-              <h2 class="text-2xl font-bold tracking-tight text-textcolor">{language.relatedContactEmail}</h2>
+              <h2 class="text-2xl font-bold tracking-tight text-textcolor">{language.officialDiscord}</h2>
               <span class="mt-2 block text-base leading-relaxed text-textcolor2">
-                {language.relatedContactEmailDesc}
+                {language.officialDiscordDesc}
               </span>
             </div>
             <div aria-hidden="true" class="pointer-events-none absolute -right-12 top-1/2 -translate-y-1/2 text-textcolor">
-              <GithubIcon class={relatedLinkIconClass} />
+              <SendIcon class={relatedLinkIconClass} strokeWidth={1} />
             </div>
           </button>
           <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {

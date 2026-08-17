@@ -7,7 +7,7 @@ name: risuai-nodeonly
 services:
   risuai:
     container_name: risuai-nodeonly
-    image: ghcr.io/pocketrisu/pocketrisu:latest
+    image: ghcr.io/seto-sama/pocketrisu-kei:latest
     restart: always
     ports:
       - 6001:6001

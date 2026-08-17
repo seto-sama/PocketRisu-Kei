@@ -104,9 +104,9 @@ export const languageKorean = {
     texttheme: "텍스트 색상을 선택해주세요",
     inputName: "마지막으로, 닉네임을 입력해 주세요",
     welcome:
-      "PocketRisu Kei에 오신 것을 환영해요! 저는 PocketRisu Kei 셋업을 도와줄 아이리스라고 해요. 먼저 닉네임을 입력해 주세요!",
+      "PocketRisu에 오신 것을 환영해요! 저는 PocketRisu 셋업을 도와줄 아이리스라고 해요. 먼저 닉네임을 입력해 주세요!",
     welcome2:
-      "{username}님 안녕하세요! PocketRisu Kei를 시작하려면 몇 가지 설정만 하시면 되요. Ai 제공자를 선택해 주세요!",
+      "{username}님 안녕하세요! PocketRisu를 시작하려면 몇 가지 설정만 하시면 되요. Ai 제공자를 선택해 주세요!",
     openRouterProvider:
       "OpenRouter는 여러 무료/유료 모델이 있습니다. 기본적으로 무료로 설정됩니다.",
     hordeProvider:
@@ -2333,12 +2333,12 @@ export const languageKorean = {
   storageDiskOther: "기타 (시스템 및 다른 앱)",
   storageDiskFree: "여유 공간",
   storageDiskRisuTotal: (size: number) =>
-    `PocketRisu Kei 합계: ${(size / 1024 / 1024).toFixed(1)} MB`,
+    `총 ${(size / 1024 / 1024).toFixed(1)} MB 사용 중`,
 
   // 항목별 라벨 (분포 리스트의 ⓘ 설명)
   storageRowDbFile: "risuai.db",
   storageRowDbFileDesc:
-    "PocketRisu Kei의 메인 SQLite 데이터베이스 파일. 모든 채팅·캐릭터·에셋·설정이 여기 들어갑니다.",
+    "메인 SQLite 데이터베이스 파일. 모든 채팅·캐릭터·에셋·설정이 여기 들어갑니다.",
   storageRowFileBackups: "디스크 백업 (.bin)",
   storageRowFileBackupsDesc:
     "수동으로 export한 백업 파일. backups/ 폴더에 보관됩니다.",
@@ -2372,9 +2372,9 @@ export const languageKorean = {
     "저장이나 삭제 등 DB 사용 시에 자연스럽게 발생하는 빈 공간으로, 수동 회수를 통해 정리할 수 있습니다. 정리해도 채팅이나 설정은 지워지지 않습니다.",
   storageRowReclaimable: (size: number) =>
     `${(size / 1024 / 1024).toFixed(1)} MB 회수 가능 — Optimize로 압축.`,
-  storageInternalOnly: "저장공간과 함께보기",
+  storageInternalOnly: "디스크 전체 보기",
   storageInternalOnlyHint:
-    "끄면 PocketRisu Kei 내부 항목만, 켜면 기타 시스템·여유 공간까지 디스크 전체 기준으로 표시합니다.",
+    "켜면 기타 시스템·여유 공간까지 디스크 전체 기준으로 표시합니다.",
 
   // 2 GB BLOB 한계 (별도 섹션)
   storageBlobLimit: "2 GB BLOB 한계",
