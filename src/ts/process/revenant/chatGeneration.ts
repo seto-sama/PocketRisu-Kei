@@ -106,6 +106,13 @@ export type ActiveRerollSession = {
     trailingMessages: Message[]
 }
 
+export function shouldRetainRerollProjectionForCanonical(input: {
+    abortRequested: boolean
+    workflowId?: string
+}) {
+    return input.abortRequested && !!input.workflowId
+}
+
 export type PreparedChatReroll = {
     durableInputCommit: ChatCommitSnapshot
     originalMessages: Message[]

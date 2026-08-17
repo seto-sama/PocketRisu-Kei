@@ -87,6 +87,8 @@ describe('revenant terminal postprocess pipeline', () => {
             role: 'char',
             data: '',
             chatId: 'generation-2',
+            isRecovering: true,
+            recoveryDisplayData: '',
             swipes: ['old answer', ''],
             swipeId: 1,
             swipeMetadata: [
@@ -114,6 +116,8 @@ describe('revenant terminal postprocess pipeline', () => {
                 { generationInfo: { generationId: 'generation-2', inputTokens: 200 } },
             ],
         })
+        expect(result.chat.message[1]).not.toHaveProperty('isRecovering')
+        expect(result.chat.message[1]).not.toHaveProperty('recoveryDisplayData')
     })
 
     it('delegates dynamic asset matching after regex and materializes its response', async () => {

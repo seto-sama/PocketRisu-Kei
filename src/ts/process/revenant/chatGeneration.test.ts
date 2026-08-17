@@ -32,6 +32,7 @@ import {
     findGenerationTargetMessageIndex,
     isGenerationOwnedMessage,
     prepareChatReroll,
+    shouldRetainRerollProjectionForCanonical,
 } from './chatGeneration'
 
 beforeEach(() => vi.clearAllMocks())
@@ -90,6 +91,20 @@ describe('generation message ownership', () => {
 })
 
 describe('chat reroll preparation', () => {
+    it('keeps a server-owned cancelled placeholder until canonical handoff', () => {
+        expect(shouldRetainRerollProjectionForCanonical({
+            abortRequested: true,
+            workflowId: 'workflow-1',
+        })).toBe(true)
+        expect(shouldRetainRerollProjectionForCanonical({
+            abortRequested: true,
+        })).toBe(false)
+        expect(shouldRetainRerollProjectionForCanonical({
+            abortRequested: false,
+            workflowId: 'workflow-1',
+        })).toBe(false)
+    })
+
     it('captures the durable full chat before trimming the generation branch', () => {
         const chat = {
             id: 'room-1',

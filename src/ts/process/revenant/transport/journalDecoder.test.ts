@@ -26,21 +26,30 @@ function job(overrides: Partial<RecoverableGenerationJob>): RecoverableGeneratio
 describe('decodeRevenantGenerationJournal', () => {
     it('replays OpenAI-compatible SSE through the client adapter parser', async () => {
         const onContent = vi.fn()
+        const onProgress = vi.fn()
         const content = await decodeRevenantGenerationJournal(
             job({ adapterKind: 'openai-compatible', streaming: true, responseStatus: 200 }),
             streamText(
                 'data: {"choices":[{"delta":{"reasoning_content":"think"}}]}\n\n',
                 'data: {"choices":[{"delta":{"content":"answer"}}]}\n\n',
+                'data: {"choices":[],"usage":{"completion_tokens":9}}\n\n',
                 'data: [DONE]\n\n',
             ),
             onContent,
+            onProgress,
         )
 
         expect(content).toBe('<Thoughts>\nthink\n</Thoughts>\n\nanswer')
         expect(onContent).toHaveBeenLastCalledWith(content)
+        expect(onProgress).toHaveBeenLastCalledWith({
+            thinking: 'think',
+            response: 'answer',
+            usage: { completionTokens: 9 },
+        })
     })
 
     it('decodes a non-streaming Anthropic journal', async () => {
+        const onProgress = vi.fn()
         const content = await decodeRevenantGenerationJournal(
             job({ adapterKind: 'anthropic-messages', streaming: false, responseStatus: 200 }),
             streamText(JSON.stringify({
@@ -48,9 +57,20 @@ describe('decodeRevenantGenerationJournal', () => {
                 stop_reason: 'end_turn',
                 usage: { input_tokens: 3, output_tokens: 1 },
             })),
+            undefined,
+            onProgress,
         )
 
         expect(content).toBe('hello')
+        expect(onProgress).toHaveBeenCalledWith({
+            thinking: '',
+            response: 'hello',
+            usage: {
+                promptTokens: 3,
+                completionTokens: 1,
+                totalTokens: 4,
+            },
+        })
     })
 
     it('does not materialize a non-2xx provider response as assistant text', async () => {

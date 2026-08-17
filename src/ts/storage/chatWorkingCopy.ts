@@ -233,6 +233,20 @@ export function isChatAwaitingGenerationCanonical(characterId: string, chatId: s
     return serverProjections.get(chatWorkingCopyKey(characterId, chatId))?.awaitingCanonical === true
 }
 
+export function isChatGenerationProjectionActive(characterId: string, chatId: string) {
+    return serverProjections.has(chatWorkingCopyKey(characterId, chatId))
+}
+
+/** Active display ownership yields only to an explicitly terminal snapshot. */
+export function canApplyChatGenerationCanonical(
+    characterId: string,
+    chatId: string,
+    terminalCanonical: boolean,
+) {
+    const projection = serverProjections.get(chatWorkingCopyKey(characterId, chatId))
+    return !projection || (projection.awaitingCanonical && terminalCanonical)
+}
+
 export function acknowledgeProjectionOnlyChatConflict(characterId: string, chat: Chat) {
     const projection = serverProjections.get(chatWorkingCopyKey(characterId, chat.id))
     if (!projection) return false

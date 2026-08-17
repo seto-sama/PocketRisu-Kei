@@ -10,6 +10,8 @@ import {
     getChatServerEtag,
 } from '../storage/chatStorage'
 import {
+    canApplyChatGenerationCanonical,
+    isChatGenerationProjectionActive,
     isChatAwaitingGenerationCanonical,
     resolveChatGenerationCanonical,
     isChatWorkingCopyDirty,
@@ -58,6 +60,7 @@ export function syncChatKey(characterId: string, chatId: string) {
 export async function reconcileServerDatabase(
     changedChats: ReadonlySet<string>,
     refreshAllChats: boolean,
+    terminalCanonicalChats: ReadonlySet<string> = new Set(),
 ) {
     const raw = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
     if (!raw?.length) return
@@ -97,13 +100,24 @@ export async function reconcileServerDatabase(
             if (!remoteChat?.id) continue
             const localChat = localCharacter?.chats?.find(chat => chat?.id === remoteChat.id)
             const localDirty = isChatWorkingCopyDirty(character.chaId, remoteChat.id)
+            const chatKey = syncChatKey(character.chaId, remoteChat.id)
+            const generationProjectionActive = isChatGenerationProjectionActive(
+                character.chaId,
+                remoteChat.id,
+            )
             const awaitingCanonical = isChatAwaitingGenerationCanonical(
                 character.chaId,
                 remoteChat.id,
             )
+            const acceptsTargetedCanonical = generationProjectionActive
+                ? canApplyChatGenerationCanonical(
+                    character.chaId,
+                    remoteChat.id,
+                    terminalCanonicalChats.has(chatKey),
+                )
+                : !localDirty
             const shouldHydrate = (
-                changedChats.has(syncChatKey(character.chaId, remoteChat.id))
-                && (!localDirty || awaitingCanonical)
+                changedChats.has(chatKey) && acceptsTargetedCanonical
             ) || (refreshAllChats && localChat && !localChat._placeholder)
 
             if (shouldHydrate) {

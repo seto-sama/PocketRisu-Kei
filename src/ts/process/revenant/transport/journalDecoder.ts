@@ -24,6 +24,7 @@ import type {
     AdapterChatResponse,
     AdapterChatStreamDelta,
     AdapterReasoningPart,
+    AdapterUsage,
 } from '../../../preset/adapter/types'
 import type {
     RecoverableAuxiliaryJob,
@@ -31,6 +32,12 @@ import type {
 } from '../types'
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
+
+export interface RevenantJournalProgress {
+    thinking: string
+    response: string
+    usage?: AdapterUsage
+}
 
 function projectedContent(job: RecoverableJournalJob): string {
     return job.projection?.content ?? ''
@@ -44,6 +51,11 @@ function formatReasoning(reasoning?: AdapterReasoningPart[]): string {
         else if (part.text) body += part.text
     }
     return body.trim().length > 0 ? `<Thoughts>\n${body}\n</Thoughts>\n\n` : ''
+}
+
+function statusReasoning(reasoning?: AdapterReasoningPart[]): string {
+    if (!reasoning?.length) return ''
+    return reasoning.map(part => part.text ?? '').join('')
 }
 
 function parseJsonResponse(kind: string | undefined, raw: unknown): AdapterChatResponse {
@@ -87,6 +99,7 @@ export async function decodeRevenantGenerationJournal(
     job: RecoverableJournalJob,
     stream: ReadableStream<Uint8Array>,
     onContent?: (content: string) => void,
+    onProgress?: (progress: RevenantJournalProgress) => void,
 ): Promise<string> {
     if (job.responseStatus !== undefined
         && (job.responseStatus < 200 || job.responseStatus >= 300)) {
@@ -97,6 +110,11 @@ export async function decodeRevenantGenerationJournal(
         const text = await new Response(stream).text()
         if (!text.trim()) return projectedContent(job)
         const parsed = parseJsonResponse(job.adapterKind, JSON.parse(text))
+        onProgress?.({
+            thinking: statusReasoning(parsed.reasoning),
+            response: parsed.text,
+            ...(parsed.usage ? { usage: parsed.usage } : {}),
+        })
         const content = formatReasoning(parsed.reasoning) + parsed.text
         if (content) onContent?.(content)
         return content || projectedContent(job)
@@ -104,7 +122,13 @@ export async function decodeRevenantGenerationJournal(
 
     let output = ''
     let reasoning = ''
+    let usage: AdapterUsage | undefined
     const publish = () => {
+        onProgress?.({
+            thinking: reasoning,
+            response: output,
+            ...(usage ? { usage } : {}),
+        })
         const content = (reasoning ? formatReasoning([{ text: reasoning }]) : '') + output
         if (content) onContent?.(content)
         return content
@@ -121,6 +145,7 @@ export async function decodeRevenantGenerationJournal(
             if (!delta) continue
             output += delta.textDelta
             if (delta.reasoningDelta) reasoning += delta.reasoningDelta
+            if (delta.usage) usage = delta.usage
             publish()
         }
     } else {
@@ -140,6 +165,7 @@ export async function decodeRevenantGenerationJournal(
             if (!delta) continue
             output += delta.textDelta
             if (delta.reasoningDelta) reasoning += delta.reasoningDelta
+            if (delta.usage) usage = delta.usage
             publish()
         }
     }

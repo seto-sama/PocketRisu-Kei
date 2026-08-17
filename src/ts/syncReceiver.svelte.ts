@@ -1,6 +1,7 @@
 import { awaitChatGenerationCanonical } from './storage/chatWorkingCopy'
 import { forageStorage } from './storage/autoStorage'
 import { getSyncClientId } from './storage/nodeStorage'
+import { finishRevenantWorkflowRequestStatuses } from './process/revenant/jobStatus'
 import {
     emitRevenantWorkflowSyncReady,
     emitRevenantWorkflowUpdate,
@@ -21,6 +22,7 @@ type SyncMessage = {
     characterId?: string
     roomId?: string
     status?: string
+    reason?: string
 }
 
 function startSyncTransport(onMessage: (message: SyncMessage) => void) {
@@ -64,16 +66,29 @@ function startSyncTransport(onMessage: (message: SyncMessage) => void) {
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 let refreshInFlight: Promise<void> | null = null
 const pendingChats = new Set<string>()
+const pendingTerminalCanonicalChats = new Set<string>()
 let pendingAllChats = false
+
+function isTerminalCanonicalReason(reason?: string) {
+    return reason === 'generation-result'
+        || reason === 'generation-cancelled'
+        || reason === 'canonical-handoff'
+}
 
 async function refreshFromServer() {
     if (refreshInFlight) return refreshInFlight
     const changedChats = new Set(pendingChats)
+    const terminalCanonicalChats = new Set(pendingTerminalCanonicalChats)
     const refreshAllChats = pendingAllChats
     pendingChats.clear()
+    pendingTerminalCanonicalChats.clear()
     pendingAllChats = false
 
-    refreshInFlight = reconcileServerDatabase(changedChats, refreshAllChats)
+    refreshInFlight = reconcileServerDatabase(
+        changedChats,
+        refreshAllChats,
+        terminalCanonicalChats,
+    )
         .finally(() => {
             refreshInFlight = null
             if (pendingChats.size > 0 || pendingAllChats) scheduleRefresh()
@@ -103,6 +118,13 @@ function handleWorkflowUpdate(message: SyncMessage) {
         // The matching targeted invalidation is sent only after canonical
         // materialization; this merely arms the ownership handoff.
         awaitChatGenerationCanonical(message.characterId, message.roomId)
+        finishRevenantWorkflowRequestStatuses({
+            workflowId: message.workflowId,
+            roomId: message.roomId,
+            outcome: message.status === 'completed'
+                ? 'done'
+                : message.status === 'cancelled' ? 'aborted' : 'failed',
+        })
     }
     emitRevenantWorkflowUpdate({
         workflowId: message.workflowId,
@@ -126,7 +148,15 @@ function handleSyncMessage(message: SyncMessage) {
     if (message.allChats === true) pendingAllChats = true
     for (const chat of message.chats ?? []) {
         if (chat.characterId && chat.chatId) {
-            pendingChats.add(syncChatKey(chat.characterId, chat.chatId))
+            const key = syncChatKey(chat.characterId, chat.chatId)
+            pendingChats.add(key)
+            if (isTerminalCanonicalReason(message.reason)) {
+                pendingTerminalCanonicalChats.add(key)
+                // This invalidation is emitted only after the canonical body
+                // is durable, so it can arm handoff without waiting for the
+                // separate workflow-status frame.
+                awaitChatGenerationCanonical(chat.characterId, chat.chatId)
+            }
         }
     }
     scheduleRefresh()

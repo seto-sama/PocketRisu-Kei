@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
     acknowledgeChatCommit,
+    canApplyChatGenerationCanonical,
     createChatCommitSnapshot,
     discardAllChatWorkingCopies,
     isChatWorkingCopyDirty,
@@ -13,6 +14,7 @@ import {
     awaitChatGenerationCanonical,
     beginChatGenerationProjection,
     discardAllChatGenerationProjections,
+    isChatGenerationProjectionActive,
     isChatAwaitingGenerationCanonical,
     observeChatGenerationProjection,
     resolveChatGenerationCanonical,
@@ -103,6 +105,28 @@ describe('chat working copies', () => {
         )
         markChatSyncApplied(applied)
         expect(observeChatGenerationProjection('character', applied)).toBe('inactive')
+    })
+
+    it('keeps generation projection ownership until terminal canonical handoff', () => {
+        const base = {
+            id: 'room',
+            message: [{ chatId: 'target', role: 'char', data: 'old' }],
+        } as any
+        beginChatGenerationProjection('character', base, {
+            messageChatId: 'generated',
+            rerollSnapshot: { targetMessage: base.message[0] },
+        })
+
+        expect(isChatGenerationProjectionActive('character', 'room')).toBe(true)
+        expect(isChatAwaitingGenerationCanonical('character', 'room')).toBe(false)
+        expect(canApplyChatGenerationCanonical('character', 'room', false)).toBe(false)
+        expect(canApplyChatGenerationCanonical('character', 'room', true)).toBe(false)
+
+        awaitChatGenerationCanonical('character', 'room')
+        expect(isChatGenerationProjectionActive('character', 'room')).toBe(true)
+        expect(isChatAwaitingGenerationCanonical('character', 'room')).toBe(true)
+        expect(canApplyChatGenerationCanonical('character', 'room', false)).toBe(false)
+        expect(canApplyChatGenerationCanonical('character', 'room', true)).toBe(true)
     })
 
     it('pins an absent base version instead of adopting a later fetch', () => {

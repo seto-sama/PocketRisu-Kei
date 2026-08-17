@@ -276,6 +276,37 @@ export function appendText(
     })
 }
 
+/** Publishes accumulated text from a replayable journal projection. */
+export function observeText(
+    id: string,
+    text: { thinking?: string, response?: string },
+    now: number,
+): void {
+    update(id, (e) => {
+        if (isTerminalPhase(e.phase)) return e
+        const thinkingText = text.thinking ?? e.thinkingText
+        const responseText = text.response ?? e.responseText
+        const phase: RequestPhase = responseText ? 'responding'
+            : thinkingText ? 'thinking'
+            : e.phase
+        if (e.thinkingText === thinkingText && e.responseText === responseText) {
+            return phase !== e.phase
+                ? { ...e, phase, lastChunkAt: now }
+                : e
+        }
+        const estTotal = estimateTokenCount(thinkingText) + estimateTokenCount(responseText)
+        return {
+            ...e,
+            phase,
+            thinkingText,
+            responseText,
+            textDirty: true,
+            lastChunkAt: now,
+            tokenSamples: trimSamples([...e.tokenSamples, { at: now, tokens: estTotal }], now),
+        }
+    })
+}
+
 export function addBadge(id: string, badge: StatusBadge): void {
     update(id, (e) => {
         // Replace a badge with the same key (e.g. cache hit updates its saving).
@@ -295,16 +326,31 @@ export function endStatus(
     opts: { now: number, usage?: EndStatusUsage, error?: string } = { now: 0 },
 ): void {
     let needFinalCount = false
+    let recountBase: EndStatusUsage | undefined
     update(id, (e) => {
         // Idempotent: a request can end through more than one path (e.g.
         // decoupledStreaming, where the pump's onFinish fires AND the drained
         // stream rethrows into the outer catch). First terminal write wins.
-        if (isTerminalPhase(e.phase)) return e
+        if (isTerminalPhase(e.phase)) {
+            if (!opts.usage && opts.error === undefined) return e
+            return {
+                ...e,
+                thinkingTokens: opts.usage?.thinkingTokens ?? e.thinkingTokens,
+                responseTokens: opts.usage?.responseTokens ?? e.responseTokens,
+                error: opts.error ?? e.error,
+            }
+        }
         // Provider usage is authoritative when present (non-streaming paths and
         // streams whose last chunk carried usageMetadata). Otherwise the last
         // per-tick tokenization may be up to one tick stale, so flag a final
         // recount of the accumulated text below.
         needFinalCount = opts.usage?.responseTokens === undefined && (!!e.thinkingText || !!e.responseText)
+        if (needFinalCount) {
+            recountBase = {
+                thinkingTokens: e.thinkingTokens,
+                responseTokens: e.responseTokens,
+            }
+        }
         return {
             ...e,
             phase: outcome,
@@ -316,20 +362,31 @@ export function endStatus(
         }
     })
     clearAbortBinding(id)
-    if (needFinalCount) void finalRecount(id)
+    if (needFinalCount) void finalRecount(id, recountBase)
 }
 
 export function abortStatusesForChat(chatId: string, now = Date.now()): void {
+    endStatusesForChat(chatId, 'aborted', now)
+}
+
+export function endStatusesForChat(
+    chatId: string,
+    outcome: 'done' | 'failed' | 'aborted',
+    now = Date.now(),
+    kind?: RequestKind,
+): void {
     const ids = [...get(requestStatuses)]
-        .filter(([, entry]) => entry.chatId === chatId && !isTerminalPhase(entry.phase))
+        .filter(([, entry]) => entry.chatId === chatId
+            && (kind === undefined || entry.kind === kind)
+            && !isTerminalPhase(entry.phase))
         .map(([id]) => id)
-    for (const id of ids) endStatus(id, 'aborted', { now })
+    for (const id of ids) endStatus(id, outcome, { now })
 }
 
 // One last native tokenization of the accumulated text after a request ends
 // without provider usage, so the frozen final counts are accurate (not up to
 // one tick stale). The only token write allowed onto a terminal entry.
-async function finalRecount(id: string): Promise<void> {
+async function finalRecount(id: string, recountBase?: EndStatusUsage): Promise<void> {
     const e = get(requestStatuses).get(id)
     if (!e) return
     const thinkingText = e.thinkingText
@@ -347,6 +404,11 @@ async function finalRecount(id: string): Promise<void> {
             // write if still the same terminal entry with the text we counted.
             if (!isTerminalPhase(cur.phase)) return cur
             if (cur.thinkingText !== thinkingText || cur.responseText !== responseText) return cur
+            if (
+                recountBase
+                && (cur.thinkingTokens !== recountBase.thinkingTokens
+                    || cur.responseTokens !== recountBase.responseTokens)
+            ) return cur
             return { ...cur, thinkingTokens, responseTokens }
         })
     } catch {

@@ -34,6 +34,7 @@ import { isMobile } from 'src/ts/platform'
     import {
         applyCancelledRerollSession,
         prepareChatReroll,
+        shouldRetainRerollProjectionForCanonical,
         type ActiveRerollSession,
         type PreparedChatReroll,
     } from 'src/ts/process/revenant/chatGeneration';
@@ -52,6 +53,7 @@ import { isMobile } from 'src/ts/platform'
         subscribeRevenantWorkflowUpdates,
     } from 'src/ts/process/revenant/workflow';
     import {
+        beginGenerationMessageProjection,
         updateRevenantAuxiliaryRecoveryStatus,
     } from 'src/ts/process/revenant/recovery';
 
@@ -140,6 +142,7 @@ import { isMobile } from 'src/ts/platform'
         abortController: AbortController
         detachController: AbortController
         abortRequested: boolean
+        workflowId?: string
         rerollSession?: ActiveRerollSession
         origin: {
             characterId: string
@@ -678,17 +681,26 @@ import { isMobile } from 'src/ts/platform'
         }
         const prepared = prepareChatReroll(rerollCharacter.chaId, rerollChat)
         if (!prepared) return
+        const messageChatId = v4()
         openMenu = false
         const foregroundContext = beginForegroundGeneration(generationTarget)
         foregroundContext.rerollSession = prepared.session
         rerollChat.isStreaming = true
         rerollChat.message = prepared.generationMessages
+        beginGenerationMessageProjection(rerollChat, {
+            messageChatId,
+            characterId: rerollCharacter.chaId,
+            isContinuation: false,
+            rerollSnapshot: prepared.rerollSnapshot,
+        })
+        rerollCharacter.reloadKeys += 1
         const generated = await sendChatMain(
             false,
             prepared.rerollSnapshot,
             generationTarget,
             foregroundContext,
             prepared.durableInputCommit,
+            messageChatId,
         )
 
         // A user-triggered cancel keeps the partial reroll as the active swipe.
@@ -701,6 +713,12 @@ import { isMobile } from 'src/ts/platform'
                     foregroundContext.rerollSession,
                 )
             ) {
+                return
+            }
+            // Once a server workflow exists, its terminal materializer owns
+            // cancellation. Keep the local placeholder instead of briefly
+            // restoring the old branch before canonical sync arrives.
+            if (shouldRetainRerollProjectionForCanonical(foregroundContext)) {
                 return
             }
             const failedCharacter = DBState.db.characters.find(character =>
@@ -786,6 +804,7 @@ import { isMobile } from 'src/ts/platform'
         generationTarget?: ForegroundGenerationContext['origin'],
         preparedContext?: ForegroundGenerationContext,
         durableInputCommit?: PreparedChatReroll['durableInputCommit'],
+        messageChatId?: string,
     ) {
 
         const origin = generationTarget ?? (
@@ -806,9 +825,13 @@ import { isMobile } from 'src/ts/platform'
                 signal:foregroundContext.abortController.signal,
                 detachSignal: detachController.signal,
                 onDetached: () => detached = true,
+                onWorkflowStarted: workflowId => {
+                    foregroundContext.workflowId = workflowId
+                },
                 continue:continued,
                 rerollSnapshot,
                 durableInputCommit,
+                messageChatId,
                 generationTarget: origin,
             })
         } catch (error) {

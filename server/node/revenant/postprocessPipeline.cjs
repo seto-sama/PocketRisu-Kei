@@ -29,7 +29,7 @@ function outputLuaScripts(recipe) {
 }
 
 function createGeneratedMessage(job, recipe, text, current = {}) {
-    return {
+    const message = {
         ...structuredClone(current),
         role: 'char',
         data: text,
@@ -39,6 +39,9 @@ function createGeneratedMessage(job, recipe, text, current = {}) {
         promptInfo: job.promptInfo,
         chatId: recipe.messageChatId,
     };
+    delete message.isRecovering;
+    delete message.recoveryDisplayData;
+    return message;
 }
 
 function applyGeneratedMessage(chat, recipe, job, text) {

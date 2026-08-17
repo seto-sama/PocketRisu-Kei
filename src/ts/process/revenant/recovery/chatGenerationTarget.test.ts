@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Chat, Message } from '../../../storage/database.svelte'
 import {
+    beginGenerationMessageProjection,
     ensureGenerationMessageTarget,
     setGenerationMessageContent,
     setGenerationMessageInfo,
@@ -11,6 +12,45 @@ function chat(message: Message[]): Chat {
 }
 
 describe('ensureGenerationMessageTarget', () => {
+    it('installs a blank reroll swipe before provider output arrives', () => {
+        const original = {
+            role: 'char',
+            data: 'old answer',
+            chatId: 'assistant-1',
+            swipes: ['old answer'],
+            swipeId: 0,
+        } as Message
+        const current = chat([
+            { role: 'user', data: 'hello', chatId: 'user-1' },
+        ])
+
+        const target = beginGenerationMessageProjection(current, {
+            messageChatId: 'generation-1',
+            characterId: 'character-1',
+            isContinuation: false,
+            rerollSnapshot: {
+                targetMessage: original,
+                targetIndex: 1,
+                trailingMessages: [],
+            },
+        })
+
+        expect(target.message).toMatchObject({
+            data: '',
+            chatId: 'generation-1',
+            swipes: ['old answer', ''],
+            swipeId: 1,
+            isRecovering: true,
+        })
+
+        setGenerationMessageContent(target.message, 'first token')
+        expect(target.message).toMatchObject({
+            data: 'first token',
+            swipes: ['old answer', 'first token'],
+        })
+        expect(target.message.isRecovering).toBeUndefined()
+    })
+
     it('recreates a placeholder removed by a remote chat refresh', () => {
         const current = chat([
             { role: 'user', data: 'hello', chatId: 'user-1' },
