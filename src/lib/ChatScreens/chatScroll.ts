@@ -3,6 +3,8 @@
 // dedicated DOM scroll anchor follows streaming layout in the same paint;
 // JavaScript handles explicit navigation and layout transitions only.
 
+import { getPhysicalPixelQuantum } from 'src/ts/gui/physicalPixel'
+
 const BOTTOM_EPSILON = 1
 const SCROLL_PHASE_EPSILON = 1 / 120
 const MESSAGE_NAVIGATION_THRESHOLD = 30
@@ -43,9 +45,7 @@ export function isChatNearBottom(
 }
 
 export function getScrollPhaseQuantum(devicePixelRatio: number) {
-    return Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
-        ? 1 / devicePixelRatio
-        : 1
+    return getPhysicalPixelQuantum(devicePixelRatio)
 }
 
 export function normalizeScrollPhaseHeight(height: number, devicePixelRatio: number) {
