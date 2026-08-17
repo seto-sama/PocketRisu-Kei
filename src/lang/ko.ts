@@ -1764,6 +1764,8 @@ export const languageKorean = {
   modelPresetCacheGrowth: "재생성 증가량 (토큰)",
   modelPresetTabPresets: "프리셋",
   modelPresetTabOptions: "설정",
+  moduleModelBindingEnable: "모듈별 모델 바인딩",
+  moduleModelBindingUnset: "지정 안 함",
   modelPresetTabTest: "테스트",
   modelPresetTestTitle: "테스트 요청",
   modelPresetTestSend: "테스트 전송",

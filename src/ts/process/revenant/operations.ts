@@ -36,6 +36,7 @@ export interface RevenantLuaLlmOperation {
     mode: string
     code: string
     lowLevelAccess: boolean
+    moduleId?: string
     anchorMessageId: string
     callIndex: number
 }

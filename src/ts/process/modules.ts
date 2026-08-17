@@ -476,10 +476,12 @@ export function getModuleTriggers() {
             continue
         }
         if (module.trigger) {
-            triggers = triggers.concat(module.trigger.map((t) => {
-                t.lowLevelAccess = module.lowLevelAccess
-                return t
-            }))
+            // Runtime attribution must not leak into exported module data.
+            triggers = triggers.concat(module.trigger.map((trigger) => ({
+                ...trigger,
+                lowLevelAccess: module.lowLevelAccess,
+                moduleId: module.id,
+            })))
         }
     }
     return triggers

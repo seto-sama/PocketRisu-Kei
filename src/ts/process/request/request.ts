@@ -89,6 +89,8 @@ export interface requestDataArgument{
     revenantAdapterKind?: string
     revenantStreaming?: boolean
     blockPlugins?: boolean
+    /** Module that owns this auxiliary LLM request, when applicable. */
+    moduleId?: string
     /** Persisted data needed to apply an auxiliary result after a reload. */
     revenantOperationContext?:RevenantOperationContext
     /** Who acknowledges the durable auxiliary result after provider completion. */
@@ -371,7 +373,7 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
     arg.formated = removeEmptyChatMessages(arg.formated)
 
     const currentChat = getCurrentChat()
-    const binding = resolveChatModelBinding(currentChat, model)
+    const binding = resolveChatModelBinding(currentChat, model, arg.moduleId)
     if(binding.kind === 'modelPreset'){
         return executeModelPresetRequest(
             arg,

@@ -728,6 +728,7 @@ export function setDatabase(data:Database){
     data.showModelInSidebar ??= true
     data.showPresetInSidebar ??= true
     data.showPersonaInSidebar ??= true
+    data.moduleModelBindings ??= {}
     data.showModuleSidebar ??= true
     data.disableMobileDragDrop ??= false
     data.disableMobileBackNavigation ??= false
@@ -1393,6 +1394,12 @@ export interface Database{
     // Global default binding copied into new chats. Existing chats without a
     // binding resolve against it at runtime.
     defaultModelBinding?: ModelBindingSet
+    /**
+     * Per-module override from module id to a local ModelPreset id. Kept
+     * outside RisuModule so exported modules never carry environment-local
+     * preset references. Dangling ids are retained for automatic reconnect.
+     */
+    moduleModelBindings?: Record<string, string>
     modelPresetMigrationVersion?: number
     modelPresetMigrationAppliedAt?: number
     modelPresetMigrationReport?: ModelPresetMigrationSummary

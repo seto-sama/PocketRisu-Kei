@@ -9,7 +9,7 @@
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
     import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
-    import { SquarePen, TrashIcon, Globe, Share2Icon, PlusIcon, HardDriveUpload, Waypoints, UserIcon } from "@lucide/svelte";
+    import { BotIcon, SquarePen, TrashIcon, Globe, Share2Icon, PlusIcon, HardDriveUpload, Waypoints } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
@@ -21,6 +21,7 @@
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
     import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import ModelPresetList from "src/lib/UI/ModelPresetList.svelte";
     import { openSettings, SettingsRoute } from "src/ts/routing";
     let tempModule:RisuModule = $state({
         name: '',
@@ -30,7 +31,7 @@
     let mode = $state(0)
     let editModuleIndex = $state(-1)
     let moduleSearch = $state('')
-    let charConversionMode = $state(false)
+    let modelBindingMode = $state(false)
     let personaModuleTarget:RisuModule|null = $state(null)
     let personaModuleSelection:string[] = $state([])
     let personaFolder = $state('all')
@@ -38,6 +39,7 @@
     let visiblePersonaIndexes = $state<number[]>([])
     let emptyPersonaMessage = $state('')
     const personaFolders = $derived(DBState.db.personaFolders ?? [])
+    DBState.db.moduleModelBindings ??= {}
     let {
         embedded = false,
         view = 'modules',
@@ -85,6 +87,13 @@
         if (DBState.db.enabledModules.includes(rmodule.id)) return "cursor-pointer text-primary"
         if (isModuleIntegrated(rmodule)) return "text-highlight risu-interactive-accent cursor-pointer"
         return "text-textcolor2 risu-interactive-accent cursor-pointer"
+    }
+
+    function setModuleModelBinding(moduleId: string, presetId: string) {
+        const bindings = { ...(DBState.db.moduleModelBindings ?? {}) }
+        if (presetId) bindings[moduleId] = presetId
+        else delete bindings[moduleId]
+        DBState.db.moduleModelBindings = bindings
     }
 
     function openPersonaModuleModal(rmodule: RisuModule, e: MouseEvent) {
@@ -193,13 +202,13 @@
                 <PlusIcon />
             </IconButton>
             <IconButton
-                className={charConversionMode ? 'text-scoped' : ''}
-                title={language.convertToCharacter}
+                className={modelBindingMode ? 'text-primary' : 'text-textcolor2'}
+                title={language.moduleModelBindingEnable}
                 onclick={() => {
-                    charConversionMode = !charConversionMode
+                    modelBindingMode = !modelBindingMode
                 }}
             >
-                <UserIcon />
+                <BotIcon />
             </IconButton>
             <IconButton onclick={async () => {
                 importModule()
@@ -231,7 +240,7 @@
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
                     data-sortable-key={rmodule.id}
-                    class="mt-2 flex items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
+                    class="mt-2 flex flex-wrap items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
                     role="button"
                     tabindex="0"
                     onclick={() => {
@@ -241,7 +250,7 @@
                         mode = 2
                     }}
                 >
-                    <div class="flex flex-col min-w-0 grow">
+                    <div class="flex flex-col min-w-0 grow basis-full sm:basis-0">
                         <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
                             {#if rmodule.mcp}
                                 <Waypoints size={16} class="shrink-0 text-textcolor2" />
@@ -250,22 +259,23 @@
                         </span>
                         <span class="text-xs text-textcolor2 truncate">{rmodule.description || 'No description provided'}</span>
                     </div>
-                    <IconButtonGroup size="default" className="no-sort shrink-0 ml-2">
-                        {#if charConversionMode}
-                            <IconButton
-                                className="text-scoped"
-                                title={language.convertToCharacter}
-                                onclick={(e) => {
-                                    e.stopPropagation()
-                                    const character = convertModuleToCharacter(rmodule)
-                                    DBState.db.characters.push(character)
-                                    checkCharOrder()
-                                    notifySuccess(language.successfullyConverted)
-                                }}
-                            >
-                                <UserIcon />
-                            </IconButton>
+                    <div
+                        role="toolbar"
+                        tabindex="-1"
+                        aria-label={rmodule.name}
+                        class="no-sort shrink-0 w-full sm:w-auto mt-2 sm:mt-0 sm:ml-2 flex flex-wrap items-center justify-end gap-2"
+                        onclick={(e) => e.stopPropagation()}
+                    >
+                        {#if modelBindingMode && !rmodule.mcp}
+                            <ModelPresetList
+                                compact
+                                blankable
+                                blankLabel={language.moduleModelBindingUnset}
+                                value={DBState.db.moduleModelBindings[rmodule.id] ?? ''}
+                                onChange={(presetId) => setModuleModelBinding(rmodule.id, presetId)}
+                            />
                         {:else}
+                            <IconButtonGroup size="default">
                             <IconButton
                                 className={globalButtonClass(rmodule)}
                                 title={language.enableGlobal}
@@ -335,8 +345,9 @@
                             }}>
                                 <TrashIcon />
                             </IconButton>
+                            </IconButtonGroup>
                         {/if}
-                    </IconButtonGroup>
+                    </div>
                 </div>
             {/each}
         {/if}

@@ -70,6 +70,7 @@ interface BasicScriptingEngineState {
     luaCoreAdapter?: LuaCoreAdapter,
     luaEffectAdapter?: LuaEffectAdapter,
     luaEffectHandlers?: Partial<Record<LuaEffectApiName, (...args: any[]) => unknown>>,
+    moduleId?: string,
 }
 
 interface LuaScriptingEngineState extends BasicScriptingEngineState {
@@ -95,6 +96,7 @@ type RevenantLuaExecutionContext = {
     mode: string;
     code: string;
     lowLevelAccess: boolean;
+    moduleId?: string;
     anchorMessageId: string;
     callIndex: number;
     completedJobIds: Set<string>;
@@ -116,6 +118,7 @@ export async function runScripted(code:string, arg:{
     meta?: object,
     mode?: string,
     type?: 'lua'|'py'
+    moduleId?: string
     revenantReplayJobIds?: string[]
 }){
     const type: 'lua'|'py' = arg.type ?? 'lua'
@@ -144,12 +147,13 @@ export async function runScripted(code:string, arg:{
             ))
         const codeHash = await hasher(new TextEncoder().encode(code))
         revenantLuaExecution = {
-            executionKey: `${char.chaId}:${chat.id}:${mode}:${anchorMessageId}:${codeHash}`,
+            executionKey: `${char.chaId}:${chat.id}:${mode}:${arg.moduleId ?? ''}:${anchorMessageId}:${codeHash}`,
             characterId: char.chaId,
             roomId: chat.id,
             mode,
             code,
             lowLevelAccess,
+            moduleId: arg.moduleId,
             anchorMessageId,
             callIndex: 0,
             completedJobIds: new Set(arg.revenantReplayJobIds ?? []),
@@ -162,6 +166,7 @@ export async function runScripted(code:string, arg:{
     let ScriptingEngineState = await getOrCreateEngineState(mode, type);
     
     return await ScriptingEngineState.mutex.runExclusive(async () => {
+        ScriptingEngineState.moduleId = arg.moduleId
         ScriptingEngineState.chat = chat
         ScriptingEngineState.character = char
         ScriptingEngineState.setVar = setVar
@@ -468,6 +473,7 @@ export async function runScripted(code:string, arg:{
                         mode: execution.mode,
                         code: execution.code,
                         lowLevelAccess: execution.lowLevelAccess,
+                        moduleId: execution.moduleId,
                         anchorMessageId: execution.anchorMessageId,
                         callIndex,
                     }),
@@ -538,6 +544,7 @@ export async function runScripted(code:string, arg:{
                     forceStreaming: options.streaming === true,
                     noMultiGen: true,
                     revenantOperationContext: revenantCall.operationContext,
+                    moduleId: ScriptingEngineState.moduleId,
                 }, modelMode)
 
                 if(result.type === 'fail'){
@@ -593,6 +600,7 @@ export async function runScripted(code:string, arg:{
                     useStreaming: false,
                     noMultiGen: true,
                     revenantOperationContext: revenantCall.operationContext,
+                    moduleId: ScriptingEngineState.moduleId,
                 }, 'model')
 
                 if(result.type === 'fail'){
@@ -886,6 +894,7 @@ export async function recoverRevenantLuaJobsForChat(
                 char,
                 chat,
                 lowLevelAccess: context.lowLevelAccess,
+                moduleId: context.moduleId,
                 mode: context.mode,
                 revenantReplayJobIds: jobIds,
             })
@@ -1050,7 +1059,8 @@ export async function runLuaButtonTrigger(char:character|simpleCharacterArgument
                     char: char,
                     lowLevelAccess: trigger.lowLevelAccess,
                     mode: 'onButtonClick',
-                    data: data
+                    data,
+                    moduleId: trigger.moduleId,
                 })
             }
         }

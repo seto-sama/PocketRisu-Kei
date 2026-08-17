@@ -55,6 +55,32 @@ describe('resolveChatModelBinding — model-preset-only mode', () => {
     })
 })
 
+describe('resolveChatModelBinding — per-module override', () => {
+    const MODULE_PRESET = { id: 'p-module', name: 'Module' } as any
+    const chat = { modelBinding: bindingWith('p-main') } as any
+
+    beforeEach(() => {
+        mockDb.modelPresets = [PRESET, MODULE_PRESET]
+        mockDb.moduleModelBindings = { 'module-1': 'p-module' }
+    })
+
+    test('uses the preset assigned to the requesting module', () => {
+        expect(resolveChatModelBinding(chat, 'model', 'module-1'))
+            .toEqual({ kind: 'modelPreset', preset: MODULE_PRESET })
+    })
+
+    test('falls through when the assigned preset was deleted', () => {
+        mockDb.moduleModelBindings = { 'module-1': 'missing' }
+        expect(resolveChatModelBinding(chat, 'model', 'module-1'))
+            .toEqual({ kind: 'modelPreset', preset: PRESET })
+    })
+
+    test('does not affect requests without a module owner', () => {
+        expect(resolveChatModelBinding(chat, 'model'))
+            .toEqual({ kind: 'modelPreset', preset: PRESET })
+    })
+})
+
 function presetWith(opts: { schema?: any[]; userValues?: any; defaults?: any } = {}) {
     return {
         id: 'p-main',

@@ -29,6 +29,8 @@ export interface triggerscript{
     conditions: triggerCondition[]
     effect:triggerEffect[]
     lowLevelAccess?: boolean
+    /** Runtime-only owner id attached by getModuleTriggers(). */
+    moduleId?: string
 }
 
 export type triggerCondition = triggerConditionsVar|triggerConditionsExists|triggerConditionsChatIndex
@@ -1373,6 +1375,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                             currentChar: char,
                             useStreaming: payload.streaming === true,
                             noMultiGen: true,
+                            moduleId: trigger.moduleId,
                         }, payload.mode as 'model'|'submodel')
                         if(result.type === 'streaming'){
                             actionResult = { success: true, result: await collectStreamingText(result.result) }
@@ -1542,6 +1545,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         currentChar: char,
                         useStreaming: false,
                         noMultiGen: true,
+                        moduleId: trigger.moduleId,
                     }, 'model')
 
                     if(result.type === 'fail' || result.type === 'streaming' || result.type === 'multiline'){
@@ -1609,6 +1613,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         getVar: getVar,
                         char: char,
                         chat: chat,
+                        moduleId: trigger.moduleId,
                     })
 
                     if(triggerCodeResult.stopSending){

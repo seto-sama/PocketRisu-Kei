@@ -38,8 +38,13 @@ function findPreset(id: string | undefined, presets: ModelPreset[]): ModelPreset
 export function resolveChatModelBinding(
     chat: Chat | null | undefined,
     mode: ModelModeExtended,
+    moduleId?: string,
 ): ResolvedBinding {
     const db = getDatabase()
+    if (moduleId) {
+        const modulePreset = findPreset(db.moduleModelBindings?.[moduleId], db.modelPresets ?? [])
+        if (modulePreset) return { kind: 'modelPreset', preset: modulePreset }
+    }
     const set = chat?.modelBinding ?? db.defaultModelBinding
     if (!set) {
         return { kind: 'block', reason: mode === 'model' ? 'main-unset' : 'sub-unset' }

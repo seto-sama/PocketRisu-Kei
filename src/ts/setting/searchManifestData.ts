@@ -26,6 +26,7 @@ export const searchManifestEntries: ManualSearchEntry[] = [
     { id: 'manual.language.cache', label: () => language.translationCache, keywords: ['translation cache', '번역 캐시'], route: SettingsRoute.Language, subTab: 1 },
     { id: 'manual.addons.plugin', label: () => language.plugin, keywords: ['plugin', '플러그인'], route: SettingsRoute.Addons, subTab: 0 },
     { id: 'manual.addons.module', label: () => language.modules, keywords: ['module', '모듈'], route: SettingsRoute.Addons, subTab: 1 },
+    { id: 'manual.addons.moduleModelBinding', label: () => language.moduleModelBindingEnable, keywords: ['module model binding', 'per-module model', '모듈별 모델', '모듈 모델 바인딩'], route: SettingsRoute.Addons, subTab: 1 },
     { id: 'manual.addons.mcp', label: () => 'MCP', keywords: ['mcp', 'model context protocol'], route: SettingsRoute.Addons, subTab: 2 },
     { id: 'manual.display.sound', label: () => language.soundAndNotification, keywords: ['sound', 'notification', 'volume', '소리', '알림'], route: SettingsRoute.Display, subTab: 3 },
     { id: 'manual.accessibility.hotkeys', label: () => language.hotkey, keywords: ['hotkey', 'shortcut', '단축키', '핫키'], route: SettingsRoute.Accessibility, subTab: 3 },

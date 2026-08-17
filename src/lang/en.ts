@@ -1672,6 +1672,8 @@ export const languageEnglish = {
     maxContextHelp: "Input (prompt) token budget for this preset. Leave empty for the default (65000), capped at the model's context window. Not the response length (that is Max Tokens).",
     modelPresetTabPresets: "Presets",
     modelPresetTabOptions: "Settings",
+    moduleModelBindingEnable: "Per-module model binding",
+    moduleModelBindingUnset: "Not set",
     modelPresetTabTest: "Test",
     modelPresetTestTitle: "Test request",
     modelPresetTestHelp: "Send a single message to this preset to check its credentials and endpoint respond. Not saved to any chat.",
