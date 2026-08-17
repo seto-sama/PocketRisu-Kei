@@ -11,6 +11,7 @@
     import ShDropdownMenuItem from 'src/lib/UI/GUI/ShDropdownMenuItem.svelte'
     import ShDropdownMenuTrigger from 'src/lib/UI/GUI/ShDropdownMenuTrigger.svelte'
     import ShToggle from 'src/lib/UI/GUI/ShToggle.svelte'
+    import CBSCodeEditor from 'src/lib/UI/GUI/CBSCodeEditor.svelte'
 
     let saving = $state(false)
     let wordWrap = $state(true)
@@ -21,6 +22,7 @@
         popUpEditorStore.title = ''
         popUpEditorStore.metadata = []
         popUpEditorStore.formatJson = false
+        popUpEditorStore.mode = 'plain'
     }
 
     async function requestSave() {
@@ -78,22 +80,34 @@
             </div>
         {/if}
 
-        <textarea
-            bind:value={popUpEditorStore.value}
-            wrap={wordWrap ? 'soft' : 'off'}
-            class="risu-field-border min-h-0 w-full flex-1 resize-none overflow-auto rounded-md bg-bgcolor p-3 font-mono leading-relaxed text-textcolor outline-none"
-            class:text-xs={$textAreaTextSize === 0}
-            class:text-sm={$textAreaTextSize === 1}
-            class:text-md={$textAreaTextSize === 2}
-            class:text-lg={$textAreaTextSize === 3}
-            class:whitespace-pre-wrap={wordWrap}
-            class:break-all={wordWrap}
-            class:whitespace-pre={!wordWrap}
-            autocomplete="off"
-            autocapitalize="off"
-            spellcheck="false"
-            onkeydown={handleKeydown}
-        ></textarea>
+        {#if popUpEditorStore.mode === 'cbs'}
+            <div
+                class="min-h-0 w-full flex-1 font-mono"
+                class:text-xs={$textAreaTextSize === 0}
+                class:text-sm={$textAreaTextSize === 1}
+                class:text-md={$textAreaTextSize === 2}
+                class:text-lg={$textAreaTextSize === 3}
+            >
+                <CBSCodeEditor bind:value={popUpEditorStore.value} {wordWrap} onSave={() => void requestSave()} />
+            </div>
+        {:else}
+            <textarea
+                bind:value={popUpEditorStore.value}
+                wrap={wordWrap ? 'soft' : 'off'}
+                class="risu-field-border min-h-0 w-full flex-1 resize-none overflow-auto rounded-md bg-bgcolor p-3 font-mono leading-relaxed text-textcolor outline-none"
+                class:text-xs={$textAreaTextSize === 0}
+                class:text-sm={$textAreaTextSize === 1}
+                class:text-md={$textAreaTextSize === 2}
+                class:text-lg={$textAreaTextSize === 3}
+                class:whitespace-pre-wrap={wordWrap}
+                class:break-all={wordWrap}
+                class:whitespace-pre={!wordWrap}
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+                onkeydown={handleKeydown}
+            ></textarea>
+        {/if}
     </div>
 
     {#snippet footer()}

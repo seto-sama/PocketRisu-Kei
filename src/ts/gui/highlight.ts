@@ -1,4 +1,4 @@
-type HighlightType = 'decorator'|'deprecated'|'cbsnest0'|'cbsnest1'|'cbsnest2'|'cbsnest3'|'cbsnest4'|'cbsdisplay'|'comment'
+export type HighlightType = 'decorator'|'deprecated'|'cbsnest0'|'cbsnest1'|'cbsnest2'|'cbsnest3'|'cbsnest4'|'cbsdisplay'|'comment'
 
 type HighLightRange = [number, number]
 type HighlightInt = [HighLightRange, HighlightType]
@@ -55,7 +55,7 @@ export const highlighter = (highlightDom:HTMLElement, id:number) => {
             fullText = fullText.toLocaleLowerCase()
     
             const ranges:HighlightIntRanged[] = []
-            const parsed = simpleCBSHighlightParser(fullText)
+            const parsed = getCBSHighlightRanges(fullText)
 
             const convertToDomRange = (start:number, end:number):Range[] => {
                 const startNodeIndex = nodePointers.findIndex((pointer) => pointer >= start);
@@ -94,21 +94,6 @@ export const highlighter = (highlightDom:HTMLElement, id:number) => {
                 }
             }
 
-            for(const syntax of highlighterSyntax){
-                const regex = syntax.regex
-                let match:RegExpExecArray | null;
-                while ((match = regex.exec(fullText)) !== null) {
-                    const length = match[0].length;
-                    const index = match.index;
-                    const converted = convertToDomRange(index, index + length);
-                    if (converted) {
-                        for(const range of converted){
-                            ranges.push([range, syntax.type]);
-                        }
-                    }
-                }
-            }
-    
             highLights.set(id, ranges)
     
             runHighlight()
@@ -219,11 +204,26 @@ const highlighterSyntax = [
 ] as const
 
 
+export function getCBSHighlightRanges(text:string): HighlightInt[] {
+    const normalizedText = text.toLocaleLowerCase()
+    const ranges = simpleCBSHighlightParser(normalizedText)
+
+    for(const syntax of highlighterSyntax){
+        syntax.regex.lastIndex = 0
+        let match:RegExpExecArray | null
+        while ((match = syntax.regex.exec(normalizedText)) !== null) {
+            ranges.push([[match.index, match.index + match[0].length], syntax.type])
+        }
+    }
+
+    return ranges
+}
+
 function simpleCBSHighlightParser(text:string){
     let depth = 0
     let pointer = 0
-    let depthStarts = new Uint8Array(100)
-    let highlightMode = new Uint8Array(100)
+    const depthStarts: number[] = []
+    const highlightMode: number[] = []
 
     const ranges:HighlightInt[] = []
     const excludesRanges:[number,number][] = []
