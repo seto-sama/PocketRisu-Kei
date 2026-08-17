@@ -1007,7 +1007,6 @@ export const languageGerman = {
     "showSavingIcon": "Speichersymbol anzeigen",
     "pluginVersionWarn": "Dies ist Version {{plugin_version}} des Plugins, die nicht mit dieser Version von PocketRisu Kei kompatibel ist. Bitte aktualisieren Sie das Plugin auf Version {{required_version}}.",
     "banCharacterset": "Bei Zeichensatz automatisch neu generieren",
-    "realmDirectOpen": "Charakter in RisuRealm direkt öffnen",
     "showPromptComparison": "Anweisungsvergleich anzeigen",
     "inlayErrorResponse": "Fehlerantwort einfügen",
     "triggerOn": "Trigger ein",

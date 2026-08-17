@@ -111,7 +111,6 @@ export const helpVi = {
         "settingsCloseButtonSize": "Điều chỉnh kích thước nút đóng (X) ở góc trên bên phải cửa sổ cài đặt. Mặc định là 24.",
         "showTypingEffect": "Khi được bật, nó sẽ hiển thị chỉ báo đang nhập trong khi trợ lý đang tạo phản hồi.",
         "dynamicOutputPrompt": "Khi được bật, thông tin lược đồ sẽ được bao gồm trong yêu cầu.",
-        "realmDirectOpen": "Nếu được bật, nhấp vào một nhân vật trong bản xem trước RisuRealm sẽ mở trực tiếp mô tả nhân vật.",
         "openRouterProviderOrder": "Thứ tự các nhà cung cấp được sử dụng, nhà cung cấp đầu tiên sẽ được sử dụng trước, nếu nhà cung cấp không có sẵn, nó sẽ sử dụng nhà cung cấp tiếp theo. Xem chi tiết tại https://openrouter.ai/docs/guides/routing/provider-selection#ordering-specific-providers",
         "openRouterProviderOnly": "Chỉ sử dụng các nhà cung cấp trong danh sách này, nếu tất cả các nhà cung cấp không có sẵn, yêu cầu sẽ thất bại. Xem chi tiết tại https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
         "openRouterProviderIgnore": "Bỏ qua các nhà cung cấp trong danh sách này, nếu tất cả các nhà cung cấp bị bỏ qua, yêu cầu sẽ thất bại. Xem chi tiết tại https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",

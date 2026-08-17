@@ -1077,7 +1077,6 @@ export const languageChineseTraditional = {
     "showSavingIcon": "顯示儲存圖示",
     "pluginVersionWarn": "這是 {{plugin_version}} 版本的外掛，與目前 PocketRisu Kei 版本不相容。請更新外掛至 {{required_version}} 版本。",
     "banCharacterset": "自動重新生成字元集",
-    "realmDirectOpen": "在 RisuRealm 中直接開啟角色",
     "showPromptComparison": "顯示提示詞比較",
     "inlayErrorResponse": "嵌入錯誤回應",
     "triggerOn": "觸發於",

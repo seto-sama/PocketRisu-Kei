@@ -1007,7 +1007,6 @@ export const languageVietnamese = {
     "showSavingIcon": "Hiển thị biểu tượng đang lưu",
     "pluginVersionWarn": "Đây là phiên bản {{plugin_version}} của plugin, không tương thích với phiên bản PocketRisu Kei này. Vui lòng cập nhật plugin lên phiên bản {{required_version}}.",
     "banCharacterset": "Tự động tạo lại khi gặp bộ ký tự",
-    "realmDirectOpen": "Mở trực tiếp nhân vật trong RisuRealm",
     "showPromptComparison": "Hiển thị so sánh lời nhắc",
     "inlayErrorResponse": "Phản hồi lỗi Inlay",
     "triggerOn": "Kích hoạt bật",

@@ -211,7 +211,6 @@ export const helpEn = {
         settingsCloseButtonSize: "Size of the settings close button.",
         showTypingEffect: "When enabled, it will show a typing indicator while the assistant is generating a response.",
         dynamicOutputPrompt: "When enabled, the schema information will be included in the request.",
-        realmDirectOpen: "If enabled, clicking a character in RisuRealm preview will directly open the character description.",
         openRouterProviderOrder:
             "The order of providers to use, the first provider will be used first, if the provider is not available, it will use the next provider. See datail on https://openrouter.ai/docs/guides/routing/provider-selection#ordering-specific-providers",
         openRouterProviderOnly:

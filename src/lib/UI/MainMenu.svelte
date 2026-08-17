@@ -1,12 +1,12 @@
 <script lang="ts">
     import { DBState } from 'src/ts/stores.svelte';
     import Hub from "./Realm/RealmMain.svelte";
-    import { OpenRealmStore, RealmInitialOpenChar } from "src/ts/stores.svelte";
-    import { ArrowLeft, ChevronDown, SendIcon, TriangleAlertIcon, UsersIcon } from "@lucide/svelte";
+    import { OpenRealmStore } from "src/ts/stores.svelte";
+    import { ChevronDown, HomeIcon, SendIcon, TriangleAlertIcon, UsersIcon } from "@lucide/svelte";
     import GithubIcon from "./GithubIcon.svelte";
     import { getVersionString, openURL } from "src/ts/globalApi.svelte";
     import { language } from "src/lang";
-    import { getRisuHub, hubAdditionalHTML } from "src/ts/characterCards";
+    import { getRisuHub, hubAdditionalHTML, showRealmInfoStore } from "src/ts/characterCards";
     import RisuHubIcon from "./Realm/RealmHubIcon.svelte";
     import Title from "./Title.svelte";
     import { updateInfoStore, updatePopupStore } from "src/ts/update";
@@ -15,6 +15,7 @@
     import { openSettings, SettingsRoute } from "src/ts/routing";
     import ShButton from "./GUI/ShButton.svelte";
     import ShAlert from "./GUI/ShAlert.svelte";
+    import IconButton from "./GUI/IconButton.svelte";
 
     let realmOpen = $state(!DBState.db.hideRealm);
 
@@ -109,10 +110,7 @@
               <div class="w-full flex gap-4 p-2 flex-wrap justify-center">
                   {#each charas as chara}
                       <RisuHubIcon onClick={() => {
-                        $OpenRealmStore = true
-                        if(DBState.db.realmDirectOpen){
-                            $RealmInitialOpenChar = chara
-                        }
+                        $showRealmInfoStore = chara
                       }} chara={chara} />
                   {/each}
               </div>
@@ -182,10 +180,10 @@
         </div>
 
       {:else}
-        <div class="flex items-center mt-4">
-          <button class="mr-2 text-textcolor2 risu-interactive-accent" onclick={() => ($OpenRealmStore = false)}>
-            <ArrowLeft/>
-          </button>
+        <div class="mt-4 flex w-full items-center px-2">
+          <IconButton size="xl" onclick={() => ($OpenRealmStore = false)} aria-label={language.home}>
+            <HomeIcon/>
+          </IconButton>
         </div>
         <Hub />
       {/if}
