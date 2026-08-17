@@ -1784,7 +1784,7 @@ export function checkCharOrder() {
             charIdList.push(charId)
         }
         if (!ordered.includes(charId)) {
-            if (charId !== '§temp' && charId !== '§playground' && !char.trashTime) {
+            if (charId !== '§temp' && !char.trashTime) {
                 db.characterOrder.push(charId)
             }
         }
