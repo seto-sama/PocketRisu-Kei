@@ -107,7 +107,7 @@
             }) then charas}
             {#if charas.length > 0}
               {@html hubAdditionalHTML}
-              <div class="w-full flex gap-4 p-2 flex-wrap justify-center">
+              <div class="grid w-full grid-cols-1 gap-4 p-2 lg:grid-cols-2">
                   {#each charas as chara}
                       <RisuHubIcon onClick={() => {
                         $showRealmInfoStore = chara

@@ -4,14 +4,23 @@
     import { parseMultilangString, toLangName } from "src/ts/util";
     import { DBState } from "src/ts/stores.svelte";
     import ShButton from "./ShButton.svelte";
+    import { cn } from "src/lib/utils";
 
     interface Props {
         value: string;
         markdown?: boolean;
         showLanguageSelector?: boolean;
+        className?: string;
+        contentClass?: string;
     }
 
-    let { value, markdown = false, showLanguageSelector = true }: Props = $props();
+    let {
+        value,
+        markdown = false,
+        showLanguageSelector = true,
+        className = '',
+        contentClass = '',
+    }: Props = $props();
     let valueObject: {[code:string]:string} = $derived(parseMultilangString(value))
 
     let userLang = $derived(DBState.db.language)
@@ -38,12 +47,12 @@
     })
 </script>
 
-<div class="flex flex-col">
+<div class={cn('flex flex-col', className)}>
     {#if showLanguageSelector}
-        <div class="flex flex-wrap max-w-fit p-1 gap-2 items-center">
+        <div class="flex max-w-fit flex-wrap items-center gap-2 px-1 pb-1">
             {#if sortedLangs.priority}
                 {#if sortedLangs.priority !== 'xx' || Object.keys(valueObject).length === 1}
-                    <ShButton variant={selectedLang === sortedLangs.priority ? 'primary' : 'outline'} className={selectedLang === sortedLangs.priority ? '' : 'text-textcolor2'} aria-pressed={selectedLang === sortedLangs.priority} onclick={(e) => {
+                    <ShButton size="sm" variant={selectedLang === sortedLangs.priority ? 'primary' : 'outline'} className={selectedLang === sortedLangs.priority ? '' : 'text-textcolor2'} aria-pressed={selectedLang === sortedLangs.priority} onclick={(e) => {
                         e.stopPropagation()
                         selectedLang = sortedLangs.priority
                     }}>{toLangName(sortedLangs.priority)}</ShButton>
@@ -54,7 +63,7 @@
             {/if}
             {#each sortedLangs.rest as lang}
                 {#if lang !== 'xx' || Object.keys(valueObject).length === 1}
-                    <ShButton variant={selectedLang === lang ? 'primary' : 'outline'} className={selectedLang === lang ? '' : 'text-textcolor2'} aria-pressed={selectedLang === lang} onclick={(e) => {
+                    <ShButton size="sm" variant={selectedLang === lang ? 'primary' : 'outline'} className={selectedLang === lang ? '' : 'text-textcolor2'} aria-pressed={selectedLang === lang} onclick={(e) => {
                         e.stopPropagation()
                         selectedLang = lang
                     }}>{toLangName(lang)}</ShButton>
@@ -63,13 +72,13 @@
         </div>
     {/if}
     {#if markdown}
-        <div class="ml-2 max-w-full wrap-break-word text chat chattext prose" class:prose-invert={$ColorSchemeTypeStore === 'dark'}>
+        <div class={cn('ml-2 max-w-full wrap-break-word text chat chattext prose', contentClass)} class:prose-invert={$ColorSchemeTypeStore === 'dark'}>
             {#await ParseMarkdown(valueObject[selectedLang]) then md} 
                 {@html md}
             {/await}
         </div>
     {:else}
-        <div class="ml-2 max-w-full wrap-break-word text chat chattext prose" class:prose-invert={$ColorSchemeTypeStore === 'dark'}>
+        <div class={cn('ml-2 max-w-full wrap-break-word text chat chattext prose', contentClass)} class:prose-invert={$ColorSchemeTypeStore === 'dark'}>
             {valueObject[selectedLang]}
         </div>
     {/if}
