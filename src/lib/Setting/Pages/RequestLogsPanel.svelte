@@ -18,17 +18,26 @@
         clearServerFetchLogs,
         deleteFetchLog,
         deleteServerFetchLog,
+        getServerFetchLogById,
         getServerFetchLogs,
         type FetchLog,
+        type FetchLogSummary,
     } from 'src/ts/globalApi.svelte'
     import { language } from 'src/lang'
-    import { formatRequestBody, formatResponseBody, getResponseBodyDetails } from 'src/ts/requestLogFormat'
+    import { formatResponseBody } from 'src/ts/requestLogFormat'
+    import RequestLogDetail from 'src/lib/UI/RequestLogDetail.svelte'
 
     const LIST_LIMIT = 100
 
     let requestExpanded = $state<Record<string, boolean>>({})
-    let serverRequestLogs = $state<FetchLog[]>([])
+    let serverRequestLogs = $state<FetchLogSummary[]>([])
+    let requestLogsTotal = $state(0)
+    let requestLogDetails = $state<Record<string, FetchLog>>({})
+    let requestDetailLoading = $state<Record<string, boolean>>({})
+    let requestDetailErrors = $state<Record<string, string>>({})
     let requestLogsLoading = $state(false)
+    let requestLogsLoadingMore = $state(false)
+    let requestLogsHasMore = $state(false)
     let requestLogsError = $state<string | null>(null)
     let requestSearch = $state('')
     const requestLogs = $derived(serverRequestLogs)
@@ -37,32 +46,21 @@
         if (!needle) return requestLogs
         return requestLogs.filter(log => [
             log.url,
-            log.body,
-            log.header,
-            formatResponseBody(log),
             log.status,
             log.success,
             log.clientId,
             log.platform,
             log.chatId,
+            log.responseType,
+            log.date,
         ].join(' ').toLowerCase().includes(needle))
     })
-    const displayedRequestLogs = $derived(filteredRequestLogs.slice(0, LIST_LIMIT))
+    const displayedRequestLogs = $derived(filteredRequestLogs)
 
     function formatAbsolute(ts: number): string {
         const d = new Date(ts)
         const pad = (n: number) => String(n).padStart(2, '0')
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-    }
-
-    function parseRequestHeaders(header: string): Array<[string, string]> {
-        try {
-            const parsed = JSON.parse(header)
-            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
-            return Object.entries(parsed).map(([key, value]) => [key, typeof value === 'string' ? value : JSON.stringify(value)])
-        } catch {
-            return []
-        }
     }
 
     function formatRequestLogTime(log: { timestamp?: number; date: string }): string {
@@ -82,12 +80,64 @@
         requestLogsLoading = true
         requestLogsError = null
         try {
-            serverRequestLogs = await getServerFetchLogs()
+            const page = await getServerFetchLogs({ limit: LIST_LIMIT })
+            serverRequestLogs = page.content
+            requestLogsTotal = page.total
+            requestLogsHasMore = page.content.length > 0 && page.content.length < page.total
+            requestExpanded = {}
+            requestLogDetails = {}
+            requestDetailLoading = {}
+            requestDetailErrors = {}
         } catch (err) {
             requestLogsError = err instanceof Error ? err.message : String(err)
         } finally {
             requestLogsLoading = false
         }
+    }
+
+    async function loadMoreServerRequestLogs() {
+        if (requestLogsLoadingMore || !requestLogsHasMore || serverRequestLogs.length === 0) return
+        requestLogsLoadingMore = true
+        requestLogsError = null
+        try {
+            const page = await getServerFetchLogs({
+                limit: LIST_LIMIT,
+                beforeId: serverRequestLogs[serverRequestLogs.length - 1].id,
+            })
+            const existing = new Set(serverRequestLogs.map(log => log.id))
+            const fresh = page.content.filter(log => !existing.has(log.id))
+            serverRequestLogs = [...serverRequestLogs, ...fresh]
+            requestLogsTotal = page.total
+            requestLogsHasMore = fresh.length > 0 && serverRequestLogs.length < page.total
+        } catch (err) {
+            requestLogsError = err instanceof Error ? err.message : String(err)
+        } finally {
+            requestLogsLoadingMore = false
+        }
+    }
+
+    async function loadRequestLogDetails(id: string) {
+        if (requestLogDetails[id] || requestDetailLoading[id]) return
+        requestDetailLoading = { ...requestDetailLoading, [id]: true }
+        const { [id]: _, ...remainingErrors } = requestDetailErrors
+        requestDetailErrors = remainingErrors
+        try {
+            const detail = await getServerFetchLogById(id)
+            requestLogDetails = { ...requestLogDetails, [id]: detail }
+        } catch (err) {
+            requestDetailErrors = {
+                ...requestDetailErrors,
+                [id]: err instanceof Error ? err.message : String(err),
+            }
+        } finally {
+            const { [id]: _, ...remainingLoading } = requestDetailLoading
+            requestDetailLoading = remainingLoading
+        }
+    }
+
+    function handleRequestLogOpen(id: string, open: boolean) {
+        requestExpanded = { ...requestExpanded, [id]: open }
+        if (open) void loadRequestLogDetails(id)
     }
 
     async function handleClearRequestLogs() {
@@ -97,7 +147,12 @@
             clearFetchLogs()
             await clearServerFetchLogs()
             serverRequestLogs = []
+            requestLogsTotal = 0
+            requestLogsHasMore = false
             requestExpanded = {}
+            requestLogDetails = {}
+            requestDetailLoading = {}
+            requestDetailErrors = {}
         } catch (err) {
             notifyError(language.systemLogsFailedLoad, {
                 description: err instanceof Error ? err.message : String(err),
@@ -131,15 +186,23 @@
         }
     }
 
-    async function deleteRequestLog(log: FetchLog) {
+    async function deleteRequestLog(log: FetchLogSummary) {
         const ok = await alertConfirm(language.systemLogsDeleteConfirm)
         if (!ok) return
         try {
             await deleteServerFetchLog(log.id)
             deleteFetchLog(log.id)
             serverRequestLogs = serverRequestLogs.filter(entry => entry.id !== log.id)
+            requestLogsTotal = Math.max(0, requestLogsTotal - 1)
+            requestLogsHasMore = serverRequestLogs.length < requestLogsTotal
             const { [log.id]: _, ...rest } = requestExpanded
             requestExpanded = rest
+            const { [log.id]: _detail, ...remainingDetails } = requestLogDetails
+            requestLogDetails = remainingDetails
+            const { [log.id]: _loading, ...remainingLoading } = requestDetailLoading
+            requestDetailLoading = remainingLoading
+            const { [log.id]: _error, ...remainingErrors } = requestDetailErrors
+            requestDetailErrors = remainingErrors
         } catch (err) {
             await loadServerRequestLogs()
             notifyError(language.systemLogsFailedLoad, {
@@ -167,7 +230,7 @@
     </SettingLayout>
 </div>
 
-<SettingLayout variant="status" shownCount={displayedRequestLogs.length} totalCount={filteredRequestLogs.length}
+<SettingLayout variant="status" shownCount={displayedRequestLogs.length} totalCount={requestLogsTotal}
     loading={requestLogsLoading} error={requestLogsError ? `${language.systemLogsFailedLoad}: ${requestLogsError}` : null} />
 
 {#if displayedRequestLogs.length === 0}
@@ -178,14 +241,14 @@
     </div>
 {:else}
     <Tooltip.Provider delayDuration={300}>
-        <SettingLayout variant="list" scrollable>
+        <SettingLayout variant="list" scrollable className="max-h-[75vh]">
             {#each displayedRequestLogs as log (log.id)}
                 <Collapsible.Root
                     open={requestExpanded[log.id] === true}
-                    onOpenChange={(v) => { requestExpanded = { ...requestExpanded, [log.id]: v } }}
+                    onOpenChange={(v) => handleRequestLogOpen(log.id, v)}
                 >
                     <Collapsible.Trigger class="w-full text-left group">
-                        <SettingLayout variant="item" className="gap-2 hover:bg-selected/30 group-focus-visible:bg-selected/30">
+                        <SettingLayout variant="item" className="gap-2 risu-interactive-surface group-focus-visible:bg-selected/30">
                         <span class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-medium font-mono shrink-0 {log.success ? 'bg-success/20 text-success border-success/40' : 'bg-draculared/20 text-draculared border-draculared/40'}">
                             {log.status ?? (log.success ? 'OK' : 'ERR')}
                         </span>
@@ -215,70 +278,18 @@
                     </Collapsible.Trigger>
 
                     <Collapsible.Content class="bg-darkbg/60">
-                        {@const headers = parseRequestHeaders(log.header)}
-                        {@const requestBody = formatRequestBody(log.body)}
-                        {@const responseDetails = getResponseBodyDetails(log)}
+                        {@const detail = requestLogDetails[log.id]}
+                        {#if requestDetailLoading[log.id]}
+                            <div class="p-4 text-sm text-textcolor2">{language.systemLogsLoading}</div>
+                        {:else if requestDetailErrors[log.id]}
+                            <div class="p-4 text-sm text-draculared">
+                                {language.systemLogsFailedLoad}: {requestDetailErrors[log.id]}
+                            </div>
+                        {:else if detail}
                         <div class="p-3 text-xs text-textcolor2 space-y-4">
-                            <div class="flex flex-wrap gap-x-4 gap-y-1">
-                                <span><span class="text-textcolor2/70">timestamp:</span> {formatRequestLogTime(log)}</span>
-                                <span><span class="text-textcolor2/70">device:</span> {requestDeviceLabel(log)}</span>
-                                <span><span class="text-textcolor2/70">success:</span> {log.success ? 'true' : 'false'}</span>
-                                {#if log.status !== undefined}<span><span class="text-textcolor2/70">status:</span> {log.status}</span>{/if}
-                                {#if log.responseType}<span><span class="text-textcolor2/70">response-type:</span> {log.responseType}</span>{/if}
-                                {#if log.chatId}<span><span class="text-textcolor2/70">chat:</span> {log.chatId}</span>{/if}
-                            </div>
-                            <div>
-                                <div class="text-textcolor text-sm font-semibold mb-2">URL</div>
-                                <div class="break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono">{log.url}</div>
-                            </div>
-                            <div>
-                                <div class="text-textcolor text-sm font-semibold mb-2">Request Header</div>
-                                {#if headers.length === 0}
-                                    <div class="break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono">{log.header}</div>
-                                {:else}
-                                    <div class="bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor">
-                                        <div class="flex flex-wrap gap-x-4 gap-y-1">
-                                            {#each headers as [key, value]}
-                                                <span class="break-all"><span class="text-textcolor2/70">{key}:</span> {value}</span>
-                                            {/each}
-                                        </div>
-                                    </div>
-                                {/if}
-                            </div>
-                            <div>
-                                <div class="text-textcolor text-sm font-semibold mb-2">Request Body</div>
-                                <pre class="whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono ">{requestBody}</pre>
-                            </div>
-                            <div>
-                                <div class="text-textcolor text-sm font-semibold mb-2">Response Body</div>
-                                {#if responseDetails}
-                                    <div class="space-y-2">
-                                        {#each responseDetails.groups as group (group.event)}
-                                            <details class="bg-bgcolor/50 border border-darkborderc/50 rounded text-textcolor">
-                                                <summary class="cursor-pointer select-none p-2 font-mono">
-                                                    {group.summary}
-                                                </summary>
-                                                <pre class="whitespace-pre-wrap break-all border-t border-darkborderc/50 p-2 font-mono max-h-64 overflow-auto">{group.readable}</pre>
-                                                <details class="border-t border-darkborderc/50">
-                                                    <summary class="cursor-pointer select-none p-2 font-mono text-textcolor2">Raw</summary>
-                                                    <pre class="whitespace-pre-wrap break-all border-t border-darkborderc/50 p-2 font-mono max-h-64 overflow-auto">{group.raw}</pre>
-                                                </details>
-                                            </details>
-                                        {/each}
-                                    </div>
-                                    {#if responseDetails.remainder}
-                                        <pre class="mt-2 whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono">{responseDetails.remainder}</pre>
-                                        <details class="mt-2 bg-bgcolor/50 border border-darkborderc/50 rounded text-textcolor2">
-                                            <summary class="cursor-pointer select-none p-2 font-mono">Raw remaining events</summary>
-                                            <pre class="whitespace-pre-wrap break-all border-t border-darkborderc/50 p-2 font-mono max-h-64 overflow-auto">{responseDetails.rawRemainder}</pre>
-                                        </details>
-                                    {/if}
-                                {:else}
-                                    <pre class="whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded p-2 text-textcolor font-mono">{formatResponseBody(log)}</pre>
-                                {/if}
-                            </div>
+                            <RequestLogDetail log={detail} />
                             <div class="pt-1 flex gap-2">
-                                <ShButton variant="outline" size="sm" onclick={() => copyRequestLog(log)}>
+                                <ShButton variant="outline" size="sm" onclick={() => copyRequestLog(detail)}>
                                     <CopyIcon />
                                     <span>{language.systemLogsCopyEntry}</span>
                                 </ShButton>
@@ -288,9 +299,18 @@
                                 </ShButton>
                             </div>
                         </div>
+                        {/if}
                     </Collapsible.Content>
                 </Collapsible.Root>
             {/each}
         </SettingLayout>
     </Tooltip.Provider>
+{/if}
+
+{#if requestLogsHasMore}
+    <div class="flex justify-center mt-3">
+        <ShButton variant="outline" size="default" disabled={requestLogsLoadingMore} onclick={loadMoreServerRequestLogs}>
+            {requestLogsLoadingMore ? language.systemLogsLoading : language.systemLogsLoadMore}
+        </ShButton>
+    </div>
 {/if}

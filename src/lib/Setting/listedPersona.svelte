@@ -4,7 +4,8 @@
     import { getCharImage } from "src/ts/characters";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { changeUserPersona, exportUserPersona, importUserPersona, saveUserPersona } from "src/ts/persona";
-    import { DBState } from "src/ts/stores.svelte";
+    import { DBState, settingsOpen } from "src/ts/stores.svelte";
+    import { openSettings, SettingsRoute } from "src/ts/routing";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import TextInput from "../UI/GUI/TextInput.svelte";
@@ -118,6 +119,7 @@
     itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
     searchPlaceholder={language.personaSearch}
     itemDragDataKey="personaIndex"
+    readOnly={!$settingsOpen}
     bind:selectedFolder
     bind:searchQuery
     bind:visibleItemIndexes
@@ -141,6 +143,10 @@
         );
         void requestImmediateSave();
     }}
+    configure={!$settingsOpen ? () => {
+        close();
+        openSettings(SettingsRoute.Persona);
+    } : undefined}
 >
     {#snippet itemContent(index)}
         {@const persona = DBState.db.personas[index]}
@@ -171,9 +177,11 @@
         {/if}
     {/snippet}
 
-    <PresetPickerActions
-        onCreate={createPersona}
-        onImport={importPersona}
-        onRename={() => { editMode = !editMode; }}
-    />
+    {#if $settingsOpen}
+        <PresetPickerActions
+            onCreate={createPersona}
+            onImport={importPersona}
+            onRename={() => { editMode = !editMode; }}
+        />
+    {/if}
 </PresetPickerLayout>

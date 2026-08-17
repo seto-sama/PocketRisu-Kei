@@ -4,13 +4,12 @@
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     
     import { DBState } from 'src/ts/stores.svelte';
-    import Button from "src/lib/UI/GUI/Button.svelte";
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
     import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
-    import { SquarePen, TrashIcon, Globe, Share2Icon, PlusIcon, HardDriveUpload, Waypoints, UserIcon } from "@lucide/svelte";
+    import { BotIcon, SquarePen, TrashIcon, Globe, Share2Icon, PlusIcon, HardDriveUpload, Waypoints } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
@@ -21,6 +20,9 @@
     import { getCharImage } from "src/ts/characters";
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import ModelPresetList from "src/lib/UI/ModelPresetList.svelte";
+    import { openSettings, SettingsRoute } from "src/ts/routing";
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
@@ -29,18 +31,15 @@
     let mode = $state(0)
     let editModuleIndex = $state(-1)
     let moduleSearch = $state('')
-    let isDraggingModule = $state(false)
-    let draggedModuleIndex = $state(-1)
-    let dragOverModuleIndex = $state(-1)
-    let suppressModuleClick = $state(false)
-    let charConversionMode = $state(false)
+    let modelBindingMode = $state(false)
     let personaModuleTarget:RisuModule|null = $state(null)
-    let personaModuleDraft:string[] = $state([])
+    let personaModuleSelection:string[] = $state([])
     let personaFolder = $state('all')
     let personaSearch = $state('')
     let visiblePersonaIndexes = $state<number[]>([])
     let emptyPersonaMessage = $state('')
     const personaFolders = $derived(DBState.db.personaFolders ?? [])
+    DBState.db.moduleModelBindings ??= {}
     let {
         embedded = false,
         view = 'modules',
@@ -86,8 +85,15 @@
     function globalButtonClass(rmodule: RisuModule) {
         if (hasPersonaEnabledModule(rmodule.id)) return "cursor-pointer text-scoped"
         if (DBState.db.enabledModules.includes(rmodule.id)) return "cursor-pointer text-primary"
-        if (isModuleIntegrated(rmodule)) return "text-highlight hover:text-primary cursor-pointer"
-        return "text-textcolor2 hover:text-primary cursor-pointer"
+        if (isModuleIntegrated(rmodule)) return "text-highlight risu-interactive-accent cursor-pointer"
+        return "text-textcolor2 risu-interactive-accent cursor-pointer"
+    }
+
+    function setModuleModelBinding(moduleId: string, presetId: string) {
+        const bindings = { ...(DBState.db.moduleModelBindings ?? {}) }
+        if (presetId) bindings[moduleId] = presetId
+        else delete bindings[moduleId]
+        DBState.db.moduleModelBindings = bindings
     }
 
     function openPersonaModuleModal(rmodule: RisuModule, e: MouseEvent) {
@@ -98,36 +104,39 @@
         personaModuleTarget = rmodule
         personaFolder = 'all'
         personaSearch = ''
-        personaModuleDraft = DBState.db.personas
+        personaModuleSelection = DBState.db.personas
             .map((persona) => persona.id)
             .filter((id): id is string => !!id && map[id]?.includes(rmodule.id))
     }
 
-    function setPersonaModuleDraft(personaId: string, checked: boolean) {
+    function setPersonaModuleSelection(personaId: string, checked: boolean) {
+        let next: string[]
         if (checked) {
-            if (!personaModuleDraft.includes(personaId)) {
-                personaModuleDraft = [...personaModuleDraft, personaId]
-            }
-            return
+            next = personaModuleSelection.includes(personaId)
+                ? personaModuleSelection
+                : [...personaModuleSelection, personaId]
+        } else {
+            next = personaModuleSelection.filter((id) => id !== personaId)
         }
-        personaModuleDraft = personaModuleDraft.filter((id) => id !== personaId)
+        personaModuleSelection = next
+        savePersonaModuleSelection(next)
     }
 
-    function togglePersonaModuleDraft(index: number) {
+    function togglePersonaModuleSelection(index: number) {
         const personaId = DBState.db.personas[index]?.id
         if (!personaId) return
-        setPersonaModuleDraft(personaId, !personaModuleDraft.includes(personaId))
+        setPersonaModuleSelection(personaId, !personaModuleSelection.includes(personaId))
     }
 
     function closePersonaModuleModal() {
         personaModuleTarget = null
-        personaModuleDraft = []
+        personaModuleSelection = []
     }
 
-    function savePersonaModuleModal() {
+    function savePersonaModuleSelection(selectedPersonaIds: string[]) {
         if (!personaModuleTarget) return
         const moduleId = personaModuleTarget.id
-        const selected = new Set(personaModuleDraft)
+        const selected = new Set(selectedPersonaIds)
         const map = {...getPersonaEnabledModules()}
         for (const persona of DBState.db.personas) {
             if (!persona.id) continue
@@ -145,63 +154,29 @@
             }
         }
         DBState.db.personaEnabledModules = map
+        void requestImmediateSave()
+    }
+
+    function openPersonaSettings() {
         closePersonaModuleModal()
-        notifySuccess(language.moduleUpdated)
+        openSettings(SettingsRoute.Persona)
     }
 
-    function moveModule(fromIndex: number, toIndex: number) {
+    function reorderModules(orderedIds: string[]) {
         const modules = DBState.db.modules
-        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= modules.length || toIndex > modules.length) return
+        const visibleById = new Map(visibleModules.map(({ rmodule }) => [rmodule.id, rmodule]))
+        const reorderedVisible = orderedIds
+            .map((id) => visibleById.get(id))
+            .filter((rmodule): rmodule is RisuModule => !!rmodule)
+        if (reorderedVisible.length !== orderedIds.length) return
 
-        const next = [...modules]
-        const [moved] = next.splice(fromIndex, 1)
-        if (!moved) return
-        const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
-        next.splice(adjustedToIndex, 0, moved)
-        DBState.db.modules = next
-    }
-
-    function startModuleDrag(index: number, e: DragEvent) {
-        e.stopPropagation()
-        const target = e.target as HTMLElement | null
-        if (target?.closest('[data-no-row-drag="true"]')) {
-            e.preventDefault()
-            return
-        }
-        isDraggingModule = true
-        draggedModuleIndex = index
-        dragOverModuleIndex = index
-        suppressModuleClick = true
-        e.dataTransfer?.setData('text/plain', 'module')
-        e.dataTransfer?.setData('moduleIndex', String(index))
-        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-    }
-
-    function updateModuleDragTarget(index: number, e: DragEvent) {
-        e.preventDefault()
-        e.stopPropagation()
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-        dragOverModuleIndex = e.clientY < rect.top + rect.height / 2 ? index : index + 1
-    }
-
-    function dropModule(e: DragEvent) {
-        e.preventDefault()
-        e.stopPropagation()
-        const kind = e.dataTransfer?.getData('text/plain')
-        if (kind !== 'module') return
-        const sourceIndex = Number(e.dataTransfer?.getData('moduleIndex') || draggedModuleIndex)
-        moveModule(sourceIndex, dragOverModuleIndex)
-        endModuleDrag()
-    }
-
-    function endModuleDrag() {
-        isDraggingModule = false
-        draggedModuleIndex = -1
-        dragOverModuleIndex = -1
-        setTimeout(() => {
-            suppressModuleClick = false
-        }, 0)
+        const visibleIds = new Set(orderedIds)
+        let visibleIndex = 0
+        DBState.db.modules = modules.map((rmodule) =>
+            visibleIds.has(rmodule.id)
+                ? reorderedVisible[visibleIndex++] ?? rmodule
+                : rmodule
+        )
     }
 
     onDestroy(() => {
@@ -227,13 +202,13 @@
                 <PlusIcon />
             </IconButton>
             <IconButton
-                className={charConversionMode ? 'text-scoped' : ''}
-                title={language.convertToCharacter}
+                className={modelBindingMode ? 'text-primary' : 'text-textcolor2'}
+                title={language.moduleModelBindingEnable}
                 onclick={() => {
-                    charConversionMode = !charConversionMode
+                    modelBindingMode = !modelBindingMode
                 }}
             >
-                <UserIcon />
+                <BotIcon />
             </IconButton>
             <IconButton onclick={async () => {
                 importModule()
@@ -251,7 +226,10 @@
         {/snippet}
     </SettingLayout>
 
-    <div class="contain w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto">
+    <ShSortableList
+        className="contain w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto"
+        onReorder={reorderModules}
+    >
         {#if managedModuleCount === 0}
             <div class="text-textcolor2 text-sm text-center py-8">{view === 'mcp' ? language.noData : language.noModules}</div>
         {:else}
@@ -259,38 +237,20 @@
                 <div class="text-textcolor2 text-sm text-center py-8">{language.noData}</div>
             {/if}
             {#each visibleModules as { rmodule, index } (rmodule.id)}
-                <div
-                    class="h-1 rounded-full transition-colors"
-                    class:bg-primary={isDraggingModule && dragOverModuleIndex === index}
-                    class:bg-transparent={!isDraggingModule || dragOverModuleIndex !== index}
-                    role="presentation"
-                    ondragover={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-                        dragOverModuleIndex = index
-                    }}
-                    ondrop={dropModule}
-                ></div>
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
-                    class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors text-left cursor-grab active:cursor-grabbing"
-                    class:opacity-50={isDraggingModule && draggedModuleIndex === index}
-                    draggable="true"
+                    data-sortable-key={rmodule.id}
+                    class="mt-2 flex flex-wrap items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
                     role="button"
                     tabindex="0"
                     onclick={() => {
-                        if (suppressModuleClick || rmodule.mcp) return
+                        if (rmodule.mcp) return
                         tempModule = rmodule
                         editModuleIndex = index
                         mode = 2
                     }}
-                    ondragstart={(e) => startModuleDrag(index, e)}
-                    ondragend={endModuleDrag}
-                    ondragover={(e) => updateModuleDragTarget(index, e)}
-                    ondrop={dropModule}
                 >
-                    <div class="flex flex-col min-w-0 grow">
+                    <div class="flex flex-col min-w-0 grow basis-full sm:basis-0">
                         <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
                             {#if rmodule.mcp}
                                 <Waypoints size={16} class="shrink-0 text-textcolor2" />
@@ -299,22 +259,23 @@
                         </span>
                         <span class="text-xs text-textcolor2 truncate">{rmodule.description || 'No description provided'}</span>
                     </div>
-                    <IconButtonGroup size="default" className="shrink-0 ml-2" data-no-row-drag="true">
-                        {#if charConversionMode}
-                            <IconButton
-                                className="text-scoped"
-                                title={language.convertToCharacter}
-                                onclick={(e) => {
-                                    e.stopPropagation()
-                                    const character = convertModuleToCharacter(rmodule)
-                                    DBState.db.characters.push(character)
-                                    checkCharOrder()
-                                    notifySuccess(language.successfullyConverted)
-                                }}
-                            >
-                                <UserIcon />
-                            </IconButton>
+                    <div
+                        role="toolbar"
+                        tabindex="-1"
+                        aria-label={rmodule.name}
+                        class="no-sort shrink-0 w-full sm:w-auto mt-2 sm:mt-0 sm:ml-2 flex flex-wrap items-center justify-end gap-2"
+                        onclick={(e) => e.stopPropagation()}
+                    >
+                        {#if modelBindingMode && !rmodule.mcp}
+                            <ModelPresetList
+                                compact
+                                blankable
+                                blankLabel={language.moduleModelBindingUnset}
+                                value={DBState.db.moduleModelBindings[rmodule.id] ?? ''}
+                                onChange={(presetId) => setModuleModelBinding(rmodule.id, presetId)}
+                            />
                         {:else}
+                            <IconButtonGroup size="default">
                             <IconButton
                                 className={globalButtonClass(rmodule)}
                                 title={language.enableGlobal}
@@ -339,7 +300,7 @@
                                     if(sel === 0){
                                         exportModule(rmodule)
                                     }
-                                    else{
+                                    else if(sel === 1){
                                         exportModuleLegacy(rmodule)
                                     }
                                 }}>
@@ -384,25 +345,13 @@
                             }}>
                                 <TrashIcon />
                             </IconButton>
+                            </IconButtonGroup>
                         {/if}
-                    </IconButtonGroup>
+                    </div>
                 </div>
             {/each}
-            <div
-                class="h-1 rounded-full transition-colors"
-                class:bg-primary={isDraggingModule && dragOverModuleIndex === DBState.db.modules.length}
-                class:bg-transparent={!isDraggingModule || dragOverModuleIndex !== DBState.db.modules.length}
-                role="presentation"
-                ondragover={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-                    dragOverModuleIndex = DBState.db.modules.length
-                }}
-                ondrop={dropModule}
-            ></div>
         {/if}
-    </div>
+    </ShSortableList>
 
     {#if personaModuleTarget}
         <PresetPickerLayout
@@ -413,14 +362,14 @@
             itemNames={DBState.db.personas.map(persona => persona.name ?? '')}
             itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
             searchPlaceholder={language.personaSearch}
-            manageFolders={false}
+            readOnly
             itemDragDataKey="personaModuleIndex"
             bind:selectedFolder={personaFolder}
             bind:searchQuery={personaSearch}
             bind:visibleItemIndexes={visiblePersonaIndexes}
             bind:emptyMessage={emptyPersonaMessage}
             close={closePersonaModuleModal}
-            onSelectItem={togglePersonaModuleDraft}
+            onSelectItem={togglePersonaModuleSelection}
             onFoldersChange={(next) => {
                 DBState.db.personaFolders = next
                 void requestImmediateSave()
@@ -438,6 +387,7 @@
                 )
                 void requestImmediateSave()
             }}
+            configure={openPersonaSettings}
         >
             {#snippet itemContent(index)}
                 {@const persona = DBState.db.personas[index]}
@@ -453,15 +403,10 @@
                     {#if persona.note}<span class="text-textcolor2"> / {persona.note}</span>{/if}
                 </div>
                 <ShSwitch
-                    checked={!!persona.id && personaModuleDraft.includes(persona.id)}
+                    checked={!!persona.id && personaModuleSelection.includes(persona.id)}
                     className="mr-1"
                 />
             {/snippet}
-
-            <div class="flex justify-end gap-2 pt-2">
-                <ShButton variant="outline" onclick={closePersonaModuleModal}>{language.cancel}</ShButton>
-                <ShButton variant="primary" onclick={savePersonaModuleModal}>{language.confirm}</ShButton>
-            </div>
         </PresetPickerLayout>
     {/if}
 
@@ -469,27 +414,27 @@
 {:else if mode === 1}
     <SettingPage title={language.createModule}>
     <ModuleMenu bind:currentModule={tempModule}/>
-    <Button className="mt-6" onclick={() => {
+    <ShButton className="mt-6" onclick={() => {
         DBState.db.modules.push(tempModule)
         notifySuccess(language.moduleCreated)
         mode = 0
-    }}>{language.createModule}</Button>
+    }}>{language.createModule}</ShButton>
     </SettingPage>
 {:else if mode === 2}
     <SettingPage title={language.editModule}>
     <ModuleMenu bind:currentModule={tempModule}/>
     {#if tempModule.name !== ''}
-        <Button className="mt-6" onclick={() => {
+        <ShButton className="mt-6" onclick={() => {
             DBState.db.modules[editModuleIndex] = tempModule
             notifySuccess(language.moduleUpdated)
             mode = 0
-        }}>{language.editModule}</Button>
-        <Button className="mt-2" onclick={() => {
+        }}>{language.editModule}</ShButton>
+        <ShButton className="mt-2" onclick={() => {
             const char = convertModuleToCharacter(tempModule)
             DBState.db.characters.push(char)
             checkCharOrder()
             notifySuccess(language.successfullyConverted)
-        }}>{language.convertToCharacter}</Button>
+        }}>{language.convertToCharacter}</ShButton>
     {/if}
     </SettingPage>
 {/if}

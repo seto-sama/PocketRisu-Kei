@@ -12,15 +12,14 @@
 
 export const helpEn = {
         "usageEntryTokens": "Input is shown as total input (cache read | cache creation), and output as total output (reasoning). When no cache is created, only cache read is shown.",
-        "translationCacheSearchLimit": "Only the first 20 entries matching the search criteria are displayed.",
+        "translationCacheSearchLimit": "Loads translation cache entries 100 at a time, newest first, and searches the entries loaded so far.",
         "banCharacterset": "Automatically regenerates the response if it contains any character from a selected character set.",
         model: "Model option is a main model used in chat.",
-        submodel: "Auxiliary Model is a model that used in analyzing emotion images and auto suggestions and etc. gpt3.5 is recommended.",
+        submodel: "Auxiliary Model is used for tasks such as emotion analysis, translation, and summarization. A smaller model is recommended.",
         oaiapikey: "API key for OpenAI. you can get it in https://platform.openai.com/account/api-keys",
         mainprompt: "The main prompt option sets the default model behavior.",
         jailbreak: "The jailbreak prompt option activates when jailbreak toggle is on in character.",
         globalNote: "A note that strongly affects model behavior, also known as UJB. Works in all characters.",
-        autoSuggest: "Prompts used to generate options when automatically suggesting user responses.",
         formatOrder: "formating order of prompt. lower blocks does more effect to the model.",
         forceUrl: "if it is not blank, the request will go to the url that you had inputed.",
         tempature:
@@ -44,7 +43,6 @@ export const helpEn = {
         bias: "bias is a key-value data which modifies the likelihood of string appearing.\nit can be -100 to 100, higher values will be more likely to appear, and lower values will be more unlikely to appear. \nAdditionaly, if its set to -101, it would work as 'strong ban word' for some models. \nWarning: if the tokenizer is wrong, it not work properly.",
         emotion:
             "Emotion Images option shows image depending at character's emotion which is analized by character's response. you must input emotion name as words *(like joy, happy, fear and etc.)* .emotion named **neutral** will be default emotion if it exists. must be more then 3 images to work properly.",
-        imggen: "After analyzing the chat, apply the prompt to {{slot}}.",
         regexScript:
             "Regex Script is a custom regex that replaces string that matches IN to OUT.\n\nThere four type options." +
             "\n\n- **Modify Input** modifies user's input" +
@@ -108,8 +106,6 @@ export const helpEn = {
         inlayImageLossless: "If enabled, inlay images will be saved as lossless PNG instead of compressed WebP. This preserves original quality but uses significantly more storage.",
         inlayImagePriority: "If enabled, inlays render as images first for faster loading. Video/audio inlays auto-switch after image load fails. Disable if you use many video/audio inlays.",
         inlayCompressAllDesc: "Compresses all inlay images.",
-        modelModeLock: "Choose how chats pick their model system. Lock everything to the legacy model system or to the model preset binding system, or leave it unlocked so each chat decides.",
-        newChatModelMode: "Which model system new chats start in when the mode is not locked.",
         showModelInSidebar: "Show the current AI model name in the sidebar for quick reference.",
         showPresetInSidebar: "Show the active prompt preset name in the sidebar for quick reference.",
         showPersonaInSidebar: "Show the active persona name in the sidebar for quick reference.",
@@ -215,7 +211,6 @@ export const helpEn = {
         settingsCloseButtonSize: "Size of the settings close button.",
         showTypingEffect: "When enabled, it will show a typing indicator while the assistant is generating a response.",
         dynamicOutputPrompt: "When enabled, the schema information will be included in the request.",
-        realmDirectOpen: "If enabled, clicking a character in RisuRealm preview will directly open the character description.",
         openRouterProviderOrder:
             "The order of providers to use, the first provider will be used first, if the provider is not available, it will use the next provider. See datail on https://openrouter.ai/docs/guides/routing/provider-selection#ordering-specific-providers",
         openRouterProviderOnly:
@@ -313,7 +308,7 @@ export const helpEn = {
         showTranslationLoading: "Show a loading indicator while message translation is in progress.",
         autoScrollToNewMessage: "Automatically scroll to a newly arrived message.",
         alwaysScrollToNewMessage: "Always scroll down when a new message arrives, even if you have manually scrolled upward.",
-        newMessageButtonStyle: "Choose where and how the \"new message\" button appears.",
+        newMessageButtonStyle: "Disable the \"new message\" button or choose where and how it appears.",
         createFolderOnBranch:
             "Automatically create a folder when branching a chat, grouping the original and branched chats together.",
         hamburgerButtonBottom: "Move the hamburger/menu button to the bottom of the sidebar.",
@@ -324,8 +319,6 @@ export const helpEn = {
             "Maximum number of tokens lorebook entries may occupy in one response. When the limit is exceeded, lower-priority entries are cut first.",
         assetMaxDifference:
             "Allowed difference when matching dynamic asset names. Higher values match more loosely, but may pick the wrong asset. The default is usually best.",
-        heightMode:
-            "CSS unit used to measure chat screen height. If the mobile browser address bar cuts off the screen, try another unit (`svh`, `lvh`, `dvh`).\n\n- **Normal**: automatic (`100%`)\n- **Percent / VH**: traditional units, sometimes broken on mobile\n- **DVH**: dynamic viewport, changes with address-bar size\n- **SVH**: small viewport, safest visible area\n- **LVH**: large viewport, address bar hidden",
         newOAIHandle:
             "Use the newer OpenAI response-handling path. Try this when a model or response breaks under the legacy handler. The default is recommended for normal use.",
         newImageHandlingBeta:
@@ -361,8 +354,8 @@ export const helpEn = {
         themePresets:
             "Bundle the current Sound & Display settings (layout, color/font, sizes, sound toggles, etc.) as a preset and switch between them. The active preset auto-syncs with edits you make below; clicking opens the preset list to add, switch, rename, or delete.",
         theme: "Overall chat layout theme.",
-        waifuWidth: "Width of the character illustration in the Waifulike theme.",
-        waifuWidth2: "Width of the second character or secondary visual in the Waifulike theme.",
+        waifuWidth: "Width of the chat area in the Waifulike theme.",
+        waifuWidth2: "Size of the character illustration in the Waifulike theme.",
         nodeOnlyStandardChatWidth: "Maximum chat card width in the PocketRisu Standard theme.",
         colorScheme: "Color palette used across the Risu UI.",
         colorSchemeTransferDesc: "Import or export a color palette JSON file.",
@@ -377,34 +370,27 @@ export const helpEn = {
         sideBarSize: "Sidebar width step.",
         assetWidth: "Maximum width for in-chat asset images.",
         animationSpeed: "UI animation speed multiplier.",
-        memoryLimitThickness: "Thickness of the memory-limit line.",
         fullscreen:
             "Switch the browser into fullscreen mode. On mobile, this can hide browser UI such as the address bar and give the chat more space.",
-        showMemoryLimit:
-            "Show the current max-context limit as a visual line in the chat area. Messages above the line may not be sent to the model, so this helps show what the model can still remember.",
         hideRealm:
             "Start the Recently Uploaded section on the home screen collapsed. While collapsed it skips the RisuRealm fetch, speeding up initial load. You can expand it any time from the home screen.",
         showFolderNameInIcon:
             "Show folder names on folder icons in the character grid. Makes large folder collections easier to scan.",
         showRequestStatus:
             "Show a floating toast during model-preset requests with the live phase (connecting / thinking / responding / stalled), thinking and response token counts, and tokens-per-second. Memory-only; turning it off stops the display entirely.",
-        customBackground: "A custom image used as the chat background.",
+        customBackground: "A custom chat background used by the Waifulike, Mobile Chat, and CardBoard themes.",
         playMessageOnTranslateEnd:
             "Play a separate notification sound when translation finishes. Useful when automatic translation is enabled and you want an audible completion cue.",
         roundIcons:
             "Display character and persona icons as circles instead of squares.",
         textScreenColor:
-            "Set a background color behind the message text area. Disable it to make the text area transparent again.",
+            "Set the message text-area background color used by the Waifulike, Mobile Chat, and CardBoard themes.",
         textBorder:
-            "Draw a subtle outline around message text to improve readability over background images.",
-        textScreenRound:
-            "Round the corners of the message text area. Most visible on themes with text backgrounds or borders.",
+            "Draw the text outline behind the glyph fill so it stays outside the letters and remains readable over background images.",
         showSavingIcon:
             "Show a small saving indicator while data is being saved. Helpful on pages where frequent saves happen.",
         showPromptComparison:
             "Show the built prompt in the prompt-comparison modal. Useful for debugging prompts or reducing token usage.",
-        textScreenBorder:
-            "Set the outline color around the chat text area. Disable it to remove the outline.",
         useChatCopy:
             "Show a copy button next to each message. When off, copy through the message menu instead.",
         useAdditionalAssetsPreview:

@@ -25,14 +25,18 @@ const MANAGED_BACKUP_PATH_ROOTS = new Set(['server', 'dist', 'scripts', 'bin', '
 function log(msg) { process.stdout.write(`[updater] ${msg}\n`); }
 function error(msg) { process.stderr.write(`[ERROR] ${msg}\n`); process.exit(1); }
 
+function normalizeVersion(value) {
+    return String(value || '').trim().replace(/^(?:kei-)?v/i, '');
+}
+
 function getCurrentVersion() {
     const markerPath = path.join(ROOT, '.installed-version');
     if (fs.existsSync(markerPath)) {
-        return fs.readFileSync(markerPath, 'utf-8').trim();
+        return normalizeVersion(fs.readFileSync(markerPath, 'utf-8'));
     }
     try {
         const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
-        return 'v' + pkg.version;
+        return normalizeVersion(pkg.version);
     } catch {
         return 'unknown';
     }
@@ -212,7 +216,7 @@ async function main() {
 
     const data = await httpsGet(`https://api.github.com/repos/${REPO}/releases/latest`);
     const release = JSON.parse(data.toString());
-    const latest = release.tag_name;
+    const latest = normalizeVersion(release.tag_name);
 
     if (!latest) error('Could not determine latest version.');
 
@@ -355,10 +359,10 @@ async function main() {
     // Write version marker after all file replacement is truly complete.
     // On Windows, update.bat finalizes this after bin/ replacement succeeds.
     if (isWin) {
-        fs.writeFileSync(path.join(tmpDir, 'latest-version'), latest);
+        fs.writeFileSync(path.join(tmpDir, 'latest-version'), `v${latest}`);
         log('Staged version marker update for post-step finalize.');
     } else {
-        fs.writeFileSync(path.join(ROOT, '.installed-version'), latest);
+        fs.writeFileSync(path.join(ROOT, '.installed-version'), `v${latest}`);
     }
 
     // Cleanup

@@ -1,20 +1,16 @@
 <script lang="ts">
     import type { character, Message } from 'src/ts/storage/database.svelte';
-    import { mount, onDestroy, unmount, type ComponentProps } from 'svelte';
+    import { mount, onDestroy, unmount, untrack, type ComponentProps } from 'svelte';
     import Chat from './Chat.svelte';
     import { getCharImage } from 'src/ts/characters';
-    import { createSimpleCharacter, DBState, selectedCharID, ReloadChatPointer } from 'src/ts/stores.svelte';
+    import { createSimpleCharacter, DBState, ReloadChatPointer } from 'src/ts/stores.svelte';
     import { chatFoldedStateMessageIndex } from 'src/ts/globalApi.svelte';
-    import { get } from 'svelte/store';
-    import { scrollWithinContainer } from './scrollWithin';
-    
-    const getCurrentChatRoomId = () => {
-        const charId = get(selectedCharID);
-        if (charId < 0) return null;
-        const char = DBState.db.characters[charId];
-        if (!char) return null;
-        return char.chats?.[char.chatPage]?.id ?? null;
-    };
+    import { didNewResponseComplete, getCompletedResponseAction, isChatNearBottom, type ChatResponseSnapshot, type ChatScrollController } from './chatScroll';
+    import { createRevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from 'src/ts/process/revenant/recovery';
+    import {
+        findGenerationTargetMessageIndex,
+        isGenerationOwnedMessage,
+    } from 'src/ts/process/revenant/chatGeneration';
 
     let {
         messages,
@@ -25,8 +21,12 @@
         onDeleteSwipe = () => {},
         currentUsername,
         userIcon,
+        chatRoomId,
+        roomIsStreaming = false,
+        roomIsResponding = roomIsStreaming,
         loadPages,
         userIconPortrait,
+        getScrollController = () => null,
         hasNewUnreadMessage = $bindable(false)
     }:{
         messages: Message[]
@@ -37,78 +37,87 @@
         onDeleteSwipe?: (idx?: number) => void
         currentUsername: string
         userIcon: string
+        chatRoomId: string
+        roomIsStreaming?: boolean
+        roomIsResponding?: boolean
         loadPages: number
         userIconPortrait?: boolean
+        getScrollController?: () => ChatScrollController | null
         hasNewUnreadMessage?: boolean
     } = $props();
 
     let chatBody: HTMLDivElement;
-    let hashes: Set<number> = new Set();
     type ChatMountProps = ComponentProps<typeof Chat>
-
     type ChatMountEntry = {
-        inst: {}
+        inst: object
+        element: HTMLDivElement
         props: ChatMountProps
+        characterSource: ChatMountProps['character']
+        callbackSources: {
+            onNextSwipe: typeof onNextSwipe
+            unReroll: typeof unReroll
+            onDeleteSwipe: typeof onDeleteSwipe
+            rerollTarget: boolean
+            showSwipeControls: boolean
+        }
     }
 
-    let mountInstances: Map<number, ChatMountEntry> = new Map();
+    const mountInstances = new Map<string, ChatMountEntry>()
+    const fallbackMessageKeys = new WeakMap<Message, string>()
+    const noop = () => {}
+    let nextFallbackMessageKey = 0
+    const translationRecoveryContext = createRevenantChatTranslationRecoveryContext()
 
-    //Non-cryptographic hash function to generate a unique hash for each message
-    function hashCode(str:string):number {
-        let hash = 0;
-        for (let i = 0, len = str.length; i < len; i++) {
-            let chr = str.charCodeAt(i);
-            hash = (hash << 5) - hash + chr;
-            hash |= 0; // Convert to 32bit integer
+    function getMessageKey(chatRoomId: string, message: Message): string {
+        if (message.chatId) return `${chatRoomId}:${message.chatId}`
+        let fallbackKey = fallbackMessageKeys.get(message)
+        if (!fallbackKey) {
+            fallbackKey = `legacy:${nextFallbackMessageKey++}`
+            fallbackMessageKeys.set(message, fallbackKey)
         }
-        if(hash == 0){
-            hash = 1; // Ensure hash is not zero
-        }
-        return hash;
+        return `${chatRoomId}:${fallbackKey}`
     }
 
     const updateChatBody = () => {
-        if(!chatBody){
-            return
-        }
+        if (!chatBody) return
 
-        let nextHash = 0;
-        let currentHashes: Set<number> = new Set();
-        const charImage = getCharImage(currentCharacter.image, 'css')
-        const userImage = getCharImage(userIcon, 'css')
-        const simpleChar = createSimpleCharacter(currentCharacter);
-        let loadStart = messages.length - 1
-        let loadEnd = messages.length - loadPages
+        const currentKeys = new Set<string>()
+        const charImage = stableCharacterImage
+        const userImage = stableUserImage
+        const simpleChar = stableSimpleCharacter
+        const roomKey = `${currentCharacter.chaId ?? ''}:${chatRoomId}`
+        const translationRecoveryScope: RevenantChatTranslationRecoveryScope | null =
+            currentCharacter.chaId && chatRoomId
+                ? { characterId: currentCharacter.chaId, roomId: chatRoomId }
+                : null
+        let loadStart = Math.max(0, messages.length - loadPages)
+        let loadEnd = messages.length - 1
 
         // Find the last real (non-comment, non-disabled) char message index
         // Only show reroll if it's the actual last non-disabled message
-        let lastRealCharIdx = -1;
-        let lastNonDisabledIdx = -1;
-        for (let i = messages.length - 1; i >= 0; i--) {
-            if (!messages[i].isComment && !messages[i].disabled) {
-                lastNonDisabledIdx = i;
-                break;
-            }
-        }
-        if (lastNonDisabledIdx >= 0 && messages[lastNonDisabledIdx].role === 'char') {
-            lastRealCharIdx = lastNonDisabledIdx;
-        }
+        const lastRealCharIdx = findGenerationTargetMessageIndex(messages)
 
         if(chatFoldedStateMessageIndex.index !== -1){
-            loadStart = chatFoldedStateMessageIndex.index
-            loadEnd = Math.max(0, chatFoldedStateMessageIndex.index - loadPages)
+            loadStart = Math.max(0, chatFoldedStateMessageIndex.index - loadPages)
+            loadEnd = chatFoldedStateMessageIndex.index
         }
 
-        const reloadPointerMap = get(ReloadChatPointer);
         const showPreviousChatSwipeButtons = DBState.db.showPreviousChatSwipeButtons;
+        let previousElement: HTMLDivElement | null = null
 
-        for(let i=loadStart ; i >= loadEnd; i--){
-            if(i < 0) break; // Prevent out of bounds
+        for(let i=loadStart ; i <= loadEnd; i++){
+            if(i >= messages.length) break;
             const message = messages[i];
+            const isImageGeneration = message.kind === 'imageGeneration';
             const displayMessage = message.recoveryDisplayData ?? message.data;
             const messageLargePortrait = message.role === 'user' ? (userIconPortrait ?? false) : ((currentCharacter as character).largePortrait ?? false);
-            const reloadPointer = reloadPointerMap[i] ?? 0;
             const isRerollTarget = i === lastRealCharIdx;
+            const generationOwned = isGenerationOwnedMessage({
+                message,
+                messageIndex: i,
+                generationTargetIndex: lastRealCharIdx,
+                roomIsResponding,
+            });
             const showHistoricalSwipes = showPreviousChatSwipeButtons && message.role === 'char' && !message.isComment && !message.disabled && !isRerollTarget && (message.swipes?.length ?? 0) > 1;
             const showSwipeControls = isRerollTarget || showHistoricalSwipes;
             const isStreamingMessage = message.role === 'char'
@@ -116,121 +125,167 @@
                     message.isRecovering === true
                     || (
                         DBState.db.useStreaming
-                        && currentCharacter.chats?.[currentCharacter.chatPage]?.isStreaming
+                        && roomIsStreaming
                         && i === messages.length - 1
                     )
                 )
-            const messageHashData = isStreamingMessage ? '' : displayMessage
-            const messageReloadPointer = isStreamingMessage ? 0 : reloadPointer
-            const messageModelHashData = isStreamingMessage ? '' : (message.generationInfo?.model ?? '')
-            let hashd = messageHashData + messageModelHashData + (message.chatId ?? '') + i.toString() + messageLargePortrait.toString() + message.disabled?.toString() + messageReloadPointer.toString() + (message.swipeId ?? 0).toString() + (message.swipes?.length ?? 0).toString() + isRerollTarget.toString() + showHistoricalSwipes.toString() + isStreamingMessage;
-            const currentHash = hashCode(hashd);
-            currentHashes.add(currentHash);
             const swipes = message.swipes;
             const swipeId = message.swipeId ?? 0;
-            if(!hashes.has(currentHash)){
-                const b = document.createElement('div');
-                b.setAttribute('x-hashed', currentHash.toString());
-                b.classList.add('chat-message-container');
+            const key = getMessageKey(roomKey, message)
+            const totalLengthPointer = i > messages.length - 6 ? messages.length : 0
+            const messageImage = message.role === 'user' ? userImage : charImage
+            const displayName = message.role === 'user' ? currentUsername : currentCharacter.name
+            const isComment = message.isComment ?? false
+            const disabled = message.disabled ?? false
+            const rerollIcon = showSwipeControls ? 'force' : false
+            const currentPage = showSwipeControls ? swipeId + 1 : 1
+            const totalPages = showSwipeControls ? (swipes?.length ?? 1) : 1
+            const generationModel = message.generationInfo?.model
+            currentKeys.add(key)
+            const callbackSources: ChatMountEntry['callbackSources'] = {
+                onNextSwipe,
+                unReroll,
+                onDeleteSwipe,
+                rerollTarget: isRerollTarget,
+                showSwipeControls,
+            }
+            let entry = mountInstances.get(key)
+            if (!entry) {
+                const element = document.createElement('div')
+                element.classList.add('chat-message-container')
                 const props = $state<ChatMountProps>({
                     message: displayMessage,
-                    isLastMemory: false,
                     idx: i,
-                    totalLength: messages.length,
-                    img: message.role === 'user' ? userImage : charImage,
-                    onReroll: onReroll,
-                    onNextSwipe: showSwipeControls ? () => onNextSwipe(isRerollTarget ? undefined : i) : () => {},
-                    unReroll: showSwipeControls ? () => unReroll(isRerollTarget ? undefined : i) : () => {},
-                    onDeleteSwipe: showSwipeControls ? () => onDeleteSwipe(isRerollTarget ? undefined : i) : () => {},
+                    // Chat only uses this value to refresh the five newest bodies.
+                    totalLength: totalLengthPointer,
+                    img: messageImage,
+                    onReroll,
+                    onNextSwipe: showSwipeControls ? () => onNextSwipe(isRerollTarget ? undefined : i) : noop,
+                    unReroll: showSwipeControls ? () => unReroll(isRerollTarget ? undefined : i) : noop,
+                    onDeleteSwipe: showSwipeControls ? () => onDeleteSwipe(isRerollTarget ? undefined : i) : noop,
                     rerollIcon: showSwipeControls ? 'force' : false,
                     swipeNavigationOnly: showHistoricalSwipes,
                     isStreamingDisplay: isStreamingMessage,
+                    generationOwned,
+                    hideSender: isImageGeneration,
                     character: simpleChar,
-                    largePortrait: message.role === 'user' ? (userIconPortrait ?? false) : ((currentCharacter as character).largePortrait ?? false),
+                    largePortrait: messageLargePortrait,
                     messageGenerationInfo: message.generationInfo ? { ...message.generationInfo } : undefined,
                     role: message.role,
-                    name: message.role === 'user' ? currentUsername : currentCharacter.name,
-                    isComment: message.isComment ?? false,
-                    disabled: message.disabled ?? false,
-                    ...(showSwipeControls ? {
-                        currentPage: (swipeId ?? 0) + 1,
-                        totalPages: swipes?.length ?? 1,
-                    } : {}),
+                    name: displayName,
+                    isComment,
+                    disabled,
+                    currentPage,
+                    totalPages,
+                    renderCacheKey: key,
+                    translationRecoveryContext,
+                    translationRecoveryScope,
+                    translationRecoveryTarget: {
+                        kind: 'chat-message',
+                        messageChatId: message.chatId ?? null,
+                        messageIndex: i,
+                        swipeId,
+                    },
+                    getScrollController,
                 })
-                const inst = mount(Chat, {
-                    target: b,
-                    props,
+                const inst = mount(Chat, { target: element, props })
+                entry = { inst, element, props, characterSource: simpleChar, callbackSources }
+                mountInstances.set(key, entry)
+            }
+            else {
+                untrack(() => {
+                    const props = entry.props
 
+                    if (props.message !== displayMessage) props.message = displayMessage
+                    if (props.idx !== i) props.idx = i
+                    if (props.totalLength !== totalLengthPointer) props.totalLength = totalLengthPointer
+                    if (props.img !== messageImage) props.img = messageImage
+                    if (props.onReroll !== onReroll) props.onReroll = onReroll
+                    if (props.rerollIcon !== rerollIcon) props.rerollIcon = rerollIcon
+                    if (props.swipeNavigationOnly !== showHistoricalSwipes) props.swipeNavigationOnly = showHistoricalSwipes
+                    if (props.isStreamingDisplay !== isStreamingMessage) props.isStreamingDisplay = isStreamingMessage
+                    if (props.generationOwned !== generationOwned) props.generationOwned = generationOwned
+                    if (props.hideSender !== isImageGeneration) props.hideSender = isImageGeneration
+                    if (entry.characterSource !== simpleChar) {
+                        props.character = simpleChar
+                        entry.characterSource = simpleChar
+                    }
+                    if (props.largePortrait !== messageLargePortrait) props.largePortrait = messageLargePortrait
+                    if (Boolean(props.messageGenerationInfo) !== Boolean(message.generationInfo)
+                        || props.messageGenerationInfo?.model !== generationModel) {
+                        props.messageGenerationInfo = message.generationInfo ? { ...message.generationInfo } : undefined
+                    }
+                    if (props.role !== message.role) props.role = message.role
+                    if (props.name !== displayName) props.name = displayName
+                    if (props.isComment !== isComment) props.isComment = isComment
+                    if (props.disabled !== disabled) props.disabled = disabled
+                    if (props.currentPage !== currentPage) props.currentPage = currentPage
+                    if (props.totalPages !== totalPages) props.totalPages = totalPages
+                    if (props.getScrollController !== getScrollController) props.getScrollController = getScrollController
+                    const recoveryTarget = props.translationRecoveryTarget
+                    if (
+                        recoveryTarget?.messageChatId !== (message.chatId ?? null)
+                        || recoveryTarget?.messageIndex !== i
+                        || recoveryTarget?.swipeId !== swipeId
+                    ) {
+                        props.translationRecoveryTarget = {
+                            kind: 'chat-message',
+                            messageChatId: message.chatId ?? null,
+                            messageIndex: i,
+                            swipeId,
+                        }
+                    }
+
+                    if (entry.callbackSources.onNextSwipe !== onNextSwipe
+                        || entry.callbackSources.unReroll !== unReroll
+                        || entry.callbackSources.onDeleteSwipe !== onDeleteSwipe
+                        || entry.callbackSources.rerollTarget !== isRerollTarget
+                        || entry.callbackSources.showSwipeControls !== showSwipeControls) {
+                        props.onNextSwipe = showSwipeControls ? () => onNextSwipe(isRerollTarget ? undefined : i) : noop
+                        props.unReroll = showSwipeControls ? () => unReroll(isRerollTarget ? undefined : i) : noop
+                        props.onDeleteSwipe = showSwipeControls ? () => onDeleteSwipe(isRerollTarget ? undefined : i) : noop
+                        entry.callbackSources = callbackSources
+                    }
                 })
-                mountInstances.set(currentHash, { inst, props });
-                const nextElement = nextHash === 0 ? null : chatBody.querySelector(`[x-hashed="${nextHash}"]`);
-                if(nextElement){
-                    chatBody.insertBefore(b, nextElement?.nextSibling);
-                }
-                else{
-                    chatBody.prepend(b);
+            }
+
+            if (previousElement) {
+                if (entry.element.previousElementSibling !== previousElement) {
+                    previousElement.after(entry.element)
                 }
             }
-            else{
-                const entry = mountInstances.get(currentHash)
-                if(entry){
-                    if(entry.props.message !== displayMessage){
-                        entry.props.message = displayMessage
-                    }
-                    if(entry.props.isStreamingDisplay !== isStreamingMessage){
-                        entry.props.isStreamingDisplay = isStreamingMessage
-                    }
-                    if(entry.props.messageGenerationInfo?.model !== message.generationInfo?.model){
-                        entry.props.messageGenerationInfo = message.generationInfo
-                    }
-                }
+            else if (chatBody.firstElementChild !== entry.element) {
+                chatBody.prepend(entry.element)
             }
-            nextHash = currentHash;
-
+            previousElement = entry.element
         }
 
-        //@ts-expect-error Set<T> requires type arg, and Set.difference needs 'esnext' lib (polyfilled by Core-js)
-        const toRemove:Set = hashes.difference(currentHashes);
-        toRemove.forEach((hash) => {
-            const entry = mountInstances.get(hash);
-            if(entry){
-                unmount(entry.inst);
-                mountInstances.delete(hash);
-            }
-            const element = chatBody.querySelector(`[x-hashed="${hash}"]`);
-            if(element){
-                chatBody.removeChild(element);
-            }
-        });
-
-        hashes = currentHashes;
+        for (const [key, entry] of mountInstances) {
+            if (currentKeys.has(key)) continue
+            unmount(entry.inst)
+            entry.element.remove()
+            mountInstances.delete(key)
+        }
     };
 
-    onDestroy(() => {
-        console.log('Unmounting Chats');
-        hashes.clear();
-        mountInstances.forEach((entry) => {
-            unmount(entry.inst);
-        });
-        mountInstances.clear();
-    })
+    // Loading more history should only mount the newly visible messages. Keep
+    // shared props and unchanged entries referentially stable so ChatBody's
+    // async markdown/translation derivation is not restarted for every item.
+    let stableCharacterImage = $derived(getCharImage(currentCharacter.image, 'css'))
+    let stableUserImage = $derived(getCharImage(userIcon, 'css'))
+    let stableSimpleCharacter = $derived.by(() => createSimpleCharacter(currentCharacter))
 
-    function checkIfAtBottom() {
-        if (!chatBody || !chatBody.parentElement) return true;
-        const sc = chatBody.parentElement;
-        const lastEl = chatBody.firstElementChild;
-        if (!lastEl) return true;
-        const rect = lastEl.getBoundingClientRect();
-        const scRect = sc.getBoundingClientRect();
-        return rect.top <= scRect.bottom + 100;
-    }
+    onDestroy(() => {
+        for (const entry of mountInstances.values()) unmount(entry.inst)
+        mountInstances.clear()
+    })
 
     function scrollLatestIntoChatScreen() {
         if(!chatBody) return;
-        const element = chatBody.firstElementChild as HTMLElement | null;
+        const element = chatBody.lastElementChild as HTMLElement | null;
         const chatScreen = chatBody.parentElement;
         if(!element || !chatScreen) return;
-        scrollWithinContainer(element, chatScreen, { block: 'start', behavior: 'instant' });
+        getScrollController()?.scrollToElement(element, { block: 'start', behavior: 'instant' });
     }
 
     export const scrollToLatestMessage = () => {
@@ -239,34 +294,56 @@
         scrollLatestIntoChatScreen();
     }
 
-    let previousLength = 0;
-    let previousChatRoomId: string | null = null;
+    let previousResponseSnapshot: ChatResponseSnapshot | null = null;
 
     $effect(() => {
         void $ReloadChatPointer; // Make $effect track ReloadChatPointer changes
-        const wasAtBottom = checkIfAtBottom();
         updateChatBody()
 
-        const currentChatRoomId = getCurrentChatRoomId();
-        const isSameChat = currentChatRoomId === previousChatRoomId;
+        const roomKey = `${currentCharacter.chaId ?? ''}:${chatRoomId}`
+        const lastMsg = messages[messages.length - 1]
+        const snapshot: ChatResponseSnapshot = {
+            roomKey,
+            messageKey: lastMsg ? getMessageKey(roomKey, lastMsg) : null,
+            messageCount: messages.length,
+            isCharacterResponse: lastMsg?.role === 'char',
+            hasContent: (lastMsg?.recoveryDisplayData ?? lastMsg?.data ?? '').length > 0,
+            isResponding: roomIsResponding || lastMsg?.isRecovering === true,
+        }
+        const newMessageButtonEnabled = DBState.db.newMessageButtonStyle !== 'off'
 
-        // Only auto-scroll if it's the same chat and new messages were added
-        if(isSameChat && messages.length > previousLength){
-            const lastMsg = messages[messages.length - 1];
-            if(lastMsg && lastMsg.role === 'char' && DBState.db.autoScrollToNewMessage){
-                if(wasAtBottom || DBState.db.alwaysScrollToNewMessage){
-                    setTimeout(() => {
-                        scrollLatestIntoChatScreen();
-                    }, 700);
-                } else {
-                    hasNewUnreadMessage = true;
-                }
+        // Disabling the independent notification button also clears any stale
+        // unread affordance that was already visible.
+        if (!newMessageButtonEnabled) hasNewUnreadMessage = false
+
+        // A completed response is the notification boundary. While streaming,
+        // the scroll controller already follows content if the reader stayed
+        // at the bottom; readers browsing history must not be pulled into a
+        // partial response on its first token.
+        const responseCompleted = didNewResponseComplete(previousResponseSnapshot, snapshot)
+        if (responseCompleted) {
+            const completedResponseAction = getCompletedResponseAction({
+                autoScroll: DBState.db.autoScrollToNewMessage === true,
+                alwaysScroll: DBState.db.alwaysScrollToNewMessage === true,
+                buttonEnabled: newMessageButtonEnabled,
+                nearBottom: !chatBody?.parentElement
+                    || isChatNearBottom(
+                        chatBody.parentElement.scrollTop,
+                        chatBody.parentElement.scrollHeight,
+                        chatBody.parentElement.clientHeight,
+                    ),
+            })
+            if (completedResponseAction === 'scroll') {
+                hasNewUnreadMessage = false
+                scrollLatestIntoChatScreen()
+            }
+            else if (completedResponseAction === 'notify') {
+                hasNewUnreadMessage = true
             }
         }
-        previousLength = messages.length;
-        previousChatRoomId = currentChatRoomId;
+        previousResponseSnapshot = snapshot
     })
 
 </script>
 
-<div class="flex flex-col-reverse" bind:this={chatBody}></div>
+<div class="flex flex-col" bind:this={chatBody}></div>

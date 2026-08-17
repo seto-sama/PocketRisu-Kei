@@ -3,6 +3,7 @@
     import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
     import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte';
+    import TokenCount from 'src/lib/UI/GUI/TokenCount.svelte';
     import Help from 'src/lib/Others/Help.svelte';
     import { language } from 'src/lang';
 
@@ -35,7 +36,7 @@
 {#if ctx.layout === 'row'}
     <!-- Multiline stays stacked (input below), but the label matches row styling:
          14px label + inline help text, consistent with select/slider rows. -->
-    <div class="py-3 border-t border-darkborderc">
+    <div class="py-3 border-t border-darkborderc" data-setting-id={item.id}>
         <span class="text-sm text-textcolor">{getLabel(item)}</span>
         {#if item.helpKey && (language.help as any)[item.helpKey]}
             <p class="text-xs text-textcolor2 mt-0.5">{(language.help as any)[item.helpKey]}</p>
@@ -45,9 +46,12 @@
             bind:value={localValue}
             placeholder={item.options?.placeholder}
         />
+        {#if item.options?.showTokenCount}
+            <TokenCount value={localValue} className="mt-1" />
+        {/if}
     </div>
 {:else}
-    <span class="text-textcolor {item.classes ?? ''}">
+    <span class="text-textcolor {item.classes ?? ''}" data-setting-id={item.id}>
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>
@@ -56,4 +60,7 @@
         bind:value={localValue}
         placeholder={item.options?.placeholder}
     />
+    {#if item.options?.showTokenCount}
+        <TokenCount value={localValue} className="mb-4" />
+    {/if}
 {/if}

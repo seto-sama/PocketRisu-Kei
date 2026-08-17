@@ -1,17 +1,16 @@
 <script lang="ts">
 
-    import Suggestion from './Suggestion.svelte';
-    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, Plus, RefreshCcwIcon, ReplyIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, ZapIcon, Maximize2, Minimize2 } from "@lucide/svelte";
+    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, ZapIcon, Maximize2, Minimize2, WandSparklesIcon } from "@lucide/svelte";
     import ShDropdownMenu from 'src/lib/UI/GUI/ShDropdownMenu.svelte';
     import ShDropdownMenuTrigger from 'src/lib/UI/GUI/ShDropdownMenuTrigger.svelte';
     import ShDropdownMenuContent from 'src/lib/UI/GUI/ShDropdownMenuContent.svelte';
     import ShDropdownMenuItem from 'src/lib/UI/GUI/ShDropdownMenuItem.svelte';
     import IconButtonGroup from 'src/lib/UI/GUI/IconButtonGroup.svelte';
     import { selectedCharID, PlaygroundStore, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
-    import { tick, untrack } from 'svelte';
+    import { onDestroy, tick, untrack } from 'svelte';
     import Chat from "./Chat.svelte";
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
-    import { type Chat as ChatData, type Message } from "../../ts/storage/database.svelte";
+    import { type Chat as ChatData, type Message, type character } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
     import { chatProcessStage, doingChat, recoverRevenantGenerationsForChat, sendChat } from "../../ts/process/index.svelte";
@@ -21,30 +20,50 @@
     import { isExpTranslator, recoverAuxiliaryTranslationJobs, translate } from "../../ts/translator/translator";
     import { alertError, alertWait, notifySuccess, notifyError } from "../../ts/alert";
     import { playNotificationSound } from '../../ts/notificationSound'
-    import { endStatus, startStatus } from '../../ts/status/requestStatus'
 import { isMobile } from 'src/ts/platform'
     import { processScript } from "src/ts/process/scripts";
     import CreatorQuote from "./CreatorQuote.svelte";
     import { stopTTS } from "src/ts/process/tts";
     import MainMenu from '../UI/MainMenu.svelte';
     import AssetInput from './AssetInput.svelte';
-    import { scrollWithinContainer } from './scrollWithin';
+    import { CHAT_HISTORY_LOAD_THRESHOLD, createChatScrollController, isChatNearBottom, type ChatScrollController } from './chatScroll';
     import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile } from 'src/ts/globalApi.svelte';
-    import { isRevenantGenerationLocallyOwned } from 'src/ts/process/revenantGeneration/client';
-    import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenantGeneration/auxiliary';
-    import type { RevenantRerollSnapshot } from 'src/ts/process/revenantGeneration/types';
+    import { isRevenantGenerationLocallyObserved } from 'src/ts/process/revenant/transport';
+    import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenant/auxiliary';
+    import type { RevenantRerollSnapshot } from 'src/ts/process/revenant';
+    import {
+        applyCancelledRerollSession,
+        prepareChatReroll,
+        shouldRetainRerollProjectionForCanonical,
+        type ActiveRerollSession,
+        type PreparedChatReroll,
+    } from 'src/ts/process/revenant/chatGeneration';
     import { runTrigger } from 'src/ts/process/triggers';
     import { v4 } from 'uuid';
     import { processMultiCommand } from 'src/ts/process/command';
     import { postChatFile } from 'src/ts/process/files/multisend';
-    import { getInlayAsset } from 'src/ts/process/files/inlays';
+    import { getInlayAsset, getInlayMeta } from 'src/ts/process/files/inlays';
     import { quickMenu } from 'src/ts/hotkey';
     import { loadChatDraft, scheduleSaveChatDraft, flushChatDraft, removeChatDraft } from 'src/ts/storage/chatDraft';
+    import {
+        activeRevenantWorkflows,
+        cancelRevenantWorkflow,
+        getActiveRevenantWorkflow,
+        subscribeRevenantWorkflowSyncReady,
+        subscribeRevenantWorkflowUpdates,
+    } from 'src/ts/process/revenant/workflow';
+    import {
+        beginGenerationMessageProjection,
+        updateRevenantAuxiliaryRecoveryStatus,
+    } from 'src/ts/process/revenant/recovery';
 
     import Chats from './Chats.svelte';
     import PartialEditManager from './PartialEditManager.svelte';
-    import Button from '../UI/GUI/Button.svelte';
+    import ShButton from '../UI/GUI/ShButton.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
+    import Portal from '../UI/GUI/Portal.svelte';
+    import ImageGenerationDialog from './ImageGenerationDialog.svelte';
+    import { generateAIImageInlay } from 'src/ts/process/stableDiff';
 
     const loadPlaygroundMenu = () => import('../Playground/PlaygroundMenu.svelte').then(m => m.default);
 
@@ -71,6 +90,8 @@ import { isMobile } from 'src/ts/platform'
     let messageInput:string = $state('')
     let messageInputTranslate:string = $state('')
     let openMenu = $state(false)
+    let imageGenerationOpen = $state(false)
+    let imageRerollingTarget = $state.raw<{ roomId: string, messageId: string } | null>(null)
     let loadPages = $state(getInitialChatLoadPages(DBState.db))
     let doingChatInputTranslate = false
     let toggleStickers:boolean = $state(false)
@@ -80,13 +101,192 @@ import { isMobile } from 'src/ts/platform'
     let scrollNavTimer: ReturnType<typeof setTimeout> | null = null
     let chatsInstance: any = $state()
     let chatScreenRoot: HTMLDivElement | null = $state(null)
+    let chatScrollController: ChatScrollController | null = null
     let isScrollingToMessage = $state(false)
+    let historyLoadInFlight = false
     let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '' }: Props = $props();
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
     let currentChatSlot = $derived(currentCharacter?.chats[currentCharacter.chatPage])
     let currentChatReady = $derived(!!currentChatSlot && !currentChatSlot._placeholder)
     let currentChat = $derived(currentChatReady ? currentChatSlot.message : [])
     let currentChatFmIndex = $derived(currentChatReady ? (currentChatSlot.fmIndex ?? -1) : -1)
+    let loadPagesRoomKey = $state('')
+    let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter?.chatPage ?? -1}:${currentChatSlot?.id ?? ''}`)
+    let currentRoomHasImageReroll = $derived(imageRerollingTarget?.roomId === currentChatSlot?.id)
+
+    async function insertGeneratedImage(
+        reference: string,
+        target: { characterId: string, chatId: string },
+    ) {
+        const character = DBState.db.characters.find(item => item?.chaId === target.characterId)
+        if(character?.type !== 'character') return
+        const chat = character.chats.find(item => item?.id === target.chatId)
+        if(!chat || !Array.isArray(chat.message)) return
+        chat.message = [...chat.message, {
+            role: 'char',
+            data: reference,
+            kind: 'imageGeneration',
+            saying: character.chaId,
+            chatId: v4(),
+            time: Date.now(),
+        }]
+        character.reloadKeys += 1
+        await tick()
+        if(currentChatSlot?.id === chat.id) scrollToBottom()
+    }
+
+    function getLastActiveMessage() {
+        return currentChat.findLast(message => !message.isComment && !message.disabled)
+    }
+
+    async function rerollGeneratedImage(message: Message) {
+        if(
+            imageRerollingTarget
+            || message.kind !== 'imageGeneration'
+            || currentCharacter?.type !== 'character'
+            || !currentChatSlot?.id
+        ) return
+        if(!DBState.db.sdProvider) {
+            notifyError(language.imageProviderNotConfigured)
+            return
+        }
+
+        const character = currentCharacter
+        const chat = currentChatSlot
+        const messageId = message.chatId ?? v4()
+        message.chatId = messageId
+        imageRerollingTarget = { roomId: chat.id, messageId }
+        try {
+            const inlayId = message.data.match(/\{\{(?:inlay|inlayed|inlayeddata)::(.+?)\}\}/)?.[1]
+            const prompt = inlayId ? (await getInlayMeta(inlayId))?.imageGeneration : undefined
+            if(!prompt) {
+                notifyError(language.imageGenerationPromptNotFound)
+                return
+            }
+            const reference = await generateAIImageInlay(
+                prompt.prompt,
+                character,
+                prompt.negativePrompt,
+                { characterId: character.chaId, chatId: chat.id },
+            )
+            if(!reference) return
+
+            const target = chat.message.find(item => item.chatId === messageId)
+            if(!target || target.kind !== 'imageGeneration') return
+            target.swipes = [...(target.swipes ?? [target.data]), reference]
+            target.swipeId = target.swipes.length - 1
+            target.data = reference
+            target.time = Date.now()
+            character.reloadKeys += 1
+            await tick()
+            if(currentChatSlot?.id === chat.id) scrollToBottom()
+        }
+        catch(error) {
+            notifyError(`${error}`)
+        }
+        finally {
+            if(imageRerollingTarget?.messageId === messageId) imageRerollingTarget = null
+        }
+    }
+
+    $effect(() => {
+        void currentChatRoomKey
+        const container = chatScreenRoot
+        if (!container) return
+        const controller = createChatScrollController(container)
+        chatScrollController = controller
+        return () => {
+            if (chatScrollController === controller) chatScrollController = null
+            controller.destroy()
+        }
+    })
+
+    // History depth belongs to a room. Carrying a large value (or Infinity
+    // from screenshot/search navigation) into the next room mounts its entire
+    // history in one frame and makes translated chats especially expensive.
+    $effect.pre(() => {
+        if (loadPagesRoomKey === currentChatRoomKey) return
+        loadPagesRoomKey = currentChatRoomKey
+        loadPages = getInitialChatLoadPages(DBState.db)
+    })
+
+    let currentRevenantWorkflow = $derived($activeRevenantWorkflows.find(workflow =>
+        workflow.characterId === currentCharacter?.chaId
+        && workflow.roomId === currentChatSlot?.id))
+    let workflowCancellationIds = $state.raw<string[]>([])
+    let workflowCancelInFlight = $derived(
+        !!currentRevenantWorkflow
+        && workflowCancellationIds.includes(currentRevenantWorkflow.workflowId)
+    )
+    interface ForegroundGenerationContext {
+        abortController: AbortController
+        detachController: AbortController
+        abortRequested: boolean
+        workflowId?: string
+        rerollSession?: ActiveRerollSession
+        origin: {
+            characterId: string
+            roomId: string
+        }
+    }
+
+    let foregroundGenerationContexts = $state.raw<ForegroundGenerationContext[]>([])
+    let currentRoomForegroundGeneration = $derived(
+        foregroundGenerationContexts.find(context =>
+            context.origin.characterId === currentCharacter?.chaId
+            && context.origin.roomId === currentChatSlot?.id
+        )
+    )
+    let currentRoomOwnsForegroundGeneration = $derived(!!currentRoomForegroundGeneration)
+    let currentRoomHasMainGeneration = $derived(
+        currentRoomOwnsForegroundGeneration || !!currentRevenantWorkflow
+    )
+
+    onDestroy(() => {
+        // Room/character navigation can unmount ChatScreen before the target
+        // selection is applied, so detach the foreground observer here too.
+        for (const context of foregroundGenerationContexts) {
+            context.detachController.abort()
+        }
+    })
+
+    // Once the main provider work belongs to another room, detach only this
+    // page's foreground observer. The durable Revenant job/workflow continues
+    // and the ordinary room-entry recovery effect attaches when the user
+    // returns. User cancellation keeps using the separate abortController.
+    $effect(() => {
+        const characterId = currentCharacter?.chaId
+        const roomId = currentChatSlot?.id
+        for (const context of foregroundGenerationContexts) {
+            if (
+                context.origin.characterId !== characterId
+                || context.origin.roomId !== roomId
+            ) {
+                context.detachController.abort()
+            }
+        }
+    })
+
+    // Workflow ownership is shared across the user's devices. Keep the local
+    // composer flag in sync when another device finishes or cancels the room.
+    $effect(() => {
+        const characterId = currentCharacter?.chaId
+        const roomId = currentChatSlot?.id
+        if (!characterId || !roomId) return
+        const refresh = () => {
+            void getActiveRevenantWorkflow(characterId, roomId)
+                .catch(error => console.warn('[GenerationWorkflow] Active refresh failed:', error))
+        }
+        refresh()
+        const unsubscribeUpdates = subscribeRevenantWorkflowUpdates(event => {
+            if (event.characterId === characterId && event.roomId === roomId) refresh()
+        })
+        const unsubscribeSyncReady = subscribeRevenantWorkflowSyncReady(refresh)
+        return () => {
+            unsubscribeUpdates()
+            unsubscribeSyncReady()
+        }
+    })
 
     // ─── Per-chat composer draft ────────────────────────────────────────────
     // The message input is kept per chat, stored outside the chat body, so it
@@ -158,13 +358,20 @@ import { isMobile } from 'src/ts/platform'
     })
 
     /** Await hydration of active chat. Returns full Chat or null on failure. */
-    async function ensureActiveChatReady(selectedChar = $selectedCharID): Promise<ChatData | null> {
+    async function ensureActiveChatReady(
+        selectedChar = $selectedCharID,
+        roomId?: string,
+    ): Promise<ChatData | null> {
         const char = DBState.db.characters[selectedChar]
         if (!char) return null
-        const chat = char.chats[char.chatPage]
+        const chatPage = roomId
+            ? char.chats.findIndex(chat => chat?.id === roomId)
+            : char.chatPage
+        if (chatPage < 0) return null
+        const chat = char.chats[chatPage]
         if (!chat) return null
         if (!chat._placeholder) return chat
-        return await ensureCurrentChatReady(char.chats, char.chatPage, char.chaId)
+        return await ensureCurrentChatReady(char.chats, chatPage, char.chaId)
     }
 
     // A generation belongs to the server once submitted. If its originating
@@ -176,35 +383,35 @@ import { isMobile } from 'src/ts/platform'
         const chatId = char?.chats?.[char.chatPage]?.id
         if (!char?.chaId || !chatId) return
         let recoveryInFlight = false
+        let recoveryRequested = false
         const recover = () => {
-            if (recoveryInFlight) return
+            if (recoveryInFlight) {
+                recoveryRequested = true
+                return
+            }
             recoveryInFlight = true
-            void ensureActiveChatReady(selectedChar).then(async chat => {
+            recoveryRequested = false
+            void ensureActiveChatReady(selectedChar, chatId).then(async chat => {
                 if (!chat) return
                 const detachedTranslationJobs = await listRecoverableAuxiliaryGenerations()
                     .then(jobs => jobs.filter(job =>
                         job.jobType === 'translate'
                         && job.characterId === char.chaId
                         && job.roomId === chat.id
-                        && !isRevenantGenerationLocallyOwned(job.jobId)
+                        && !isRevenantGenerationLocallyObserved(job.jobId)
                     ))
                     .catch(error => {
                         console.warn('[GenerationJob] Translation recovery list unavailable:', error)
                         return []
                     })
-                detachedTranslationJobs.forEach(job => startStatus(job.jobId, {
-                    kind: 'translate',
-                    label: '',
-                    chatId: chat.id,
-                    phase: 'connecting',
-                    now: Date.now(),
-                }))
+                detachedTranslationJobs.forEach(job =>
+                    updateRevenantAuxiliaryRecoveryStatus(job, chat.id))
                 const [recoveredTranslations, recoveredOther] = await Promise.all([
                     detachedTranslationJobs.length > 0
                         ? recoverAuxiliaryTranslationJobs(false, {
                             characterId: char.chaId,
                             roomId: chat.id,
-                        })
+                        }, job => updateRevenantAuxiliaryRecoveryStatus(job, chat.id))
                         : Promise.resolve(0),
                     recoverRevenantGenerationsForChat(char, chat, {
                         onDeferredRecovered: recovered => {
@@ -214,14 +421,6 @@ import { isMobile } from 'src/ts/platform'
                         },
                     }),
                 ])
-                detachedTranslationJobs.forEach(job =>
-                    endStatus(
-                        job.jobId,
-                        job.status === 'failed' || job.status === 'failed_partial'
-                            ? 'failed'
-                            : 'done',
-                        { now: Date.now(), error: job.error },
-                    ))
                 if (recoveredTranslations + recoveredOther === 0) return
 
                 if (recoveredOther > 0 && DBState.db.playMessage) {
@@ -234,16 +433,29 @@ import { isMobile } from 'src/ts/platform'
                 console.error('[GenerationJob] Failed to recover pending chat work:', error)
             }).finally(() => {
                 recoveryInFlight = false
+                if (recoveryRequested) recover()
             })
         }
         recover()
         const onOnline = () => recover()
+        const unsubscribeWorkflowUpdates = subscribeRevenantWorkflowUpdates(event => {
+            if (event.characterId === char.chaId && event.roomId === chatId) recover()
+        })
+        const unsubscribeSyncReady = subscribeRevenantWorkflowSyncReady(recover)
         window.addEventListener('online', onOnline)
-        return () => window.removeEventListener('online', onOnline)
+        return () => {
+            unsubscribeWorkflowUpdates()
+            unsubscribeSyncReady()
+            window.removeEventListener('online', onOnline)
+        }
     })
 
     function scrollToBottom() {
         chatsInstance?.scrollToLatestMessage();
+    }
+
+    function getChatScrollController() {
+        return chatScrollController
     }
 
     function bumpScrollNav() {
@@ -252,90 +464,54 @@ import { isMobile } from 'src/ts/platform'
         scrollNavTimer = setTimeout(() => { showScrollNav = false }, 1500)
     }
 
-    function getLoadedMessages(container: HTMLElement) {
-        return Array.from(container.querySelectorAll('[data-chat-index]'))
-            .map(el => ({ el: el as HTMLElement, idx: parseInt(el.getAttribute('data-chat-index')!) }))
-            .sort((a, b) => a.idx - b.idx)
-    }
-
     // Top of currently loaded messages (no force-load of older pages).
     function scrollToLoadedTop() {
-        const container = document.querySelector('.default-chat-screen') as HTMLElement | null
-        if (!container) return
-        const messages = getLoadedMessages(container)
-        if (messages.length === 0) return
-        scrollWithinContainer(messages[0].el, container, { block: 'start', behavior: 'smooth' })
+        chatScrollController?.scrollToEdge('top', 'smooth')
     }
 
     // Literal bottom of the scroll (end of the latest message).
     function scrollToLoadedBottom() {
-        const container = document.querySelector('.default-chat-screen') as HTMLElement | null
-        if (!container) return
-        const messages = getLoadedMessages(container)
-        if (messages.length === 0) return
-        scrollWithinContainer(messages[messages.length - 1].el, container, { block: 'end', behavior: 'smooth' })
+        chatScrollController?.scrollToEdge('bottom', 'smooth')
     }
 
     function navigateMessage(direction: 'prev' | 'next') {
-        const container = document.querySelector('.default-chat-screen') as HTMLElement | null
-        if (!container) return
-        const messages = Array.from(container.querySelectorAll('[data-chat-index]'))
-            .map(el => ({ el: el as HTMLElement, idx: parseInt(el.getAttribute('data-chat-index')!) }))
-            .sort((a, b) => a.idx - b.idx)
-        if (messages.length === 0) return
+        chatScrollController?.navigateMessage(direction)
+    }
 
-        const containerRect = container.getBoundingClientRect()
-        const threshold = 30
-
-        // Find the message currently at the top of the viewport
-        let current = messages[0]
-        for (const msg of messages) {
-            const rect = msg.el.getBoundingClientRect()
-            if (rect.bottom > containerRect.top + threshold) {
-                current = msg
-                break
-            }
+    async function loadMoreHistory() {
+        if (historyLoadInFlight || currentChat.length <= loadPages) return
+        historyLoadInFlight = true
+        const release = chatScrollController?.preserveViewportPosition()
+        try {
+            loadPages = Math.min(
+                currentChat.length,
+                loadPages + getAdditionalChatLoadPages(DBState.db),
+            )
+            // Chats mounts stable message wrappers in the first tick; the
+            // second lets their child components publish initial layout.
+            await tick()
+            await tick()
         }
-
-        const currentRect = current.el.getBoundingClientRect()
-
-        if (direction === 'prev') {
-            const topVisible = currentRect.top >= containerRect.top - threshold
-            if (!topVisible) {
-                // Current message top is hidden → scroll to its start
-                scrollWithinContainer(current.el, container, { block: 'start', behavior: 'smooth' })
-            } else {
-                // Already at top → go to previous message start
-                const prev = messages.find(m => m.idx === current.idx - 1)
-                if (prev) {
-                    scrollWithinContainer(prev.el, container, { block: 'start', behavior: 'smooth' })
-                }
-            }
-        } else {
-            const bottomVisible = currentRect.bottom <= containerRect.bottom + threshold
-            if (!bottomVisible) {
-                // Current message bottom is hidden → scroll to its end
-                scrollWithinContainer(current.el, container, { block: 'end', behavior: 'smooth' })
-            } else {
-                // Already see the end → go to next message start
-                const next = messages.find(m => m.idx === current.idx + 1)
-                if (next) {
-                    scrollWithinContainer(next.el, container, { block: 'start', behavior: 'smooth' })
-                }
-            }
+        finally {
+            release?.()
+            historyLoadInFlight = false
         }
     }
     $effect(() => {
         if(ScrollToMessageStore.value !== -1){
             const index = ScrollToMessageStore.value
+            const exact = ScrollToMessageStore.exact
             ScrollToMessageStore.value = -1
-            scrollToMessage(index)
+            ScrollToMessageStore.exact = false
+            scrollToMessage(index, exact)
         }
     })
 
-    async function scrollToMessage(index: number){
+    async function scrollToMessage(index: number, exact = false){
         // Forces the loading of past messages not rendered on the screen
-        isScrollingToMessage = true
+        // Request-status toast navigation should only move the viewport. The
+        // loading veil and highlight belong to bookmark/history navigation.
+        if (!exact) isScrollingToMessage = true
         try {
             const totalMessages = currentChat.length
             const neededLoadPages = totalMessages - index + 5
@@ -348,20 +524,31 @@ import { isMobile } from 'src/ts/platform'
             let element: Element | null = null;
             // Poll for element existence (max 5 seconds)
             for(let i = 0; i < 50; i++){
-                element = document.querySelector(`[data-chat-index="${index}"]`)
-                if(element) break;
+                element = chatScreenRoot?.querySelector(`[data-chat-index="${index}"]`) ?? null
+                if(element && (!exact || chatScrollController)) break;
                 await sleep(100)
             }
 
-            const chatContainer = document.querySelector('.default-chat-screen') as HTMLElement | null;
+            if (exact) {
+                if (chatScreenRoot && element && chatScrollController) {
+                    chatScrollController.scrollToElement(element as HTMLElement, {
+                        block: 'start',
+                        behavior: 'instant',
+                        followLayout: true,
+                    })
+                }
+                return
+            }
+
+            const chatContainer = chatScreenRoot;
             const preIndex = Math.max(0, index - 3)
-            const preElement = document.querySelector(`[data-chat-index="${preIndex}"]`)
+            const preElement = chatContainer?.querySelector(`[data-chat-index="${preIndex}"]`)
             // Scroll within the chat container only — raw scrollIntoView climbs to
             // documentElement and, if the root is inflated, shoves the whole page up.
-            if(chatContainer && preElement){
-                scrollWithinContainer(preElement as HTMLElement, chatContainer, { block: 'start', behavior: 'instant' })
+            if(chatContainer && preElement && !exact){
+                chatScrollController?.scrollToElement(preElement as HTMLElement, { block: 'start', behavior: 'instant' })
             } else if(chatContainer && element){
-                scrollWithinContainer(element as HTMLElement, chatContainer, { block: 'start', behavior: 'instant' })
+                chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
             }
             await sleep(50)
 
@@ -384,19 +571,19 @@ import { isMobile } from 'src/ts/platform'
                 }
 
                 if(chatContainer){
-                    scrollWithinContainer(element as HTMLElement, chatContainer, { block: 'start', behavior: 'instant' })
+                    chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
                     // Small delay and scroll again to ensure position is correct after any final layout adjustments
                     await sleep(50)
-                    scrollWithinContainer(element as HTMLElement, chatContainer, { block: 'start', behavior: 'instant' })
+                    chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
                 }
 
-                element.classList.add('ring-2', 'ring-blue-500')
+                element.classList.add('ring-2')
                 setTimeout(() => {
-                    element.classList.remove('ring-2', 'ring-blue-500')
+                    element.classList.remove('ring-2')
                 }, 2000)
             }
         } finally {
-            isScrollingToMessage = false
+            if (!exact) isScrollingToMessage = false
         }
     }
 
@@ -408,77 +595,103 @@ import { isMobile } from 'src/ts/platform'
     }
 
     async function sendMain(continueResponse:boolean) {
-        let selectedChar = $selectedCharID
-        if($doingChat){
+        const selectedChar = $selectedCharID
+        if(currentRoomHasMainGeneration){
             return
         }
 
-        const activeChat = await ensureActiveChatReady(selectedChar)
-        if(!activeChat) return
-
-        let cha = activeChat.message
-
-        if(messageInput.startsWith('/')){
-            const commandProcessed = await processMultiCommand(messageInput)
-            if(commandProcessed !== false){
-                messageInput = ''
-                messageInputTranslate = ''
-                removeChatDraft(draftChaId, draftChatId)
-                return
-            }
+        const generationCharacter = DBState.db.characters[selectedChar]
+        const generationChat = generationCharacter?.chats[generationCharacter.chatPage]
+        if(!generationCharacter?.chaId || !generationChat?.id) return
+        const generationTarget = {
+            characterId: generationCharacter.chaId,
+            roomId: generationChat.id,
         }
+        // Input and draft state follow the visible room. Snapshot and clear
+        // them before any asynchronous preprocessing so a later room switch
+        // cannot feed or erase the newly selected room's composer text.
+        let submittedMessageInput = messageInput
+        const submittedFiles = [...fileInput]
+        messageInput = ''
+        messageInputTranslate = ''
+        fileInput = []
+        removeChatDraft(generationTarget.characterId, generationTarget.roomId)
+        const foregroundContext = beginForegroundGeneration(generationTarget)
+        let foregroundHandedOff = false
 
-        if(fileInput.length > 0){
-            for(const file of fileInput){
-                messageInput += `{{inlayed::${file}}}`
+        try {
+            const activeChat = await ensureActiveChatReady(selectedChar, generationTarget.roomId)
+            if(!activeChat) return
+
+            let cha = activeChat.message
+
+            if(submittedMessageInput.startsWith('/')){
+                const commandProcessed = await processMultiCommand(submittedMessageInput)
+                if(commandProcessed !== false){
+                    return
+                }
             }
-            fileInput = []
-        }
 
-        if(messageInput === ''){
-            if(cha.length === 0 || cha[cha.length - 1].role !== 'user'){
-                if(DBState.db.useSayNothing){
+            if(submittedFiles.length > 0){
+                for(const file of submittedFiles){
+                    submittedMessageInput += `{{inlayed::${file}}}`
+                }
+            }
+
+            if(submittedMessageInput === ''){
+                if(cha.length === 0 || cha[cha.length - 1].role !== 'user'){
+                    if(DBState.db.useSayNothing){
+                        cha.push({
+                            role: 'user',
+                            data: '*says nothing*',
+                            name: null
+                        })
+                    }
+                }
+            }
+            else{
+                const char = DBState.db.characters[selectedChar]
+                if(char.type === 'character'){
+                    let triggerResult = await runTrigger(char,'input', {chat: activeChat})
+                    if(triggerResult){
+                        cha = triggerResult.chat.message
+                    }
+
                     cha.push({
                         role: 'user',
-                        data: '*says nothing*',
+                        data: await processScript(char,submittedMessageInput,'editinput'),
+                        time: Date.now(),
+                        name: null
+                    })
+                }
+                else{
+                    cha.push({
+                        role: 'user',
+                        data: submittedMessageInput,
+                        time: Date.now(),
                         name: null
                     })
                 }
             }
-        }
-        else{
-            const char = DBState.db.characters[selectedChar]
-            if(char.type === 'character'){
-                let triggerResult = await runTrigger(char,'input', {chat: activeChat})
-                if(triggerResult){
-                    cha = triggerResult.chat.message
-                }
+            const targetChatIndex = DBState.db.characters[selectedChar].chats.findIndex(chat =>
+                chat?.id === generationTarget.roomId)
+            if(targetChatIndex === -1) return
+            DBState.db.characters[selectedChar].chats[targetChatIndex].message = cha
 
-                cha.push({
-                    role: 'user',
-                    data: await processScript(char,messageInput,'editinput'),
-                    time: Date.now(),
-                    name: null
-                })
-            }
-            else{
-                cha.push({
-                    role: 'user',
-                    data: messageInput,
-                    time: Date.now(),
-                    name: null
-                })
+            await sleep(10)
+            updateInputSizeAll()
+            foregroundHandedOff = true
+            await sendChatMain(
+                continueResponse,
+                undefined,
+                generationTarget,
+                foregroundContext,
+            )
+        } finally {
+            if(!foregroundHandedOff){
+                releaseForegroundGeneration(foregroundContext)
             }
         }
-        messageInput = ''
-        messageInputTranslate = ''
-        removeChatDraft(draftChaId, draftChatId)
-        DBState.db.characters[selectedChar].chats[DBState.db.characters[selectedChar].chatPage].message = cha
-
-        await sleep(10)
-        updateInputSizeAll()
-        await sendChatMain(continueResponse)
-
     }
 
     // Fullscreen compose mode: the same messageInput, just shown in a full-screen
@@ -536,118 +749,76 @@ import { isMobile } from 'src/ts/platform'
         return msg
     }
 
-    type ActiveRerollSession = {
-        charId: number
-        chatPage: number
-        savedSwipes: string[]
-        generatedMessageIndex: number
-        trailingComments: Message[]
-    }
-
-    let activeRerollSession: ActiveRerollSession | null = null
-    let chatAbortRequested = false
-
-    function finishCancelledRerollSession() {
-        if (!activeRerollSession) return false
-        const { charId, chatPage, savedSwipes, generatedMessageIndex, trailingComments } = activeRerollSession
-        const char = DBState.db.characters[charId]
-        const chat = char?.chats?.[chatPage]
-        if (!char || !chat) {
-            activeRerollSession = null
-            return false
-        }
-
-        const messages = chat.message
-        const generatedMsg = messages[generatedMessageIndex]
-        const generatedData = generatedMsg?.role === 'char' ? generatedMsg.data ?? '' : ''
-
-        if (!generatedMsg || generatedMsg.role !== 'char' || !generatedData.trim()) {
-            activeRerollSession = null
-            return false
-        }
-
-        generatedMsg.swipes = [...savedSwipes, generatedData]
-        generatedMsg.swipeId = generatedMsg.swipes.length - 1
-        generatedMsg.data = generatedData
-        messages.splice(generatedMessageIndex + 1)
-        if (trailingComments.length > 0) {
-            messages.push(...safeStructuredClone(trailingComments))
-        }
-        chat.message = messages
-        chat.isStreaming = false
-        char.reloadKeys += 1
-        activeRerollSession = null
-        return true
-    }
-
     async function reroll() {
-        if($doingChat) return
-        const lastMsg = getLastCharMsg()
-        if (!lastMsg) return
-
-        // Save existing swipes before clone replaces the array
-        const savedSwipes = lastMsg.swipes ? [...lastMsg.swipes] : [lastMsg.data]
-
-        // Generate new response
-        // Preserve trailing comment/disabled messages (e.g. branch comments)
-        let cha = safeStructuredClone(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message)
-        const originalMessages = safeStructuredClone(cha)
-        if(cha.length === 0) return
+        if(currentRoomHasMainGeneration) return
+        const activeMessage = getLastActiveMessage()
+        if(activeMessage?.kind === 'imageGeneration') {
+            await rerollGeneratedImage(activeMessage)
+            return
+        }
+        const selectedChar = $selectedCharID
+        const rerollCharacter = DBState.db.characters[selectedChar]
+        const rerollChat = rerollCharacter?.chats?.[rerollCharacter.chatPage]
+        if (!rerollCharacter?.chaId || !rerollChat?.id) return
+        const generationTarget = {
+            characterId: rerollCharacter.chaId,
+            roomId: rerollChat.id,
+        }
+        const prepared = prepareChatReroll(rerollCharacter.chaId, rerollChat)
+        if (!prepared) return
+        const messageChatId = v4()
         openMenu = false
-
-        const trailingComments = []
-        while(cha.length > 0 && (cha[cha.length - 1].isComment || cha[cha.length - 1].disabled)) {
-            trailingComments.unshift(cha.pop())
-        }
-
-        if(cha.length === 0) return
-        const saying = cha[cha.length - 1].saying
-        let sayingQu = 2
-        while(cha[cha.length - 1].role !== 'user'){
-            if(cha[cha.length - 1].saying === saying){
-                sayingQu -= 1
-                if(sayingQu === 0) break
-            }
-            let msg = cha.pop()
-            if(!msg) return
-        }
-        const generatedMessageIndex = cha.length
-        const rerollSnapshot: RevenantRerollSnapshot = {
-            targetMessage: safeStructuredClone(originalMessages[generatedMessageIndex]),
-            targetIndex: generatedMessageIndex,
-            trailingMessages: safeStructuredClone(trailingComments),
-        }
-        activeRerollSession = {
-            charId: $selectedCharID,
-            chatPage: DBState.db.characters[$selectedCharID].chatPage,
-            savedSwipes,
-            generatedMessageIndex,
-            trailingComments: safeStructuredClone(trailingComments),
-        }
-        const rerollChat = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
+        const foregroundContext = beginForegroundGeneration(generationTarget)
+        foregroundContext.rerollSession = prepared.session
         rerollChat.isStreaming = true
-        rerollChat.message = cha
-        const generated = await sendChatMain(false, rerollSnapshot)
+        rerollChat.message = prepared.generationMessages
+        beginGenerationMessageProjection(rerollChat, {
+            messageChatId,
+            characterId: rerollCharacter.chaId,
+            isContinuation: false,
+            rerollSnapshot: prepared.rerollSnapshot,
+        })
+        rerollCharacter.reloadKeys += 1
+        const generated = await sendChatMain(
+            false,
+            prepared.rerollSnapshot,
+            generationTarget,
+            foregroundContext,
+            prepared.durableInputCommit,
+            messageChatId,
+        )
 
         // A user-triggered cancel keeps the partial reroll as the active swipe.
         if (!generated) {
-            if (chatAbortRequested && finishCancelledRerollSession()) {
-                chatAbortRequested = false
+            if (
+                foregroundContext.abortRequested
+                && applyCancelledRerollSession(
+                    rerollCharacter,
+                    rerollChat,
+                    foregroundContext.rerollSession,
+                )
+            ) {
                 return
             }
-            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = originalMessages
-            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].isStreaming = false
-            activeRerollSession = null
-            chatAbortRequested = false
+            // Once a server workflow exists, its terminal materializer owns
+            // cancellation. Keep the local placeholder instead of briefly
+            // restoring the old branch before canonical sync arrives.
+            if (shouldRetainRerollProjectionForCanonical(foregroundContext)) {
+                return
+            }
+            const failedCharacter = DBState.db.characters.find(character =>
+                character?.chaId === generationTarget.characterId)
+            const failedChat = failedCharacter?.chats?.find(chat =>
+                chat?.id === generationTarget.roomId)
+            if (failedChat) {
+                failedChat.message = prepared.originalMessages
+                failedChat.isStreaming = false
+            }
             return
         }
-        chatAbortRequested = false
-        activeRerollSession = null
-        activeRerollSession = null
     }
 
     async function unReroll(idx?: number) {
-        if($doingChat) return
         const lastMsg = getSwipeTargetMsg(idx)
         if (!lastMsg || !lastMsg.swipes || lastMsg.swipeId === undefined) return
 
@@ -671,6 +842,7 @@ import { isMobile } from 'src/ts/platform'
 
         const swipeIdx = lastMsg.swipeId ?? 0
         lastMsg.swipes.splice(swipeIdx, 1)
+        lastMsg.swipeMetadata?.splice(swipeIdx, 1)
 
         if (swipeIdx >= lastMsg.swipes.length) {
             lastMsg.swipeId = lastMsg.swipes.length - 1
@@ -678,44 +850,117 @@ import { isMobile } from 'src/ts/platform'
         lastMsg.data = lastMsg.swipes[lastMsg.swipeId]
 
         if (lastMsg.swipes.length === 1) {
+            const remainingMetadata = lastMsg.swipeMetadata?.[0]
+            if (remainingMetadata) {
+                lastMsg.chatId = remainingMetadata.chatId ?? lastMsg.chatId
+                lastMsg.time = remainingMetadata.time ?? lastMsg.time
+                lastMsg.generationInfo = remainingMetadata.generationInfo ?? lastMsg.generationInfo
+                lastMsg.promptInfo = remainingMetadata.promptInfo ?? lastMsg.promptInfo
+            }
             delete lastMsg.swipes
             delete lastMsg.swipeId
+            delete lastMsg.swipeMetadata
         }
         DBState.db.characters[$selectedCharID].reloadKeys += 1
     }
 
-    let abortController:null|AbortController = null
+    function beginForegroundGeneration(
+        origin: ForegroundGenerationContext['origin'],
+    ): ForegroundGenerationContext {
+        const context = {
+            abortController: new AbortController(),
+            detachController: new AbortController(),
+            abortRequested: false,
+            origin,
+        }
+        foregroundGenerationContexts = [...foregroundGenerationContexts, context]
+        return context
+    }
+
+    function releaseForegroundGeneration(context: ForegroundGenerationContext) {
+        foregroundGenerationContexts = foregroundGenerationContexts.filter(
+            activeContext => activeContext !== context
+        )
+    }
 
     async function sendChatMain(
         continued:boolean = false,
         rerollSnapshot?: RevenantRerollSnapshot,
+        generationTarget?: ForegroundGenerationContext['origin'],
+        preparedContext?: ForegroundGenerationContext,
+        durableInputCommit?: PreparedChatReroll['durableInputCommit'],
+        messageChatId?: string,
     ) {
 
-        messageInput = ''
-        abortController = new AbortController()
-        chatAbortRequested = false
+        const origin = generationTarget ?? (
+            currentCharacter?.chaId && currentChatSlot?.id
+                ? {
+                    characterId: currentCharacter.chaId,
+                    roomId: currentChatSlot.id,
+                }
+                : null
+        )
+        if(!origin) return false
+        const foregroundContext = preparedContext ?? beginForegroundGeneration(origin)
+        const detachController = foregroundContext.detachController
         let generated = false
+        let detached = false
         try {
             generated = await sendChat(-1, {
-                signal:abortController.signal,
+                signal:foregroundContext.abortController.signal,
+                detachSignal: detachController.signal,
+                onDetached: () => detached = true,
+                onWorkflowStarted: workflowId => {
+                    foregroundContext.workflowId = workflowId
+                },
                 continue:continued,
                 rerollSnapshot,
+                durableInputCommit,
+                messageChatId,
+                generationTarget: origin,
             })
         } catch (error) {
-            console.error(error)
-            alertError(error)
+            if(!detached){
+                console.error(error)
+                alertError(error)
+            }
         }
-        $doingChat = false
-        if(DBState.db.playMessage){
+        if(!detached) $doingChat = false
+        releaseForegroundGeneration(foregroundContext)
+        if(!detached && DBState.db.playMessage){
             playNotificationSound(DBState.db.messageSound, DBState.db.messageSoundVolume)
         }
-        return generated
+        // A detached generation is still owned by its Revenant workflow. Treat
+        // it as retained so reroll cleanup does not restore the old branch.
+        return detached ? true : generated
     }
 
-    function abortChat(){
-        if(abortController){
-            chatAbortRequested = true
-            abortController.abort()
+    async function abortChat(){
+        const foregroundContext = currentRoomForegroundGeneration
+        if(foregroundContext){
+            foregroundContext.abortRequested = true
+            foregroundContext.abortController.abort()
+        }
+        const workflow = currentRevenantWorkflow
+        if(!workflow || workflowCancelInFlight) return
+        workflowCancellationIds = [...workflowCancellationIds, workflow.workflowId]
+        const workflowBelongsToCurrentChat =
+            currentCharacter?.chaId === workflow.characterId
+            && currentChatSlot?.id === workflow.roomId
+        try{
+            await cancelRevenantWorkflow(workflow.workflowId)
+        }
+        catch(error){
+            console.error('[GenerationWorkflow] Failed to cancel workflow:', error)
+            alertError(error)
+            if (workflowBelongsToCurrentChat) {
+                void recoverRevenantGenerationsForChat(currentCharacter, currentChatSlot)
+            }
+        }
+        finally{
+            workflowCancellationIds = workflowCancellationIds.filter(
+                workflowId => workflowId !== workflow.workflowId
+            )
         }
     }
 
@@ -893,8 +1138,6 @@ import { isMobile } from 'src/ts/platform'
                 canvases.push(cnv)
             }
 
-            canvases.reverse()
-
             alertWait("Merging images...")
 
             let mergedCanvas = document.createElement('canvas');
@@ -941,16 +1184,24 @@ import { isMobile } from 'src/ts/platform'
 
 
 <div class="w-full h-full relative" style={customStyle}>
+    {#if currentCharacter?.type === 'character'}
+        <ImageGenerationDialog
+            bind:open={imageGenerationOpen}
+            character={currentCharacter as character}
+            onGenerated={insertGeneratedImage}
+        />
+    {/if}
     
     {#if DBState.db.nodeOnlyScrollButtonType !== 'off' && currentChat.length > 0}
+        <Portal>
         <div
-            class="absolute right-3 bottom-16 z-40 flex flex-col rounded-lg bg-bgcolor/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
+            class="fixed right-3 bottom-16 z-40 flex flex-col rounded-lg bg-bgcolor/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
             class:opacity-0={!showScrollNav}
             class:pointer-events-none={!showScrollNav}
         >
             {#if DBState.db.nodeOnlyScrollButtonType === 'four'}
                 <button
-                    class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                    class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                     onclick={() => { bumpScrollNav(); scrollToLoadedTop() }}
                 >
                     <ChevronsUpIcon size={18} />
@@ -958,14 +1209,14 @@ import { isMobile } from 'src/ts/platform'
                 <div class="border-t border-darkborderc border-opacity-30"></div>
             {/if}
             <button
-                class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                 onclick={() => { bumpScrollNav(); navigateMessage('prev') }}
             >
                 <ChevronUpIcon size={18} />
             </button>
             <div class="border-t border-darkborderc border-opacity-30"></div>
             <button
-                class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                 onclick={() => { bumpScrollNav(); navigateMessage('next') }}
             >
                 <ChevronDownIcon size={18} />
@@ -973,52 +1224,53 @@ import { isMobile } from 'src/ts/platform'
             {#if DBState.db.nodeOnlyScrollButtonType === 'four'}
                 <div class="border-t border-darkborderc border-opacity-30"></div>
                 <button
-                    class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                    class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                     onclick={() => { bumpScrollNav(); scrollToLoadedBottom() }}
                 >
                     <ChevronsDownIcon size={18} />
                 </button>
             {/if}
         </div>
+        </Portal>
     {/if}
 
-    {#if showNewMessageButton}
+    {#if showNewMessageButton && DBState.db.newMessageButtonStyle !== 'off'}
         {#if (DBState.db.newMessageButtonStyle === 'bottom-center' || !DBState.db.newMessageButtonStyle)}
-            <button class="absolute bottom-16 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute bottom-16 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-right'}
-            <button class="absolute bottom-20 right-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute bottom-20 right-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-left'}
-            <button class="absolute bottom-20 left-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute bottom-20 left-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'floating-circle'}
-            <button class="absolute bottom-36 right-4 bg-primary text-white w-12 h-12 rounded-full shadow-lg z-50 flex items-center justify-center hover:bg-primary/90 transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
+            <button class="absolute bottom-36 right-4 bg-primary text-white w-12 h-12 rounded-full shadow-lg z-50 flex items-center justify-center risu-interactive-primary transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
                 <ArrowDown size={20} />
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'right-center'}
-            <button class="absolute top-1/2 right-2 -translate-y-1/2 bg-primary text-white px-2 py-3 rounded-l-lg shadow-lg z-50 flex flex-col items-center gap-1 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute top-1/2 right-2 -translate-y-1/2 bg-primary text-white px-2 py-3 rounded-l-lg shadow-lg z-50 flex flex-col items-center gap-1 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={12} />
                 <span class="text-xs writing-mode-vertical">{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'top-bar'}
-            <button class="absolute top-2 left-1/2 -translate-x-1/2 bg-primary text-white px-6 py-1.5 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors text-sm" onclick={scrollToBottom}>
+            <button class="absolute top-2 left-1/2 -translate-x-1/2 bg-primary text-white px-6 py-1.5 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors text-sm" onclick={scrollToBottom}>
                 <ArrowDown size={12} />
                 <span>{language.newMessage}</span>
             </button>
@@ -1052,14 +1304,13 @@ import { isMobile } from 'src/ts/platform'
                      plugins that locate the composer via div[class*="items-stretch"] (e.g. gemini-cache-keeper)
                      relied on the pre-redesign container class. Keep it so they can still find/anchor their UI,
                      and it scopes the timer re-flow rules in <style> below. -->
-                <IconButtonGroup size="lg" className="flex-wrap gap-1 rounded-3xl border border-darkborderc bg-bgcolor px-2 py-1.5 transition-colors focus-within:border-textcolor plugin-compat-items-stretch">
-                {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
+                <IconButtonGroup size="lg" className="risu-field-border flex-wrap gap-1 rounded-3xl bg-bgcolor px-2 py-1.5 plugin-compat-items-stretch">
                     <ShDropdownMenu bind:open={openMenu}>
                         <ShDropdownMenuTrigger>
                             {#snippet child({ props })}
                                 <button {...props}
                                         aria-label="menu"
-                                        class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors">
+                                        class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors">
                                     <MenuIcon />
                                 </button>
                             {/snippet}
@@ -1101,6 +1352,11 @@ import { isMobile } from 'src/ts/platform'
                                 }}>
                                     <ImagePlusIcon /><span>{language.postFile}</span>
                                 </ShDropdownMenuItem>
+                                {#if currentCharacter?.type === 'character'}
+                                    <ShDropdownMenuItem onSelect={() => { imageGenerationOpen = true }}>
+                                        <WandSparklesIcon /><span>{language.imageGeneration}</span>
+                                    </ShDropdownMenuItem>
+                                {/if}
                                 <ShDropdownMenuItem onSelect={() => {
                                     DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules ??= []
                                     openModuleList = true
@@ -1115,23 +1371,10 @@ import { isMobile } from 'src/ts/platform'
                             </IconButtonGroup>
                         </ShDropdownMenuContent>
                     </ShDropdownMenu>
-                {:else}
-                    <button type="button" onclick={(e) => {
-                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.push({
-                            role: 'char',
-                            data: ''
-                        })
-                        DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
-                    }}
-                         class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit text-textcolor hover:bg-primary/20 transition-colors cursor-pointer"
-                    >
-                        <Plus />
-                    </button>
-                {/if}
 
                 {#if DBState.db.useChatSticker}
                     <button type="button" onclick={()=>{toggleStickers = !toggleStickers}}
-                         class={"shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit hover:bg-primary/20 transition-colors cursor-pointer "+(toggleStickers ? 'text-green-500':'text-textcolor')}>
+                         class={"shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit risu-interactive-primary-soft transition-colors cursor-pointer "+(toggleStickers ? 'text-green-500':'text-textcolor')}>
                         <Laugh />
                     </button>
                 {/if}
@@ -1204,16 +1447,17 @@ import { isMobile } from 'src/ts/platform'
                 <button
                         onclick={() => composerFullscreen = true}
                         aria-label={language.chatInputExpandTitle}
-                        class="composer-expand-btn order-1 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors"
+                        class="composer-expand-btn order-1 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors"
                         class:ml-auto={multiline}
                 >
                     <Maximize2 />
                 </button>
 
-                {#if $doingChat || doingChatInputTranslate}
+                {#if currentRoomHasMainGeneration || doingChatInputTranslate}
                     <button
                             aria-labelledby="cancel"
-                            class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors" onclick={abortChat}
+                            disabled={workflowCancelInFlight}
+                            class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors disabled:opacity-50" onclick={abortChat}
                     >
                         <div class="loadmove chat-process-stage-{$chatProcessStage}"></div>
                     </button>
@@ -1233,12 +1477,12 @@ import { isMobile } from 'src/ts/platform'
                 </IconButtonGroup>
               </div>
             </div>
-            {#if DBState.db.useAutoTranslateInput && DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
+            {#if DBState.db.useAutoTranslateInput}
                 <div class="flex items-center mt-2 mb-2">
                     <label for='messageInputTranslate' class="text-textcolor ml-4">
                         <LanguagesIcon size={20} />
                     </label>
-                    <textarea id = 'messageInputTranslate' class="text-textcolor rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 border-darkbutton resize-none focus:bg-selected overflow-y-hidden overflow-x-hidden max-w-full"
+                    <textarea id = 'messageInputTranslate' class="risu-field-border text-textcolor rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 resize-none outline-hidden overflow-y-hidden overflow-x-hidden max-w-full"
                               bind:value={messageInputTranslate}
                               bind:this={inputTranslateEle}
                               onkeydown={(e) => {
@@ -1281,7 +1525,7 @@ import { isMobile } from 'src/ts/platform'
                                 {:else}
                                     <div class="max-w-24 max-h-24">{file}</div>
                                 {/if}
-                                <button class="absolute -right-1 -top-1 p-1 bg-darkbg text-textcolor rounded-md transition-colors hover:text-draculared focus:text-draculared" onclick={() => {
+                                <button class="absolute -right-1 -top-1 p-1 bg-darkbg text-textcolor rounded-md transition-colors risu-interactive-danger" onclick={() => {
                                     fileInput.splice(i, 1)
                                     updateInputSizeAll()
                                 }}>
@@ -1311,16 +1555,9 @@ import { isMobile } from 'src/ts/platform'
                 </div>
             {/if}
 
-            {#if DBState.db.useAutoSuggestions}
-                <Suggestion messageInput={(msg)=>messageInput=(
-                    (DBState.db.subModel === "textgen_webui" || DBState.db.subModel === "mancer" || DBState.db.subModel.startsWith('local_')) && DBState.db.autoSuggestClean
-                    ? msg.replace(/ +\(.+?\) *$| - [^"'*]*?$/, '')
-                    : msg
-                )} {send}/>
-            {/if}
         {/snippet}
 
-        <div class="h-full w-full flex flex-col-reverse overflow-y-auto relative default-chat-screen"
+        <div class="h-full w-full flex flex-col overflow-y-auto overscroll-y-contain relative default-chat-screen"
             bind:this={chatScreenRoot}
             class:nodeonly-standard={DBState.db.theme === ''}
             class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
@@ -1329,30 +1566,19 @@ import { isMobile } from 'src/ts/platform'
             if (DBState.db.nodeOnlyScrollButtonType !== 'off') {
                 bumpScrollNav()
             }
-            //@ts-expect-error scrollHeight/clientHeight/scrollTop don't exist on EventTarget, but target is HTMLElement here
-            const scrolled = (e.target.scrollHeight - e.target.clientHeight + e.target.scrollTop)
-            if(scrolled < 100 && currentChat.length > loadPages){
-                loadPages += getAdditionalChatLoadPages(DBState.db)
+            const chatTarget = e.currentTarget as HTMLElement;
+            if(chatTarget.scrollTop < CHAT_HISTORY_LOAD_THRESHOLD && currentChat.length > loadPages){
+                void loadMoreHistory()
             }
-            const chatTarget = e.target as HTMLElement;
-            const chatsContainer = (DBState.db.fixedChatTextarea && chatTarget.children[1]) ? chatTarget.children[1] : chatTarget.children[0];
-            const lastEl = chatsContainer?.firstElementChild;
-            const isAtBottom = lastEl ? lastEl.getBoundingClientRect().top <= chatTarget.getBoundingClientRect().bottom + 100 : true;
-            if(isAtBottom){
+            if(isChatNearBottom(
+                chatTarget.scrollTop,
+                chatTarget.scrollHeight,
+                chatTarget.clientHeight,
+            )){
                 showNewMessageButton = false;
             }
         }}>
-            {@render composerCluster()}
-
-            {#if chatPanelStore.length > 0}
-                <div class="mx-4 my-2 flex flex-col gap-2">
-                    {#each chatPanelStore as panel (panel.id)}
-                        <section class={`rounded-md border border-darkborderc bg-darkbg/80 p-3 text-textcolor ${panel.className ?? ''}`} data-plugin-chat-panel={panel.id}>
-                            {@html panel.html}
-                        </section>
-                    {/each}
-                </div>
-            {/if}
+            <div class="chat-scroll-phase" data-chat-scroll-phase aria-hidden="true"></div>
 
             {#if !currentChatReady}
                 <div class="w-full flex justify-center text-textcolor2 italic mb-12">
@@ -1362,12 +1588,12 @@ import { isMobile } from 'src/ts/platform'
 
             {#if chatFoldedStateMessageIndex.index !== -1}
                 <button class="w-full flex justify-center max-w-full p-4">
-                    <Button className="max-w-xl w-full" onclick={() => {
+                    <ShButton className="max-w-xl w-full" onclick={() => {
                         loadPages += chatFoldedStateMessageIndex.index + 1
                         chatFoldedState.data = null
                     }}>
                         {language.loadMore}
-                    </Button>
+                    </ShButton>
                 </button>
             {/if}
             
@@ -1380,25 +1606,23 @@ import { isMobile } from 'src/ts/platform'
                     chatId={currentChatSlot?.id ?? null}
                     blockEditEnabled={DBState.db.enableBlockPartialEdit}
                     dragEditEnabled={DBState.db.enableDragPartialEdit}
+                    getScrollController={getChatScrollController}
                 />
             {/if}
 
-            <Chats
-                bind:this={chatsInstance}
-                messages={currentChat}
-                loadPages={loadPages}
-                onReroll={reroll}
-                onNextSwipe={nextSwipe}
-                onDeleteSwipe={deleteSwipe}
-                unReroll={unReroll}
-                currentCharacter={currentCharacter}
-                currentUsername={currentUsername}
-                userIcon={userIcon}
-                userIconPortrait={userIconPortrait}
-                bind:hasNewUnreadMessage={showNewMessageButton}
-            />
-
             {#if currentChat.length <= loadPages}
+                {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0)}
+                    <div class="generated-by-ai-disclaimer ml-auto mr-auto mt-4 text-textcolor2 italic max-w-2/3 wrap-break-word text-center">
+                        {language.generatedByAIDisclaimer}
+                    </div>
+                {/if}
+                {#if !DBState.db.characters[$selectedCharID].removedQuotes && DBState.db.characters[$selectedCharID].creatorNotes.length >= 2}
+                    <CreatorQuote quote={DBState.db.characters[$selectedCharID].creatorNotes} onRemove={() => {
+                        const cha = DBState.db.characters[$selectedCharID]
+                        cha.removedQuotes = true
+                        DBState.db.characters[$selectedCharID] = cha
+                    }} />
+                {/if}
                 <Chat
                     character={createSimpleCharacter(DBState.db.characters[$selectedCharID])}
                     name={DBState.db.characters[$selectedCharID].name}
@@ -1427,26 +1651,51 @@ import { isMobile } from 'src/ts/platform'
                         chat.fmIndex = (cur === -1) ? cha.alternateGreetings.length - 1 : cur - 1
                         DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = chat
                     }}
-                    isLastMemory={false}
                     currentPage={(Number.isFinite(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) ? (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) : -1) + 2}
                     totalPages={DBState.db.characters[$selectedCharID].alternateGreetings.length + 1}
+                    renderCacheKey={`${currentChatRoomKey}:first-message`}
+                    translationRecoveryScope={currentCharacter.chaId && currentChatSlot?.id
+                        ? { characterId: currentCharacter.chaId, roomId: currentChatSlot.id }
+                        : null}
+                    translationRecoveryTarget={null}
 
                 />
-                {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0)}
-                    <div class="ml-auto mr-auto mt-4 text-textcolor2 italic max-w-2/3 wrap-break-word text-center">
-                        {language.aiGenerationWarning}
-                    </div>
-                {/if}
-                {#if !DBState.db.characters[$selectedCharID].removedQuotes && DBState.db.characters[$selectedCharID].creatorNotes.length >= 2}
-                    <CreatorQuote quote={DBState.db.characters[$selectedCharID].creatorNotes} onRemove={() => {
-                        const cha = DBState.db.characters[$selectedCharID]
-                        cha.removedQuotes = true
-                        DBState.db.characters[$selectedCharID] = cha
-                    }} />
-                {/if}
             {/if}
 
+            <Chats
+                bind:this={chatsInstance}
+                getScrollController={getChatScrollController}
+                messages={currentChat}
+                loadPages={loadPages}
+                onReroll={reroll}
+                onNextSwipe={nextSwipe}
+                onDeleteSwipe={deleteSwipe}
+                unReroll={unReroll}
+                currentCharacter={currentCharacter}
+                currentUsername={currentUsername}
+                userIcon={userIcon}
+                chatRoomId={currentChatSlot?.id ?? ''}
+                roomIsStreaming={currentChatSlot?.isStreaming ?? false}
+                roomIsResponding={currentRoomHasMainGeneration || currentRoomHasImageReroll}
+                userIconPortrait={userIconPortrait}
+                bind:hasNewUnreadMessage={showNewMessageButton}
+            />
+
             {/if}
+
+            {#if chatPanelStore.length > 0}
+                <div class="mx-4 my-2 flex flex-col gap-2">
+                    {#each chatPanelStore as panel (panel.id)}
+                        <section class={`rounded-md border border-darkborderc bg-darkbg/80 p-3 text-textcolor ${panel.className ?? ''}`} data-plugin-chat-panel={panel.id}>
+                            {@html panel.html}
+                        </section>
+                    {/each}
+                </div>
+            {/if}
+
+            {@render composerCluster()}
+
+            <div class="chat-scroll-anchor" data-chat-scroll-anchor aria-hidden="true"></div>
 
         </div>
 
@@ -1454,24 +1703,27 @@ import { isMobile } from 'src/ts/platform'
 </div>
 
 {#if additionalFloatingActionButtons.length > 0}
+    <Portal>
     <div class="fixed top-4 right-4 flex flex-col gap-3 z-50">
         {#each additionalFloatingActionButtons as button}
-            <button class="bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={() => {
+            <button class="bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={() => {
                 button.callback()
             }}>
                 <PluginDefinedIcon ico={button} />
             </button>
         {/each}
     </div>
+    </Portal>
 {/if}
 
 {#if composerFullscreen}
+    <Portal>
     <div class="fixed inset-0 z-50 bg-bgcolor flex flex-col p-4">
         <div class="mx-auto w-full max-w-3xl flex flex-col flex-1 min-h-0">
             <div class="flex items-center justify-between mb-2">
                 <span class="text-textcolor text-sm">{language.chatInputExpandTitle}</span>
                 <button onclick={exitFullscreen} aria-label="minimize"
-                        class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor hover:bg-primary/20 transition-colors">
+                        class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors">
                     <Minimize2 size={18} />
                 </button>
             </div>
@@ -1480,7 +1732,7 @@ import { isMobile } from 'src/ts/platform'
                     bind:this={fullscreenEle}
                     onblur={persistDraftNow}
                     placeholder={language.enterMessageToPersona(activePersonaName)}
-                    class="flex-1 min-h-0 w-full resize-none rounded-md border border-darkborderc bg-transparent p-3 text-textcolor text-base outline-hidden overflow-y-auto focus:border-textcolor transition-colors"
+                    class="risu-field-border flex-1 min-h-0 w-full resize-none rounded-md bg-transparent p-3 text-textcolor text-base outline-hidden overflow-y-auto"
             ></textarea>
             <div class="flex justify-end mt-3">
                 <button onclick={sendFullscreen} aria-label="send"
@@ -1491,8 +1743,38 @@ import { isMobile } from 'src/ts/platform'
             </div>
         </div>
     </div>
+    </Portal>
 {/if}
 <style>
+
+    :global(.default-chat-screen > :not([data-chat-scroll-anchor])) {
+        overflow-anchor: none;
+    }
+
+    :global(.default-chat-screen > [data-chat-scroll-phase]) {
+        width: 100%;
+        height: 0;
+        min-height: 0;
+        margin-top: auto;
+        flex: 0 0 auto;
+        overflow-anchor: none;
+        pointer-events: none;
+    }
+
+    :global(.default-chat-screen > [data-chat-scroll-anchor]) {
+        width: 100%;
+        height: 1px;
+        min-height: 1px;
+        flex: 0 0 1px;
+        overflow-anchor: auto;
+        pointer-events: none;
+    }
+
+    /* While a finger or pointer owns the scroll position, browser viewport
+       resizing must not make the native bottom anchor pull against it. */
+    :global(.default-chat-screen[data-chat-direct-manipulation] > [data-chat-scroll-anchor]) {
+        overflow-anchor: none;
+    }
 
     .chat-process-stage-1{
         border-top-color: var(--risu-theme-primary);

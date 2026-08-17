@@ -9,7 +9,7 @@ const { mockStore, mockState } = vi.hoisted(() => ({
     mockState: { setItemDelay: 0, setItemThrowsAfterStore: false },
 }))
 
-vi.mock('../globalApi.svelte', () => ({
+vi.mock('./autoStorage', () => ({
     forageStorage: {
         async keys(prefix = '') {
             return [...mockStore.keys()].filter((k) => k.startsWith(prefix))

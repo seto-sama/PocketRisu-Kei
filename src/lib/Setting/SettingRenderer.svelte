@@ -1,17 +1,11 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
-    import type { LLMModel } from 'src/ts/model/types';
     import { DBState } from 'src/ts/stores.svelte';
-    import { getModelInfo } from 'src/ts/model/modellist';
     import { settingRegistry } from 'src/ts/setting/settingRegistry';
     import { checkCondition } from 'src/ts/setting/utils';
 
     interface Props {
         items: SettingItem[];
-        /** Optional modelInfo, derived automatically if not provided */
-        modelInfo?: LLMModel;
-        /** Optional subModelInfo, derived automatically if not provided */
-        subModelInfo?: LLMModel;
         /** Optional object used as the root for bindKey/bindPath. */
         target?: object;
         /** 'row' renders row-capable wrappers (select/text/slider) with the label
@@ -21,18 +15,12 @@
         layout?: 'stacked' | 'row' | 'block';
     }
 
-    let { items, modelInfo, subModelInfo, target, layout = 'stacked' }: Props = $props();
-
-    // Derive modelInfo if not provided
-    let effectiveModelInfo = $derived(modelInfo ?? getModelInfo(DBState.db.aiModel));
-    let effectiveSubModelInfo = $derived(subModelInfo ?? getModelInfo(DBState.db.subModel));
+    let { items, target, layout = 'stacked' }: Props = $props();
 
     // Build context for condition checks
     let ctx: SettingContext = $derived({
         db: DBState.db,
         target,
-        modelInfo: effectiveModelInfo,
-        subModelInfo: effectiveSubModelInfo,
         layout,
     });
 </script>

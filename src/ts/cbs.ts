@@ -1,14 +1,13 @@
 import type { Database, character, loreBook } from './storage/database.svelte';
 import type { CbsConditions } from './parser/parser.svelte';
 import type { RisuModule } from './process/modules';
-import type { LLMModel } from './model/modellist';
-import { get } from 'svelte/store';
-import { CurrentTriggerIdStore } from './stores.svelte';
+import type { GenerationModelMetadata, GenerationModelMode } from './process/models/modelString';
 
 export const defaultCBSRegisterArg: CBSRegisterArg = {
     registerFunction: () => { throw new Error('registerFunction not implemented') },
     getDatabase: () => { throw new Error('getDatabase not implemented') },
     getUserName: () => 'placeholder_user',
+    getTriggerId: () => null,
     getPersonaPrompt: () => 'placeholder_persona',
     risuChatParser: (text: string) => text,
     makeArray: (arr: string[]) => JSON.stringify(arr),
@@ -33,19 +32,25 @@ export const defaultCBSRegisterArg: CBSRegisterArg = {
     getModuleLorebooks: () => [],
     pickHashRand: () => Math.random(),
     getSelectedCharID: () => 0,
+    getGenerationModelString: () => 'Placeholder Model',
+    getGenerationModelMetadata: () => ({
+        presetId: 'placeholder',
+        name: 'Placeholder Model',
+        shortName: 'Placeholder Model',
+        internalId: 'placeholder',
+        format: 'placeholder',
+        provider: 'placeholder',
+        tokenizer: 'tik',
+        supportsPrefill: false,
+        streaming: false,
+        vision: false,
+        audioInput: false,
+        videoInput: false,
+    }),
     callInternalFunction: (args: string[]) => {return ''},
     isNodeServer: false,
     isMobile: false,
     appVer: '0.0.0',
-    getModelInfo: () => ({
-        id: 'placeholder',
-        name: 'Placeholder Model',
-        shortName: 'Placeholder',
-        internalID: 'placeholder',
-        format: 0,
-        provider: 0,
-        tokenizer: 0
-    } as LLMModel)
 };
 
 export type matcherArg = {
@@ -75,21 +80,24 @@ export type RegisterCallback = (str: string, matcherArg: matcherArg, args:string
     var: { [key: string]: string }
 } | string | null
 
+export type CBSDefinition = {
+    name: string,
+    callback: RegisterCallback|'doc_only',
+    alias: string[]
+    description: string
+    deprecated?: {
+        message: string,
+        since?: string,
+        replacement?: string
+    }
+    internalOnly?: boolean
+}
+
 export type CBSRegisterArg = {
-    registerFunction: (arg:{
-        name: string,
-        callback: RegisterCallback|'doc_only',
-        alias: string[]
-        description: string
-        deprecated?: {
-            message: string,
-            since?: string,
-            replacement?: string
-        }
-        internalOnly?: boolean
-    }) => void | Promise<void>,
+    registerFunction: (arg:CBSDefinition) => void | Promise<void>,
     getDatabase: () => Database,
     getUserName: () => string,
+    getTriggerId: () => string | null,
     getPersonaPrompt: () => string,
     risuChatParser: (text: string, arg: matcherArg) => string,
     makeArray: (arr: unknown[]) => string,
@@ -105,7 +113,8 @@ export type CBSRegisterArg = {
     getModuleLorebooks: () => loreBook[],
     pickHashRand: (seed: number, hash: string) => number,
     getSelectedCharID: () => number,
-    getModelInfo: (model: string) => LLMModel
+    getGenerationModelString: () => string,
+    getGenerationModelMetadata: (mode?: GenerationModelMode) => GenerationModelMetadata,
     callInternalFunction: (args: string[]) => string,
     isNodeServer: boolean,
     isMobile: boolean,
@@ -117,6 +126,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         registerFunction, 
         getDatabase, 
         getUserName, 
+        getTriggerId,
         getPersonaPrompt, 
         risuChatParser, 
         makeArray, 
@@ -132,10 +142,11 @@ export function registerCBS(arg:CBSRegisterArg) {
         getModuleLorebooks, 
         pickHashRand, 
         getSelectedCharID, 
+        getGenerationModelString,
+        getGenerationModelMetadata,
         isNodeServer,
         isMobile, 
         appVer, 
-        getModelInfo,
         callInternalFunction
     } = arg;
 
@@ -181,7 +192,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     registerFunction({
         name: 'trigger_id',
         callback: (str, matcherArg, args, vars) => {
-            const currentTriggerId = get(CurrentTriggerIdStore)
+            const currentTriggerId = getTriggerId()
             return currentTriggerId ?? 'null'
         },
         alias: ['triggerid'],
@@ -635,8 +646,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     registerFunction({
         name: 'model',
         callback: (str, matcherArg, args, vars) => {
-            const db = getDatabase()
-            return db.aiModel
+            return getGenerationModelMetadata('model').internalId
         },
         alias: [],
         description: 'Returns the ID/name of the currently selected AI model (e.g., "gpt-4", "claude-3-opus").\n\nUsage:: {{model}}',
@@ -645,8 +655,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     registerFunction({
         name: 'axmodel',
         callback: (str, matcherArg, args, vars) => {
-            const db = getDatabase()
-            return db.subModel
+            return getGenerationModelMetadata('submodel').internalId
         },
         alias: [],
         description: 'Returns the currently selected sub/auxiliary model ID. Used for specialized tasks like embedding or secondary processing.\n\nUsage:: {{axmodel}}',
@@ -1342,8 +1351,7 @@ export function registerCBS(arg:CBSRegisterArg) {
     registerFunction({
         name: 'prefillsupported',
         callback: (str, matcherArg, args, vars) => {
-            const db = getDatabase()
-            return db.aiModel.startsWith('claude') ? '1' : '0'
+            return getGenerationModelMetadata('model').supportsPrefill ? '1' : '0'
         },
         alias: ['prefill_supported', 'prefill'],
         description: 'Returns "1" if the current AI model supports prefill functionality (like Claude models), "0" otherwise. Prefill allows pre-filling the assistant\'s response start.\n\nUsage:: {{prefillsupported}}',
@@ -1879,28 +1887,22 @@ export function registerCBS(arg:CBSRegisterArg) {
                     return navigator.language
                 }
                 case 'modelshortname':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.shortName ?? modelInfo.name ?? modelInfo.id
+                    return getGenerationModelMetadata('model').shortName
                 }
                 case 'modelname':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.name ?? modelInfo.id
+                    return getGenerationModelString()
                 }
                 case 'modelinternalid':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.internalID ?? modelInfo.id
+                    return getGenerationModelMetadata('model').internalId
                 }
                 case 'modelformat':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.format.toString()
+                    return getGenerationModelMetadata('model').format
                 }
                 case 'modelprovider':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.provider.toString()
+                    return getGenerationModelMetadata('model').provider
                 }
                 case 'modeltokenizer':{
-                    const modelInfo = getModelInfo(db.aiModel)
-                    return modelInfo.tokenizer.toString()
+                    return getGenerationModelMetadata('model').tokenizer
                 }
                 case 'imateapot':{
                     return '🫖'
@@ -2297,7 +2299,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         name: 'bgm',
         callback: 'doc_only',
         alias: [],
-        description: 'Inserts background music control element.\n\nUsage:: {{bgm::musicName}}',
+        description: 'Alias of audio. Displays an audio player for asset A.\n\nUsage:: {{bgm::musicName}}',
     });
 
     registerFunction({
@@ -2487,3 +2489,68 @@ Usage:: {{#each A as V}} ... {{slot::V}} ... {{/each}}`,
         description: 'Defines the position which can be used in various features such as @@position <positionName> decorator.\n\nUsage:: {{position::positionName}}',
     })
 }
+
+let cachedCBSDefinitions: readonly CBSDefinition[] | undefined
+
+/**
+ * Returns the same built-in CBS definitions used by the runtime parser.
+ * Editor tooling derives its completion and highlighting names from this
+ * registry so new syntax doesn't require a second hardcoded list.
+ */
+export function getCBSDefinitions(): readonly CBSDefinition[] {
+    if (cachedCBSDefinitions) return cachedCBSDefinitions
+
+    const definitions: CBSDefinition[] = []
+    registerCBS({
+        ...defaultCBSRegisterArg,
+        registerFunction: definition => { definitions.push(definition) },
+    })
+    cachedCBSDefinitions = definitions
+    return cachedCBSDefinitions
+}
+
+export function getCBSCompletionNames(): string[] {
+    return getCBSCompletionEntries().map(entry => entry.name)
+}
+
+export type CBSCompletionEntry = {
+    name: string
+    description: string
+    detail: string
+    deprecated: boolean
+}
+
+/** Editor-facing CBS metadata derived from the runtime registry. */
+export function getCBSCompletionEntries(): CBSCompletionEntry[] {
+    const entries = new Map<string, CBSCompletionEntry>()
+
+    for (const definition of getCBSDefinitions()) {
+        if (definition.internalOnly) continue
+        for (const name of [definition.name, ...definition.alias]) {
+            const isAlias = name !== definition.name
+            if (!entries.has(name)) {
+                entries.set(name, {
+                    name,
+                    description: definition.description,
+                    detail: isAlias ? `alias of ${definition.name}` : name.startsWith('#') ? 'block' : '',
+                    deprecated: !!definition.deprecated,
+                })
+            }
+            if (name.startsWith('#')) {
+                const closingName = `/${name.slice(1)}`
+                if (!entries.has(closingName)) {
+                    entries.set(closingName, {
+                        name: closingName,
+                        description: `Closes the ${name} block.\n\n${definition.description}`,
+                        detail: `closes ${name}`,
+                        deprecated: !!definition.deprecated,
+                    })
+                }
+            }
+        }
+    }
+
+    return [...entries.values()]
+}
+
+export const AllCBS = getCBSCompletionNames()

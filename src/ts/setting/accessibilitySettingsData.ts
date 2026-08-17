@@ -163,23 +163,14 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['auto', 'scroll', 'new', 'message']
     },
     {
-        id: 'acc.alwaysScrollToNewMessage',
-        type: 'check',
-        labelKey: 'alwaysScrollToNewMessage',
-        bindKey: 'alwaysScrollToNewMessage',
-        helpKey: 'alwaysScrollToNewMessage',
-        condition: (ctx) => ctx.db.autoScrollToNewMessage,
-        keywords: ['always', 'scroll', 'new', 'message']
-    },
-    {
         id: 'acc.newMessageButtonStyle',
         type: 'select',
         labelKey: 'newMessageButtonStyle',
         bindKey: 'newMessageButtonStyle',
         helpKey: 'newMessageButtonStyle',
-        condition: (ctx) => ctx.db.autoScrollToNewMessage && !ctx.db.alwaysScrollToNewMessage,
         options: {
             selectOptions: [
+                { value: 'off', labelKey: 'newMessageButtonDisabled' },
                 { value: 'bottom-center', labelKey: 'newMessageButtonBottomCenter' },
                 { value: 'bottom-right', labelKey: 'newMessageButtonBottomRight' },
                 { value: 'bottom-left', labelKey: 'newMessageButtonBottomLeft' },
@@ -252,38 +243,6 @@ export const accessibilitySettingsItems: SettingItem[] = [
             ],
         },
         keywords: ['scroll', 'button', 'navigate', 'message'],
-    },
-    {
-        id: 'acc.modelModeLock',
-        type: 'radio',
-        labelKey: 'modelModeLockLabel',
-        bindKey: 'nodeOnlyModelModeLock',
-        helpKey: 'modelModeLock',
-        options: {
-            selectOptions: [
-                { value: 'legacy', labelKey: 'modelModeLockLegacy', descriptionKey: 'modelModeLockLegacyDesc' },
-                { value: 'preset', labelKey: 'modelModeLockPreset', descriptionKey: 'modelModeLockPresetDesc' },
-                { value: 'none', labelKey: 'modelModeLockNone', descriptionKey: 'modelModeLockNoneDesc' },
-            ],
-        },
-        keywords: ['model', 'mode', 'legacy', 'preset', 'binding', 'lock', 'sidebar'],
-    },
-    {
-        id: 'acc.newChatModelMode',
-        type: 'select',
-        labelKey: 'newChatModelModeLabel',
-        helpKey: 'newChatModelMode',
-        condition: (ctx) => (ctx.db.nodeOnlyModelModeLock ?? 'none') === 'none',
-        // Backed by the existing boolean useModelPresetByDefault (preset=true).
-        getValue: (db) => (db.useModelPresetByDefault ? 'preset' : 'legacy'),
-        setValue: (db, val) => { db.useModelPresetByDefault = val === 'preset'; },
-        options: {
-            selectOptions: [
-                { value: 'legacy', labelKey: 'modelModeLegacy' },
-                { value: 'preset', labelKey: 'modelModePreset' },
-            ],
-        },
-        keywords: ['model', 'mode', 'new', 'chat', 'default', 'legacy', 'preset'],
     },
     {
         id: 'acc.showModelInSidebar',
@@ -380,7 +339,6 @@ export const accessibilityEditingItems = pick([
 
 export const accessibilityScrollItems = pick([
     'acc.autoScrollToNewMessage',
-    'acc.alwaysScrollToNewMessage',
     'acc.newMessageButtonStyle',
     'acc.nodeOnlyScrollButtonType',
     'acc.chatLoadInitialPages',
@@ -388,8 +346,6 @@ export const accessibilityScrollItems = pick([
 ]);
 
 export const accessibilityChatPanelItems = pick([
-    'acc.modelModeLock',
-    'acc.newChatModelMode',
     'acc.disableToggleBinding',
     'acc.showModelInSidebar',
     'acc.showPresetInSidebar',

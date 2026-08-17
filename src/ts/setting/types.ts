@@ -7,7 +7,6 @@
 
 import type { Database } from '../storage/database.svelte';
 import type { CustomComponentId, CustomComponentProps } from './customComponents';
-import type { LLMModel } from '../model/types';
 
 /**
  * Context passed to condition functions for visibility checks
@@ -16,8 +15,6 @@ export interface SettingContext {
     db: Database;
     /** Optional binding root. Defaults to DBState.db for backwards compatibility. */
     target?: object;
-    modelInfo: LLMModel;
-    subModelInfo: LLMModel;
     /** Render mode for row-capable wrappers (select/text/slider). 'row' puts the
      * label + inline help on the left and the control right-aligned & vertically
      * centered; 'stacked' (default) keeps the label above the control. Multiline
@@ -103,7 +100,9 @@ export interface SettingOptions {
     // text, textarea
     placeholder?: string;
     hideText?: boolean;     // For password-like inputs
+    suggestions?: string[]; // Optional datalist suggestions; free-form input remains allowed
     defaultValue?: unknown; // Display value when a bound field is undefined
+    showTokenCount?: boolean; // Show the CBS-expanded token count below a textarea
     
     // number
     inputClassName?: string;
@@ -167,7 +166,7 @@ export interface SettingItem {
     /**
      * Condition function for visibility
      * Return true to show, false to hide
-     * @param ctx - Contains db, modelInfo, and subModelInfo
+     * @param ctx - Contains the database and optional binding target
      */
     condition?: (ctx: SettingContext) => boolean;
     

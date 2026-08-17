@@ -38,14 +38,14 @@ export interface ToolLoopDeps {
 // append assistant{toolCalls} + tool{result} turns, then re-request, until the
 // model stops calling tools or the step cap is hit. The returned string
 // interleaves model text with persisted markers in turn order, matching the
-// classic recursive path (openAI/requests.ts).
+// recursive tool execution path.
 export async function runToolLoop(
     initial: AdapterChatMessage[],
     deps: ToolLoopDeps,
 ): Promise<string> {
     const convo = initial.slice()
     // Segments (model text + persisted markers) joined with blank lines, matching
-    // the classic path's newline combining (openAI/requests.ts) rather than
+    // the established newline-combining behavior rather than
     // bare concatenation.
     const parts: string[] = []
     let executedAny = false

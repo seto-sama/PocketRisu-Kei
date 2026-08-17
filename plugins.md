@@ -896,6 +896,27 @@ const imageData = await Risuai.readImage('asset-id');
 const savedPath = await Risuai.saveAsset(assetData);
 ```
 
+#### Inlay Assets (user-attached images / audio / video)
+
+Inlay assets are files the user attaches to a chat message. Raw message text contains a `{{inlayed::<uuid>}}` placeholder referencing the asset.
+
+```javascript
+const charIdx = await Risuai.getCurrentCharacterIndex();
+const chatIdx = await Risuai.getCurrentChatIndex();
+const chat = await Risuai.getChatFromIndex(charIdx, chatIdx);
+const lastMsg = chat.message[chat.message.length - 1];
+
+const match = lastMsg.data.match(/\{\{inlayed::([a-f0-9-]+)\}\}/i);
+if (match) {
+  const inlay = await Risuai.readInlay(match[1]);
+  // inlay.data === "data:image/png;base64,iVBORw0..."
+  // inlay.ext === "png"
+  // inlay.type === "image"
+}
+```
+
+`readInlay(id)` returns `null` when the UUID does not exist. Supported `type` values are `'image'`, `'video'`, `'audio'`, and `'signature'`.
+
 ### Theming
 
 #### Color Scheme

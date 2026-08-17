@@ -1,7 +1,8 @@
 import { v4 } from "uuid";
 import { getImageType } from "src/ts/media";
 import { getDatabase } from "../../storage/database.svelte";
-import { getModelInfo, LLMFlags, LLMFormat } from "src/ts/model/modellist";
+import { LLMFormat } from "src/ts/model/modellist";
+import { getGenerationModelMetadata } from "../models/modelString";
 import { asBuffer } from "../../util";
 import { NodeStorage } from "../../storage/nodeStorage";
 import {
@@ -630,7 +631,7 @@ export async function removeInlayAssets(ids: string[]): Promise<number> {
 
 export async function setInlayMetaFields(
     id: string,
-    patch: Partial<Pick<InlayAssetMeta, 'charId' | 'chatId' | 'createdAt' | 'updatedAt'>>
+    patch: Partial<Pick<InlayAssetMeta, 'charId' | 'chatId' | 'createdAt' | 'updatedAt' | 'imageGeneration'>>
 ): Promise<void> {
     const existing = await getInlayMeta(id)
     const now = Date.now()
@@ -641,6 +642,7 @@ export async function setInlayMetaFields(
         updatedAt: (typeof patch.updatedAt === 'number' && patch.updatedAt > 0) ? patch.updatedAt : now,
         charId: typeof patch.charId === 'string' ? patch.charId : existing?.charId,
         chatId: typeof patch.chatId === 'string' ? patch.chatId : existing?.chatId,
+        imageGeneration: patch.imageGeneration ?? existing?.imageGeneration,
     }
     await setInlayMeta(id, next)
 }
@@ -695,8 +697,7 @@ export function scanInlayReferences(): InlayScanResult {
 }
 
 export function supportsInlayImage() {
-    const db = getDatabase()
-    return getModelInfo(db.aiModel).flags.includes(LLMFlags.hasImageInput)
+    return getGenerationModelMetadata('model').vision
 }
 
 export async function reencodeImage(img: Uint8Array) {

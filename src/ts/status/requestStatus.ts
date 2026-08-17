@@ -67,6 +67,14 @@ export interface RequestStatusEntry {
 
 export const requestStatuses = writable<Map<string, RequestStatusEntry>>(new Map())
 
+export function hasRequestStatus(id: string): boolean {
+    return get(requestStatuses).has(id)
+}
+
+export function requestStatusIdForJob(job: { jobId: string, chatId?: string }): string {
+    return job.chatId || job.jobId
+}
+
 // --- tuning ---------------------------------------------------------------
 
 // Injected token counter. request.ts registers the native tokenizer
@@ -177,9 +185,18 @@ export interface StartStatusInit {
     chatId?: string
     phase?: RequestPhase
     now: number
+    abortSignal?: AbortSignal
+}
+
+const abortBindings = new Map<string, () => void>()
+
+function clearAbortBinding(id: string): void {
+    abortBindings.get(id)?.()
+    abortBindings.delete(id)
 }
 
 export function startStatus(id: string, init: StartStatusInit): void {
+    clearAbortBinding(id)
     requestStatuses.update((m) => {
         const next = new Map(m)
         next.set(id, {
@@ -201,6 +218,17 @@ export function startStatus(id: string, init: StartStatusInit): void {
         })
         return next
     })
+    if (init.abortSignal) {
+        const signal = init.abortSignal
+        const onAbort = () => endStatus(id, 'aborted', { now: Date.now() })
+        if (signal.aborted) {
+            onAbort()
+        }
+        else {
+            signal.addEventListener('abort', onAbort, { once: true })
+            abortBindings.set(id, () => signal.removeEventListener('abort', onAbort))
+        }
+    }
     // Self-start the recompute timer; it self-stops once entries go terminal.
     startStatusTimer()
 }
@@ -248,6 +276,37 @@ export function appendText(
     })
 }
 
+/** Publishes accumulated text from a replayable journal projection. */
+export function observeText(
+    id: string,
+    text: { thinking?: string, response?: string },
+    now: number,
+): void {
+    update(id, (e) => {
+        if (isTerminalPhase(e.phase)) return e
+        const thinkingText = text.thinking ?? e.thinkingText
+        const responseText = text.response ?? e.responseText
+        const phase: RequestPhase = responseText ? 'responding'
+            : thinkingText ? 'thinking'
+            : e.phase
+        if (e.thinkingText === thinkingText && e.responseText === responseText) {
+            return phase !== e.phase
+                ? { ...e, phase, lastChunkAt: now }
+                : e
+        }
+        const estTotal = estimateTokenCount(thinkingText) + estimateTokenCount(responseText)
+        return {
+            ...e,
+            phase,
+            thinkingText,
+            responseText,
+            textDirty: true,
+            lastChunkAt: now,
+            tokenSamples: trimSamples([...e.tokenSamples, { at: now, tokens: estTotal }], now),
+        }
+    })
+}
+
 export function addBadge(id: string, badge: StatusBadge): void {
     update(id, (e) => {
         // Replace a badge with the same key (e.g. cache hit updates its saving).
@@ -267,16 +326,31 @@ export function endStatus(
     opts: { now: number, usage?: EndStatusUsage, error?: string } = { now: 0 },
 ): void {
     let needFinalCount = false
+    let recountBase: EndStatusUsage | undefined
     update(id, (e) => {
         // Idempotent: a request can end through more than one path (e.g.
         // decoupledStreaming, where the pump's onFinish fires AND the drained
         // stream rethrows into the outer catch). First terminal write wins.
-        if (isTerminalPhase(e.phase)) return e
+        if (isTerminalPhase(e.phase)) {
+            if (!opts.usage && opts.error === undefined) return e
+            return {
+                ...e,
+                thinkingTokens: opts.usage?.thinkingTokens ?? e.thinkingTokens,
+                responseTokens: opts.usage?.responseTokens ?? e.responseTokens,
+                error: opts.error ?? e.error,
+            }
+        }
         // Provider usage is authoritative when present (non-streaming paths and
         // streams whose last chunk carried usageMetadata). Otherwise the last
         // per-tick tokenization may be up to one tick stale, so flag a final
         // recount of the accumulated text below.
         needFinalCount = opts.usage?.responseTokens === undefined && (!!e.thinkingText || !!e.responseText)
+        if (needFinalCount) {
+            recountBase = {
+                thinkingTokens: e.thinkingTokens,
+                responseTokens: e.responseTokens,
+            }
+        }
         return {
             ...e,
             phase: outcome,
@@ -287,13 +361,32 @@ export function endStatus(
             tokPerSec: 0,
         }
     })
-    if (needFinalCount) void finalRecount(id)
+    clearAbortBinding(id)
+    if (needFinalCount) void finalRecount(id, recountBase)
+}
+
+export function abortStatusesForChat(chatId: string, now = Date.now()): void {
+    endStatusesForChat(chatId, 'aborted', now)
+}
+
+export function endStatusesForChat(
+    chatId: string,
+    outcome: 'done' | 'failed' | 'aborted',
+    now = Date.now(),
+    kind?: RequestKind,
+): void {
+    const ids = [...get(requestStatuses)]
+        .filter(([, entry]) => entry.chatId === chatId
+            && (kind === undefined || entry.kind === kind)
+            && !isTerminalPhase(entry.phase))
+        .map(([id]) => id)
+    for (const id of ids) endStatus(id, outcome, { now })
 }
 
 // One last native tokenization of the accumulated text after a request ends
 // without provider usage, so the frozen final counts are accurate (not up to
 // one tick stale). The only token write allowed onto a terminal entry.
-async function finalRecount(id: string): Promise<void> {
+async function finalRecount(id: string, recountBase?: EndStatusUsage): Promise<void> {
     const e = get(requestStatuses).get(id)
     if (!e) return
     const thinkingText = e.thinkingText
@@ -311,6 +404,11 @@ async function finalRecount(id: string): Promise<void> {
             // write if still the same terminal entry with the text we counted.
             if (!isTerminalPhase(cur.phase)) return cur
             if (cur.thinkingText !== thinkingText || cur.responseText !== responseText) return cur
+            if (
+                recountBase
+                && (cur.thinkingTokens !== recountBase.thinkingTokens
+                    || cur.responseTokens !== recountBase.responseTokens)
+            ) return cur
             return { ...cur, thinkingTokens, responseTokens }
         })
     } catch {
@@ -321,6 +419,7 @@ async function finalRecount(id: string): Promise<void> {
 // Remove an entry outright (renderer calls this after the retention window for
 // terminal entries; also used to clear aborted/failed immediately if desired).
 export function clearStatus(id: string): void {
+    clearAbortBinding(id)
     requestStatuses.update((m) => {
         if (!m.has(id)) return m
         const next = new Map(m)
@@ -396,6 +495,7 @@ async function tokenizeDirty(): Promise<void> {
 function tick(): void {
     const now = Date.now()
     let changed = false
+    const abandonedIds: string[] = []
     requestStatuses.update((m) => {
         if (m.size === 0) return m
         const next = new Map<string, RequestStatusEntry>()
@@ -408,6 +508,7 @@ function tick(): void {
             // (fixed 600s for local-network requests) fires the catch path first.
             if (!isTerminalPhase(e.phase) && now - e.startedAt > STATUS_ABANDON_MS) {
                 changed = true
+                abandonedIds.push(id)
                 continue // omit from next → removed, timer can stop
             }
             const re = recomputeEntry(e, now)
@@ -416,6 +517,7 @@ function tick(): void {
         }
         return changed ? next : m
     })
+    for (const id of abandonedIds) clearAbortBinding(id)
     // Authoritative token recount (async, off the sync path).
     void tokenizeDirty()
     if (!hasLiveEntries(get(requestStatuses))) {

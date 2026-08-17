@@ -541,7 +541,7 @@ describe('buildModelsDevRegistry', () => {
         expect(mantle.schema.find((field) => field.key === 'bedrockRegion')?.default)
             .toBe('us-east-1')
         expect(mantle.schema.find((field) => field.key === 'openaiApiMode')?.default)
-            .toBe('completions')
+            .toBe('responses')
     })
 
     test('builds every Workers AI model on the Cloudflare account endpoint', () => {
@@ -564,7 +564,11 @@ describe('buildModelsDevRegistry', () => {
         const snapshot = resolveSnapshot(registry, 'cloudflare-workers-ai:@cf/meta/llama')
 
         expect(Object.keys(profiles)).toHaveLength(2)
-        expect(snapshot.endpoint).toEqual({ kind: 'cloudflare-ai' })
+        expect(snapshot.adapterKind).toBe('openai-compatible')
+        expect(snapshot.endpoint).toEqual({
+            kind: 'cloudflare-ai',
+            path: 'chat/completions',
+        })
         expect(snapshot.auth).toEqual({ kind: 'bearer', fields: ['cloudflareApiToken'] })
         expect(snapshot.schema.find((field) => field.key === 'cloudflareAccountId')).toMatchObject({
             helpKey: 'cloudflareAccountIdHelp',
@@ -577,7 +581,7 @@ describe('buildModelsDevRegistry', () => {
         expect(snapshot.schema.some((field) => field.key === 'cloudflareGatewayId')).toBe(false)
     })
 
-    test('keeps all AI Gateway models on Cloudflare even when model SDK metadata differs', () => {
+    test('routes AI Gateway models by Cloudflare REST format while keeping token auth', () => {
         const gateway = provider({
             id: 'cloudflare-ai-gateway',
             name: 'Cloudflare AI Gateway',
@@ -589,10 +593,15 @@ describe('buildModelsDevRegistry', () => {
                     name: 'GPT-5',
                     family: 'gpt',
                 }),
-                'anthropic/claude-sonnet': model({
-                    id: 'anthropic/claude-sonnet',
-                    name: 'Claude Sonnet',
-                    family: 'claude',
+                'openai/gpt-5.6-sol': model({
+                    id: 'openai/gpt-5.6-sol',
+                    name: 'GPT-5.6 Sol',
+                    family: 'gpt-sol',
+                }),
+                'anthropic/claude-opus-4-8': model({
+                    id: 'anthropic/claude-opus-4-8',
+                    name: 'Claude Opus 4.8',
+                    family: 'claude-opus',
                     provider: {
                         npm: '@ai-sdk/anthropic',
                         api: 'https://api.anthropic.com/v1',
@@ -604,17 +613,38 @@ describe('buildModelsDevRegistry', () => {
         const profiles = registry.registries[MODELS_DEV_REGISTRY_ID]?.profiles ?? {}
         const claude = resolveSnapshot(
             registry,
-            'cloudflare-ai-gateway:anthropic/claude-sonnet',
+            'cloudflare-ai-gateway:anthropic/claude-opus-4-8',
         )
+        const gpt = resolveSnapshot(registry, 'cloudflare-ai-gateway:openai/gpt-5')
+        const sol = resolveSnapshot(registry, 'cloudflare-ai-gateway:openai/gpt-5.6-sol')
 
-        expect(Object.keys(profiles)).toHaveLength(2)
-        expect(claude.adapterKind).toBe('openai-compatible')
-        expect(claude.endpoint).toEqual({ kind: 'cloudflare-ai' })
-        expect(claude.auth.fields).toEqual(['cloudflareApiToken'])
+        expect(Object.keys(profiles)).toHaveLength(3)
+        expect(claude.adapterKind).toBe('anthropic-messages')
+        expect(claude.endpoint).toEqual({ kind: 'cloudflare-ai', path: 'messages' })
+        expect(claude.auth).toEqual({ kind: 'bearer', fields: ['cloudflareApiToken'] })
+        expect(claude.modelId).toBe('anthropic/claude-opus-4-8')
+        expect(claude.headerTemplate['anthropic-version']).toBe('2023-06-01')
         expect(claude.headerTemplate['cf-aig-gateway-id']).toBe('default')
         expect(claude.schema.some((field) => field.key === 'cloudflareGatewayId')).toBe(false)
         expect(claude.uiSchema.fields.some((field) => field.key === 'cloudflareGatewayId'))
             .toBe(false)
+        expect(gpt.endpoint).toEqual({ kind: 'cloudflare-ai', path: 'responses' })
+        expect(gpt.adapterKind).toBe('openai-responses')
+        expect(gpt.schema.find((field) => field.key === 'openaiApiMode')).toMatchObject({
+            default: 'responses',
+            enum: [
+                { value: 'completions', label: 'Chat Completions' },
+                { value: 'responses', label: 'Responses' },
+            ],
+        })
+        expect(sol.endpoint).toEqual({ kind: 'cloudflare-ai', path: 'responses' })
+        expect(sol.schema.find((field) => field.key === 'openaiApiMode')).toMatchObject({
+            default: 'responses',
+            enum: [
+                { value: 'completions', label: 'Chat Completions' },
+                { value: 'responses', label: 'Responses' },
+            ],
+        })
     })
 
     test('does not misroute a provider model whose SDK override changes the explicit recipe wire', () => {

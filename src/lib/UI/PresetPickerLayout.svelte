@@ -1,15 +1,15 @@
 <script lang="ts">
     import type { Snippet } from "svelte";
-    import { CircleQuestionMarkIcon, CopyIcon, DownloadIcon, FolderIcon, FolderPlusIcon, PencilIcon, SearchIcon, TrashIcon, XIcon } from "@lucide/svelte";
+    import { CircleQuestionMarkIcon, CopyIcon, DownloadIcon, FolderIcon, FolderPlusIcon, PencilIcon, SearchIcon, SettingsIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { alertConfirm, alertInput } from "src/ts/alert";
     import { v4 as uuidv4 } from "uuid";
-    import ShButton from "./GUI/ShButton.svelte";
     import ShTooltip from "./GUI/ShTooltip.svelte";
     import SettingLayout from "../Setting/Wrappers/SettingLayout.svelte";
     import ShSortableList from "./GUI/ShSortableList.svelte";
     import IconButton from "./GUI/IconButton.svelte";
     import IconButtonGroup from "./GUI/IconButtonGroup.svelte";
+    import Portal from "./GUI/Portal.svelte";
 
     interface PresetFolder {
         id: string;
@@ -26,7 +26,6 @@
         searchQuery?: string;
         close: () => void;
         configure?: () => void;
-        configureLabel?: string;
         onFoldersChange: (folders: PresetFolder[]) => void;
         onAssignItem: (index: number, folderId: string | undefined) => void;
         onDeleteFolder: (folderId: string) => void;
@@ -34,7 +33,7 @@
         itemNames: string[];
         itemSearchTexts?: string[];
         searchPlaceholder?: string;
-        manageFolders?: boolean;
+        readOnly?: boolean;
         visibleItemIndexes?: number[];
         emptyMessage?: string;
         selectedItemIndex?: number;
@@ -59,7 +58,6 @@
         searchQuery = $bindable(''),
         close,
         configure,
-        configureLabel = language.presetEdit,
         onFoldersChange,
         onAssignItem,
         onDeleteFolder,
@@ -67,7 +65,7 @@
         itemNames,
         itemSearchTexts = itemNames,
         searchPlaceholder = language.presetSearch,
-        manageFolders = true,
+        readOnly = false,
         visibleItemIndexes = $bindable([]),
         emptyMessage = $bindable(''),
         selectedItemIndex = -1,
@@ -132,6 +130,7 @@
     }
 
     function dropOnFolder(folderId: string, e: DragEvent) {
+        if (readOnly) return;
         e.preventDefault();
         e.stopPropagation();
         if (draggingFolderId) return;
@@ -144,6 +143,7 @@
     }
 
     function dragItemOverFolder(folderId: string, e: DragEvent) {
+        if (readOnly) return;
         e.preventDefault();
         e.stopPropagation();
         onFolderDragOver();
@@ -151,6 +151,7 @@
     }
 
     function reorderItems(orderedKeys: string[], draggedKey: string) {
+        if (readOnly) return;
         const source = Number(draggedKey);
         const newPosition = orderedKeys.indexOf(draggedKey);
         const nextKey = orderedKeys[newPosition + 1];
@@ -160,7 +161,8 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="fixed inset-0 z-50 bg-black/50 flex justify-center items-center" role="button" tabindex="0" onclick={close}>
+<Portal>
+<div class="risu-modal-backdrop z-50 flex justify-center items-center" role="button" tabindex="0" onclick={close}>
 <div
     class="bg-darkbg break-any rounded-md flex flex-col w-[min(56rem,calc(100%-1rem))] h-[min(44rem,calc(100%-1rem))] overflow-hidden border border-darkborderc"
     role="button"
@@ -175,7 +177,7 @@
                     {#snippet trigger(props)}
                         <button
                             {...props}
-                            class="ml-1 inline-flex size-5 shrink-0 items-center justify-center text-textcolor2 cursor-help hover:text-primary"
+                            class="ml-1 inline-flex size-5 shrink-0 items-center justify-center text-textcolor2 cursor-help risu-interactive-accent"
                             aria-label={`${title} ${language.showHelp}`}
                         >
                             <CircleQuestionMarkIcon size={12}/>
@@ -185,15 +187,14 @@
                 </ShTooltip>
             {/if}
             <div class="grow flex justify-end">
+                {#if configure}
+                    <IconButton size="lg" onclick={configure} title={language.settings} aria-label={language.settings}>
+                        <SettingsIcon />
+                    </IconButton>
+                {/if}
                 <IconButton size="lg" onclick={close}><XIcon /></IconButton>
             </div>
         </div>
-        {#if configure}
-            <ShButton variant="default" size="default" className="w-full mb-4" onclick={configure}>
-                <PencilIcon/>
-                <span class="ml-1">{configureLabel}</span>
-            </ShButton>
-        {/if}
     </div>
 
     <div class="flex min-h-0 grow border-t border-darkborderc max-sm:flex-col">
@@ -204,7 +205,7 @@
                         { id: 'all', name: language.presetAll },
                         { id: 'uncategorized', name: language.presetUncategorized },
                     ] as folder}
-                        <button class="w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor {selectedFolder === folder.id ? '' : 'hover:bg-selected/30'}"
+                        <button class="w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor {selectedFolder === folder.id ? '' : 'risu-interactive-surface'}"
                             class:bg-selected={selectedFolder === folder.id}
                             class:folder-drop-target={itemDropTarget === folder.id}
                             ondragover={(e) => dragItemOverFolder(folder.id, e)}
@@ -219,7 +220,7 @@
                 <div class="my-3 border-t border-darkborderc"></div>
                 <ShSortableList
                     className="flex flex-col gap-1"
-                    disabled={!manageFolders}
+                    disabled={readOnly}
                     dataTransferKey="presetFolderId"
                     onReorder={(orderedIds) => {
                         const byId = new Map(folders.map(folder => [folder.id, folder]));
@@ -229,7 +230,7 @@
                     onDragEnd={() => { draggingFolderId = null }}
                 >
                 {#each folders as folder (folder.id)}
-                    <div class="group w-full h-10 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor {selectedFolder === folder.id ? '' : 'hover:bg-selected/30'}"
+                    <div class="group w-full h-10 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor {selectedFolder === folder.id ? '' : 'risu-interactive-surface'}"
                         data-sortable-key={folder.id}
                         data-sortable-no-scale
                         class:bg-selected={selectedFolder === folder.id}
@@ -243,7 +244,7 @@
                         onclick={() => selectedFolder = folder.id}
                         onkeydown={(e) => { if (e.key === 'Enter') selectedFolder = folder.id }}>
                         <FolderIcon size={18}/><span class="truncate grow">{folder.name}</span>
-                        {#if manageFolders}
+                        {#if !readOnly}
                             <span class="text-xs text-textcolor2 group-hover:hidden">{folderCount(folder.id)}</span>
                             <IconButtonGroup size="sm" className="no-sort hidden shrink-0 group-hover:flex">
                                 <IconButton
@@ -265,24 +266,24 @@
                 {/each}
                 </ShSortableList>
             </div>
-            {#if manageFolders}
-                <button class="shrink-0 mt-2 w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor2 hover:text-primary hover:bg-selected/30" onclick={createFolder}>
+            {#if !readOnly}
+                <button class="shrink-0 mt-2 w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor2 risu-interactive-accent risu-interactive-surface" onclick={createFolder}>
                     <FolderPlusIcon size={18}/><span>{language.presetNewFolder}</span>
                 </button>
             {/if}
         </aside>
         <section class="min-w-0 min-h-0 grow flex flex-col p-3">
             <SettingLayout variant="search" className="mb-2">
-                <div class="flex items-center gap-2 border border-darkborderc rounded-md px-3 focus-within:border-primary">
+                <div class="risu-field-border flex items-center gap-2 rounded-md px-3">
                     <SearchIcon size={18} class="text-textcolor2 shrink-0"/>
                     <input bind:value={searchQuery} placeholder={searchPlaceholder}
-                        class="w-full py-2 bg-transparent text-textcolor placeholder:text-textcolor2 outline-none"/>
+                        class="w-full py-2 bg-transparent text-textcolor outline-none"/>
                 </div>
             </SettingLayout>
             {#if itemContent && onSelectItem}
                 <ShSortableList
                     className="grow min-h-0 overflow-y-auto flex flex-col gap-1 [&>*]:shrink-0"
-                    disabled={!onMoveItem || itemEditMode}
+                    disabled={readOnly || !onMoveItem || itemEditMode}
                     dataTransferKey={itemDragDataKey}
                     dragPreviewText={(key) => itemNames[Number(key)] || 'Unnamed Preset'}
                     onReorder={(orderedKeys, event) => reorderItems(orderedKeys, event.item.getAttribute('data-sortable-key') ?? '')}
@@ -292,13 +293,13 @@
                         <div role="button" tabindex={itemEditMode ? -1 : 0}
                             data-sortable-key={String(index)}
                             data-sortable-no-scale
-                            class="preset-picker-item w-full h-10 min-w-0 flex items-center rounded-md text-left text-textcolor px-2 {index === selectedItemIndex ? '' : 'hover:bg-selected/30'}"
+                            class="preset-picker-item w-full h-10 min-w-0 flex items-center rounded-md text-left text-textcolor px-2 {index === selectedItemIndex ? '' : 'risu-interactive-surface'}"
                             class:bg-selected={index === selectedItemIndex}
-                            class:cursor-grab={!!onMoveItem && !itemEditMode}
+                            class:cursor-grab={!readOnly && !!onMoveItem && !itemEditMode}
                             onclick={() => { if (!itemEditMode) onSelectItem(index) }}
                             onkeydown={(e) => { if (!itemEditMode && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelectItem(index) } }}>
                             {@render itemContent(index)}
-                            {#if onDuplicateItem || onExportItem || onDeleteItem}
+                            {#if !readOnly && (onDuplicateItem || onExportItem || onDeleteItem)}
                                 <IconButtonGroup className="no-sort ml-3 shrink-0">
                                     {#if onDuplicateItem}<IconButton onclick={(e) => { e.stopPropagation(); onDuplicateItem(index) }}><CopyIcon /></IconButton>{/if}
                                     {#if onExportItem}<IconButton onclick={(e) => { e.stopPropagation(); onExportItem(index) }}><DownloadIcon /></IconButton>{/if}
@@ -317,6 +318,7 @@
     </div>
 </div>
 </div>
+</Portal>
 
 <style>
     /* CSS draws text-overflow ellipses using the truncating element's own

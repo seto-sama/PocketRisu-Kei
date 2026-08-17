@@ -62,6 +62,7 @@
       "protocol": "openai-chat",
       "auth": "bearer",
       "endpointKind": "cloudflare-ai",
+      "path": "chat/completions",
       "credentialKey": "cloudflareApiToken",
       "credentialLabel": "Cloudflare API Token",
       "lockProviderWire": true,
@@ -73,10 +74,22 @@
       "protocol": "openai-chat",
       "auth": "bearer",
       "endpointKind": "cloudflare-ai",
+      "path": "chat/completions",
       "credentialKey": "cloudflareApiToken",
       "credentialLabel": "Cloudflare API Token",
       "cloudflareGateway": true,
       "lockProviderWire": true,
+      "authorRoutes": {
+        "anthropic": {
+          "protocol": "anthropic",
+          "path": "messages",
+          "baseProviderId": "cloudflare-ai-gateway--anthropic"
+        },
+        "openai": {
+          "protocol": "openai-responses",
+          "path": "responses"
+        }
+      },
       "sourceUrls": [
         "https://developers.cloudflare.com/ai-gateway/usage/rest-api/"
       ]

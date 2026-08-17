@@ -12,10 +12,15 @@ import type { OpenAIChat } from "./index.svelte";
 import { HypaProcesser } from "./memory/hypamemory";
 import { requestChatData } from "./request/request";
 import { collectStreamingText } from "./request/shared";
-import { generateAIImage } from "./stableDiff";
-import { writeInlayImage } from "./files/inlays";
+import { generateAIImageInlay } from "./stableDiff";
 import { runScripted } from "./scriptings";
-import { calcString } from "./infunctions";
+import { createTriggerV2Core, type TriggerV2Effect } from "./triggerV2Core";
+import { evaluateTriggerConditions, type TriggerConditionLike } from "./triggerConditionCore";
+import {
+    buildTriggerAction,
+    canExecuteTriggerAction,
+    normalizeTriggerActionResult,
+} from "./triggerActionCore";
 
 
 export interface triggerscript{
@@ -24,6 +29,8 @@ export interface triggerscript{
     conditions: triggerCondition[]
     effect:triggerEffect[]
     lowLevelAccess?: boolean
+    /** Runtime-only owner id attached by getModuleTriggers(). */
+    moduleId?: string
 }
 
 export type triggerCondition = triggerConditionsVar|triggerConditionsExists|triggerConditionsChatIndex
@@ -1132,7 +1139,9 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
     }
     
     function declareLocalVar(key: string, value: string, indent: number) {
-        setLocalVar(key, value, indent)
+        const currentScope = localVarScopes.at(-1) ?? (localVarScopes[0] = {})
+        currentScope[indent] ??= {}
+        currentScope[indent][key] = value ?? 'null'
     }
     
     function clearLocalVarsAtIndent(indent: number) {
@@ -1201,8 +1210,6 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
     
     
     for(const trigger of triggers){
-        let tempVars:Record<string, number> = {}
-
         if(trigger.effect[0]?.type === 'triggercode' || trigger.effect[0]?.type === 'triggerlua'){
             //
         }
@@ -1215,86 +1222,44 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
             continue
         }
 
-        let pass = true
-        for(const condition of trigger.conditions){
-            if(condition.type === 'var' || condition.type === 'chatindex' || condition.type === 'value'){
-                let varValue =  (condition.type === 'var') ? (getVar(condition.var) ?? 'null') :
-                                (condition.type === 'chatindex') ? (chat.message.length.toString()) :
-                                (condition.type === 'value') ? condition.var : null
-                                
-                if(varValue === undefined || varValue === null){
-                    pass = false
-                    break
-                }
-                else{
-                    const conditionValue = risuChatParser(condition.value,{chara:char})
-                    varValue = risuChatParser(varValue,{chara:char})
-                    switch(condition.operator){
-                        case 'true': {
-                            if(varValue !== 'true' && varValue !== '1'){
-                                pass = false
-                            }
-                            break
-                        }
-                        case '=':
-                            if(varValue !== conditionValue){
-                                pass = false
-                            }
-                            break
-                        case '!=':
-                            if(varValue === conditionValue){
-                                pass = false
-                            }
-                            break
-                        case '>':
-                            if(Number(varValue) <= Number(conditionValue)){
-                                pass = false
-                            }
-                            break
-                        case '<':
-                            if(Number(varValue) >= Number(conditionValue)){
-                                pass = false
-                            }
-                            break
-                        case '>=':
-                            if(Number(varValue) < Number(conditionValue)){
-                                pass = false
-                            }
-                            break
-                        case '<=':
-                            if(Number(varValue) > Number(conditionValue)){
-                                pass = false
-                            }
-                            break
-                        case 'null':
-                            if(varValue !== 'null'){
-                                pass = false
-                            }
-                            break
-                    }
-                }
-            }
-            else if(condition.type === 'exists'){
-                const conditionValue = risuChatParser(condition.value,{chara:char})
-                const val = risuChatParser(conditionValue,{chara:char})
-                let da =  chat.message.slice(0-condition.depth).map((v)=>v.data).join(' ')
-                if(condition.type2 === 'strict'){
-                    pass = da.split(' ').includes(val)
-                }
-                else if(condition.type2 === 'loose'){
-                    pass = da.toLowerCase().includes(val.toLowerCase())
-                }
-                else if(condition.type2 === 'regex'){
-                    pass = new RegExp(val).test(da)
-                }
-            }
-            if(!pass){
-                break
-            }
-        }
+        const pass = evaluateTriggerConditions({
+            conditions: trigger.conditions as unknown as TriggerConditionLike[],
+            getVar,
+            render: value => risuChatParser(String(value ?? ''), { chara: char }),
+            messages: chat.message,
+        })
         if(!pass){
             continue
         }
+
+        const coreChat = {
+            get id() { return chat.id },
+            get fmIndex() { return chat.fmIndex },
+            get note() { return chat.note },
+            set note(value: string | undefined) { chat.note = value },
+            get message() { return chat.message },
+            set message(value) { chat.message = value as Chat['message'] },
+        }
+        // Display triggers only execute `displayAllowList`: those effects can
+        // read database-backed values, but cannot mutate persistent database,
+        // character, or chat fields. Cloning the complete database here made
+        // every rendered message pay that cost independently (and dominated
+        // long translated-chat loading), so keep the defensive draft only for
+        // mutation-capable trigger runs.
+        const databaseDraft = arg.displayMode ? db : safeStructuredClone(db)
+        const v2Core = createTriggerV2Core({
+            effects: trigger.effect as unknown as TriggerV2Effect[],
+            render: value => risuChatParser(String(value ?? ''), { chara: char }),
+            getVar,
+            setVar,
+            declareLocal: declareLocalVar,
+            clearLocals: clearLocalVarsAtIndent,
+            chat: coreChat,
+            character: char,
+            database: databaseDraft,
+            globalVar: key => databaseDraft.globalChatVariables?.[key] ?? 'null',
+        })
+        let loopIterations = 0
 
         for(let index = 0; index < trigger.effect.length; index++){
             const effect = trigger.effect[index]
@@ -1310,7 +1275,126 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
             } else if(!effect || !('indent' in effect)) {
                 currentIndent = 0
             }
+
+            const coreStep = v2Core.step(index)
+            if(coreStep.handled){
+                index = coreStep.nextIndex
+                if(coreStep.mutations && !arg.displayMode){
+                    const selectedCharacter = get(selectedCharID)
+                    if(coreStep.mutations.character && db.characters[selectedCharacter]){
+                        Object.assign(db.characters[selectedCharacter], safeStructuredClone(coreStep.mutations.character))
+                        setCurrentCharacter(char)
+                    }
+                    if(coreStep.mutations.database){
+                        Object.assign(db, safeStructuredClone(coreStep.mutations.database))
+                    }
+                }
+                if(coreStep.looped && ++loopIterations > 100){
+                    await sleep(1)
+                    loopIterations = 0
+                }
+                if(coreStep.stop){
+                    break
+                }
+                continue
+            }
+
+            const triggerAction = buildTriggerAction(effect as unknown as TriggerV2Effect, {
+                read: v2Core.read,
+                render: value => risuChatParser(String(value ?? ''), { chara: char }),
+                outputVar: v2Core.outputVar,
+            })
+            if(triggerAction){
+                if(!canExecuteTriggerAction(triggerAction, trigger.lowLevelAccess === true)){
+                    continue
+                }
+                const payload = triggerAction.payload
+                let actionResult: unknown
+                switch(triggerAction.kind){
+                    case 'log': console.log(payload.value); break
+                    case 'prompt.append':
+                        additonalSysPrompt[payload.location as keyof additonalSysPrompt] += `${payload.value}\n\n`
+                        break
+                    case 'prompt.stop': stopSending = true; break
+                    case 'chat.resend': sendAIprompt = true; break
+                    case 'trigger.run': {
+                        if(arg.recursiveCount < 10 || trigger.lowLevelAccess){
+                            arg.recursiveCount++
+                            const result = await runTrigger(char, 'manual', {
+                                chat,
+                                recursiveCount: arg.recursiveCount,
+                                additonalSysPrompt,
+                                stopSending,
+                                manualName: String(payload.target ?? ''),
+                            })
+                            if(result){
+                                additonalSysPrompt = result.additonalSysPrompt
+                                chat = result.chat
+                                stopSending = result.stopSending
+                            }
+                        }
+                        break
+                    }
+                    case 'ui.command': await processMultiCommand(String(payload.command ?? '')); break
+                    case 'ui.alert': alertNormal(String(payload.message ?? '')); break
+                    case 'ui.input': actionResult = await alertInput(String(payload.message ?? '')); break
+                    case 'ui.select': actionResult = await alertSelect(
+                        Array.isArray(payload.options) ? payload.options.map(String) : [],
+                        String(payload.message ?? ''),
+                    ); break
+                    case 'ui.reload-display': ReloadGUIPointer.set(get(ReloadGUIPointer) + 1); break
+                    case 'ui.reload-chat': ReloadChatPointer.update(value => {
+                        const chatIndex = Number(payload.index) || 0
+                        value[chatIndex] = (value[chatIndex] ?? 0) + 1
+                        return value
+                    }); break
+                    case 'utility.wait': await sleep(Number(payload.durationMs) || 0); break
+                    case 'utility.similarity': {
+                        const processer = new HypaProcesser()
+                        await processer.addText(Array.isArray(payload.values) ? payload.values.map(String) : [])
+                        actionResult = await processer.similaritySearch(String(payload.source ?? ''))
+                        break
+                    }
+                    case 'utility.tokenize': actionResult = await tokenize(String(payload.text ?? '')); break
+                    case 'image.generate': {
+                        const generated = await generateAIImageInlay(
+                            String(payload.prompt ?? ''), char,
+                            String(payload.negativePrompt ?? ''),
+                        )
+                        if(generated){
+                            actionResult = generated
+                        }
+                        break
+                    }
+                    case 'provider.llm': {
+                        const prompt = String(payload.prompt ?? '')
+                        const promptBody = parseChatML(prompt) || [{ role: 'user', content: prompt }]
+                        const result = await requestChatData({
+                            formated: promptBody,
+                            bias: {},
+                            currentChar: char,
+                            useStreaming: payload.streaming === true,
+                            noMultiGen: true,
+                            moduleId: trigger.moduleId,
+                        }, payload.mode as 'model'|'submodel')
+                        if(result.type === 'streaming'){
+                            actionResult = { success: true, result: await collectStreamingText(result.result) }
+                        }
+                        else if(result.type === 'fail' || result.type === 'multiline'){
+                            actionResult = { success: false, result: result.result }
+                        }
+                        else actionResult = { success: true, result: result.result }
+                        break
+                    }
+                }
+                if(triggerAction.outputVar){
+                    setVar(triggerAction.outputVar, normalizeTriggerActionResult(triggerAction, actionResult))
+                }
+                continue
+            }
             
+            // Browser effect adapter: the shared core has already consumed every
+            // environment-independent v2 effect before this dispatch.
             switch(effect.type){
                 case'setvar': {
                     const effectValue = risuChatParser(effect.value,{chara:char})
@@ -1365,8 +1449,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     await processMultiCommand(effectValue)
                     break
                 }
-                case 'stop':
-                case 'v2StopPromptSending':{
+                case 'stop':{
                     stopSending = true
                     break
                 }
@@ -1459,8 +1542,10 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     const result = await requestChatData({
                         formated: promptbody,
                         bias: {},
+                        currentChar: char,
                         useStreaming: false,
                         noMultiGen: true,
+                        moduleId: trigger.moduleId,
                     }, 'model')
 
                     if(result.type === 'fail' || result.type === 'streaming' || result.type === 'multiline'){
@@ -1511,16 +1596,12 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
 
                     const effectValue = risuChatParser(effect.value,{chara:char})
                     const negValue = risuChatParser(effect.negValue,{chara:char})
-                    const gen = await generateAIImage(effectValue, char, negValue, 'inlay')
-                    if(!gen){
+                    const inlay = await generateAIImageInlay(effectValue, char, negValue)
+                    if(!inlay){
                         setVar(effect.inputVar, 'Error: Image generation failed')
                         break
                     }
-                    const imgHTML = new Image()
-                    imgHTML.src = gen
-                    const inlay = await writeInlayImage(imgHTML)
-                    const res = `{{inlay::${inlay}}}`
-                    setVar(effect.inputVar, res)
+                    setVar(effect.inputVar, inlay)
                     break
                 }
 
@@ -1532,6 +1613,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         getVar: getVar,
                         char: char,
                         chat: chat,
+                        moduleId: trigger.moduleId,
                     })
 
                     if(triggerCodeResult.stopSending){
@@ -1541,792 +1623,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     break
                 }
 
-                //V2 triggers
-                case 'v2Header':{
-                    //Header for V2 triggers to identify the start of a new trigger
-                    break
-                }
-                case 'v2SetVar':{
-                    const effectValue = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    const varKey  = risuChatParser(effect.var,{chara:char})
-                    let originalVar = Number(getVar(varKey))
-                    if(Number.isNaN(originalVar)){
-                        originalVar = 0
-                    }
-                    let resultValue = ''
-                    switch(effect.operator){
-                        case '=':{
-                            resultValue = effectValue
-                            break
-                        }
-                        case '+=':{
-                            resultValue = (originalVar + Number(effectValue)).toString()
-                            break
-                        }
-                        case '-=':{
-                            resultValue = (originalVar - Number(effectValue)).toString()
-                            break
-                        }
-                        case '*=':{
-                            resultValue = (originalVar * Number(effectValue)).toString()
-                            break
-                        }
-                        case '/=':{
-                            resultValue = (originalVar / Number(effectValue)).toString()
-                            break
-                        }
-                        case '%=':{
-                            resultValue = (originalVar % Number(effectValue)).toString()
-                            break
-                        }
-                    }
-                    setVar(varKey, resultValue)
-                    break
-                }
-                case 'v2DeclareLocalVar':{
-                    const effectValue = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    const varKey = risuChatParser(effect.var,{chara:char})
-                    const finalValue = (effectValue === null || effectValue === undefined) ? 'null' : effectValue
-                    declareLocalVar(varKey, finalValue, effect.indent)
-                    break
-                }
-                case 'v2If':
-                case 'v2IfAdvanced':{
-                    const sourceValue = (effect.type === 'v2If' || effect.sourceType === 'var') ? getVar(risuChatParser(effect.source,{chara:char})) : risuChatParser(effect.source,{chara:char})
-                    const targetValue = effect.targetType === 'value' ? risuChatParser(effect.target,{chara:char}) : getVar(risuChatParser(effect.target,{chara:char}))
-                    let pass = false
-                    switch(effect.condition){
-                        case '=':{                            
-                            if(!isNaN(Number(sourceValue)) && !isNaN(Number(targetValue))){ //to check like 1.0 = 1
-                                pass = Number(sourceValue) === Number(targetValue)
-                            }
-                            else{
-                                pass = sourceValue === targetValue
-                            }
-                            break
-                        }
-                        case '!=':{
-                            if(!isNaN(Number(sourceValue)) && !isNaN(Number(targetValue))){ //to check like 1.0 = 1
-                                pass = Number(sourceValue) !== Number(targetValue)
-                            }
-                            else{
-                                pass = sourceValue !== targetValue
-                            }
-                            break
-                        }
-                        case '>':{
-                            pass = Number(sourceValue) > Number(targetValue)
-                            break
-                        }
-                        case '<':{
-                            pass = Number(sourceValue) < Number(targetValue)
-                            break
-                        }
-                        case '>=':{
-                            pass = Number(sourceValue) >= Number(targetValue)
-                            break
-                        }
-                        case '<=':{
-                            pass = Number(sourceValue) <= Number(targetValue)
-                            break
-                        }
-                        case '∈':{
-                            try {
-                                pass = JSON.parse(targetValue).includes(sourceValue)
-                            } catch (error) {
-                                pass = false
-                            }
-                            break
-                        }
-                        case '∋':{
-                            try {
-                                pass = JSON.parse(sourceValue).includes(targetValue)
-                            } catch (error) {
-                                pass = false
-                            }
-                            break
-                        }
-                        case '∉':{
-                            try {
-                                pass = !JSON.parse(targetValue).includes(sourceValue)
-                            } catch (error) {
-                                pass = true
-                            }
-                            break
-                        }
-                        case '∌':{
-                            try {
-                                pass = !JSON.parse(sourceValue).includes(targetValue)
-                            } catch (error) {
-                                pass = true
-                            }
-                            break
-                        }
-                        case '≒':{
-                            const num1 = Number(sourceValue)
-                            const num2 = Number(targetValue)
-                            if(Number.isNaN(num1) || Number.isNaN(num2)){
-                                pass = sourceValue.toLocaleLowerCase().replace(/ /g,'') === targetValue.toLocaleLowerCase().replace(/ /g,'')
-                            }
-                            else{
-                                pass = Math.abs(num1 - num2) < 0.0001
-                            }
-                            break
-                        }
-                        case '≡':{
-                            if(targetValue === 'true'){
-                                pass = sourceValue === 'true' || sourceValue === '1'
-                            }
-                            else if(targetValue === 'false'){
-                                pass = !(sourceValue === 'true' || sourceValue === '1')
-                            }
-                            else{
-                                pass = sourceValue === targetValue
-                            }
-                        }
-                    }
-
-
-                    if(!pass){
-                        let indent = effect.indent + 1
-                        for(; index < trigger.effect.length; index++){
-                            const ef = trigger.effect[index] as triggerEffectV2
-                            if(ef.type === 'v2EndIndent' && indent === ef.indent){
-                                const nextEf = trigger.effect[index + 1] as triggerEffectV2
-                                indent--
-                                if(nextEf?.type === 'v2Else' && nextEf?.indent === indent){
-                                    index++
-                                }
-
-                                break
-                            }
-                        }
-                    }
-                    break
-                }
-                case 'v2Else':{
-                    //since if handles the else if the if is false, we can skip the else
-                    const indent = effect.indent + 1
-                    for(; index < trigger.effect.length; index++){
-                        const ef = trigger.effect[index] as triggerEffectV2
-                        if(ef.type === 'v2EndIndent' && indent === ef.indent){
-                            break
-                        }
-                    }
-                    break
-                }
-                case 'v2EndIndent':{
-                    if(effect.endOfLoop){
-                        const indent = effect.indent - 1
-                        const originalIndex = index
-                        for(; index >= 0; index--){
-                            const ef = trigger.effect[index] as triggerEffectV2
-                            if((ef.type === 'v2Loop' || ef.type === 'v2LoopNTimes') && indent === ef.indent){
-                                
-                                if(ef.type === 'v2LoopNTimes'){
-                                    let value = ef.valueType === 'value' ? risuChatParser(ef.value,{chara:char}) : getVar(risuChatParser(ef.value,{chara:char}))
-                                    let valueNum = Number(value)
-                                    if(Number.isNaN(valueNum)){
-                                        valueNum = 0
-                                    }
-                                    tempVars[index + 'LoopNTimes'] = (tempVars[index + 'LoopNTimes'] ?? 0) + 1
-                                    if(tempVars[index + 'LoopNTimes'] >= valueNum){
-                                        index = originalIndex
-                                    }
-                                    else{
-                                        break
-                                    }
-                                }
-
-                                break
-                            }
-                        }
-                        
-                        //this is for preventing lagging
-                        tempVars['loopTimes'] = (tempVars['loopTimes'] ?? 0) + 1
-                        if(tempVars['loopTimes'] > 100){
-                            await sleep(1)
-                            tempVars['loopTimes'] = 0
-                        }
-                    }
-                    
-                    clearLocalVarsAtIndent(effect.indent)
-                    
-                    break
-                }
-                case 'v2Loop':
-                case 'v2LoopNTimes':{
-                    //Looping is handled by the v2EndIndent
-                    break
-                }
-                case 'v2BreakLoop':{
-                    for(; index < trigger.effect.length; index++){
-                        const ef = trigger.effect[index] as triggerEffectV2
-                        if(ef.type === 'v2EndIndent' && ef.endOfLoop){
-                            break
-                        }
-                    }
-                    break
-                }
-                case 'v2RunTrigger':{
-                    if(arg.recursiveCount < 10 || trigger.lowLevelAccess){
-                        arg.recursiveCount++
-                        const r = await runTrigger(char,'manual',{
-                            chat,
-                            recursiveCount: arg.recursiveCount,
-                            additonalSysPrompt,
-                            stopSending,
-                            manualName: effect.target
-                        })
-                        if(r){
-                            additonalSysPrompt = r.additonalSysPrompt
-                            chat = r.chat
-                            stopSending = r.stopSending
-                        }
-                    }
-                    break
-                }
-                case 'v2ConsoleLog':{
-                    const sourceValue = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                    console.log(sourceValue)
-                    break
-                }
-                case 'v2StopTrigger':{
-                    index = trigger.effect.length
-                    break
-                }
-                case 'v2CutChat':{
-                    let start = effect.startType === 'value' ? Number(risuChatParser(effect.start,{chara:char})) : Number(getVar(risuChatParser(effect.start,{chara:char})))
-                    let end = effect.endType === 'value' ? Number(risuChatParser(effect.end,{chara:char})) : Number(getVar(risuChatParser(effect.end,{chara:char})))
-                    if(isNaN(start)){
-                        start = 0
-                    }
-                    if(isNaN(end)){
-                        end = chat.message.length
-                    }
-                    
-                    chat.message = chat.message.slice(start,end)
-                    break
-                }
-                case 'v2ModifyChat':{
-                    let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    if(chat.message[index]){
-                        chat.message[index].data = value
-                    }
-                    break
-                }
-                case 'v2SystemPrompt':{
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    additonalSysPrompt[effect.location] += value + "\n\n"
-                    break
-                }
-                case 'v2Impersonate':{
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    if(effect.role === 'user'){
-                        chat.message.push({role: 'user', data: value})
-                    }
-                    else if(effect.role === 'char'){
-                        chat.message.push({role: 'char', data: value})
-                    }
-                    break
-                }
-                case 'v2Command':{
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    await processMultiCommand(value)
-                    break
-                }
-                case 'v2SendAIprompt':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-                    sendAIprompt = true
-                    break
-                }
-                case 'v2ImgGen':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    let negValue = effect.negValueType === 'value' ? risuChatParser(effect.negValue,{chara:char}) : getVar(risuChatParser(effect.negValue,{chara:char}))
-                    let gen = await generateAIImage(value, char, negValue, 'inlay')
-                    if(!gen){
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
-                        break
-                    }
-                    let imgHTML = new Image()
-                    imgHTML.src = gen
-                    let inlay = await writeInlayImage(imgHTML)
-                    let res = `{{inlay::${inlay}}}`
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), res)
-                    break
-
-                }
-                case 'v2CheckSimilarity':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-                    let source = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    let processer = new HypaProcesser()
-                    await processer.addText(value.split('§'))
-                    let val = await processer.similaritySearch(source)
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), val.join('§'))
-                    break
-                }
-                case 'v2RunLLM':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    let promptbody = parseChatML(value)
-                    if(!promptbody){
-                        promptbody = [{role:'user', content:value}]
-                    }
-                    let result = await requestChatData({
-                        formated: promptbody,
-                        bias: {},
-                        useStreaming: effect.streaming ?? false,
-                        noMultiGen: true,
-                    }, effect.model)
-
-                    if(result.type === 'fail' || result.type === 'multiline'){
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
-                    }
-                    else if(result.type === 'streaming'){
-                        const text = await collectStreamingText(result.result)
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), text)
-                    }
-                    else{
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), result.result)
-                    }
-                    break
-                }
-                case 'v2ShowAlert':{
-                    if(arg.displayMode){
-                        return
-                    }
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    alertNormal(value)
-                    break
-                }
-                case 'v2ExtractRegex':{
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    let regexValue = effect.regexType === 'value' ? risuChatParser(effect.regex,{chara:char}) : getVar(risuChatParser(effect.regex,{chara:char}))
-                    let flagsValue = effect.flagsType === 'value' ? risuChatParser(effect.flags,{chara:char}) : getVar(risuChatParser(effect.flags,{chara:char}))
-                    let regex = new RegExp(regexValue, flagsValue)
-                    let regexResult = regex.exec(value)
-                    let resultValue = effect.resultType === 'value' ? risuChatParser(effect.result,{chara:char}) : getVar(risuChatParser(effect.result,{chara:char}))
-                    
-                    let result = ''
-                    if (regexResult !== null) {
-                        result = resultValue.replace(/\$[0-9]+/g, (match) => {
-                            let index = Number(match.slice(1))
-                            return regexResult[index] || ''
-                        }).replace(/\$&/g, regexResult[0] || '').replace(/\$\$/g, '$')
-                    } else {
-                        result = resultValue.replace(/\$[0-9]+/g, '').replace(/\$&/g, '').replace(/\$\$/g, '$')
-                    }
-
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), result)
-                    break
-                }
-                case 'v2GetLastMessage':{
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), chat.message[chat.message.length - 1]?.data ?? 'null')
-                    break
-                }
-                case 'v2GetMessageAtIndex':{
-                    let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), chat.message[index]?.data ?? 'null')
-                    break
-                }
-                case 'v2GetMessageCount':{
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), chat.message.length.toString())
-                    break
-                }
-                case 'v2ModifyLorebook':{
-                    char.globalLore = char.globalLore ?? []
-                    const target = effect.targetType === 'value' ? risuChatParser(effect.target,{chara:char}) : getVar(risuChatParser(effect.target,{chara:char}))
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-
-                    const index = char.globalLore.findIndex((v) => v[0] === target)
-                    if(index !== -1){
-                        char.globalLore[index][1] = value
-                    }
-
-                    const db = getDatabase()
-                    const selectedCharId = get(selectedCharID)
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(db.characters[selectedCharId])
-                    break
-                }
-                case 'v2GetLorebook':{
-                    char.globalLore = char.globalLore ?? []
-                    const target = effect.targetType === 'value' ? risuChatParser(effect.target,{chara:char}) : getVar(risuChatParser(effect.target,{chara:char}))
-                    const index = char.globalLore.findIndex((v) => v[0] === target)
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), index === -1 ? 'null' : char.globalLore[index][1])
-                    break
-                }
-                case 'v2GetLorebookCount':{
-                    char.globalLore = char.globalLore ?? []
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), char.globalLore.length.toString())
-                    break
-                }
-                case 'v2GetLorebookEntry':{
-                    char.globalLore = char.globalLore ?? []
-                    let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    if(Number.isNaN(index)){
-                        index = 0
-                    }
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), char.globalLore[index]?.[1] ?? 'null')
-                    break
-                }
-                case 'v2SetLorebookActivation':{
-                    char.globalLore = char.globalLore ?? []
-                    let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    let value = effect.value
-                    char.globalLore[index][2] = value
-
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase()
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(char)
-
-                    break
-                }
-                case 'v2GetLorebookIndexViaName':{
-                    char.globalLore = char.globalLore ?? []
-                    let name = effect.nameType === 'value' ? risuChatParser(effect.name,{chara:char}) : getVar(risuChatParser(effect.name,{chara:char}))
-                    let index = char.globalLore.findIndex((v) => v[0] === name)
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), index.toString())
-                    break
-                }
-                case 'v2Random':{
-                    let min = effect.minType === 'value' ? Number(risuChatParser(effect.min,{chara:char})) : Number(getVar(risuChatParser(effect.min,{chara:char})))
-                    let max = effect.maxType === 'value' ? Number(risuChatParser(effect.max,{chara:char})) : Number(getVar(risuChatParser(effect.max,{chara:char})))
-
-                    let output = Math.floor(Math.random() * (max - min + 1) + min)
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), output.toString())
-                    break
-                }
-                case 'v2GetCharAt':{
-                    let source = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                    let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), source[index] ?? 'null')
-                    break
-                }
-                case 'v2GetCharCount':{
-                    let source = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), source.length.toString())
-                    break
-                }
-                case 'v2ToLowerCase':{
-                    let source = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), source.toLowerCase())
-                    break
-                }
-                case 'v2ToUpperCase':{
-                    let source = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), source.toUpperCase())
-                    break
-                }
-                case 'v2SetCharAt':{
-                    let source = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                    let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    const source2 = [...source]
-                    source2[index] = value
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), source2.join(''))
-                    break
-                }
-                case 'v2SplitString':{
-                    let source = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                    let delimiter: string
-                    
-                    if (effect.delimiterType === 'value') {
-                        delimiter = risuChatParser(effect.delimiter,{chara:char})
-                    } else if (effect.delimiterType === 'var') {
-                        delimiter = getVar(risuChatParser(effect.delimiter,{chara:char}))
-                    } else {
-                        delimiter = risuChatParser(effect.delimiter,{chara:char})
-                    }
-                    
-                    let result: string[]
-                    if (effect.delimiterType === 'regex') {
-                        try {
-                            const regexMatch = delimiter.match(/^\/(.+)\/([gimuy]*)$/)
-                            if (regexMatch) {
-                                const [, pattern, flags] = regexMatch
-                                const regex = new RegExp(pattern, flags)
-                                result = source.split(regex)
-                            } else {
-                                const regex = new RegExp(delimiter)
-                                result = source.split(regex)
-                            }
-                        } catch (error) {
-                            result = [source]
-                        }
-                    } else {
-                        result = source.split(delimiter)
-                    }
-                    
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), JSON.stringify(result))
-                    break
-                }
-                case 'v2JoinArrayVar':{
-                    try {
-                        let varValue = effect.varType === 'value' ? risuChatParser(effect.var,{chara:char}) : getVar(risuChatParser(effect.var,{chara:char}))
-                        let arr = JSON.parse(varValue)
-                        let delimiter = effect.delimiterType === 'value' ? risuChatParser(effect.delimiter,{chara:char}) : getVar(risuChatParser(effect.delimiter,{chara:char}))
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), arr.join(delimiter))
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), '')
-                    }
-                    break
-                }
-                case 'v2GetCharacterDesc':{
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), char.desc)
-                    break
-                }
-                case 'v2SetCharacterDesc':{
-                    let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    char.desc = value
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase();
-                    (db.characters[selectedCharId] as character).desc = value
-                    setCurrentCharacter(char)
-                    break
-                }
-                case 'v2GetPersonaDesc':{
-                    const db = getDatabase()
-                    const currentPersonaPrompt = db.personaPrompt ?? ''
-                    const savedPersonaPrompt = db.personas[db.selectedPersona]?.personaPrompt ?? ''
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), currentPersonaPrompt || savedPersonaPrompt)
-                    break
-                }
-                case 'v2SetPersonaDesc':{
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    const db = getDatabase()
-                    if(db.personas[db.selectedPersona]){
-                        db.personas[db.selectedPersona].personaPrompt = value
-                        db.personaPrompt = value
-                    }
-                    break
-                }
-                case 'v2GetReplaceGlobalNote':{
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), char.replaceGlobalNote ?? '')
-                    break
-                }
-                case 'v2SetReplaceGlobalNote':{
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    char.replaceGlobalNote = value
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase();
-                    (db.characters[selectedCharId] as character).replaceGlobalNote = value
-                    setCurrentCharacter(char)
-                    break
-                }
-                case 'v2MakeArrayVar':{
-                    const varName = risuChatParser(effect.var, {chara:char})
-                    if(varName.startsWith('[') && varName.endsWith(']')){
-                        return
-                    }
-
-                    setVar(varName, '[]')
-                    break
-                }
-                case 'v2GetArrayVarLength':{
-                    try {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        let varValue = getVar(varName)
-                        let arr = JSON.parse(varValue)
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), arr.length.toString())
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), '0')
-                    }
-                    break
-                }
-                case 'v2GetArrayVar':{
-                    try {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        let varValue = getVar(varName)
-                        let arr = JSON.parse(varValue)
-                        let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), arr[index] ?? 'null')
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
-                    }
-                    break
-                }
-                case 'v2PushArrayVar':{
-                    try {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        let varValue = getVar(varName)
-                        let arr = JSON.parse(varValue)
-                        let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                        arr.push(value)
-                        setVar(varName, JSON.stringify(arr))
-                    } catch (error) {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        setVar(varName, '[]')
-                    }
-                    break
-                }
-                case 'v2PopArrayVar':{
-                    try {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        let varValue = getVar(varName)
-                        let arr = JSON.parse(varValue)
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), arr.pop() ?? 'null')
-                        setVar(varName, JSON.stringify(arr))
-                    } catch (error) {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        setVar(varName, '[]')
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
-                    }
-                    break
-                }
-                case 'v2ShiftArrayVar':{
-                    try {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        let varValue = getVar(varName)
-                        let arr = JSON.parse(varValue)
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), arr.shift() ?? 'null')
-                        setVar(varName, JSON.stringify(arr))
-                    } catch (error) {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        setVar(varName, '[]')
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
-                    }
-                    break
-                }
-                case 'v2UnshiftArrayVar':{
-                    try {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        let varValue = getVar(varName)
-                        let arr = JSON.parse(varValue)
-                        let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                        arr.unshift(value)
-                        setVar(varName, JSON.stringify(arr))
-                    } catch (error) {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        setVar(varName, '[]')
-                    }
-                    break
-                }
-                case 'v2SpliceArrayVar':{
-                    try {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        let varValue = getVar(varName)
-                        let arr = JSON.parse(varValue)
-                        let start = effect.startType === 'value' ? Number(risuChatParser(effect.start,{chara:char})) : Number(getVar(risuChatParser(effect.start,{chara:char})))
-                        let value = effect.itemType === 'value' ? risuChatParser(effect.item,{chara:char}) : getVar(risuChatParser(effect.item,{chara:char}))
-                        arr.splice(start, 0, value)
-                        setVar(varName, JSON.stringify(arr))
-                    } catch (error) {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        setVar(varName, '[]')
-                    }
-                    break
-                }
-                case 'v2SliceArrayVar':{
-                    try {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        let varValue = getVar(varName)
-                        let arr = JSON.parse(varValue)
-                        let start = effect.startType === 'value' ? Number(risuChatParser(effect.start,{chara:char})) : Number(getVar(risuChatParser(effect.start,{chara:char})))
-                        let end = effect.endType === 'value' ? Number(risuChatParser(effect.end,{chara:char})) : Number(getVar(risuChatParser(effect.end,{chara:char})))
-                        
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), JSON.stringify(arr.slice(start,end)))
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), '[]')
-                    }
-                    break
-                }
-                case 'v2GetIndexOfValueInArrayVar':{
-                    try {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        let varValue = getVar(varName)
-                        let arr = JSON.parse(varValue)
-                        let value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), arr.indexOf(value).toString())
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), '-1')
-                    }
-                    break
-                }
-                case 'v2RemoveIndexFromArrayVar':{
-                    try {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        let varValue = getVar(varName)
-                        let arr = JSON.parse(varValue)
-                        let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                        arr.splice(index, 1)
-                        setVar(varName, JSON.stringify(arr))
-                    } catch (error) {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        setVar(varName, '[]')
-                    }
-                    break
-                }
-                case 'v2ConcatString':{
-                    let source1 = effect.source1Type === 'value' ? risuChatParser(effect.source1,{chara:char}) : getVar(risuChatParser(effect.source1,{chara:char}))
-                    let source2 = effect.source2Type === 'value' ? risuChatParser(effect.source2,{chara:char}) : getVar(risuChatParser(effect.source2,{chara:char}))
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), source1 + source2)
-                    break
-                }
-                case 'v2GetLastUserMessage':{
-                    let lastUserMessage = chat.message.slice().reverse().find((v) => v.role === 'user')
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), lastUserMessage?.data ?? 'null')
-                    break
-                }
-                case 'v2GetLastCharMessage':{
-                    let lastCharMessage = chat.message.slice().reverse().find((v) => v.role === 'char')
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), lastCharMessage?.data ?? 'null')
-                    break
-                }
-                case 'v2GetFirstMessage':{
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), chat.fmIndex === -1 ? char.firstMessage : char.alternateGreetings[chat.fmIndex])
-                    break
-                }
-                case 'v2GetAlertInput':{
-                    if(arg.displayMode){
-                        return
-                    }
-                    let value = await alertInput(
-                        effect.displayType === 'value' ? risuChatParser(effect.display,{chara:char}) : getVar(risuChatParser(effect.display,{chara:char}))
-                    )
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), value)
-                    break
-                }
-                case 'v2GetAlertSelect':{
-                    if(arg.displayMode){
-                        return
-                    }
-                    const display = effect.displayType === 'value' ? risuChatParser(effect.display,{chara:char}) : getVar(risuChatParser(effect.display,{chara:char}))
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    const options = value.split('|')
-                    let result = await alertSelect(options, display)
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), result)
-                    break
-                }
-                case 'v2SetArrayVar':{
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    const index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    if(Number.isNaN(index)){
-                        break
-                    }
-                    try {
-                        const varName = risuChatParser(effect.var, {chara:char})
-                        let varValue = getVar(varName)
-                        let arr = JSON.parse(varValue)
-                        arr[index] = value
-                        setVar(varName, JSON.stringify(arr))
-                    } catch (error) {
-                        
-                    }
-                    break
-                }
+                //V2 display/request state effects remain mode-specific below.
                 case 'v2GetDisplayState':{
                     if(!arg.displayMode){
                         return
@@ -2340,22 +1637,6 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                         return
                     }
                     arg.displayData = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    break
-                }
-                case 'v2UpdateGUI':{
-                    ReloadGUIPointer.set(get(ReloadGUIPointer) + 1)
-                    break
-                }
-                case 'v2UpdateChatAt':{
-                    ReloadChatPointer.update((v) => {
-                        v[effect.index] = (v[effect.index] ?? 0) + 1
-                        return v
-                    })
-                    break
-                }
-                case 'v2Wait':{
-                    let value = effect.valueType === 'value' ? Number(risuChatParser(effect.value,{chara:char})) : Number(getVar(risuChatParser(effect.value,{chara:char})))
-                    await sleep(value * 1000)
                     break
                 }
                 case 'v2GetRequestState':{
@@ -2409,369 +1690,6 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     }
                     const json = JSON.parse(arg.displayData) as OpenAIChat[]
                     setVar(risuChatParser(effect.outputVar, {chara:char}), json.length.toString())
-                    break
-                }
-                case 'v2QuickSearchChat':{
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    const depth = effect.depthType === 'value' ? Number(risuChatParser(effect.depth,{chara:char})) : Number(getVar(risuChatParser(effect.depth,{chara:char})))
-                    const condition = effect.condition
-
-                    if(isNaN(depth)){
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), '0')
-                        break
-                    }
-                    let pass = false
-                    let da =  chat.message.slice(0-depth).map((v)=>v.data).join(' ')
-                    if(condition === 'strict'){
-                        pass = da.split(' ').includes(value)
-                    }
-                    else if(condition === 'loose'){
-                        pass = da.toLowerCase().includes(value.toLowerCase())
-                    }
-                    else if(condition === 'regex'){
-                        pass = new RegExp(value).test(da)
-                    }
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), pass ? '1' : '0')
-                    break
-                }
-                case 'v2Tokenize':{
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), (await tokenize(value)).toString())
-                    break
-                }
-                case 'v2GetAllLorebooks':{
-                    char.globalLore = char.globalLore ?? []
-                    const allPrompts: string[] = []
-                    for (const lore of char.globalLore) {
-                        if (lore && lore.content !== undefined) {
-                            allPrompts.push(lore.content)
-                        }
-                    }
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), JSON.stringify(allPrompts))
-                    break
-                }
-                case 'v2GetLorebookByName':{
-                    char.globalLore = char.globalLore ?? []
-                    const name = effect.nameType === 'value' ? risuChatParser(effect.name,{chara:char}) : getVar(risuChatParser(effect.name,{chara:char}))
-                    const regex = new RegExp(name, 'i')
-                    const matchingIndices: number[] = []
-                    for (let i = 0; i < char.globalLore.length; i++) {
-                        const lore = char.globalLore[i]
-                        if (lore && lore.comment !== undefined && regex.test(lore.comment)) {
-                            matchingIndices.push(i)
-                        }
-                    }
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), JSON.stringify(matchingIndices))
-                    break
-                }
-                case 'v2GetLorebookByIndex':{
-                    char.globalLore = char.globalLore ?? []
-                    let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    if(Number.isNaN(index) || index < 0 || index >= char.globalLore.length){
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
-                    } else {
-                        const loreEntry = char.globalLore[index]
-                        if(loreEntry && loreEntry.content !== undefined){
-                            setVar(risuChatParser(effect.outputVar, {chara:char}), loreEntry.content)
-                        } else {
-                            setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
-                        }
-                    }
-                    break
-                }
-                case 'v2CreateLorebook':{
-                    char.globalLore = char.globalLore ?? []
-                    const name = effect.nameType === 'value' ? risuChatParser(effect.name,{chara:char}) : getVar(risuChatParser(effect.name,{chara:char}))
-                    const key = effect.keyType === 'value' ? risuChatParser(effect.key,{chara:char}) : getVar(risuChatParser(effect.key,{chara:char}))
-                    const content = effect.contentType === 'value' ? risuChatParser(effect.content,{chara:char}) : getVar(risuChatParser(effect.content,{chara:char}))
-                    const insertOrder = effect.insertOrderType === 'value' ? Number(risuChatParser(effect.insertOrder,{chara:char})) : Number(getVar(risuChatParser(effect.insertOrder,{chara:char})))
-                    
-                    char.globalLore.push({
-                        key: key,
-                        comment: name,
-                        content: content,
-                        mode: 'normal',
-                        insertorder: Number.isNaN(insertOrder) ? 100 : insertOrder,
-                        alwaysActive: false,
-                        secondkey: "",
-                        selective: false
-                    })
-
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase()
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(char)
-                    break
-                }
-                case 'v2ModifyLorebookByIndex':{
-                    char.globalLore = char.globalLore ?? []
-                    let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    
-                    if(Number.isNaN(index) || index < 0 || index >= char.globalLore.length || !char.globalLore[index]){
-                        break
-                    }
-
-                    const currentLore = char.globalLore[index]
-                    
-                    let name = effect.nameType === 'value' ? risuChatParser(effect.name,{chara:char}) : getVar(risuChatParser(effect.name,{chara:char}))
-                    name = name.replace(/{{slot}}/g, currentLore.comment || '')
-                    char.globalLore[index].comment = name
-                    
-                    let key = effect.keyType === 'value' ? risuChatParser(effect.key,{chara:char}) : getVar(risuChatParser(effect.key,{chara:char}))
-                    key = key.replace(/{{slot}}/g, currentLore.key || '')
-                    char.globalLore[index].key = key
-                    
-                    let content = effect.contentType === 'value' ? risuChatParser(effect.content,{chara:char}) : getVar(risuChatParser(effect.content,{chara:char}))
-                    content = content.replace(/{{slot}}/g, currentLore.content || '')
-                    char.globalLore[index].content = content
-                    
-                    let insertOrder = effect.insertOrderType === 'value' ? risuChatParser(effect.insertOrder,{chara:char}) : getVar(risuChatParser(effect.insertOrder,{chara:char}))
-                    insertOrder = insertOrder.replace(/{{slot}}/g, (currentLore.insertorder || 100).toString())
-                    const insertOrderNum = Number(insertOrder)
-                    if(!Number.isNaN(insertOrderNum)){
-                        char.globalLore[index].insertorder = insertOrderNum
-                    }
-
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase()
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(char)
-                    break
-                }
-                case 'v2DeleteLorebookByIndex':{
-                    char.globalLore = char.globalLore ?? []
-                    let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    
-                    if(Number.isNaN(index) || index < 0 || index >= char.globalLore.length || !char.globalLore[index]){
-                        break
-                    }
-
-                    char.globalLore.splice(index, 1)
-
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase()
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(char)
-                    break
-                }
-                case 'v2GetLorebookCountNew':{
-                    char.globalLore = char.globalLore ?? []
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), char.globalLore.length.toString())
-                    break
-                }
-                case 'v2SetLorebookAlwaysActive':{
-                    char.globalLore = char.globalLore ?? []
-                    let index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    
-                    if(Number.isNaN(index) || index < 0 || index >= char.globalLore.length || !char.globalLore[index]){
-                        break
-                    }
-
-                    char.globalLore[index].alwaysActive = effect.value
-
-                    const selectedCharId = get(selectedCharID)
-                    const db = getDatabase()
-                    db.characters[selectedCharId].globalLore = char.globalLore
-                    setCurrentCharacter(char)
-                    break
-                }
-                case 'v2RegexTest':{
-                    try {
-                        const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                        const regexPattern = effect.regexType === 'value' ? risuChatParser(effect.regex,{chara:char}) : getVar(risuChatParser(effect.regex,{chara:char}))
-                        const flags = effect.flagsType === 'value' ? risuChatParser(effect.flags,{chara:char}) : getVar(risuChatParser(effect.flags,{chara:char}))
-                        const regex = new RegExp(regexPattern, flags)
-                        const result = regex.test(value)
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), result ? '1' : '0')
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), '0')
-                    }
-                    break
-                }
-                case 'v2GetAuthorNote':{
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), chat.note ?? '')
-                    break
-                }
-                case 'v2SetAuthorNote':{
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                    chat.note = value
-                    
-                    if(!arg.displayMode){
-                        const selectedCharId = get(selectedCharID)
-                        const currentCharacter = getCurrentCharacter()
-                        const db = getDatabase()
-                        currentCharacter.chats[currentCharacter.chatPage].note = value
-                        db.characters[selectedCharId].chats[currentCharacter.chatPage].note = value
-                        setCurrentCharacter(currentCharacter)
-                    }
-                    break
-                }
-                case 'v2MakeDictVar':{
-                    if(effect.var.startsWith('{') && effect.var.endsWith('}')){
-                        return
-                    }
-
-                    setVar(risuChatParser(effect.var, {chara:char}), '{}')
-                    break
-                }
-                case 'v2GetDictVar':{
-                    try {
-                        let varValue = effect.varType === 'value' ? risuChatParser(effect.var,{chara:char}) : getVar(risuChatParser(effect.var,{chara:char}))
-                        let dict = JSON.parse(varValue)
-                        let key = effect.keyType === 'value' ? risuChatParser(effect.key,{chara:char}) : getVar(risuChatParser(effect.key,{chara:char}))
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), dict[key] ?? 'null')
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), 'null')
-                    }
-                    break
-                }
-                case 'v2SetDictVar':{
-                    try {
-                        const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                        const key = effect.keyType === 'value' ? risuChatParser(effect.key,{chara:char}) : getVar(risuChatParser(effect.key,{chara:char}))
-                        
-                        if(effect.varType === 'value') {
-                            break
-                        }
-                        
-                        let varValue = getVar(risuChatParser(effect.var,{chara:char}))
-                        let dict = JSON.parse(varValue)
-                        dict[key] = value
-                        setVar(risuChatParser(effect.var, {chara:char}), JSON.stringify(dict))
-                    } catch (error) {
-                        if(effect.varType === 'var') {
-                            const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
-                            const key = effect.keyType === 'value' ? risuChatParser(effect.key,{chara:char}) : getVar(risuChatParser(effect.key,{chara:char}))
-                            let dict = {}
-                            dict[key] = value
-                            setVar(risuChatParser(effect.var, {chara:char}), JSON.stringify(dict))
-                        }
-                    }
-                    break
-                }
-                case 'v2DeleteDictKey':{
-                    try {
-                        if(effect.varType === 'value') {
-                            break
-                        }
-                        
-                        let varValue = getVar(risuChatParser(effect.var,{chara:char}))
-                        let dict = JSON.parse(varValue)
-                        let key = effect.keyType === 'value' ? risuChatParser(effect.key,{chara:char}) : getVar(risuChatParser(effect.key,{chara:char}))
-                        delete dict[key]
-                        setVar(risuChatParser(effect.var, {chara:char}), JSON.stringify(dict))
-                    } catch (error) {
-                        if(effect.varType === 'var') {
-                            setVar(risuChatParser(effect.var, {chara:char}), '{}')
-                        }
-                    }
-                    break
-                }
-                case 'v2HasDictKey':{
-                    try {
-                        let varValue = effect.varType === 'value' ? risuChatParser(effect.var,{chara:char}) : getVar(risuChatParser(effect.var,{chara:char}))
-                        let dict = JSON.parse(varValue)
-                        let key = effect.keyType === 'value' ? risuChatParser(effect.key,{chara:char}) : getVar(risuChatParser(effect.key,{chara:char}))
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), Object.hasOwn(dict, key) ? '1' : '0')
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), '0')
-                    }
-                    break
-                }
-                case 'v2ClearDict':{
-                    if(effect.var.startsWith('{') && effect.var.endsWith('}')){
-                        return
-                    }
-                    setVar(risuChatParser(effect.var, {chara:char}), '{}')
-                    break
-                }
-                case 'v2GetDictSize':{
-                    try {
-                        let varValue = effect.varType === 'value' ? risuChatParser(effect.var,{chara:char}) : getVar(risuChatParser(effect.var,{chara:char}))
-                        let dict = JSON.parse(varValue)
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), Object.keys(dict).length.toString())
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), '0')
-                    }
-                    break
-                }
-                case 'v2GetDictKeys':{
-                    try {
-                        let varValue = effect.varType === 'value' ? risuChatParser(effect.var,{chara:char}) : getVar(risuChatParser(effect.var,{chara:char}))
-                        let dict = JSON.parse(varValue)
-                        let keys = Object.keys(dict)
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), JSON.stringify(keys))
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), '[]')
-                    }
-                    break
-                }
-                case 'v2GetDictValues':{
-                    try {
-                        let varValue = effect.varType === 'value' ? risuChatParser(effect.var,{chara:char}) : getVar(risuChatParser(effect.var,{chara:char}))
-                        let dict = JSON.parse(varValue)
-                        let values = Object.values(dict)
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), JSON.stringify(values))
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), '[]')
-                    }
-                    break
-                }
-                case 'v2Calculate':{
-                    try {
-                        let expression = effect.expressionType === 'value' ? risuChatParser(effect.expression,{chara:char}) : getVar(risuChatParser(effect.expression,{chara:char}))
-                        expression = expression.replace(/\$([a-zA-Z0-9_]+)/g, (_, varName) => {
-                            const varValue = getVar(varName)
-                            const parsed = parseFloat(varValue)
-                            return isNaN(parsed) ? '0' : parsed.toString()
-                        })
-                        
-                        const result = calcString(expression)
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), result.toString())
-                    } catch (error) {
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), '0')
-                    }
-                    break
-                }
-                case 'v2ReplaceString':{
-                    try {
-                        const source = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                        const regexPattern = effect.regexType === 'value' ? risuChatParser(effect.regex,{chara:char}) : getVar(risuChatParser(effect.regex,{chara:char}))
-                        const resultFormat = effect.resultType === 'value' ? risuChatParser(effect.result,{chara:char}) : getVar(risuChatParser(effect.result,{chara:char}))
-                        const replacement = effect.replacementType === 'value' ? risuChatParser(effect.replacement,{chara:char}) : getVar(risuChatParser(effect.replacement,{chara:char}))
-                        const flags = effect.flagsType === 'value' ? risuChatParser(effect.flags,{chara:char}) : getVar(risuChatParser(effect.flags,{chara:char}))
-                        
-                        const regex = new RegExp(regexPattern, flags)
-                        const result = source.replace(regex, (...args) => {
-                            const match = args[0]
-                            const groups = args.slice(1, -2)
-                            
-                            const targetGroupMatch = resultFormat.match(/^\$(\d+)$/)
-                            if (targetGroupMatch) {
-                                const targetIndex = Number(targetGroupMatch[1])
-                                if (targetIndex === 0) {
-                                    return replacement
-                                } else {
-                                    const targetGroup = groups[targetIndex - 1]
-                                    if (targetGroup) {
-                                        return match.replace(targetGroup, replacement)
-                                    }
-                                }
-                            }
-                            
-                            return resultFormat.replace(/\$[0-9]+/g, (placeholder) => {
-                                const index = Number(placeholder.slice(1))
-                                return index === 0 ? match : (groups[index - 1] || '')
-                            }).replace(/\$&/g, match).replace(/\$\$/g, '$')
-                        })
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), result)
-                    } catch (error) {
-                        const source = effect.sourceType === 'value' ? risuChatParser(effect.source,{chara:char}) : getVar(risuChatParser(effect.source,{chara:char}))
-                        setVar(risuChatParser(effect.outputVar, {chara:char}), source)
-                    }
-                    break
-                }
-                case 'v2Comment':{
                     break
                 }
             }

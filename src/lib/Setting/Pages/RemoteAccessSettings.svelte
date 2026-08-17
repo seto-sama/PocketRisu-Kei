@@ -268,7 +268,7 @@
 
     {:else if status === 'error'}
         <div class="flex flex-col gap-2">
-            <div class="text-sm text-red-400">
+            <div class="text-sm text-draculared">
                 {language.remoteAccessError}{tunnelError ? `: ${tunnelError}` : ''}
             </div>
             <ShButton variant="outline" size="sm" onclick={startTunnel} className="mt-1 self-start">{language.remoteAccessRetry}</ShButton>

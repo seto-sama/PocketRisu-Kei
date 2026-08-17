@@ -33,7 +33,7 @@
 
 <div class="w-full flex flex-col pt-2 mt-2 border-t border-t-selected first:pt-0 first:mt-0 first:border-0" data-risu-idx2={idx}>
     <div class="flex items-center transition-colors w-full ">
-        <button class="endflex valuer border-borderc" onclick={() => {
+        <button class="endflex valuer border-borderc risu-interactive-accent" onclick={() => {
             open = !open
             if(open){
                 onOpen()
@@ -44,7 +44,7 @@
         }}>
             <span>{value.comment.length === 0 ? 'Unnamed Trigger' : value.comment}</span>
         </button>
-        <button class="valuer" onclick={async () => {
+        <button class="valuer risu-interactive-danger" onclick={async () => {
             const d = await alertConfirm(language.removeConfirm + value.comment)
             if(d){
                 if(!open){
@@ -69,7 +69,7 @@
             </SelectInput>
             
             <span class="text-textcolor mt-4">Conditions
-                <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 hover:text-primary" onclick={() => {
+                <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 risu-interactive-accent" onclick={() => {
                     value.conditions.push({
                         type: 'value',
                         value: '',
@@ -89,7 +89,7 @@
                         <hr class="border-selected my-4" />
                     {/if}
                     <span class="text-textcolor2 text-sm">{language.type}
-                        <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 hover:text-red-400" onclick={() => {
+                        <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 risu-interactive-danger" onclick={() => {
                             value.conditions.splice(i, 1)
                             value.conditions = value.conditions
         
@@ -167,7 +167,7 @@
             </div>
 
             <span class="text-textcolor mt-4">Effects
-                <button aria-labelledby="Add Effects" class="float-right text-textcolor2 hover:text-primary" onclick={() => {
+                <button aria-labelledby="Add Effects" class="float-right text-textcolor2 risu-interactive-accent" onclick={() => {
                     if(value.type === 'start'){
                         value.effect.push({
                             type: 'systemprompt',
@@ -197,7 +197,7 @@
                         <hr class="border-selected my-4" />
                     {/if}
                     <span class="text-textcolor2 text-sm">{language.type}
-                        <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 hover:text-red-400" onclick={() => {
+                        <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 risu-interactive-danger" onclick={() => {
                             value.effect.splice(i, 1)
                             value.effect = value.effect
         
@@ -332,7 +332,7 @@
                         (value.type !== 'start' && (effect.type === 'systemprompt' || effect.type === 'stop')) ||
                         (value.type !== 'output' && effect.type === 'sendAIprompt')
                     }
-                        <span class="text-red-400 text-sm">{language.invaildTriggerEffect}</span>
+                        <span class="text-draculared text-sm">{language.invaildTriggerEffect}</span>
                     {/if}
                     {#if
                         !lowLevelAble && (
@@ -345,7 +345,7 @@
                             effect.type === 'runAxLLM'
                         )
                     }
-                        <span class="text-red-400 text-sm">{language.triggerLowLevelOnly}</span>
+                        <span class="text-draculared text-sm">{language.triggerLowLevelOnly}</span>
 
                     {/if}
 
@@ -483,8 +483,7 @@
 </div>
 
 <style>
-    .valuer:hover{
-        color: rgba(16, 185, 129, 1);
+    .valuer:is(:hover, :focus-visible){
         cursor: pointer;
     }
 

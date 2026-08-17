@@ -1,4 +1,5 @@
 import { helpKo } from "./help.ko";
+import { appendKoreanJosa } from "./koreanJosa";
 
 export const languageKorean = {
   formating: {
@@ -48,6 +49,45 @@ export const languageKorean = {
       "서버에서 손상된 채팅 구조를 감지하여 디스크 기록을 거부했어요. 최근 변경사항이 아직 디스크에 반영되지 않았을 수 있으니 새로고침 전에 다시 확인해주세요. 기존 데이터는 안전합니다.",
   },
   showHelp: "도움말 보기",
+  requestDiagnostics: {
+    title: "요청 정보",
+    unavailable: "요청 정보 없음",
+    overview: "개요",
+    metadata: "메타데이터",
+    requestLog: "요청 로그",
+    prompt: "프롬프트",
+    contextUsage: "컨텍스트 사용량",
+    availableContext: "남은 용량",
+    responseLimit: "최대 응답 토큰",
+    model: "모델",
+    requestId: "메시지 / 요청 ID",
+    messageIndex: "메시지 인덱스",
+    size: "저장 크기",
+    createdAt: "생성 시각",
+    contentTokens: "본문 토큰",
+    timing: "생성 시간",
+    promptPreparation: "전처리",
+    memoryProcessing: "하이파메모리",
+    responseGeneration: "응답 생성",
+    finalization: "기타",
+    noRequestLog: "저장된 요청 로그를 찾지 못했습니다.",
+    noRequestLogDesc:
+      "서버 요청 로그 기능이 추가되기 전의 응답이거나 로그가 삭제되었을 수 있습니다.",
+    unlinkedRequestLog: "이 스와이프에 연결된 요청 로그가 없습니다.",
+    unlinkedRequestLogDesc:
+      "스와이프별 진단 메타데이터를 저장하기 전에 생성된 응답입니다. 더 최신 요청의 로그로 대체하지 않습니다.",
+    requestLogLoadFailed: "요청 로그를 불러오지 못했습니다.",
+    retry: "다시 시도",
+    presetName: "프리셋 이름",
+    customToggles: "커스텀 토글",
+    promptMessages: "프롬프트 메시지",
+    url: "URL",
+    requestHeader: "요청 헤더",
+    requestBody: "요청 본문",
+    responseBody: "응답 본문",
+    raw: "원문",
+    rawRemaining: "남은 이벤트 원문",
+  },
   help: helpKo,
   setup: {
     chooseProvider: "AI 제공자를 선택해 주세요",
@@ -64,9 +104,9 @@ export const languageKorean = {
     texttheme: "텍스트 색상을 선택해주세요",
     inputName: "마지막으로, 닉네임을 입력해 주세요",
     welcome:
-      "PocketRisu Kei에 오신 것을 환영해요! 저는 PocketRisu Kei 셋업을 도와줄 아이리스라고 해요. 먼저 닉네임을 입력해 주세요!",
+      "PocketRisu에 오신 것을 환영해요! 저는 PocketRisu 셋업을 도와줄 아이리스라고 해요. 먼저 닉네임을 입력해 주세요!",
     welcome2:
-      "{username}님 안녕하세요! PocketRisu Kei를 시작하려면 몇 가지 설정만 하시면 되요. Ai 제공자를 선택해 주세요!",
+      "{username}님 안녕하세요! PocketRisu를 시작하려면 몇 가지 설정만 하시면 되요. Ai 제공자를 선택해 주세요!",
     openRouterProvider:
       "OpenRouter는 여러 무료/유료 모델이 있습니다. 기본적으로 무료로 설정됩니다.",
     hordeProvider:
@@ -485,11 +525,14 @@ export const languageKorean = {
     inlayEmpty: "저장된 인레이 에셋이 없습니다",
     inlayEmptyDesc:
       "채팅에서 첨부 또는 생성된 이미지, 오디오 및 비디오가 여기에 나타납니다",
-    inlayExplorer: "인레이 에셋 탐색기",
-    inlayImageGallery: "인레이 이미지",
+    inlayImageGallery: "인레이 갤러리",
     inlayImageGalleryEmptyDesc:
       "채팅에서 첨부 또는 생성된 이미지가 여기에 나타납니다",
     inlayImageList: "이미지 목록",
+    inlayMediaList: "비디오/오디오 목록",
+    inlayMediaGalleryEmptyDesc:
+      "채팅에서 첨부된 비디오와 오디오가 여기에 나타납니다",
+    inlayMissing: "인레이 에셋을 찾지 못했습니다",
     inlaySelectAll: "모두 선택",
     inlayTotalAssets: "총 {count}개 에셋",
     inlayDelete: "삭제",
@@ -503,7 +546,7 @@ export const languageKorean = {
     inlaySortCreatedAsc: "오래된 생성순",
     inlayFilter: "필터",
     inlayFilterAll: "전체",
-    inlayFilterMetaMissing: "메타 없음",
+    inlayFilterMetaMissing: "채팅 연결 정보 없음",
     inlayFilterOrphanCharacter: "고아 캐릭터",
     inlayFilterOrphanChat: "고아 채팅",
     inlayOriginalLoadNeeded: "원본 로드 필요",
@@ -533,7 +576,6 @@ export const languageKorean = {
   mainPrompt: "메인 프롬프트",
   jailbreakPrompt: "탈옥 프롬프트",
   globalNote: "글로벌 노트",
-  autoSuggest: "자동 제안",
   autopilot: "자동주행",
   chatVariables: "채팅 변수",
   tokens: "토큰",
@@ -629,7 +671,6 @@ export const languageKorean = {
   convertToModule: "모듈로 변환",
   convertToCharacter: "캐릭터로 변환",
   successfullyConverted: "변환되었습니다.",
-  characterPackageImport: "캐릭터 패키지 임포트 (zip)",
   characterPackageCharacter: "캐릭터",
   characterPackageChats: "채팅",
   characterPackagePersona: "페르소나",
@@ -674,8 +715,9 @@ export const languageKorean = {
   plugin: "플러그인",
   language: "언어",
   UiLanguage: "UI 언어",
-  createfromScratch: "새 캐릭터 생성",
-  importCharacter: "캐릭터 임포트",
+  createfromScratch: "새 캐릭터 만들기",
+  importCharacterAndPackage: "캐릭터/패키지 가져오기",
+  changeMessageRole: "역할 변경",
   translator: "번역기",
   disabled: "비활성화됨",
   noPluginSelected: "플러그인이 선택되었지만, 플러그인이 없습니다.",
@@ -749,7 +791,6 @@ export const languageKorean = {
   sectionInterface: "인터페이스",
   sectionHomeList: "홈 / 채팅 목록",
   sectionChatView: "채팅 화면",
-  sectionBubble: "말풍선 스타일",
   sectionQuotes: "따옴표",
   sectionAdvanced: "고급",
   accTabEditing: "편집",
@@ -862,7 +903,6 @@ export const languageKorean = {
   CharVersion: "캐릭터 버전",
   Speech: "음성",
   useExperimental: "실험적 요소 보이기",
-  showMemoryLimit: "기억 한계치 보이기",
   showFirstMessagePages: "퍼스트 메시지 페이지 보이기",
   roundIcons: "둥근 아이콘",
   streaming: "스트리밍",
@@ -871,10 +911,6 @@ export const languageKorean = {
   chatBot: "채팅 봇",
   modelPresetMenu: "모델 프리셋",
   promptPresetMenu: "프롬프트",
-  botSettingsLegacyTitle: "[채팅 봇]은 구버전 기능입니다",
-  botSettingsLegacyDesc: "최신 모델 업데이트가 지연되거나 새 기능이 적용되지 않을 수 있습니다. 최신화된 모델과 기능을 사용하려면 [모델 프리셋]을 이용하세요.",
-  botSettingsPresetMovedDesc: "프리셋은 [프롬프트] 메뉴로 이전되었습니다.",
-  botSettingsParamScopeDesc: "이 페이지의 파라미터는 [채팅 봇]에서 선택한 모델에만 적용됩니다. 모델 프리셋을 사용 중이라면 해당 프리셋 안에서 파라미터를 수정하세요.",
   currentThemePreset: "현재 테마 프리셋",
   currentPromptPreset: "현재 프롬프트 프리셋",
   currentPersona: "현재 페르소나",
@@ -904,8 +940,6 @@ export const languageKorean = {
   editDisplay: "디스플레이 수정",
   textBackgrounds: "커스텀 채팅창 색깔",
   textBorder: "텍스트 윤곽선",
-  textScreenRound: "둥근 채팅창",
-  textScreenBorder: "채팅창 윤곽선",
   ttsEnable: "TTS 켜기",
   ttsReadOnlyQuoted: "따옴표 안 텍스트만 읽기",
   ttsStop: "TTS 중지",
@@ -919,7 +953,8 @@ export const languageKorean = {
   chatInputExpandTitle: "메세지 입력",
   resendLastMessage: "마지막 메세지를 재전송하기",
   enterMessagePlaceholder: "메세지를 입력하세요...",
-  enterMessageToPersona: (name: string) => `${name}(으)로 메세지 보내기`,
+  enterMessageToPersona: (name: string) =>
+    `${appendKoreanJosa(name, "으로/로")} 메시지 보내기`,
   sendKeyEnter: "Enter (Shift+Enter로 줄바꿈)",
   sendKeyCtrlEnter: "Ctrl+Enter (Enter로 줄바꿈)",
   sendKeyShiftEnter: "Shift+Enter (Enter로 줄바꿈)",
@@ -934,8 +969,6 @@ export const languageKorean = {
     "비밀번호를 입력해주세요. 기억이 안나신다면, save/__password를 지우고 서버를 재시작해주세요.",
   simple: "간단",
   advanced: "고급",
-  askReRollAutoSuggestions: "자동 제안 다시 뽑기",
-  creatingSuggestions: "응답 제안 작성 중...",
   active: "활성화",
   loreRandomActivation: "확률 조건 사용",
   activationProbability: "발동 확률",
@@ -1084,9 +1117,14 @@ export const languageKorean = {
   exactTokens: "정확 토큰",
   fixedTokens: "대략적 토큰",
   inlayViewScreen: "인레이 스크린",
-  imgGenPrompt: "이미지 생성 프롬프트",
-  imgGenNegatives: "이미지 생성 네거티브 프롬프트",
-  imgGenInstructions: "이미지 생성 지시사항",
+  enableEmotionImages: "감정 이미지 켜기",
+  emotionInstructions: "감정 이미지 지시사항",
+  extensionInfo: "확장자 정보",
+  positivePrompt: "긍정 프롬프트",
+  negativePrompt: "네거티브 프롬프트",
+  generateImage: "이미지 생성",
+  imageProviderNotConfigured: "먼저 이미지 생성 프로바이더를 설정해주세요.",
+  imageGenerationPromptNotFound: "이 이미지의 생성 프롬프트를 찾을 수 없습니다.",
   translationPrompt: "번역 프롬프트",
   translationResponseSize: "번역 응답 크기",
   webdeeplwarn: "이 옵션은 웹에서는 제대로 작동하지 않을 수 있습니다.",
@@ -1126,7 +1164,6 @@ export const languageKorean = {
   openRouterSortAsc: "오름차순",
   openRouterSortDesc: "내림차순",
   geminiApiKey: "Gemini API Key",
-  memoryLimitThickness: "기억 한계선 두께",
   inputCardPassword: "카드 비밀번호 입력",
   ccv2Desc: "Character Card V2은 챗봇 프로그램에서 자주 사용되는 포맷입니다.",
   ccv3Desc: "Character Card V3은 발전된 기능을 제공하는 포맷입니다.",
@@ -1172,7 +1209,6 @@ export const languageKorean = {
   additionalParams: "추가 파라미터",
   tokenizerOverride: "토크나이저 오버라이드",
   tokenizerAuto: "자동",
-  heightMode: "높이 모드",
   useAdvancedEditor: "고급 에디터 사용",
   antiClaudeOverload: "Claude 오버로드 방지",
   activeTabChange:
@@ -1191,7 +1227,6 @@ export const languageKorean = {
   textAreaTextSize: "입력 텍스트 크기",
   sideBarSize: "사이드바 크기",
   embedding: "임베딩",
-  syntax: "문법",
   run: "실행",
   noMessage: "무언가 입력하여 채팅을 시작하세요.",
   combineTranslation: "결합 번역",
@@ -1252,7 +1287,7 @@ export const languageKorean = {
   goCharacterOnImport: "임포트 시 캐릭터로 이동",
   format: "포맷",
   v2Warning:
-    "주의: V2 카드는 더 이상 지원되지 않습니다. 일부 데이터가 누락될 수 있습니다.",
+    "Character Card V2는 이전 버전의 챗봇 프로그램과 호환하기 위한 레거시 포맷입니다. 최신 기능과 일부 에셋은 포함되지 않을 수 있습니다. 가능하면 V3를 사용하세요.",
   applyModule: "모듈 적용",
   successApplyModule: "모듈이 성공적으로 적용되었습니다.",
   font: "폰트",
@@ -1488,11 +1523,6 @@ export const languageKorean = {
   staticsDisclaimer:
     "통계는 2024년 7월 이후의 데이터를 기반으로 하며, 정확하지 않을 수 있습니다.",
   cumulativeActivity: "누적 기록",
-  subtitles: "자막",
-  subtitlesWarning1:
-    "이 기능을 사용하려면 오디오/비디오 입력을 지원하는 모델을 사용해야 합니다.",
-  subtitlesWarning2:
-    "이 기능을 사용하려면 스트리밍 기능을 지원하는 모델을 사용해야 합니다.",
   reset: "초기화",
   clearInputConfirm: "이 입력란의 내용을 모두 지울까요?",
   assetMaxDifference: "에셋 최대 차이",
@@ -1505,9 +1535,7 @@ export const languageKorean = {
   showSavingIcon: "저장 아이콘 표시",
   pluginVersionWarn:
     "이 플러그인은 {{plugin_version}} 버전입니다. 이 버전의 PocketRisu Kei와 호환되지 않습니다. 플러그인을 {{required_version}} 버전으로 업데이트하세요.",
-  imageTranslation: "이미지 번역",
   banCharacterset: "문자 집합으로 자동 재생성",
-  realmDirectOpen: "RisuRealm 미리보기에서 바로 열기",
   showPromptComparison: "프롬프트 비교 보기",
   inlayErrorResponse: "인레이 오류 응답",
   triggerOn: "활성화 조건",
@@ -1736,6 +1764,8 @@ export const languageKorean = {
   modelPresetCacheGrowth: "재생성 증가량 (토큰)",
   modelPresetTabPresets: "프리셋",
   modelPresetTabOptions: "설정",
+  moduleModelBindingEnable: "모듈별 모델 바인딩",
+  moduleModelBindingUnset: "지정 안 함",
   modelPresetTabTest: "테스트",
   modelPresetTestTitle: "테스트 요청",
   modelPresetTestSend: "테스트 전송",
@@ -1776,18 +1806,6 @@ export const languageKorean = {
   modelPresetSetAsDefault: "현재 바인딩을 새 채팅 기본값으로",
   modelPresetDefaultSaved: "기본 바인딩으로 저장됨",
   modelPresetSaveAsDefaultButton: "기본값으로 저장",
-  modelModeLabel: "모델 모드",
-  modelModeLegacy: "레거시 모델",
-  modelModePreset: "모델 프리셋",
-  modelModeSettingsTitle: "모델 모드 설정으로 이동",
-  modelModeLockLabel: "모델 모드 설정",
-  modelModeLockLegacy: "레거시 모델 모드 고정",
-  modelModeLockLegacyDesc: "기존 RisuAI의 모델 시스템을 사용합니다",
-  modelModeLockPreset: "모델 프리셋 모드 고정",
-  modelModeLockPresetDesc: "포켓리스의 모델 프리셋 바인딩 시스템을 사용합니다",
-  modelModeLockNone: "고정 없음",
-  modelModeLockNoneDesc: "채팅별로 설정을 지정합니다",
-  newChatModelModeLabel: "신규 채팅 기본 모델 모드",
   modelTabBuiltin: "기본 모델",
   modelTabPlugin: "플러그인",
   axModelMemory: "장기 기억",
@@ -1833,7 +1851,6 @@ export const languageKorean = {
   fallbackModel: "대체 모델",
   fallbackWhenBlankResponse: "빈 응답 시 대체",
   doNotChangeFallbackModels: "프리셋 변경 시 대체 모델 변경 안 함",
-  customModels: "커스텀 모델",
   igpPrompt: "IGP 프롬프트",
   hypaMemoryV3Modal: "하이파 V3 모달",
   showMenuHypaMemoryModal: "메뉴에서 하이파 모달 보이기",
@@ -1891,6 +1908,7 @@ export const languageKorean = {
   nightlyWarning:
     "## 나이틀리 빌드\n\n나이틀리 빌드에 연결하려고 합니다. 이 버전은 테스트용이며 버그가 포함되어 있을 수 있습니다. **이 버전에서는 버그 등 문제가 발생하더라도 직접적으로 해결하는 것을 지원하지 않습니다.**",
   loginSionyw: "Sionyw 계정으로 로그인",
+  pluginRiskDetectedTitle: "플러그인 위험 감지",
   pluginRiskDetectedAlert:
     "PocketRisu Kei가 API 키나 개인 데이터를 훔칠 수도 있는 위험한 코드를 감지했습니다. 이 플러그인을 설치하지 않는 것을 권장합니다.",
   doNotInstall: "설치하지 않음",
@@ -1917,12 +1935,11 @@ export const languageKorean = {
   },
   generatedByAIDisclaimer:
     "이 콘텐츠는 AI에 의해 생성되었으며 부정확하거나 편향된 정보가 포함될 수 있습니다.",
-  aiGenerationWarning:
-    "콘텐츠는 AI로 생성되며 부정확하거나 편향된 정보가 포함될 수 있습니다.",
   autoScrollToNewMessage: "새 메시지로 자동 스크롤",
   alwaysScrollToNewMessage: "항상 새 메시지로 스크롤 (스크롤 위치 무시)",
   newMessage: "새 메시지",
   newMessageButtonStyle: "새 메시지 버튼 스타일",
+  newMessageButtonDisabled: "사용 안 함",
   newMessageButtonBottomCenter: "하단 중앙 (기본값)",
   newMessageButtonBottomRight: "하단 우측",
   newMessageButtonBottomLeft: "하단 좌측",
@@ -1944,7 +1961,7 @@ export const languageKorean = {
     "서버에 보관된 리퀘스트 로그를 확인합니다.",
   requestLogsEmptyDesc:
     "리퀘스트가 발생하면 서버에 보관되어 여기에 표시됩니다.",
-  requestLogsSearchPlaceholder: "URL, 본문, 응답, 헤더, 기기, 상태 검색",
+  requestLogsSearchPlaceholder: "URL, 기기, 상태, 채팅 ID 검색",
   requestLogsClearConfirm:
     "서버에 보관된 모든 리퀘스트 로그를 삭제할까요? 되돌릴 수 없습니다.",
   requestLogsKept: (
@@ -2179,6 +2196,10 @@ export const languageKorean = {
   scrollButtonTypeTwo: "2버튼",
   scrollButtonTypeOff: "사용 안 함",
   // 원격 접속 (Cloudflare Quick Tunnel)
+  searchSettingsPlaceholder: "설정 검색...",
+  searchSettingsButton: "설정 검색",
+  searchSettingsNoResults: "일치하는 설정이 없습니다",
+  searchSettingsHint: "설정 이름이나 키워드로 검색하세요",
   connectionManagement: "연결 관리",
   deviceList: "기기 목록",
   deviceListEmpty: "현재 접속 중인 기기가 없습니다.",
@@ -2263,15 +2284,26 @@ export const languageKorean = {
   pluginStorageRefresh: "새로고침",
   pluginStorageEmpty: "항목이 없습니다.",
   pluginStorageLoadError: "저장소를 불러올 수 없습니다.",
-  pluginStorageSave: "저장",
-  pluginStorageFormatJson: "JSON 정렬",
+  popupEditorSave: "저장",
+  popupEditorFormatJson: "JSON 정렬",
+  popupEditorWordWrap: "자동 줄바꿈",
+  popupEditorJsonError: (msg: string) => `JSON 파싱 실패: ${msg}`,
+  popupEditorDiscardConfirm: "저장하지 않은 변경사항을 버릴까요?",
+  popupEditorReplace: "바꾸기",
+  popupEditorReplaceAll: "모두 바꾸기",
+  popupEditorPreviousMatch: "이전 일치 항목",
+  popupEditorNextMatch: "다음 일치 항목",
+  popupEditorMatchCase: "대소문자 구분",
+  popupEditorWholeWord: "단어 단위로 찾기",
+  popupEditorUseRegex: "정규식 사용",
+  popupEditorToggleReplace: "바꾸기 입력란 표시",
+  popupEditorSearchCount: (current: number, total: number) => `${total}의 ${current}`,
   pluginStorageMetaType: "타입",
   pluginStorageMetaSize: "크기",
   pluginStorageMetaChars: "문자 수",
   pluginStorageOwner: "출처(추정)",
   pluginStorageOwnerUnknown: "미상",
   pluginStorageDeleted: "삭제됨",
-  pluginStorageJsonError: (msg: string) => `JSON 파싱 실패: ${msg}`,
   pluginStorageSaved: (key: string) => `"${key}" 저장됨`,
   pluginStorageEmptyValue: "(빈 값)",
   pluginStorageDeleteConfirm: (key: string) => `"${key}" 항목을 삭제할까요?`,
@@ -2307,32 +2339,23 @@ export const languageKorean = {
   storageDiskOther: "기타 (시스템 및 다른 앱)",
   storageDiskFree: "여유 공간",
   storageDiskRisuTotal: (size: number) =>
-    `PocketRisu Kei 합계: ${(size / 1024 / 1024).toFixed(1)} MB`,
+    `총 ${(size / 1024 / 1024).toFixed(1)} MB 사용 중`,
 
   // 항목별 라벨 (분포 리스트의 ⓘ 설명)
   storageRowDbFile: "risuai.db",
   storageRowDbFileDesc:
-    "PocketRisu Kei의 메인 SQLite 데이터베이스 파일. 모든 채팅·캐릭터·에셋·설정이 여기 들어갑니다.",
-  storageRowWal: "WAL (Write-Ahead Log)",
-  storageRowWalDesc:
-    "임시 트랜잭션 로그. 저장이 먼저 여기 기록된 뒤 본 파일에 통합됩니다. 사용 중엔 정상적으로 존재.",
-  storageRowShm: "SHM (공유 메모리)",
-  storageRowShmDesc:
-    "WAL용 SQLite 공유 메모리 인덱스. 작고 휘발성이며 필요 시 재생성됩니다.",
+    "메인 SQLite 데이터베이스 파일. 모든 채팅·캐릭터·에셋·설정이 여기 들어갑니다.",
   storageRowFileBackups: "디스크 백업 (.bin)",
   storageRowFileBackupsDesc:
     "수동으로 export한 백업 파일. backups/ 폴더에 보관됩니다.",
   storageRowKvDatabase: "database.bin (활성)",
   storageRowKvDatabaseDesc:
-    "risuai.db 내부에 있는 단일 BLOB 행. 캐릭터 메타·채팅·설정이 통째로 들어갑니다. 2 GB 단일 BLOB 한계의 적용 대상.",
-  storageRowKvDbBackups: "DB 백업 (인프로세스)",
-  storageRowKvDbBackupsDesc:
-    "risuai.db 내부에 자동으로 보관되는 database.bin 스냅샷. 약 500 MB 한도로 자동 로테이션.",
+    "채팅·캐릭터·설정과 자동 복구용 스냅샷이 차지하는 공간입니다.",
   storageRowKvAssets: "캐릭터 에셋",
   storageRowKvAssetsDesc:
-    "캐릭터 카드, 이모션 이미지, 추가 에셋, 페르소나 아이콘 등.",
-  storageRowKvInlay: "인레이 이미지",
-  storageRowKvInlayDesc: "메시지에 첨부된 이미지 (본체 + 썸네일 + 메타).",
+    "캐릭터 카드, 감정 이미지, 추가 에셋, 페르소나 아이콘 등.",
+  storageRowKvInlay: "인레이 데이터",
+  storageRowKvInlayDesc: "메시지에 첨부된 파일들로, 인레이 갤러리에서 상세 파일을 확인할 수 있습니다.",
   storageRowHypaVectorCache: "HypaMemory 벡터 캐시",
   storageRowHypaVectorCacheDesc:
     "HypaMemory 텍스트에서 생성한 임베딩 벡터 캐시입니다. 원본 메모리 텍스트는 채팅 데이터에 남아 있습니다.",
@@ -2346,18 +2369,18 @@ export const languageKorean = {
   storageRowKvColdStorageDesc: "레거시·휴면 저장 영역. 보통 비어 있습니다.",
   storageRowKvUncategorized: "기타 데이터",
   storageRowKvUncategorizedDesc:
-    "위 분류에 들어가지 않는 키. 마이그레이션 잔여물이나 임시 항목 등이 여기 잡힙니다.",
-  storageRowSqliteOverhead: "SQLite 오버헤드 (구조)",
+    "위 분류에 들어가지 않는 저장 데이터와 WAL 같은 임시 DB 파일입니다.",
+  storageRowSqliteOverhead: "DB 기본 공간",
   storageRowSqliteOverheadDesc:
-    "인덱스, 페이지 헤더, 정렬 패딩 등 SQLite가 항상 들고 있는 구조적 영역입니다. 사용자 데이터가 아니며 정리로 제거되지 않습니다 (데이터 양에 비례해 자연 증가).",
-  storageRowReclaimablePages: "SQLite 오버헤드 (회수 가능)",
+    "DB가 작동하는 데에 필요한 헤더 등이 차지하는 공간입니다.",
+  storageRowReclaimablePages: "정리 가능 공간",
   storageRowReclaimablePagesDesc:
-    '삭제된 데이터가 남긴 빈 페이지로, SQLite 오버헤드 중 정리로 회수 가능한 부분입니다. 아래 "SQLite 오버헤드 정리"의 막대 노란색 부분과 같은 값이며, 정리 실행 시 모두 회수됩니다.',
+    "저장이나 삭제 등 DB 사용 시에 자연스럽게 발생하는 빈 공간으로, 수동 회수를 통해 정리할 수 있습니다. 정리해도 채팅이나 설정은 지워지지 않습니다.",
   storageRowReclaimable: (size: number) =>
     `${(size / 1024 / 1024).toFixed(1)} MB 회수 가능 — Optimize로 압축.`,
-  storageInternalOnly: "저장공간과 함께보기",
+  storageInternalOnly: "디스크 전체 보기",
   storageInternalOnlyHint:
-    "끄면 PocketRisu Kei 내부 항목만, 켜면 기타 시스템·여유 공간까지 디스크 전체 기준으로 표시합니다.",
+    "켜면 기타 시스템·여유 공간까지 디스크 전체 기준으로 표시합니다.",
 
   // 2 GB BLOB 한계 (별도 섹션)
   storageBlobLimit: "2 GB BLOB 한계",
@@ -2370,16 +2393,14 @@ export const languageKorean = {
   storageBlobThresholdCrit:
     "위험: 2 GB BLOB 한계가 임박했습니다. 저장이 실패할 수 있습니다.",
 
-  storageOptimize: "지금 정리",
+  storageOptimize: "DB 정리",
   storageOptimizing: "정리 중...",
   storageOptimizeHeader: (dbSize: number, reclaim: number) =>
     `${(dbSize / 1024 / 1024 / 1024).toFixed(2)} GB 중 ${(reclaim / 1024 / 1024).toFixed(1)} MB 회수 가능`,
   storageOptimizeBarUsed: "사용 중",
   storageOptimizeBarReclaimable: "회수 가능",
   storageOptimizeWhat:
-    "캐릭터·채팅·에셋을 삭제해도 데이터베이스는 그 자리를 빈 공간으로 표시할 뿐 파일 크기는 줄어들지 않습니다. 정리는 이 빈 공간을 제거해 파일을 다시 써서 실제 크기를 줄입니다. 데이터는 변경되지 않습니다.",
-  storageOptimizeWhen:
-    "큰 삭제 작업 후나 위 막대의 빈 공간이 많이 쌓였을 때 실행하면 효과가 큽니다. 정리 중에는 서버 저장이 잠시 멈춥니다 (보통 수 초, 매우 큰 DB는 수십 초까지).",
+    "DB가 차지하고 있는 공간 중 회수 가능한 공간을 사용 가능 공간으로 되돌립니다. 채팅·캐릭터·설정 등의 데이터는 그대로 유지됩니다.",
   storageOptimizeConfirm: "지금 정리할까요? 서버 저장이 수 초간 멈춥니다.",
   storageOptimizeNeedsSpace: (need: number, free: number) =>
     `디스크 여유가 부족합니다. 약 ${(need / 1024 / 1024).toFixed(0)} MB 필요, 여유 ${(free / 1024 / 1024).toFixed(0)} MB.`,
@@ -2387,18 +2408,14 @@ export const languageKorean = {
     `${(reclaimed / 1024 / 1024).toFixed(1)} MB 회수 (${(ms / 1000).toFixed(1)}초).`,
   storageOptimizeFailed: "정리 실패",
 
-  storageCleanup: "SQLite 오버헤드 정리",
+  storageCleanup: "DB 수동 정리",
 
-  storageWalCleanup: "WAL 수동 정리",
-  storageWalCleanupHeader: (walSize: number) =>
-    `현재 WAL ${(walSize / 1024 / 1024).toFixed(1)} MB`,
   storageWalCleanupWhat:
-    "SQLite의 WAL 파일(risuai.db-wal)은 최근 변경분이 본 DB로 합쳐지기 전 임시로 모아두는 영역입니다. 5분 주기로 자동 정리되지만 백업 임포트나 큰 에셋 업로드 직후 일시적으로 부풀 수 있습니다.",
-  storageWalCleanupWhen:
-    "WAL 파일이 커진 상태에서 디스크 공간을 즉시 회수하고 싶을 때 사용합니다. Optimize와 달리 수 밀리초로 끝나고 추가 디스크 공간도 필요하지 않습니다. 데이터는 변경되지 않습니다.",
+    "WAL 정리는 임시 변경사항을 DB에 통합하고 WAL 파일을 비웁니다.",
   storageWalCleanup_btn: "WAL 정리",
   storageWalCleanuping: "WAL 정리 중...",
-  storageWalCleanupConfirm: "WAL을 지금 정리할까요? 서버 저장이 잠시 멈춥니다.",
+  storageWalCleanupConfirm: (walSize: number) =>
+    `WAL (${(walSize / 1024 / 1024).toFixed(1)} MB)을 지금 정리할까요? 서버 저장이 잠시 멈춥니다.`,
   storageWalCleanupDone: (reclaimed: number, ms: number) =>
     `${(reclaimed / 1024 / 1024).toFixed(1)} MB 회수 (${ms}ms).`,
   storageWalCleanupNoop: "WAL은 이미 깨끗합니다.",
@@ -2408,9 +2425,7 @@ export const languageKorean = {
   storageHypaCleanupHeader: (size: number, count: number) =>
     `${count}개 벡터 · ${(size / 1024 / 1024).toFixed(1)} MB`,
   storageHypaCleanupWhat:
-    "모든 채팅에 현재 저장된 HypaMemory 요약과 임베딩 벡터 캐시를 대조하여, 원본 텍스트가 더 이상 존재하지 않는 벡터만 삭제합니다. 요약문과 채팅 데이터는 삭제하지 않습니다.",
-  storageHypaCleanupWhen:
-    "HypaMemory 요약을 많이 삭제하거나 다시 생성한 뒤 사용하세요. 현재 존재하는 메모리의 벡터는 유지됩니다.",
+    "저장된 HypaMemory 요약과 임베딩 벡터 캐시를 대조하여, 원본 텍스트가 더 이상 존재하지 않는 벡터만 삭제합니다. 요약문과 채팅 데이터는 삭제하지 않습니다.",
   storageHypaCleanup_btn: "미사용 벡터 삭제",
   storageHypaCleanuping: "HypaMemory를 확인하고 미사용 벡터를 정리하는 중...",
   storageHypaCleanupConfirm:
@@ -2512,7 +2527,7 @@ export const languageKorean = {
     if (saved > 1024 * 1024) {
       const data = ((logicalBytes ?? 0) / 1024 / 1024).toFixed(0)
       const savedMB = (saved / 1024 / 1024).toFixed(0)
-      return `현재 ${count}개 · 디스크 ${disk} MB (데이터 ${data} MB, 중복 제거로 ${savedMB} MB 절약)`
+      return `현재 ${count}개 · 디스크 ${disk} MB (데이터 ${data} MB, 중복 제거로 ${savedMB} MB 절약됨)`
     }
     return `현재 ${count}개 · ${disk} MB 사용`
   },

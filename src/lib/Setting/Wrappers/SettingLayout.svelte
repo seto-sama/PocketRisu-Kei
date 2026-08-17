@@ -86,7 +86,7 @@
 {:else if variant === 'item'}
     {#if interactive}
         <div
-            class="flex w-full items-center gap-3 px-3 py-2 cursor-pointer hover:bg-selected/30 focus-visible:outline-none focus-visible:bg-selected/30 {className}"
+            class="flex w-full items-center gap-3 px-3 py-2 cursor-pointer risu-interactive-surface {className}"
             role="button"
             tabindex="0"
             {onclick}
@@ -107,7 +107,6 @@
         class:border={!embedded}
         class:border-darkborderc={!embedded}
         class:rounded-md={!embedded}
-        class:max-h-[75vh]={scrollable}
         class:overflow-y-auto={scrollable}
     >
         {@render children?.()}
@@ -125,7 +124,7 @@
 {:else if variant === 'filter'}
     <Collapsible.Root bind:open>
         <div class="flex items-center justify-between gap-2">
-            <Collapsible.Trigger class="group flex items-center gap-1 text-textcolor2 hover:text-textcolor text-sm transition-colors">
+            <Collapsible.Trigger class="group flex items-center gap-1 text-textcolor2 risu-interactive-foreground text-sm transition-colors">
                 <FilterIcon size={12} />
                 <span>{title}</span>
                 {#if activeCount > 0}<ShBadge variant="secondary" className="ml-1">{activeCount}</ShBadge>{/if}
@@ -134,7 +133,7 @@
             {#if (activeCount > 0 && clearLabel && onClear) || control}
                 <div class="flex items-center gap-2 shrink-0">
                     {#if activeCount > 0 && clearLabel && onClear}
-                        <button class="text-textcolor2 hover:text-textcolor text-xs cursor-pointer" onclick={onClear}>{clearLabel}</button>
+                        <button class="text-textcolor2 risu-interactive-foreground text-xs cursor-pointer" onclick={onClear}>{clearLabel}</button>
                     {/if}
                     {#if control}{@render control()}{/if}
                 </div>

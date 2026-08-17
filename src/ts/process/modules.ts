@@ -7,7 +7,7 @@ import { v4 } from "uuid"
 import { convertExternalLorebook } from "./lorebook.svelte"
 import { compressImage } from '../media'
 import { decodeRPack, encodeRPack } from "../rpack/rpack_js"
-import { HideIconStore, moduleBackgroundEmbedding, ReloadGUIPointer } from "../stores.svelte"
+import { HideIconStore, moduleBackgroundEmbedding } from "../stores.svelte"
 import {get} from "svelte/store"
 import { convertCharacterToModule, convertModuleToCharacter } from "../interchangeability"
 import { exportCharacterCard, importCharacterProcess } from "../characterCards"
@@ -476,10 +476,12 @@ export function getModuleTriggers() {
             continue
         }
         if (module.trigger) {
-            triggers = triggers.concat(module.trigger.map((t) => {
-                t.lowLevelAccess = module.lowLevelAccess
-                return t
-            }))
+            // Runtime attribution must not leak into exported module data.
+            triggers = triggers.concat(module.trigger.map((trigger) => ({
+                ...trigger,
+                lowLevelAccess: module.lowLevelAccess,
+                moduleId: module.id,
+            })))
         }
     }
     return triggers
@@ -555,15 +557,11 @@ export async function applyModule() {
     notifySuccess(language.successApplyModule)
 }
 
-let lastModuleIds:string = ''
-
 export function moduleUpdate(){
 
 
     const m = getModules()
 
-    const ids = m.map((m) => m.id).join('-')
-    
     let moduleHideIcon = false
     let backgroundEmbedding = ''
     m.forEach((module) => {
@@ -584,10 +582,6 @@ export function moduleUpdate(){
     }
     HideIconStore.set(getCurrentCharacter()?.hideChatIcon || moduleHideIcon)
 
-    if(lastModuleIds !== ids){
-        ReloadGUIPointer.set(get(ReloadGUIPointer) + 1)
-        lastModuleIds = ids
-    }
 }
 
 export function refreshModules(){

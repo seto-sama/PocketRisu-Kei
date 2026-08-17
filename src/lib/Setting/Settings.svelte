@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { AccessibilityIcon, ActivityIcon, PackageIcon, CogIcon, ContactIcon, FlaskConicalIcon, ImageIcon, LanguagesIcon, MonitorIcon, MonitorSmartphoneIcon, Sailboat, ScrollTextIcon, CircleXIcon, FileBoxIcon, ArchiveIcon } from "@lucide/svelte";
+    import { AccessibilityIcon, ActivityIcon, PackageIcon, CogIcon, ContactIcon, FlaskConicalIcon, ImageIcon, LanguagesIcon, MonitorIcon, MonitorSmartphoneIcon, Sailboat, ScrollTextIcon, SearchIcon, CircleXIcon, FileBoxIcon, ArchiveIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import DisplaySettings from "./Pages/DisplaySettings.svelte";
     import ModelPresetSettings from "./Pages/Model/ModelPresetSettings.svelte";
@@ -22,12 +22,14 @@
     import DevPanel from "src/lib/_dev/DevPanel.svelte";
     import AddonSettings from "./Pages/AddonSettings.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import SettingsSearch from "./SettingsSearch.svelte";
 
     // Dev panel is opt-in via localStorage['risu-dev-panel']='1' in devtools.
     // Read once on mount — flag changes require reload. Gates both the menu
     // button below and the route render branch (SettingsMenuIndex === 99).
     const devPanelEnabled = typeof localStorage !== 'undefined'
         && localStorage.getItem('risu-dev-panel') === '1';
+    let searchOpen = $state(false);
 
     const primaryMenuItems = $derived([
         { index: 16, icon: FileBoxIcon, label: language.modelPresetMenu },
@@ -80,11 +82,11 @@
                 <IconButtonGroup
                     size="lg"
                     direction="vertical"
-                    className="w-full gap-2 [&>button]:w-full [&>button]:justify-start [&>button]:gap-[var(--icon-label-gap)] [&>div]:w-full"
+                    className="w-full gap-2 [&>button]:w-full [&>button]:rounded-md [&>button]:justify-start [&>button]:gap-[var(--icon-label-gap)] [&>div]:w-full"
                 >
                 {#each ($isLite ? primaryMenuItems.filter((item) => item.index === 10) : primaryMenuItems) as item (item.index)}
                     <button
-                        class="flex items-center hover:text-textcolor"
+                        class="flex items-center risu-interactive-foreground"
                         class:text-textcolor={$SettingsMenuIndex === item.index}
                         class:text-textcolor2={$SettingsMenuIndex !== item.index}
                         onclick={() => selectMenu(item.index)}
@@ -96,7 +98,7 @@
                 {#if !$isLite}
                     {#each secondaryMenuItems as item (item.index)}
                         <button
-                            class="flex items-center hover:text-textcolor"
+                            class="flex items-center risu-interactive-foreground"
                             class:text-textcolor={$SettingsMenuIndex === item.index}
                             class:text-textcolor2={$SettingsMenuIndex !== item.index}
                             onclick={() => selectMenu(item.index)}
@@ -105,8 +107,17 @@
                             <span>{item.label}</span>
                         </button>
                     {/each}
+                {/if}
+                <button
+                    class="flex items-center risu-interactive-foreground text-textcolor2"
+                    onclick={() => { searchOpen = true }}
+                >
+                    <SearchIcon />
+                    <span>{language.searchSettingsButton}</span>
+                </button>
+                {#if !$isLite}
                     {#if devPanelEnabled}
-                        <button class="flex items-center hover:text-textcolor"
+                        <button class="flex items-center risu-interactive-foreground"
                             class:text-textcolor={$SettingsMenuIndex === 99}
                             class:text-textcolor2={$SettingsMenuIndex !== 99}
                             onclick={() => {
@@ -122,7 +133,7 @@
                         </div>
                     {/if}
                     {#each additionalSettingsMenu as menu}
-                        <button class="flex items-center hover:text-textcolor text-textcolor2"
+                        <button class="flex items-center risu-interactive-foreground text-textcolor2"
                             onclick={() => {
                                 menu.callback()
                         }}>
@@ -134,7 +145,7 @@
                 {/if}
                 </IconButtonGroup>
                 {#if window.innerWidth < 700 && !$MobileGUI}
-                    <button class="absolute top-2 right-2 hover:text-primary text-textcolor" onclick={() => {
+                    <button class="absolute top-2 right-2 risu-interactive-accent text-textcolor" onclick={() => {
                         settingsOpen.set(false)
                     }}> <CircleXIcon size={DBState.db.settingsCloseButtonSize} /> </button>
                 {/if}
@@ -183,7 +194,7 @@
             </div>
             {/key}
             {#if !$MobileGUI}
-                <button class="absolute top-2 right-2 hover:text-primary text-textcolor" onclick={() => {
+                <button class="absolute top-2 right-2 risu-interactive-accent text-textcolor" onclick={() => {
                     if(window.innerWidth >= 700){
                         settingsOpen.set(false)
                     }
@@ -197,6 +208,7 @@
         {/if}
     </div>
 </div>
+<SettingsSearch bind:open={searchOpen} />
 <style>
     .setting-bg{
         background: linear-gradient(to right, var(--risu-theme-darkbg) 50%, var(--risu-theme-bgcolor) 50%);

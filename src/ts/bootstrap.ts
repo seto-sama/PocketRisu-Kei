@@ -1,7 +1,7 @@
 import { changeFullscreen, checkNullish } from "./util"
 import { v4 as uuidv4 } from 'uuid';
 import { get } from "svelte/store";
-import { setDatabase, defaultSdDataFunc, getDatabase, changeToThemePreset, type Database } from "./storage/database.svelte";
+import { setDatabase, getDatabase, changeToThemePreset, type Database } from "./storage/database.svelte";
 import { chatDraftKey, sweepOrphanDrafts } from "./storage/chatDraft";
 import { checkRisuUpdate } from "./update";
 import { fetchPublicStats } from "./publicStats";
@@ -169,7 +169,6 @@ export async function loadData() {
             updateColorScheme()
             updateTextThemeAndCSS()
             updateAnimationSpeed()
-            updateHeightMode()
             updateErrorHandling()
             updateGuisize()
             initHotkey()
@@ -392,34 +391,6 @@ function updateErrorHandling() {
 }
 
 /**
- * Updates the height mode of the document based on the value stored in the database.
- */
-function updateHeightMode() {
-    const db = getDatabase()
-    const root = document.querySelector(':root') as HTMLElement;
-    switch (db.heightMode) {
-        case 'auto':
-            root.style.setProperty('--risu-height-size', '100%');
-            break
-        case 'vh':
-            root.style.setProperty('--risu-height-size', '100vh');
-            break
-        case 'dvh':
-            root.style.setProperty('--risu-height-size', '100dvh');
-            break
-        case 'lvh':
-            root.style.setProperty('--risu-height-size', '100lvh');
-            break
-        case 'svh':
-            root.style.setProperty('--risu-height-size', '100svh');
-            break
-        case 'percent':
-            root.style.setProperty('--risu-height-size', '100%');
-            break
-    }
-}
-
-/**
  * Checks and updates the database format to the latest version.
  */
 async function checkNewFormat(): Promise<void> {
@@ -558,18 +529,7 @@ async function checkNewFormat(): Promise<void> {
 
         db.formatversion = 2;
     }
-    if (db.formatversion < 3) {
-        for (let i = 0; i < db.characters.length; i++) {
-            let cha = db.characters[i];
-            if (cha.type === 'character') {
-                if (checkNullish(cha.sdData)) {
-                    cha.sdData = defaultSdDataFunc();
-                }
-            }
-        }
-
-        db.formatversion = 3;
-    }
+    if (db.formatversion < 3) db.formatversion = 3;
     if (db.formatversion < 4) {
         //migration removed due to issues
         db.formatversion = 4;

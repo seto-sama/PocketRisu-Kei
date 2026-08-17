@@ -1,80 +1,32 @@
-let bgmElement:HTMLAudioElement|null = null;
-let domObserver: MutationObserver | null = null;
+import { mount, unmount } from 'svelte';
+import AudioPlayer from 'src/lib/UI/GUI/AudioPlayer.svelte';
 
-const OBSERVED_HL_ATTR = 'data-risu-observed-hl'
-const OBSERVED_CTRL_ATTR = 'data-risu-observed-ctrl'
+let domObserver: MutationObserver | null = null;
+const audioPlayerInstances = new Map<HTMLElement, ReturnType<typeof mount>>();
+
+function mountAudioPlayer(node: HTMLElement) {
+    if (!node.hasAttribute('data-risu-audio-player') || audioPlayerInstances.has(node)) {
+        return
+    }
+
+    const src = node.dataset.audioSrc
+    if (!src) return
+
+    const instance = mount(AudioPlayer, {
+        target: node,
+        props: {
+            src,
+            title: node.dataset.audioTitle || 'Audio',
+            characterName: node.dataset.characterName || '',
+            autoplay: true,
+            loop: true,
+        },
+    })
+    audioPlayerInstances.set(node, instance)
+}
 
 function nodeObserve(node:HTMLElement){
-    const hlLang = node.getAttribute('x-hl-lang');
-    const ctrlName = node.getAttribute('risu-ctrl');
-
-    if(hlLang && node.getAttribute(OBSERVED_HL_ATTR) !== '1'){
-        node.setAttribute(OBSERVED_HL_ATTR, '1')
-        node.addEventListener('contextmenu', (e)=>{
-            e.preventDefault()
-
-            const prevContextMenu = document.getElementById('code-contextmenu')
-            if(prevContextMenu){
-                prevContextMenu.remove()
-            }
-
-            const menu = document.createElement('div')
-            menu.id = 'code-contextmenu'
-            menu.setAttribute('class', 'fixed z-50 min-w-[160px] py-2 bg-gray-800 rounded-lg border border-gray-700')
-
-            const copyOption = document.createElement('div')
-            copyOption.textContent = 'Copy'
-            copyOption.setAttribute('class', 'px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 cursor-pointer')
-            copyOption.addEventListener('click', ()=>{
-                navigator.clipboard.writeText(node.textContent ?? '')
-                menu.remove()
-            })
-
-            const downloadOption = document.createElement('div');
-            downloadOption.textContent = 'Download';
-            downloadOption.setAttribute('class', 'px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 cursor-pointer')
-            downloadOption.addEventListener('click', ()=>{
-                const a = document.createElement('a')
-                a.href = URL.createObjectURL(new Blob([node.textContent ?? ''], {type: 'text/plain'}))
-                a.download = 'code.' + hlLang
-                a.click()
-                menu.remove()
-            })
-
-            menu.appendChild(copyOption)
-            menu.appendChild(downloadOption)
-
-            menu.style.left = e.clientX + 'px'
-            menu.style.top = e.clientY + 'px'
-
-            document.body.appendChild(menu)
-
-            document.addEventListener('click', ()=>{
-                menu?.remove()
-            }, {once: true})
-        })
-    }
-
-    if(ctrlName && node.getAttribute(OBSERVED_CTRL_ATTR) !== '1'){
-        node.setAttribute(OBSERVED_CTRL_ATTR, '1')
-        const split = ctrlName.split('___');
-
-        switch(split[0]){
-            case 'bgm':{
-                const volume = split[1] === 'auto' ? 0.5 : parseFloat(split[1]);
-                if(!bgmElement){
-                    bgmElement = new Audio(split[2]);
-                    bgmElement.volume = volume
-                    bgmElement.addEventListener('ended', ()=>{
-                        bgmElement.remove();
-                        bgmElement = null;
-                    })
-                    bgmElement.play();
-                }
-                break
-            }
-        }
-    }
+    mountAudioPlayer(node)
 }
 
 function observeNodeTree(node: Node) {
@@ -86,9 +38,25 @@ function observeNodeTree(node: Node) {
         nodeObserve(node)
     }
 
-    node.querySelectorAll<HTMLElement>('[x-hl-lang], [risu-ctrl]').forEach((element) => {
+    node.querySelectorAll<HTMLElement>('[data-risu-audio-player]').forEach((element) => {
         nodeObserve(element)
     })
+}
+
+function unmountNodeTree(node: Node) {
+    if (!(node instanceof Element)) return
+
+    const audioNodes = node.matches('[data-risu-audio-player]')
+        ? [node as HTMLElement]
+        : []
+    audioNodes.push(...node.querySelectorAll<HTMLElement>('[data-risu-audio-player]'))
+
+    for (const audioNode of audioNodes) {
+        const instance = audioPlayerInstances.get(audioNode)
+        if (!instance) continue
+        audioPlayerInstances.delete(audioNode)
+        void unmount(instance)
+    }
 }
 
 export async function startObserveDom(){
@@ -96,8 +64,8 @@ export async function startObserveDom(){
         return
     }
 
-    // For parsed HTML blocks, scan once and then watch future subtree insertions.
-    document.querySelectorAll<HTMLElement>('[x-hl-lang], [risu-ctrl]').forEach((node) => {
+    // Scan parsed audio blocks once and then watch future subtree insertions.
+    document.querySelectorAll<HTMLElement>('[data-risu-audio-player]').forEach((node) => {
         nodeObserve(node)
     })
 
@@ -117,12 +85,15 @@ export async function startObserveDom(){
             mutation.addedNodes.forEach((node) => {
                 observeNodeTree(node)
             })
+            mutation.removedNodes.forEach((node) => {
+                unmountNodeTree(node)
+            })
         })
     })
     domObserver.observe(target, {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['x-hl-lang', 'risu-ctrl'],
+        attributeFilter: ['data-risu-audio-player'],
     })
 }

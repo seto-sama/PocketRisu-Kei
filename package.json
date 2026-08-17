@@ -1,7 +1,7 @@
 {
   "name": "pocketrisu-kei",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.0.2",
   "homepage": "https://github.com/seto-sama/PocketRisu-Kei",
   "repository": {
     "type": "git",
@@ -10,9 +10,9 @@
   "bugs": {
     "url": "https://github.com/seto-sama/PocketRisu-Kei/issues"
   },
-  "packageManager": "pnpm@10.34.1",
+  "packageManager": "pnpm@11.3.0",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.13.0"
   },
   "type": "module",
   "scripts": {
@@ -32,6 +32,10 @@
     "@aws-crypto/sha256-js": "^5.2.0",
     "@breezystack/lamejs": "^1.2.7",
     "@browsermt/bergamot-translator": "^0.4.9",
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/search": "^6.7.1",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.6",
     "@dqbd/tiktoken": "^1.0.22",
     "@huggingface/jinja": "^0.5.9",
     "@huggingface/transformers": "^4.2.0",
@@ -69,10 +73,8 @@
     "markdown-it": "^14.3.0",
     "mnemonist": "^0.40.4",
     "mobile-drag-drop": "3.0.0-rc.0",
-    "monaco-editor": "^0.55.1",
     "msgpackr": "2.0.4",
     "node-html-parser": "^9.0.0",
-    "ollama": "^0.6.3",
     "pdfjs-dist": "^6.1.200",
     "png-chunk-text": "^1.0.0",
     "postcss-selector-parser": "^7.1.4",
@@ -114,6 +116,7 @@
     "@typescript/native": "npm:typescript@^7.0.2",
     "autoprefixer": "^10.5.4",
     "fast-check": "^4.9.0",
+    "fontkit": "2.0.4",
     "happy-dom": "^20.10.6",
     "internal-ip": "^9.0.0",
     "postcss": "^8.5.19",

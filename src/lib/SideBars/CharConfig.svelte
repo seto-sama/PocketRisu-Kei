@@ -1,25 +1,23 @@
 <script lang="ts">
     import { language } from "../../lang";
-    import { tokenizeAccurate } from "../../ts/tokenizer";
     import { saveImage as saveAsset, type character, getCurrentCharacter } from "../../ts/storage/database.svelte";
     import { convertCharacterToModule } from "src/ts/interchangeability";
-    import { alertConfirm, notifyError, notifySuccess } from "src/ts/alert";
+    import { notifySuccess } from "src/ts/alert";
     import { DBState } from 'src/ts/stores.svelte';
-    import { CharConfigSubMenu, MobileGUI, selectedCharID, SizeStore } from "../../ts/stores.svelte";
-    import { PlusIcon, TrashIcon, DownloadIcon, HardDriveUploadIcon, ImageIcon, ImageOffIcon, ArrowUp, ArrowDown, TriangleAlertIcon, FileIcon, FileMusicIcon, FileVideoIcon, Copy } from '@lucide/svelte'
+    import { CharConfigSubMenu, MobileGUI, selectedCharID } from "../../ts/stores.svelte";
+    import { PlusIcon, TrashIcon, DownloadIcon, HardDriveUploadIcon, ArrowUp, ArrowDown, TriangleAlertIcon } from '@lucide/svelte'
     import Check from "../UI/GUI/CheckInput.svelte";
-    import { addCharEmotion, addingEmotion, getCharImage, rmCharEmotion, selectCharImg, removeChar, changeCharImage } from "../../ts/characters";
+    import { getCharImage, selectCharImg, removeChar, changeCharImage } from "../../ts/characters";
     import LoreBook from "./LoreBook/LoreBookSetting.svelte";
-    import { getAuthorNoteDefaultText, selectMultipleFile, selectSingleFile } from "../../ts/util";
+    import { getAuthorNoteDefaultText, selectSingleFile } from "../../ts/util";
     import Help from "../Others/Help.svelte";
     import { exportChar } from "src/ts/characterCards";
     import { getElevenTTSVoices, getWebSpeechTTSVoices, getVOICEVOXVoices, oaiVoices, getNovelAIVoices, getTTSApiKey } from "src/ts/process/tts";
-    import { downloadFile, getFileSrc } from "src/ts/globalApi.svelte";
     import TextInput from "../UI/GUI/TextInput.svelte";
     import ShInput from "../UI/GUI/ShInput.svelte";
     import NumberInput from "../UI/GUI/NumberInput.svelte";
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
-    import Button from "../UI/GUI/Button.svelte";
+    import ShButton from "../UI/GUI/ShButton.svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
     import RegexList from "./Scripts/RegexList.svelte";
@@ -32,237 +30,47 @@
     import { exportRegex, importRegex } from "src/ts/process/scripts";
     import SliderInput from "../UI/GUI/SliderInput.svelte";
     import Accordion from "../UI/Accordion.svelte";
-    import ShButton from "../UI/GUI/ShButton.svelte";
     import ShSettings from "../UI/GUI/ShSettings.svelte";
     import ShSwitch from "../UI/GUI/ShSwitch.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
-    import FullscreenImageViewer from "../UI/GUI/FullscreenImageViewer.svelte";
+    import AdditionalAssetsEditor from "../UI/AdditionalAssetsEditor.svelte";
+    import TokenCount from "../UI/GUI/TokenCount.svelte";
 
     let pkgIncludeCharacter = $state(true)
     let pkgIncludeChats = $state(true)
     let pkgIncludePersona = $state(true)
     let pkgIncludeInlays = $state(false)
+    let addingCreatorNotesLang = $state(false)
     let viewSubMenu = $state(0)
-    let emos:[string, string][] = $state([])
-    let tokens = $state({
-        desc: 0,
-        firstMsg: 0,
-        localNote: 0,
-        charaNote: 0,
-        alternateGreetings: [] as number[]
-    })
-
-    // Per-field debounced token counts. Each field is its own effect so a change
-    // to one can't disturb another, and the generation is bumped in the effect
-    // (on input change) — not in the timer — so an in-flight tokenize is
-    // invalidated the moment the input changes, not 400ms later when the timer
-    // fires. Tokenizing is heavy (full CBS parse + encode), so it stays debounced
-    // off the keystroke path.
-    const tokenizeField = (
-        getValue: () => string,
-        apply: (n: number) => void,
-        timerRef: { t: ReturnType<typeof setTimeout> | null, seq: number }
-    ) => {
-        const value = getValue()
-        const seq = ++timerRef.seq
-        if (timerRef.t) clearTimeout(timerRef.t)
-        timerRef.t = setTimeout(() => {
-            tokenizeAccurate(value).then(n => { if (seq === timerRef.seq) apply(n) })
-        }, 400)
-    }
-    const descTok = { t: null as ReturnType<typeof setTimeout> | null, seq: 0 }
-    const firstMsgTok = { t: null as ReturnType<typeof setTimeout> | null, seq: 0 }
-    const localNoteTok = { t: null as ReturnType<typeof setTimeout> | null, seq: 0 }
-    const alternateGreetingsTok = { t: null as ReturnType<typeof setTimeout> | null, seq: 0 }
-    $effect.pre(() => {
-        tokenizeField(() => (DBState.db.characters[$selectedCharID] as character).desc ?? '', n => tokens.desc = n, descTok)
-    });
-    $effect.pre(() => {
-        tokenizeField(() => DBState.db.characters[$selectedCharID].firstMessage ?? '', n => tokens.firstMsg = n, firstMsgTok)
-    });
-    $effect.pre(() => {
-        const chara = DBState.db.characters[$selectedCharID]
-        tokenizeField(() => chara.chats[chara.chatPage].note ?? '', n => tokens.localNote = n, localNoteTok)
-    });
-    $effect.pre(() => {
-        const greetings = [...(DBState.db.characters[$selectedCharID].alternateGreetings ?? [])]
-        const seq = ++alternateGreetingsTok.seq
-        if (alternateGreetingsTok.t) clearTimeout(alternateGreetingsTok.t)
-        alternateGreetingsTok.t = setTimeout(async () => {
-            const counts = await Promise.all(greetings.map(greeting => tokenizeAccurate(greeting)))
-            if (seq === alternateGreetingsTok.seq) tokens.alternateGreetings = counts
-        }, 400)
-    });
-
-
-    let assetFileExtensions:string[] = $state([])
-    let assetFilePath:string[] = $state([])
-    let assetImageDimensions = $state<Record<string, { width: number, height: number }>>({})
-    const previewableImageExtensions = ['png', 'webp', 'jpeg', 'jpg', 'gif', 'svg', 'avif']
-    let assetPreviewIndex = $state(-1)
-    let assetPreviewInfoOpen = $state(false)
-    let assetPreviewIndexes = $derived.by(() => {
-        const assets = (DBState.db.characters[$selectedCharID] as character).additionalAssets ?? []
-        return assets
-            .map((_, index) => index)
-            .filter((index) => previewableImageExtensions.includes(assetFileExtensions[index]) && !!assetFilePath[index])
-    })
-    let assetPreviewPosition = $derived(assetPreviewIndexes.indexOf(assetPreviewIndex))
-    let assetPreviewAsset = $derived(
-        assetPreviewIndex >= 0
-            ? (DBState.db.characters[$selectedCharID] as character).additionalAssets?.[assetPreviewIndex] ?? null
-            : null
-    )
-    let assetPreviewPath = $derived(assetPreviewIndex >= 0 ? assetFilePath[assetPreviewIndex] ?? '' : '')
-    let assetPreviewDimensions = $derived(
-        assetPreviewAsset ? assetImageDimensions[assetPreviewAsset[1]] : undefined
-    )
     let licensed = $state((DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : '')
 
-    $effect.pre(() => {
-        emos = DBState.db.characters[$selectedCharID].emotionImages
-    });
-
-
-    $effect.pre(() => {
-        if(DBState.db.characters[$selectedCharID].type ==='character' && DBState.db.useAdditionalAssetsPreview){
-            if((DBState.db.characters[$selectedCharID] as character).additionalAssets){
-                for(let i = 0; i < (DBState.db.characters[$selectedCharID] as character).additionalAssets.length; i++){
-                    if((DBState.db.characters[$selectedCharID] as character).additionalAssets[i].length > 2 && (DBState.db.characters[$selectedCharID] as character).additionalAssets[i][2]) {
-                        assetFileExtensions[i] = (DBState.db.characters[$selectedCharID] as character).additionalAssets[i][2]
-                    } else
-                        assetFileExtensions[i] = (DBState.db.characters[$selectedCharID] as character).additionalAssets[i][1].split('.').pop()
-                    getFileSrc((DBState.db.characters[$selectedCharID] as character).additionalAssets[i][1]).then((filePath) => {
-                        assetFilePath[i] = filePath
-                    })
-                }
-            }
-        }
-    });
 
     $effect.pre(() => {
         licensed = (DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : ''
     });
 
-    async function addAdditionalAssets() {
-        if(DBState.db.characters[$selectedCharID].type !== 'character'){
-            return
-        }
-        const da = await selectMultipleFile(['png', 'webp', 'mp4', 'mp3', 'gif', 'jpeg', 'jpg', 'ttf', 'otf', 'css', 'webm', 'woff', 'woff2', 'svg', 'avif'])
-        if(!da){
-            return
-        }
-        DBState.db.characters[$selectedCharID].additionalAssets ??= []
-        for(const f of da){
-            const extension = f.name.split('.').pop().toLowerCase()
-            const imgp = await saveAsset(f.data, '', extension)
-            DBState.db.characters[$selectedCharID].additionalAssets.push([f.name, imgp, extension])
-        }
-        DBState.db.characters[$selectedCharID].additionalAssets = DBState.db.characters[$selectedCharID].additionalAssets
-    }
+    let emotionAssets = $derived(
+        ((DBState.db.characters[$selectedCharID] as character)?.emotionImages ?? [])
+            .map(([name, path]) => [name, path, 'png'] as [string, string, string])
+    )
 
-    function openAssetPreview(index: number) {
-        assetPreviewIndex = index
-        assetPreviewInfoOpen = $SizeStore.w >= 768
-    }
-
-    function recordAssetImageDimensions(event: Event, assetPath: string) {
-        const image = event.currentTarget as HTMLImageElement
-        if(image.naturalWidth > 0 && image.naturalHeight > 0){
-            assetImageDimensions[assetPath] = {
-                width: image.naturalWidth,
-                height: image.naturalHeight,
-            }
-        }
-    }
-
-    function closeAssetPreview() {
-        assetPreviewIndex = -1
-    }
-
-    function buildAssetRawReference(name: string) {
-        return `{{raw::${name}}}`
-    }
-
-    async function copyAssetRawReference(name: string) {
-        try {
-            await navigator.clipboard.writeText(buildAssetRawReference(name))
-            notifySuccess(language.copied)
-        }
-        catch(error){
-            notifyError(`${error}`)
-        }
-    }
-
-    async function downloadAssetPreview() {
-        if(!assetPreviewAsset || !assetPreviewPath){
-            return
-        }
-        try {
-            const response = await fetch(assetPreviewPath)
-            if(!response.ok){
-                throw new Error(`Failed to load asset: ${response.status}`)
-            }
-            const name = assetPreviewAsset[0]
-            const extension = assetPreviewAsset[2]
-            const downloadName = extension && !name.toLowerCase().endsWith(`.${extension.toLowerCase()}`)
-                ? `${name}.${extension}`
-                : name
-            await downloadFile(downloadName, await response.arrayBuffer())
-            notifySuccess(language.successExport)
-        }
-        catch(error){
-            notifyError(`${error}`)
-        }
-    }
-
-    async function deleteAdditionalAsset(index: number, confirm = false) {
+    function setEmotionImagesEnabled(enabled: boolean) {
         const char = DBState.db.characters[$selectedCharID] as character
-        const asset = char.additionalAssets?.[index]
-        if(!asset){
-            return
-        }
-        if(confirm && !(await alertConfirm(`${language.removeConfirm}${asset[0]}`))){
-            return
-        }
-
-        const currentPreviewPosition = assetPreviewIndexes.indexOf(index)
-        const neighborIndex = currentPreviewPosition >= 0
-            ? assetPreviewIndexes[currentPreviewPosition + 1] ?? assetPreviewIndexes[currentPreviewPosition - 1]
-            : undefined
-
-        char.chats[char.chatPage].fmIndex = -1
-        char.additionalAssets.splice(index, 1)
-        char.additionalAssets = char.additionalAssets
-        if(char.prebuiltAssetExclude?.includes(asset[1])){
-            char.prebuiltAssetExclude = char.prebuiltAssetExclude.filter((path) => path !== asset[1])
-        }
-        delete assetImageDimensions[asset[1]]
-        assetFileExtensions.splice(index, 1)
-        assetFilePath.splice(index, 1)
-
-        if(assetPreviewIndex === index){
-            if(neighborIndex === undefined){
-                closeAssetPreview()
-            }
-            else {
-                assetPreviewIndex = neighborIndex > index ? neighborIndex - 1 : neighborIndex
-            }
-        }
-        else if(assetPreviewIndex > index){
-            assetPreviewIndex -= 1
-        }
+        char.viewScreen = enabled ? 'emotion' : 'none'
+        if(!enabled) char.inlayViewScreen = false
+        DBState.db.characters[$selectedCharID] = updateInlayScreen(char)
     }
 
-    function goToAssetPreviewNeighbor(offset: -1 | 1) {
-        if(assetPreviewPosition < 0){
-            return
-        }
-        const nextIndex = assetPreviewIndexes[assetPreviewPosition + offset]
-        if(nextIndex !== undefined){
-            assetPreviewIndex = nextIndex
-        }
+    function setEmotionInlayEnabled(enabled: boolean) {
+        const char = DBState.db.characters[$selectedCharID] as character
+        char.inlayViewScreen = enabled
+        DBState.db.characters[$selectedCharID] = updateInlayScreen(char)
+    }
+
+    function setEmotionAssets(assets: [string, string, string][]) {
+        const char = DBState.db.characters[$selectedCharID] as character
+        char.emotionImages = assets.map(([name, path]) => [name, path])
     }
 
     $effect.pre(() => {
@@ -389,7 +197,7 @@
         <ShInput className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].nickname}/>
         <span class="text-textcolor">{language.description}<Help key="charDesc"/></span>
         <TextAreaInput highlight margin="both" autocomplete="off" bind:value={(DBState.db.characters[$selectedCharID] as character).desc}></TextAreaInput>
-        <span class="text-textcolor2 mb-4 text-sm">{tokens.desc} {language.tokens}</span>
+        <TokenCount value={(DBState.db.characters[$selectedCharID] as character).desc} className="mb-4" />
     {/if}
     <span class="text-textcolor">{language.authorNote}<Help key="chatNote"/></span>
     <TextAreaInput
@@ -399,15 +207,15 @@
         highlight
         placeholder={getAuthorNoteDefaultText()}
     />
-    <span class="text-textcolor2 mb-4 text-sm">{tokens.localNote} {language.tokens}</span>
+    <TokenCount value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note} className="mb-4" />
     {#if licensed !== 'private'}
         <span class="text-textcolor">{language.firstMessage}<Help key="charFirstMessage"/></span>
         <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></TextAreaInput>
-        <span class="text-textcolor2 mb-4 text-sm">{tokens.firstMsg} {language.tokens}</span>
+        <TokenCount value={DBState.db.characters[$selectedCharID].firstMessage} className="mb-4" />
 
         <div class="flex w-full items-center justify-between text-textcolor">
             <span>{language.altGreet}</span>
-            <button class="hover:text-primary" onclick={() => {
+            <button class="risu-interactive-accent" onclick={() => {
                 if(DBState.db.characters[$selectedCharID].type === 'character'){
                     let alternateGreetings = DBState.db.characters[$selectedCharID].alternateGreetings
                     alternateGreetings.push('')
@@ -427,13 +235,13 @@
                         <TextAreaInput highlight bind:value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} placeholder="..." fullwidth />
                     </div>
                     <div class="flex flex-col items-center text-textcolor2">
-                        <button class="p-1 hover:text-primary disabled:opacity-30" onclick={() => moveAlternateGreetingUp(i)} disabled={i === 0}>
+                        <button class="p-1 risu-interactive-accent disabled:opacity-30" onclick={() => moveAlternateGreetingUp(i)} disabled={i === 0}>
                             <ArrowUp size={16} />
                         </button>
-                        <button class="p-1 hover:text-primary disabled:opacity-30" onclick={() => moveAlternateGreetingDown(i)} disabled={i === DBState.db.characters[$selectedCharID].alternateGreetings.length - 1}>
+                        <button class="p-1 risu-interactive-accent disabled:opacity-30" onclick={() => moveAlternateGreetingDown(i)} disabled={i === DBState.db.characters[$selectedCharID].alternateGreetings.length - 1}>
                             <ArrowDown size={16} />
                         </button>
-                        <button class="p-1 hover:text-draculared" onclick={() => {
+                        <button class="p-1 risu-interactive-danger" onclick={() => {
                             if(DBState.db.characters[$selectedCharID].type === 'character'){
                                 DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex = -1
                                 let alternateGreetings = DBState.db.characters[$selectedCharID].alternateGreetings
@@ -445,7 +253,7 @@
                         </button>
                     </div>
                 </div>
-                <span class="text-textcolor2 text-sm">{tokens.alternateGreetings[i] ?? 0} {language.tokens}</span>
+                <TokenCount value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} />
             </div>
         {/each}
     {/if}
@@ -478,7 +286,7 @@
         <button onclick={() => {
             viewSubMenu = 1
         }} class="flex min-h-10 flex-1 items-center justify-center border-r border-l border-selected p-2" class:bg-selected={viewSubMenu === 1}>
-            <span>{language.viewScreen}</span>
+            <span>{language.emotionImage}</span>
         </button>
         <button onclick={() => {
             viewSubMenu = 2
@@ -551,7 +359,7 @@
                     {/each}
                 {/if}
                 <button
-                    class="w-full rounded-md cursor-pointer border-darkborderc border border-dashed flex justify-center items-center text-textcolor2 opacity-75 hover:bg-selected/30 hover:opacity-100 transition-[background-color,opacity] {(DBState.db.characters[$selectedCharID] as character).largePortrait ? 'aspect-[9/16]' : 'aspect-square'}"
+                    class="w-full rounded-md cursor-pointer border-darkborderc border border-dashed flex justify-center items-center text-textcolor2 opacity-75 risu-interactive-surface risu-interactive-reveal transition-[background-color,opacity] {(DBState.db.characters[$selectedCharID] as character).largePortrait ? 'aspect-[9/16]' : 'aspect-square'}"
                     onclick={async () => {await selectCharImg($selectedCharID);}}
                 >
                     <PlusIcon />
@@ -569,101 +377,37 @@
 
 
     {:else if viewSubMenu === 1}
-        <!-- svelte-ignore block_empty -->
-
-            <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].viewScreen} onchange={() => {
-                DBState.db.characters[$selectedCharID] = updateInlayScreen((DBState.db.characters[$selectedCharID] as character))
-            }}>
-                <OptionInput value="none">{language.none}</OptionInput>
-                <OptionInput value="emotion">{language.emotionImage}</OptionInput>
-                <OptionInput value="imggen">{language.imageGeneration}</OptionInput>
-            </SelectInput>
+        <ShSettings spacing="divided" className="mb-3">
+            <ShSettings variant="row">
+                <span class="min-w-0 text-textcolor">{language.enableEmotionImages}</span>
+                <ShSwitch
+                    checked={DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
+                    onCheckedChange={setEmotionImagesEnabled}
+                />
+            </ShSettings>
+            {#if DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
+                <ShSettings variant="row">
+                    <span class="min-w-0 text-textcolor">{language.inlayViewScreen}</span>
+                    <ShSwitch
+                        checked={(DBState.db.characters[$selectedCharID] as character).inlayViewScreen}
+                        onCheckedChange={setEmotionInlayEnabled}
+                    />
+                </ShSettings>
+            {/if}
+        </ShSettings>
 
         {#if DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
-            <span class="text-textcolor mt-6">{language.emotionImage}<Help key="emotion"/></span>
-            <span class="text-textcolor2 text-xs">{language.emotionWarn}</span>
-
-            <div class="w-full max-w-full border border-selected p-2 rounded-md">
-
-                <table class="w-full max-w-full tabler">
-                    <tbody>
-                    <tr>
-                        <th class="font-medium w-1/3">{language.image}</th>
-                        <th class="font-medium w-1/2">{language.emotion}</th>
-                        <th class="font-medium"></th>
-                    </tr>
-                    {#if DBState.db.characters[$selectedCharID].emotionImages.length === 0}
-                        <tr>
-                            <td colspan="3">{language.noImages}</td>
-                        </tr>
-                    {:else}
-                        {#each emos as emo, i}
-                            <tr>
-                                {#await getCharImage(emo[1], 'plain')}
-                                    <td class="font-medium truncate w-1/3"></td>
-                                {:then im}
-                                    <td class="font-medium truncate w-1/3"><img src={im} alt="img" class="w-full"></td>                        
-                                {/await}
-                                <td class="font-medium truncate w-1/2">
-                                    <TextInput marginBottom size='lg' bind:value={DBState.db.characters[$selectedCharID].emotionImages[i][0]} />
-                                </td>
-                                <td>
-                                    <IconButton tone="destructive" onclick={() => {
-                                        rmCharEmotion($selectedCharID,i)
-                                    }}><TrashIcon /></IconButton>
-                                </td>
-
-                            </tr>
-                        {/each}
-                    {/if}
-                    </tbody>
-                </table>
-
-            </div>
-
-            <div class="mt-2 flex">
-                {#if !$addingEmotion}
-                    <IconButton onclick={() => {addCharEmotion($selectedCharID)}}>
-                        <PlusIcon />
-                    </IconButton>
-                {:else}
-                    <span>Loading...</span>
-                {/if}
-            </div>
+            <AdditionalAssetsEditor
+                assets={emotionAssets}
+                onChange={setEmotionAssets}
+                acceptedExtensions={['png', 'webp', 'gif', 'jpeg', 'jpg', 'svg', 'avif']}
+                previewAllAsImages
+            />
 
             {#if (DBState.db.characters[$selectedCharID] as character).inlayViewScreen}
-                <span class="text-textcolor mt-2">{language.imgGenInstructions}</span>
+                <span class="mt-3 block text-textcolor">{language.emotionInstructions}</span>
                 <TextAreaInput highlight bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.emotionInstructions} />
             {/if}
-
-            <CheckInput bind:check={(DBState.db.characters[$selectedCharID] as character).inlayViewScreen} name={language.inlayViewScreen} onChange={() => {
-                if(DBState.db.characters[$selectedCharID].type === 'character'){
-                    if((DBState.db.characters[$selectedCharID] as character).inlayViewScreen && (DBState.db.characters[$selectedCharID] as character).additionalAssets === undefined){
-                        (DBState.db.characters[$selectedCharID] as character).additionalAssets = []
-                    }else if(!(DBState.db.characters[$selectedCharID] as character).inlayViewScreen && (DBState.db.characters[$selectedCharID] as character).additionalAssets.length === 0){
-                        (DBState.db.characters[$selectedCharID] as character).additionalAssets = undefined
-                    }
-                    
-                    DBState.db.characters[$selectedCharID] = updateInlayScreen((DBState.db.characters[$selectedCharID] as character))
-                }
-            }}/>
-        {/if}
-        {#if DBState.db.characters[$selectedCharID].viewScreen === 'imggen'}
-            <span class="text-textcolor mt-6">{language.imageGeneration}<Help key="imggen"/></span>
-            <span class="text-textcolor2 text-xs">{language.emotionWarn}</span>
-            
-            <span class="text-textcolor mt-2">{language.imgGenPrompt}</span>
-            <TextAreaInput highlight bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.prompt} />
-            <span class="text-textcolor mt-2">{language.imgGenNegatives}</span>
-            <TextAreaInput highlight bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.negative} />
-            <span class="text-textcolor mt-2">{language.imgGenInstructions}</span>
-            <TextAreaInput highlight bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.instructions} />
-
-            <CheckInput bind:check={(DBState.db.characters[$selectedCharID] as character).inlayViewScreen} name={language.inlayViewScreen} onChange={() => {
-                if((DBState.db.characters[$selectedCharID] as character).type === 'character'){
-                    (DBState.db.characters[$selectedCharID] as character) = updateInlayScreen((DBState.db.characters[$selectedCharID] as character))
-                }
-            }}/>
         {/if}
     {:else if viewSubMenu === 2}
 
@@ -679,83 +423,21 @@
             </SelectInput>
             {/if}
             {/if}
-            <div class="w-full max-w-full max-h-full overflow-x-hidden overflow-y-auto border border-selected rounded-md mt-2">
-                {#if (!DBState.db.characters[$selectedCharID].additionalAssets) || DBState.db.characters[$selectedCharID].additionalAssets.length === 0}
-                    <div class="min-h-20 flex items-center justify-center px-3 py-4 text-sm text-textcolor2">
-                        {language.noData}
-                    </div>
-                {:else}
-                    {#each DBState.db.characters[$selectedCharID].additionalAssets as assets, i}
-                        <div class="flex min-w-0 items-center gap-2 p-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
-                            <div class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-textcolor2">
-                                {#if assetFilePath[i] && DBState.db.useAdditionalAssetsPreview}
-                                    {#if previewableImageExtensions.includes(assetFileExtensions[i])}
-                                        <button
-                                            class="w-full h-full cursor-zoom-in"
-                                            onclick={() => openAssetPreview(i)}
-                                            title={assets[0]}
-                                            aria-label={assets[0]}
-                                        >
-                                            <img
-                                                src={assetFilePath[i]}
-                                                class="w-full h-full object-cover object-top"
-                                                alt={assets[0]}
-                                                onload={(event) => recordAssetImageDimensions(event, assets[1])}
-                                            />
-                                        </button>
-                                    {:else if ['mp4', 'webm'].includes(assetFileExtensions[i])}
-                                        <!-- svelte-ignore a11y_media_has_caption -->
-                                        <video class="w-full h-full object-cover"><source src={assetFilePath[i]} /></video>
-                                    {:else if assetFileExtensions[i] === 'mp3'}
-                                        <FileMusicIcon size={22} />
-                                    {:else}
-                                        <FileIcon size={22} />
-                                    {/if}
-                                {:else if ['mp4', 'webm'].includes(assetFileExtensions[i])}
-                                    <FileVideoIcon size={22} />
-                                {:else if assetFileExtensions[i] === 'mp3'}
-                                    <FileMusicIcon size={22} />
-                                {:else}
-                                    <FileIcon size={22} />
-                                {/if}
-                            </div>
-
-                            <div class="min-w-0 flex-1">
-                                <ShInput autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalAssets[i][0]} placeholder="..." />
-                                <span class="mt-1 block truncate text-[10px] uppercase text-textcolor2">{assetFileExtensions[i] ?? ''}</span>
-                            </div>
-
-                            <IconButtonGroup direction="vertical" size="sm">
-                                {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
-                                    <IconButton onclick={() => {
-                                        DBState.db.characters[$selectedCharID].prebuiltAssetExclude ??= []
-                                        if(DBState.db.characters[$selectedCharID].prebuiltAssetExclude.includes(assets[1])){
-                                            DBState.db.characters[$selectedCharID].prebuiltAssetExclude = DBState.db.characters[$selectedCharID].prebuiltAssetExclude.filter((e) => e !== assets[1])
-                                        }
-                                        else {
-                                            DBState.db.characters[$selectedCharID].prebuiltAssetExclude.push(assets[1])
-                                        }
-                                    }}>
-                                        {#if DBState.db.characters[$selectedCharID]?.prebuiltAssetExclude?.includes?.(assets[1])}
-                                            <ImageOffIcon />
-                                        {:else}
-                                            <ImageIcon />
-                                        {/if}
-                                    </IconButton>
-                                {/if}
-                                <IconButton tone="destructive" onclick={() => deleteAdditionalAsset(i)}>
-                                    <TrashIcon />
-                                </IconButton>
-                            </IconButtonGroup>
-                        </div>
-                    {/each}
-                {/if}
-            </div>
-            <div class="mt-2 flex justify-start">
-                <IconButton onclick={addAdditionalAssets}>
-                    <PlusIcon />
-                </IconButton>
-            </div>
+            <AdditionalAssetsEditor
+                assets={(DBState.db.characters[$selectedCharID] as character).additionalAssets ?? []}
+                onChange={(assets) => {
+                    (DBState.db.characters[$selectedCharID] as character).additionalAssets = assets
+                }}
+                onDelete={() => {
+                    const char = DBState.db.characters[$selectedCharID] as character
+                    char.chats[char.chatPage].fmIndex = -1
+                }}
+                showExclusionToggle={!!DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
+                excludedPaths={DBState.db.characters[$selectedCharID].prebuiltAssetExclude ?? []}
+                onExcludedPathsChange={(paths) => {
+                    DBState.db.characters[$selectedCharID].prebuiltAssetExclude = paths
+                }}
+            />
     {/if}
 {:else if $CharConfigSubMenu === 3}
     {#if !$MobileGUI}
@@ -818,8 +500,15 @@
     <span class="text-textcolor">{language.CharVersion}</span>
     <ShInput className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalData.character_version}/>
 
-    <span class="text-textcolor">{language.creatorNotes}<Help key="creatorQuotes"/></span>
-    <MultiLangInput bind:value={DBState.db.characters[$selectedCharID].creatorNotes} className="my-2" onInput={() => {
+    <div class="flex w-full items-center justify-between text-textcolor">
+        <span>{language.creatorNotes}<Help key="creatorQuotes"/></span>
+        <button class="risu-interactive-accent" aria-label={language.add} title={language.add} onclick={() => {
+            addingCreatorNotesLang = !addingCreatorNotesLang
+        }}>
+            <PlusIcon size={18} />
+        </button>
+    </div>
+    <MultiLangInput bind:value={DBState.db.characters[$selectedCharID].creatorNotes} bind:addingLang={addingCreatorNotesLang} className="my-2" onInput={() => {
         DBState.db.characters[$selectedCharID].removedQuotes = false
     }}></MultiLangInput>
 
@@ -831,17 +520,17 @@
     {/if}
 
     {#if !licenseRestricted}
-        <Button size="md" onclick={async () => {
+        <ShButton onclick={async () => {
             const res = await exportChar($selectedCharID)
-        }} className="mt-6">{language.exportCharacter}</Button>
+        }} className="mt-6">{language.exportCharacter}</ShButton>
     {/if}
 
-    <Button size="md" className="mt-2" onclick={async () => {
+    <ShButton className="mt-2" onclick={async () => {
         const char = getCurrentCharacter()
         const m = convertCharacterToModule(char)
         DBState.db.modules.push(m)
         notifySuccess(language.successfullyConverted)
-    }}>{language.convertToModule}</Button>
+    }}>{language.convertToModule}</ShButton>
 
     {#if DBState.db.characters[$selectedCharID].type === 'character'}
         {@const char = DBState.db.characters[$selectedCharID] as character}
@@ -865,17 +554,17 @@
                     <CheckInput bind:check={pkgIncludeInlays} name={language.characterPackageInlays} margin={false} />
                 </div>
             {/key}
-            <Button size="md" className="mt-2 w-full" onclick={async () => {
+            <ShButton className="mt-2 w-full" onclick={async () => {
                 await exportCharacterPackage($selectedCharID, {
                     includeCharacter: licenseRestricted ? false : pkgIncludeCharacter,
                     includeChats: pkgIncludeChats,
                     includePersona: pkgIncludePersona,
                     includeInlays: pkgIncludeInlays
                 })
-            }}>{language.characterPackageExport}</Button>
-            <Button size="md" className="mt-2 w-full" onclick={async () => {
+            }}>{language.characterPackageExport}</ShButton>
+            <ShButton className="mt-2 w-full" onclick={async () => {
                 await importPackageToCharacter($selectedCharID)
-            }}>{language.characterPackageImportToChar}</Button>
+            }}>{language.characterPackageImportToChar}</ShButton>
         </div>
     {/if}
 
@@ -1040,12 +729,12 @@
             {:else}
                 <span class="text-textcolor">No Model</span>
             {/if}
-            <Button onclick={async () => {
+            <ShButton onclick={async () => {
                 const model = await registerOnnxModel()
                 if(model && DBState.db.characters[$selectedCharID].type === 'character'){
                     DBState.db.characters[$selectedCharID].vits = model
                 }
-            }}>{language.selectModel}</Button>
+            }}>{language.selectModel}</ShButton>
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'gptsovits'}
             <span class="text-textcolor">Volume</span>
             <SliderInput min={0.0} max={1.0} step={0.01} fixed={2} bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.volume}/>
@@ -1064,7 +753,7 @@
             <Check bind:check={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}/>
 
             <span class="text-textcolor">Reference Audio Data (3~10s audio file)</span>
-            <Button onclick={async () => {
+            <ShButton onclick={async () => {
                 const audio = await selectSingleFile([
                     'wav',
                     'ogg',
@@ -1088,7 +777,7 @@
                 {:else}
                     {DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_data.fileName}
                 {/if}
-            </Button>
+            </ShButton>
             <span class="text-textcolor">Text Language</span>
             <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_lang}>
                 <OptionInput value="auto">Multi-language Mixed</OptionInput>
@@ -1288,71 +977,6 @@
         </div>
 
 {/if}
-
-<FullscreenImageViewer
-    open={assetPreviewIndex >= 0 && !!assetPreviewAsset && !!assetPreviewPath}
-    src={assetPreviewPath}
-    alt={assetPreviewAsset?.[0] ?? ''}
-    title={assetPreviewAsset?.[0] ?? ''}
-    position={assetPreviewPosition}
-    total={assetPreviewIndexes.length}
-    canGoPrev={assetPreviewPosition > 0}
-    canGoNext={assetPreviewPosition >= 0 && assetPreviewPosition < assetPreviewIndexes.length - 1}
-    bind:infoOpen={assetPreviewInfoOpen}
-    infoLabel={language.playground.inlayInfo}
-    downloadLabel={language.download}
-    closeLabel={language.goback}
-    onClose={closeAssetPreview}
-    onPrev={() => goToAssetPreviewNeighbor(-1)}
-    onNext={() => goToAssetPreviewNeighbor(1)}
-    onDownload={downloadAssetPreview}
->
-    {#snippet info()}
-        {#if assetPreviewAsset}
-            <div class="px-4 py-3 space-y-1.5">
-                <p class="text-textcolor text-sm font-medium break-all leading-snug" title={assetPreviewAsset[0]}>
-                    {assetPreviewAsset[0]}
-                </p>
-                {#if assetPreviewAsset[2]}
-                    <p class="text-textcolor2 text-xs uppercase font-mono">{assetPreviewAsset[2]}</p>
-                {/if}
-                {#if assetPreviewDimensions}
-                    <p class="text-textcolor2 text-xs">{assetPreviewDimensions.width} × {assetPreviewDimensions.height} px</p>
-                {/if}
-            </div>
-
-            <div class="px-4 py-4 space-y-2">
-                <h3 class="text-textcolor2 text-[11px] font-semibold uppercase tracking-wider">
-                    {language.playground.inlayActions}
-                </h3>
-                <button
-                    type="button"
-                    onclick={() => copyAssetRawReference(assetPreviewAsset[0])}
-                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc hover:bg-selected/50 text-textcolor2 hover:text-textcolor text-sm transition-colors"
-                >
-                    <Copy size={14} />
-                    {language.copy}
-                </button>
-                <button
-                    type="button"
-                    onclick={downloadAssetPreview}
-                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-darkborderc hover:bg-selected/50 text-textcolor2 hover:text-textcolor text-sm transition-colors"
-                >
-                    <DownloadIcon size={12} />
-                    {language.download}
-                </button>
-                <button
-                    type="button"
-                    onclick={() => deleteAdditionalAsset(assetPreviewIndex, true)}
-                    class="w-full flex items-center gap-2 px-3 py-2 rounded border border-draculared/40 hover:bg-draculared/15 text-draculared text-sm transition-colors"
-                >
-                    <TrashIcon size={12} />
-                    {language.remove}
-                </button>
-            </div>
-        {/if}
-    {/snippet}
-</FullscreenImageViewer>
 
 <style>
 

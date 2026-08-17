@@ -16,6 +16,7 @@ describe('applyModelPresetDefaults', () => {
         expect(db.modelProfileRegistryLastFetched).toBe(0)
         expect(db.modelProfileVisibilityLevel).toBe('hideDeprecated')
         expect(db.modelProfileHiddenProviderIds).toEqual([])
+        expect(db.modelProfileVisibleProviderIds).toBeUndefined()
         expect(db.modelProfileProviderFilterInitialized).toBe(false)
     })
 
@@ -56,6 +57,16 @@ describe('applyModelPresetDefaults', () => {
 
         expect(db.modelProfileHiddenProviderIds).toEqual([])
         expect(db.modelProfileProviderFilterInitialized).toBe(true)
+    })
+
+    test('normalizes visible provider IDs when present', () => {
+        const db: any = {
+            modelProfileVisibleProviderIds: ['openai', '', 'openai', 42, 'anthropic'],
+        }
+
+        applyModelPresetDefaults(db)
+
+        expect(db.modelProfileVisibleProviderIds).toEqual(['openai', 'anthropic'])
     })
 
     test('preserves migration metadata and drops legacy official catalog data', () => {

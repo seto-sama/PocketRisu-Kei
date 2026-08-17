@@ -15,6 +15,7 @@
     import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
     import SchemaFormRenderer from "src/lib/UI/GUI/SchemaFormRenderer.svelte";
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import ShBadge from "src/lib/UI/GUI/ShBadge.svelte";
     import { v4 as uuidv4 } from "uuid";
 
     interface Props {
@@ -223,9 +224,9 @@
         <div class="flex items-center justify-between gap-2">
             <span class="text-sm text-textcolor truncate">{profileDisplayId}</span>
             {#if updateStatus === 'updatable'}
-                <button class="text-xs px-2 py-0.5 rounded border border-amber-500 text-amber-500 hover:bg-amber-500/10 cursor-pointer shrink-0" onclick={applyUpdate}>{language.profileUpdateAvailable}</button>
+                <ShButton variant="attention" size="xs" onclick={applyUpdate}>{language.profileUpdateAvailable}</ShButton>
             {:else if updateStatus === 'missing'}
-                <span class="text-xs px-2 py-0.5 rounded border border-darkborderc text-textcolor2 shrink-0">{language.profileSourceMissing}</span>
+                <ShBadge variant="warning">{language.profileSourceMissing}</ShBadge>
             {/if}
         </div>
         {#if description}

@@ -122,7 +122,7 @@
             if (gen !== fetchGen) return
             entries = data.rows
             totalCount = data.total
-            hasMore = data.rows.length >= LIST_LIMIT && data.rows.length < data.total
+            hasMore = data.rows.length > 0 && data.rows.length < data.total
             expanded = {}
         } catch (err) {
             if (gen !== fetchGen) return
@@ -147,7 +147,7 @@
             const fresh = data.rows.filter(r => !existing.has(r.id))
             entries = [...entries, ...fresh]
             totalCount = data.total
-            hasMore = fresh.length >= LIST_LIMIT && entries.length < data.total
+            hasMore = fresh.length > 0 && entries.length < data.total
         } catch (err) {
             if (gen !== fetchGen) return
             loadError = err instanceof Error ? err.message : String(err)
@@ -279,7 +279,7 @@
             return hay.includes(needle)
         })
     })
-    const displayed = $derived(filtered.slice(0, LIST_LIMIT))
+    const displayed = $derived(filtered)
 
     // Active filter count = number of tags the user has *deselected* from the
     // default (all-on) state. The `explicitOnly` toggle is a mode, not a tag —
@@ -455,14 +455,14 @@
         </div>
     {:else}
         <Tooltip.Provider delayDuration={300}>
-            <SettingLayout variant="list" scrollable>
+            <SettingLayout variant="list" scrollable className="max-h-[75vh]">
                 {#each displayed as entry (entry.id)}
                     <Collapsible.Root
                         open={expanded[entry.id] === true}
                         onOpenChange={(v) => { expanded = { ...expanded, [entry.id]: v } }}
                     >
                         <Collapsible.Trigger class="w-full text-left group">
-                            <SettingLayout variant="item" className="gap-2 hover:bg-selected/30 group-focus-visible:bg-selected/30">
+                            <SettingLayout variant="item" className="gap-2 risu-interactive-surface group-focus-visible:bg-selected/30">
                             <!-- Level icon + badge -->
                             <ShBadge variant={levelVariant(entry.level)} className="shrink-0">
                                 {#if entry.level === 'error'}

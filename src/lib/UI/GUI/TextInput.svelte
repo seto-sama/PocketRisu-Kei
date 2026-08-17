@@ -4,7 +4,7 @@
 {#if hideText}
      <!-- new-password disables autofill -->
     <input 
-        class={"border border-darkborderc peer focus:border-borderc rounded-md shadow-xs text-textcolor bg-transparent focus:ring-borderc focus:ring-2 focus:outline-hidden transition-colors duration-200" + ((className) ? (' ' + className) : '')} 
+        class={"risu-field-border peer rounded-md shadow-xs text-textcolor bg-transparent" + ((className) ? (' ' + className) : '')}
         class:text-sm={size === 'sm'}
         class:text-md={size === 'md'}
         class:text-lg={size === 'lg'}
@@ -32,12 +32,18 @@
         oninput={oninput}
         onchange={onchange}
         onkeydown={onkeydown}
+        onfocus={onfocus}
         list={list}
+        {role}
+        aria-controls={ariaControls}
+        aria-expanded={ariaExpanded}
+        aria-autocomplete={ariaAutocomplete}
+        aria-activedescendant={ariaActiveDescendant}
     />
 {:else}
 
     <input 
-        class={"border border-darkborderc peer focus:border-borderc rounded-md shadow-xs text-textcolor bg-transparent focus:ring-borderc focus:ring-2 focus:outline-hidden transition-colors duration-200" + ((className) ? (' ' + className) : '')} 
+        class={"risu-field-border peer rounded-md shadow-xs text-textcolor bg-transparent" + ((className) ? (' ' + className) : '')}
         list={list}
         class:text-sm={size === 'sm'}
         class:text-md={size === 'md'}
@@ -66,6 +72,12 @@
         oninput={oninput}
         onchange={onchange}
         onkeydown={onkeydown}
+        onfocus={onfocus}
+        {role}
+        aria-controls={ariaControls}
+        aria-expanded={ariaExpanded}
+        aria-autocomplete={ariaAutocomplete}
+        aria-activedescendant={ariaActiveDescendant}
     />
 {/if}
 
@@ -86,12 +98,18 @@
         oninput?: FormEventHandler<HTMLInputElement>
         onchange?: FormEventHandler<HTMLInputElement>;
         onkeydown?: (event: KeyboardEvent) => any;
+        onfocus?: FormEventHandler<HTMLInputElement>;
         fullwidth?: boolean;
         fullh?: boolean;
         className?: string;
         disabled?: boolean;
         hideText?: boolean;
         list?: string;
+        role?: string;
+        ariaControls?: string;
+        ariaExpanded?: 'true' | 'false';
+        ariaAutocomplete?: 'none' | 'inline' | 'list' | 'both';
+        ariaActiveDescendant?: string;
     }
 
     let {
@@ -106,12 +124,18 @@
         oninput,
         onchange,
         onkeydown,
+        onfocus,
         fullwidth = false,
         fullh = false,
         className = '',
         disabled = false,
         hideText = false,
-        list = undefined
+        list = undefined,
+        role = undefined,
+        ariaControls = undefined,
+        ariaExpanded = undefined,
+        ariaAutocomplete = undefined,
+        ariaActiveDescendant = undefined
         
     }: Props = $props();
 </script>

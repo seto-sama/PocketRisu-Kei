@@ -140,7 +140,7 @@
         <PencilIcon />
     </IconButton>
     {#if DBState.db.bulkEnabling}
-        <button class="flex items-center gap-1 text-textcolor2 hover:text-primary" onclick={() => {
+        <button class="flex items-center gap-1 text-textcolor2 risu-interactive-accent" onclick={() => {
             toggleCharacterLoreAlwaysActive()
         }}>
             {#if isAllCharacterLoreAlwaysActive()}
@@ -150,7 +150,7 @@
             {/if}
             <span class="text-xs">CHAR</span>
         </button>
-        <button class="flex items-center gap-1 hover:text-primary" onclick={() => {
+        <button class="flex items-center gap-1 risu-interactive-accent" onclick={() => {
             toggleChatLoreAlwaysActive()
         }}>
             {#if isAllChatLoreAlwaysActive()}

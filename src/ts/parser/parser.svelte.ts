@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify';
 import markdownit from 'markdown-it'
 import { appVer, getCurrentCharacter, getDatabase, type Database, type character, type customscript, type triggerscript } from '../storage/database.svelte';
-import { DBState, selIdState } from '../stores.svelte';
+import { CurrentTriggerIdStore, DBState, selIdState } from '../stores.svelte';
 import { aiWatermarkingLawApplies, getFileSrc } from '../globalApi.svelte';
 import { isNodeServer } from "src/ts/platform"
 import { getChatVar, setChatVar, getGlobalChatVar } from './chatVar.svelte';
@@ -18,7 +18,7 @@ import hljs from 'highlight.js/lib/core'
 import 'highlight.js/styles/atom-one-dark.min.css'
 import { language } from 'src/lang';
 import katex from 'katex'
-import { getModelInfo } from '../model/modellist';
+import { getGenerationModelMetadata, getGenerationModelString } from '../process/models/modelString';
 import { registerCBS, type matcherArg, type RegisterCallback } from '../cbs';
 import cssSelectorParser from 'postcss-selector-parser'
 
@@ -175,10 +175,12 @@ function renderMarkedText(open:string, content:string, close:string, mark:string
 }
 
 function removeBlockquoteBreakPlaceholders(text:string){
+    if(!text.includes(blockquoteBreakPlaceholder)) return text
     return text.replace(/\uE9B4(?:[ \t]*<br\s*\/?>\s*\n?)?/gu, '')
 }
 
 function applyCornerBracketStyling(text:string){
+    if(!/[「『«《]/u.test(text)) return text
     for(const style of cornerBracketStyles){
         text = text.replace(style.regex, (_full, content) => {
             return renderMarkedText(style.open, content, style.close, style.mark)
@@ -191,6 +193,7 @@ const standaloneOrderedListMarker = /^([ \t]{0,3}\d{1,9})\.([ \t]*)$/
 const fencedCodeOpening = /^[ \t]{0,3}(`{3,}|~{3,})/
 
 function escapeStandaloneOrderedListMarkers(markdown:string){
+    if(!/^[ \t]{0,3}\d{1,9}\.[ \t]*\r?$/m.test(markdown)) return markdown
     let fenceCharacter = ''
     let fenceLength = 0
 
@@ -300,11 +303,8 @@ async function renderHighlightableMarkdown(data:string) {
             //import language if not already loaded
             //we do not refactor this to a function because we want to keep vite to only import the languages that are needed
             let languageModule: typeof import('highlight.js/lib/languages/*')|null = null
-            let fileExt = ''
-
             switch(lang){
                 case 'bash':{
-                    fileExt = 'sh'
                     lang = 'bash'
                     if(!hljs.getLanguage('bash')){
                         languageModule = await import('highlight.js/lib/languages/bash')
@@ -313,7 +313,6 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'c':
                 case 'cpp':{
-                    fileExt = lang
                     lang = 'cpp'
                     if(!hljs.getLanguage('cpp')){
                         languageModule = await import('highlight.js/lib/languages/cpp')
@@ -322,7 +321,6 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'cs':
                 case 'csharp':{
-                    fileExt = 'cs'
                     lang = 'csharp'
                     if(!hljs.getLanguage('csharp')){
                         languageModule = await import('highlight.js/lib/languages/csharp')
@@ -330,7 +328,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'css':{
-                    fileExt = 'css'
                     lang = 'css'
                     if(!hljs.getLanguage('css')){
                         languageModule = await import('highlight.js/lib/languages/css')
@@ -338,7 +335,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'dart':{
-                    fileExt = 'dart'
                     lang = 'dart'
                     if(!hljs.getLanguage('dart')){
                         languageModule = await import('highlight.js/lib/languages/dart')
@@ -348,7 +344,6 @@ async function renderHighlightableMarkdown(data:string) {
                 case 'html':
                 case 'svg':
                 case 'xml':{
-                    fileExt = lang
                     lang = 'xml'
                     if(!hljs.getLanguage('xml')){
                         languageModule = await import('highlight.js/lib/languages/xml')
@@ -356,7 +351,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'java':{
-                    fileExt = 'java'
                     lang = 'java'
                     if(!hljs.getLanguage('java')){
                         languageModule = await import('highlight.js/lib/languages/java')
@@ -366,7 +360,6 @@ async function renderHighlightableMarkdown(data:string) {
                 case 'js':
                 case 'jsx':
                 case 'javascript':{
-                    fileExt = 'js'
                     lang = 'javascript'
                     if(!hljs.getLanguage('javascript')){
                         languageModule = await import('highlight.js/lib/languages/javascript')
@@ -374,7 +367,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'json':{
-                    fileExt = 'json'
                     lang = 'json'
                     if(!hljs.getLanguage('json')){
                         languageModule = await import('highlight.js/lib/languages/json')
@@ -382,7 +374,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'lua':{
-                    fileExt = 'lua'
                     lang = 'lua'
                     if(!hljs.getLanguage('lua')){
                         languageModule = await import('highlight.js/lib/languages/lua')
@@ -391,7 +382,6 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'markdown':
                 case 'md':{
-                    fileExt = 'md'
                     lang = 'markdown'
                     if(!hljs.getLanguage('markdown')){
                         languageModule = await import('highlight.js/lib/languages/markdown')
@@ -400,7 +390,6 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'py':
                 case 'python':{
-                    fileExt = 'py'
                     lang = 'python'
                     if(!hljs.getLanguage('python')){
                         languageModule = await import('highlight.js/lib/languages/python')
@@ -408,7 +397,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'rust':{
-                    fileExt = 'rs'
                     lang = 'rust'
                     if(!hljs.getLanguage('rust')){
                         languageModule = await import('highlight.js/lib/languages/rust')
@@ -416,7 +404,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'shell':{
-                    fileExt = 'sh'
                     lang = 'shell'
                     if(!hljs.getLanguage('shell')){
                         languageModule = await import('highlight.js/lib/languages/shell')
@@ -426,7 +413,6 @@ async function renderHighlightableMarkdown(data:string) {
                 case 'ts':
                 case 'tsx':
                 case 'typescript':{
-                    fileExt = 'ts'
                     lang = 'typescript'
                     if(!hljs.getLanguage('typescript')){
                         languageModule = await import('highlight.js/lib/languages/typescript')
@@ -435,7 +421,6 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'txt':
                 case 'vtt':{
-                    fileExt = lang
                     lang = 'plaintext'
                     if(!hljs.getLanguage('plaintext')){
                         languageModule = await import('highlight.js/lib/languages/plaintext')
@@ -443,7 +428,6 @@ async function renderHighlightableMarkdown(data:string) {
                     break
                 }
                 case 'yaml':{
-                    fileExt = 'yml'
                     lang = 'yaml'
                     if(!hljs.getLanguage('yaml')){
                         languageModule = await import('highlight.js/lib/languages/yaml')
@@ -452,12 +436,10 @@ async function renderHighlightableMarkdown(data:string) {
                 }
                 case 'risuerror':{
                     lang = 'error'
-                    fileExt = 'error'
                     break
                 }
                 default:{
                     lang = 'none'
-                    fileExt = 'none'
                 }
             }
             if(languageModule){
@@ -474,7 +456,7 @@ async function renderHighlightableMarkdown(data:string) {
                     language: lang,
                     ignoreIllegals: true
                 }).value
-                rendered = rendered.replace(placeholder, `<pre class="hljs" x-hl-lang="${fileExt}"><code>${highlighted}</code></pre>`)   
+                rendered = rendered.replace(placeholder, `<pre class="hljs"><code>${highlighted}</code></pre>`)
             }
         } catch (error) {
             
@@ -574,6 +556,7 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
     let cx: number|null = null
 
     data = await replaceAsync(data, assetRegex, async (full:string, type:string, name:string) => {
+        const displayName = name.trim()
         name = name.toLocaleLowerCase()
 
         // Skip image-related assets when hideAllImages is enabled
@@ -606,6 +589,14 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
         let match = assetPaths?.[name]
 
         if(!match){
+            // Legacy media lookup intentionally accepts exact names only.
+            // Falling through to fuzzy matching scans every character asset
+            // for every missing media token; large cards can spend seconds
+            // here while merely opening a chat or rendering its preview.
+            if(DBState.db.legacyMediaFindings){
+                return ''
+            }
+
             if(assetPaths){
                 match = getClosestMatch(char, name, assetPaths)
             }
@@ -640,10 +631,15 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
             case 'video-img':
                 return `<video autoplay muted loop><source src="${p}" type="video/mp4"></video>\n`
             case 'audio':
-                return `<audio controls autoplay loop><source src="${p}" type="audio/mpeg"></audio>\n`
+            case 'bgm': {
+                const audioSrc = md.utils.escapeHtml(p)
+                const audioTitle = md.utils.escapeHtml(displayName || 'Audio')
+                const characterName = md.utils.escapeHtml(char.name ?? '')
+                return `<div class="risu-audio-player-slot" data-risu-audio-player="1" data-audio-src="${audioSrc}" data-audio-title="${audioTitle}" data-character-name="${characterName}"></div>\n`
+            }
             case 'bg':
                 if(mode === 'back'){
-                    return `<div style="width:100%;height:100%;background: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.8)),url(${p}); background-size: cover;"></div>`
+                    return `<div style="width:100%;height:100%;background: url(${p}); background-size: cover;"></div>`
                 }
                 break
             case 'asset':{
@@ -652,8 +648,6 @@ async function parseAdditionalAssets(data:string, char:simpleCharacterArgument|c
                 }
                 return `<img src="${p}" alt="${p}" style="${assetWidthString} "/>\n`
             }
-            case 'bgm':
-                return `<div risu-ctrl="bgm___auto___${p}" style="display:none;"></div>\n`
         }
         return ''
     })
@@ -748,15 +742,15 @@ function assetUrl(kvKey: string): string {
 
 function createMissingInlayPlaceholder(id: string): HTMLDivElement {
     const box = document.createElement('div')
-    box.className = 'risu-inlay-missing'
+    box.className = 'x-risu-risu-inlay-missing'
     box.setAttribute('data-missing-inlay-id', id)
 
     const title = document.createElement('div')
-    title.className = 'risu-inlay-missing-title'
-    title.textContent = 'Image unavailable'
+    title.className = 'x-risu-risu-inlay-missing-title'
+    title.textContent = language.playground.inlayMissing
 
     const subtitle = document.createElement('div')
-    subtitle.className = 'risu-inlay-missing-subtitle'
+    subtitle.className = 'x-risu-risu-inlay-missing-subtitle'
     subtitle.textContent = id
 
     box.appendChild(title)
@@ -775,8 +769,8 @@ export function parseInlayAssets(data:string){
 
             let cached = blobUrlCache.get(id)
             if(!cached){
-                // If not in memory cache, inject placeholder
-                const placeholder = `${prefix}<div data-inlay-id="${id}" data-inlay-type="${inlayType}" class="risu-inlay-placeholder risu-loading-spinner" style="width: 100%; min-height: 100px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.1); border-radius: 8px;"></div>${postfix}`
+                // Keep a minimal box for IntersectionObserver without flashing a loading surface.
+                const placeholder = `${prefix}<div data-inlay-id="${id}" data-inlay-type="${inlayType}" class="risu-inlay-placeholder" style="width: 100%; min-height: 1px;"></div>${postfix}`
                 data = data.replace(inlay, placeholder)
                 continue
             }
@@ -804,8 +798,18 @@ export function parseInlayAssets(data:string){
 }
 
 // Global resolve queue for inlay placeholders
-const resolveQueue: { el: HTMLElement, id: string, type: string }[] = []
+const resolveQueue: { el: HTMLElement, id: string }[] = []
 let isResolvingPlaceholders = false
+
+function fillInlayPlaceholder(el: HTMLElement, id: string, content?: Node): boolean {
+    if(el.getAttribute('data-inlay-id') !== id) return false
+    el.removeAttribute('data-inlay-id')
+    el.removeAttribute('data-inlay-type')
+    el.classList.remove('risu-inlay-placeholder', 'x-risu-risu-inlay-placeholder')
+    el.style.removeProperty('min-height')
+    el.replaceChildren(...(content ? [content] : []))
+    return true
+}
 
 async function processInlayQueue() {
     if (isResolvingPlaceholders || resolveQueue.length === 0) return
@@ -842,7 +846,7 @@ async function processInlayQueue() {
 
         for (const { el, id } of batch) {
             try {
-                if (!el.parentNode) continue
+                if (!el.parentNode || el.getAttribute('data-inlay-id') !== id) continue
 
                 const cached = blobUrlCache.get(id)
                 const url = cached?.url ?? assetUrl(`inlay/${id}`)
@@ -851,7 +855,7 @@ async function processInlayQueue() {
 
                 switch (type) {
                     case 'image':
-                        if (DBState.db.hideAllImages) { el.remove(); break }
+                        if (DBState.db.hideAllImages) { fillInlayPlaceholder(el, id); break }
                         const img = document.createElement('img')
                         img.src = url
                         img.style.animation = 'risu-fade-in 0.3s ease-out'
@@ -884,7 +888,7 @@ async function processInlayQueue() {
                                 img.replaceWith(createMissingInlayPlaceholder(id))
                             }
                         }
-                        el.replaceWith(img)
+                        fillInlayPlaceholder(el, id, img)
                         break
                     case 'video': {
                         const video = document.createElement('video')
@@ -893,7 +897,7 @@ async function processInlayQueue() {
                         source.src = url
                         source.type = 'video/mp4'
                         video.appendChild(source)
-                        el.replaceWith(video)
+                        fillInlayPlaceholder(el, id, video)
                         break
                     }
                     case 'audio': {
@@ -903,14 +907,14 @@ async function processInlayQueue() {
                         source.src = url
                         source.type = 'audio/mpeg'
                         audio.appendChild(source)
-                        el.replaceWith(audio)
+                        fillInlayPlaceholder(el, id, audio)
                         break
                     }
                 }
             } catch (e) {
                 console.error(`[Inlay] Failed to load ${id}`, e)
                 if (el.parentNode) {
-                    el.replaceWith(createMissingInlayPlaceholder(id))
+                    fillInlayPlaceholder(el, id, createMissingInlayPlaceholder(id))
                 }
             }
         }
@@ -919,19 +923,18 @@ async function processInlayQueue() {
     isResolvingPlaceholders = false
 }
 
-export function resolveInlayPlaceholders(root: HTMLElement) {
-    if (!root) return
+export function resolveInlayPlaceholders(root: HTMLElement): () => void {
+    if (!root) return () => {}
     const placeholders = Array.from(root.querySelectorAll('[data-inlay-id]')) as HTMLElement[]
-    if (placeholders.length === 0) return
+    if (placeholders.length === 0) return () => {}
 
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting) {
                 const el = entry.target as HTMLElement
                 const id = el.getAttribute('data-inlay-id')
-                const type = el.getAttribute('data-inlay-type')
                 if (id) {
-                    resolveQueue.push({ el, id, type: type || 'inlay' })
+                    resolveQueue.push({ el, id })
                     observer.unobserve(el)
                     processInlayQueue()
                 }
@@ -940,6 +943,7 @@ export function resolveInlayPlaceholders(root: HTMLElement) {
     }, { rootMargin: '200px' }) // Start loading a bit before they scroll into view
 
     placeholders.forEach(el => observer.observe(el))
+    return () => observer.disconnect()
 }
 
 export interface simpleCharacterArgument{
@@ -947,6 +951,7 @@ export interface simpleCharacterArgument{
     additionalAssets?: [string, string, string][]
     customscript: customscript[]
     chaId: string,
+    name?: string,
     virtualscript?: string
     emotionImages?: [string, string][]
     triggerscript?: triggerscript[]
@@ -984,7 +989,7 @@ function parseThoughtsAndTools(data:string, inlineThoughts = false){
     })
 }
 
-export async function ParseMarkdown(
+export async function prepareMarkdownSource(
     data:string,
     charArg:(character|simpleCharacterArgument | string) = null,
     mode:'normal'|'back'|'pretranslate'|'notrim' = 'normal',
@@ -1014,10 +1019,14 @@ export async function ParseMarkdown(
     }
 
     data = parseInlayAssets(data ?? '')
-
     data = parseThoughtsAndTools(data, options.inlineThoughts === true)
+    return encodeStyle(data)
+}
 
-    data = encodeStyle(data)
+export async function renderPreparedMarkdown(
+    data:string,
+    mode:'normal'|'back'|'pretranslate'|'notrim' = 'normal',
+) {
     if(mode === 'normal' || mode === 'notrim'){
         data = await renderHighlightableMarkdown(data)
 
@@ -1026,6 +1035,20 @@ export async function ParseMarkdown(
         }
     }
     return trimMarkdown(data)
+}
+
+export async function ParseMarkdown(
+    data:string,
+    charArg:(character|simpleCharacterArgument | string) = null,
+    mode:'normal'|'back'|'pretranslate'|'notrim' = 'normal',
+    chatID=-1,
+    cbsConditions:CbsConditions = {},
+    options:{inlineThoughts?:boolean} = {},
+) {
+    return renderPreparedMarkdown(
+        await prepareMarkdownSource(data, charArg, mode, chatID, cbsConditions, options),
+        mode,
+    )
 }
 
 // LRU cache for DOMPurify + decodeStyle results.
@@ -1037,10 +1060,12 @@ export function trimMarkdown(data:string){
     // Include hideAllImages in cache key — DOMPurify hook rewrites <img> based on this flag
     const cacheKey = (DBState.db?.hideAllImages ? '1|' : '0|') + data
     let cached = trimCache.get(cacheKey)
-    if (cached !== undefined) return cached
+    if (cached !== undefined) {
+        return cached
+    }
     cached = decodeStyle(DOMPurify.sanitize(data, {
         ADD_TAGS: ["iframe", "style", "risu-style", "x-em", 'annotation', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt'],
-        ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-ctrl" ,"risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-lang', 'x-hl-text', 'data-inlay-id', 'data-inlay-type'],
+        ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-text', 'data-inlay-id', 'data-inlay-type'],
     }))
     if (trimCache.size >= TRIM_CACHE_MAX) {
         // evict oldest entry
@@ -1110,7 +1135,11 @@ function encodeMetadata(modelShortName:string){
     return encodedMetaCode
 }
 
-export function addMetadataToElement(data:string, modelShortName:string){
+export function addMetadataToElement(
+    data:string,
+    modelShortName:string,
+    appendTerminalMetadata = true,
+){
     if(!aiWatermarkingLawApplies()){
         return data
     }
@@ -1123,7 +1152,7 @@ export function addMetadataToElement(data:string, modelShortName:string){
         return '<p>' + encodedMetaCode
     })
 
-    return d + encodedMetaCode
+    return d + (appendTerminalMetadata ? encodedMetaCode : '')
 }
 
 export async function postTranslationParse(data:string){
@@ -1256,6 +1285,7 @@ function initMatcher(){
         },
         getDatabase: getDatabase,
         getUserName: getUserName,
+        getTriggerId: () => get(CurrentTriggerIdStore),
         getPersonaPrompt: getPersonaPrompt,
         risuChatParser: risuChatParser,
         makeArray: makeArray,
@@ -1273,7 +1303,8 @@ function initMatcher(){
         getSelectedCharID: () => {
             return get(selectedCharID)
         },
-        getModelInfo: getModelInfo,
+        getGenerationModelString: getGenerationModelString,
+        getGenerationModelMetadata: getGenerationModelMetadata,
         callInternalFunction: function (args: string[]): string {
             return ''
         },

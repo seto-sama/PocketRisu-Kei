@@ -3,10 +3,9 @@ const app = express();
 const http = require('http');
 const https = require('https');
 const path = require('path');
-const net = require('net');
 const compression = require('compression');
 const htmlparser = require('node-html-parser');
-const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
+const { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } = require('fs');
 const fs = require('fs/promises')
 const nodeCrypto = require('crypto')
 const rateLimit = require('express-rate-limit')
@@ -22,7 +21,7 @@ const getVips = () => {
     }
     return _vipsPromise
 }
-const { kvGet, kvSet, kvDel, kvList,
+const { kvGet, kvSet, kvDel, kvList, kvCount,
         kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue, clearEntities, checkpointWal,
         gcChunks, reclaimableChunkBytes, isDbBlobChunked, snapshotFootprint, db: sqliteDb } = require('./db.cjs');
 const {
@@ -32,15 +31,54 @@ const {
 const { addRequestLog, installRequestLogRoutes, updateRequestLogResponseById } = require('./logs/requestLogs.cjs');
 const { installUsageRoutes, recordGenerationUsage } = require('./logs/usageDb.cjs');
 const {
+    executeEchoProviderRequest,
+    executeUpstreamRequest,
+} = require('./upstreamRequest.cjs');
+const {
+    generationDb,
     getGenerationJob,
     setGenerationJobGenerating,
     setGenerationJobHeaders,
-    appendGenerationJobRaw,
-    setGenerationJobRawContent,
+    readGenerationJobRaw,
+    setGenerationJobProjection,
+    setGenerationJobProjectionError,
     finishGenerationJob,
+    finishGenerationWorkflow,
+    getGenerationWorkflow,
+    getActiveGenerationWorkflow,
+    cancelGenerationWorkflow,
+    cancelGenerationStepExecution,
+    listGenerationJobsNeedingProjection,
+    pruneRetainedGenerationJobs,
     checkpointGenerationDb,
-} = require('./revenant/generationDb.cjs');
-const { installRevenantGenerationRoutes } = require('./revenant/generationRoutes.cjs');
+    generationJournalStore,
+    NORMALIZED_PROJECTION_SCHEMA_VERSION,
+    projectGenerationJournal,
+    installRevenantGenerationRoutes,
+    createGenerationWorkers,
+    createRevenantMaterializer,
+    createRevenantPostprocessWorker,
+    createGenerationWorkflowService,
+    applyMutationPatch,
+    GENERATION_REQUEST_DEFAULT_TIMEOUT_MS,
+    normalizeGenerationRequestTimeoutMs,
+    notifyRevenantJournalWaiters,
+    streamRevenantJournal,
+} = require('./revenant/index.cjs');
+const {
+    computeChatEtag,
+    createFullChatStore,
+    commitChatContent,
+    stripChatsFromDb,
+    reassembleFullDb: reassembleFullDbFromStore,
+    findStubFlagLossChats,
+    CanonicalChatCommitError,
+    createCanonicalChatService,
+} = require('./chatStore.cjs');
+const {
+    applyGenerationInputMetadata,
+    restoreGenerationOwnedMetadata,
+} = require('./revenant/generationInputMetadata.cjs');
 const {
     filterRemoteOnlyFolders,
     isChatHiddenFromRemote,
@@ -98,6 +136,25 @@ function queueStorageOperation(operation) {
     const operationRun = storageOperationQueue.then(operation, operation);
     storageOperationQueue = operationRun.catch(() => {});
     return operationRun;
+}
+
+/**
+ * Debounce a persist without opening a second writer lane. Once the timer
+ * fires it joins the same storage queue as request writes and Revenant
+ * materialization, so an older snapshot can never finish after a newer
+ * canonical commit. Remove the timer token before queueing: a later debounce
+ * must not be deleted by the older queued operation's cleanup.
+ */
+function scheduleStorageOperation(key, operation) {
+    if (saveTimers[key]) clearTimeout(saveTimers[key]);
+    const timer = setTimeout(() => {
+        if (saveTimers[key] !== timer) return;
+        delete saveTimers[key];
+        void queueStorageOperation(operation).catch(error => {
+            logger.error(`[Storage] Scheduled operation failed for ${key}:`, error);
+        });
+    }, SAVE_INTERVAL);
+    saveTimers[key] = timer;
 }
 
 const DB_HEX_KEY = Buffer.from('database/database.bin', 'utf-8').toString('hex');
@@ -258,17 +315,7 @@ async function flushPendingDb() {
     if (saveTimers[DB_HEX_KEY]) {
         clearTimeout(saveTimers[DB_HEX_KEY]);
         delete saveTimers[DB_HEX_KEY];
-        if (dbCache[DB_HEX_KEY]) {
-            await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
-        } else if (fullChatStore && fullChatStore.size > 0) {
-            // No stripped cache but chat store has data — merge and persist directly
-            const raw = kvGet('database/database.bin');
-            if (raw) {
-                const dbObj = normalizeJSON(await decodeRisuSave(raw));
-                const fullDb = reassembleFullDb(stripChatsFromDb(dbObj));
-                kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
-            }
-        }
+        await persistFullChatStoreNow();
         createBackupAndRotate();
     }
 }
@@ -366,131 +413,12 @@ async function decodeDatabaseWithPersistentChatIds(raw, options = {}) {
     return dbObj;
 }
 
-/**
- * Convert a full chat to a stub (metadata only).
- *
- * Hybrid corruption guard: a chat carrying `_stub: true` AND a real `message`
- * array is the v1.4.x legacy hybrid pattern. The fast-path "if _stub return"
- * would propagate the corruption (server reassemble skips merge for _stub
- * chats with no fullChat lookup match). Treat hybrids as real chats and
- * collapse them to a real stub here.
- */
-function chatToStub(chat) {
-    if (!chat) return chat;
-    if (chat._stub && !Array.isArray(chat.message)) return chat;
-    const stub = {
-        id: chat.id || '',
-        name: chat.name ?? '',
-        _stub: true,
-    };
-    // Preserve key presence even when the value is null/undefined so the
-    // round-trip distinguishes "user cleared" from "field absent". See
-    // mergeChatStubWithFullChat — it relies on `in` semantics.
-    if ('lastDate' in chat) stub.lastDate = chat.lastDate;
-    if ('folderId' in chat) stub.folderId = chat.folderId;
-    if ('modules' in chat) stub.modules = chat.modules;
-    return stub;
-}
-
-/**
- * Initialize fullChatStore from a decoded full database object.
- * Extracts all chat payloads into the store keyed by chaId → chatId.
- *
- * Hybrid corruption recovery: a chat with both `_stub: true` and a real
- * message array is treated as a real chat (its fullChat data is intact).
- * Strip the `_stub` flag in place so subsequent reassemble passes don't
- * reproduce the hybrid on disk.
- */
 function initChatStore(dbObj) {
-    fullChatStore = new Map();
-    if (!dbObj?.characters) return;
-    for (const char of dbObj.characters) {
-        if (!char?.chaId || !char.chats) continue;
-        const charChats = new Map();
-        for (const chat of char.chats) {
-            if (!chat) continue;
-            const isStub = chat._stub === true;
-            const hasMessage = Array.isArray(chat.message);
-            // Real stub (no payload) — fullChatStore tracks payloads only.
-            if (isStub && !hasMessage) continue;
-            // Hybrid: strip the corrupt _stub flag, keep the real chat.
-            if (isStub && hasMessage) {
-                delete chat._stub;
-            }
-            if (!chat.id) {
-                chat.id = nodeCrypto.randomUUID();
-            }
-            charChats.set(chat.id, chat);
-        }
-        if (charChats.size > 0) {
-            fullChatStore.set(char.chaId, charChats);
-        }
-    }
-}
-
-/**
- * Strip full chat data from a decoded database object, replacing with stubs.
- * Returns a new object — does not mutate input.
- */
-function stripChatsFromDb(dbObj) {
-    if (!dbObj?.characters) return dbObj;
-    const stripped = { ...dbObj };
-    stripped.characters = dbObj.characters.map(char => {
-        if (!char?.chats) return char;
-        return { ...char, chats: char.chats.map(chatToStub) };
-    });
-    return stripped;
-}
-
-/**
- * Reassemble a full database from a stripped DB + fullChatStore.
- * Replaces stubs with full chats from the store. Returns a new object.
- */
-function mergeChatStubWithFullChat(stub, fullChat) {
-    if (!fullChat) {
-        return stub;
-    }
-    if (!stub || !stub._stub) {
-        return fullChat;
-    }
-    const merged = {
-        ...fullChat,
-        id: stub.id || fullChat.id || '',
-        name: stub.name,
-    };
-    // Defensive: never let `_stub: true` ride along on a merged chat. If
-    // fullChat carries a stale flag (legacy disk corruption), the spread
-    // would propagate the hybrid pattern back to disk and re-trigger the
-    // chat-data loss path on next round-trip.
-    if ('_stub' in merged) delete merged._stub;
-    // Use key presence (`in`) so an explicit null/undefined from the client —
-    // meaning "user cleared this field" — overwrites fullChat. The previous
-    // `!= null` check conflated "cleared" with "absent" and silently kept
-    // stale folderId / modules on disk, producing orphan-folder chats.
-    if ('lastDate' in stub) merged.lastDate = stub.lastDate;
-    if ('folderId' in stub) merged.folderId = stub.folderId;
-    if ('modules' in stub) merged.modules = stub.modules;
-    return merged;
+    fullChatStore = createFullChatStore(dbObj);
 }
 
 function reassembleFullDb(strippedDb) {
-    if (!strippedDb?.characters || !fullChatStore) return strippedDb;
-    const full = { ...strippedDb };
-    full.characters = strippedDb.characters.map(char => {
-        if (!char?.chaId || !char.chats) return char;
-        const charChats = fullChatStore.get(char.chaId);
-        if (!charChats) return char;
-        return {
-            ...char,
-            chats: char.chats.map(chat => {
-                if (chat && chat._stub && chat.id) {
-                    return mergeChatStubWithFullChat(chat, charChats.get(chat.id));
-                }
-                return chat;
-            }),
-        };
-    });
-    return full;
+    return reassembleFullDbFromStore(strippedDb, fullChatStore);
 }
 
 function isCloudflareTunnelRequest(req) {
@@ -600,30 +528,6 @@ function findChatInternalFieldOps(patch) {
  * A real Chat has `message` (Array). A real stub has `_stub === true`. Anything
  * with neither is a malformed in-between state; treat as a corruption signal.
  */
-function findStubFlagLossChats(fullDb) {
-    if (!fullDb?.characters) return [];
-    const losses = [];
-    for (let ci = 0; ci < fullDb.characters.length; ci++) {
-        const char = fullDb.characters[ci];
-        if (!char?.chats) continue;
-        for (let chi = 0; chi < char.chats.length; chi++) {
-            const chat = char.chats[chi];
-            if (!chat || typeof chat !== 'object') continue;
-            const isStub = chat._stub === true;
-            const hasMessage = Array.isArray(chat.message);
-            if (!isStub && !hasMessage) {
-                losses.push({
-                    chaId: char.chaId,
-                    charIndex: ci,
-                    chatIndex: chi,
-                    chatId: chat.id || null,
-                });
-            }
-        }
-    }
-    return losses;
-}
-
 /**
  * Persist dbCache to disk with full chats merged back in.
  */
@@ -673,12 +577,97 @@ async function persistDbCacheWithChats(filePath, decodedKey) {
     }
 }
 
+/** Persist the canonical full-chat store immediately, preserving pending stub edits. */
+async function persistFullChatStoreNow() {
+    await ensureChatStore();
+    if (dbCache[DB_HEX_KEY]) {
+        await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
+        return;
+    }
+    if (!fullChatStore || fullChatStore.size === 0) return;
+    const raw = kvGet('database/database.bin');
+    if (!raw) return;
+    const dbObj = normalizeJSON(await decodeRisuSave(raw));
+    const fullDb = reassembleFullDb(stripChatsFromDb(dbObj));
+    kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
+    initChatStore(fullDb);
+}
+
+/**
+ * Persist generation-owned activity metadata together with the already
+ * committed chat input. The storage queue serializes this with every other DB
+ * mutation, so concurrent devices increment the server value instead of
+ * racing client-side snapshots.
+ */
+async function persistCanonicalChatState({ characterId, generationInput = false, mutationPatch }) {
+    const hadCachedDb = Object.prototype.hasOwnProperty.call(dbCache, DB_HEX_KEY);
+    const previousCachedDb = hadCachedDb ? dbCache[DB_HEX_KEY] : undefined;
+    let nextDb;
+    if (previousCachedDb) {
+        nextDb = structuredClone(previousCachedDb);
+    } else {
+        const raw = kvGet('database/database.bin');
+        if (!raw) throw new Error('Compatible database is missing');
+        nextDb = normalizeJSON(stripChatsFromDb(await decodeRisuSave(raw)));
+    }
+
+    const metadata = generationInput
+        ? applyGenerationInputMetadata(nextDb, characterId)
+        : undefined;
+    if (generationInput && !metadata) {
+        const error = new Error('Generation input character not found');
+        error.httpStatus = 404;
+        throw error;
+    }
+    if (mutationPatch) {
+        applyMutationPatch(nextDb, characterId, mutationPatch);
+    }
+
+    if (saveTimers[DB_HEX_KEY]) {
+        clearTimeout(saveTimers[DB_HEX_KEY]);
+        delete saveTimers[DB_HEX_KEY];
+    }
+    dbCache[DB_HEX_KEY] = nextDb;
+    try {
+        await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
+        dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(nextDb)));
+        clearPersistFailure();
+        try {
+            createBackupAndRotate();
+        } catch (error) {
+            logger.warn('[CanonicalChat] Backup rotation failed:', error);
+        }
+        return metadata;
+    } catch (error) {
+        if (hadCachedDb) dbCache[DB_HEX_KEY] = previousCachedDb;
+        else delete dbCache[DB_HEX_KEY];
+        throw error;
+    }
+}
+
+function scheduleCanonicalChatPersist() {
+    scheduleStorageOperation(DB_HEX_KEY, async () => {
+        try {
+            await persistFullChatStoreNow();
+            clearPersistFailure();
+            try {
+                createBackupAndRotate();
+            } catch (error) {
+                logger.warn('[CanonicalChat] Backup rotation failed:', error);
+            }
+        } catch (error) {
+            logger.error('[CanonicalChat] Error persisting chat:', error);
+            recordPersistFailure(error, 'chat-content');
+        }
+    });
+}
+
 function shouldCompress(req, res) {
     // Proxy/hub-proxy: pass through external responses without compression.
     // Original upstream server has no compression middleware at all,
     // so proxy responses were never compressed in the first place.
     const url = req.originalUrl || req.url;
-    if (url.startsWith('/proxy') || url.startsWith('/hub-proxy') || url.startsWith('/api/backup/export') || url.startsWith('/api/backup/server/download/')) {
+    if (url.startsWith('/proxy2') || url.startsWith('/hub-proxy') || url.startsWith('/api/backup/export') || url.startsWith('/api/backup/server/download/')) {
         return false;
     }
 
@@ -861,6 +850,7 @@ if (existsSync(instanceIdPath)) {
 
 const authCodePath = path.join(process.cwd(), 'save', '__authcode')
 const inlayDir = path.join(savePath, 'inlays')
+const inlayVideoThumbnailDir = path.join(inlayDir, '.video-thumbnails')
 const inlayMigrationMarker = path.join(inlayDir, '.migrated_to_fs')
 const hexRegex = /^[0-9a-fA-F]+$/;
 const BACKUP_IMPORT_MAX_BYTES = Number(process.env.RISU_BACKUP_IMPORT_MAX_BYTES ?? '0');
@@ -1017,7 +1007,7 @@ function getSelfUpdateAssetInfo(version) {
     const arch = process.arch; // x64, arm64
     const ext = process.platform === 'win32' ? 'zip' : 'tar.gz';
     const filename = `PocketRisu-v${version}-${platformName}-${arch}.${ext}`;
-    const url = `https://github.com/${GITHUB_REPO}/releases/download/v${version}/${filename}`;
+    const url = `https://github.com/${GITHUB_REPO}/releases/download/kei-v${version}/${filename}`;
     return { platformName, arch, ext, filename, url };
 }
 
@@ -1057,6 +1047,25 @@ function getInlaySidecarPath(id) {
     const p = path.join(inlayDir, `${id}.meta.json`);
     assertInsideInlayDir(p);
     return p;
+}
+
+function getInlayVideoThumbnailPath(id) {
+    if (!isSafeInlayId(id)) throw new Error(`Invalid inlay id: ${id}`);
+    const filePath = path.join(inlayVideoThumbnailDir, `${id}.webp`);
+    assertInsideInlayDir(filePath);
+    return filePath;
+}
+
+async function deleteInlayVideoThumbnail(id) {
+    await fs.unlink(getInlayVideoThumbnailPath(id)).catch(() => {});
+}
+
+function deleteInlayVideoThumbnailSync(id) {
+    try {
+        unlinkSync(getInlayVideoThumbnailPath(id));
+    } catch {
+        // ignore
+    }
 }
 
 async function ensureInlayDir() {
@@ -1153,17 +1162,26 @@ function resolveInlayFilePathSync(id) {
 }
 
 async function readInlayFile(id) {
+    const info = await getInlayFileInfo(id);
+    if (!info) return null;
+    const buffer = await fs.readFile(info.filePath);
+    return {
+        ...info,
+        buffer,
+        mime: getMimeFromExt(info.ext, buffer),
+    };
+}
+
+async function getInlayFileInfo(id) {
     const filePath = await resolveInlayFilePath(id);
     if (!filePath) return null;
     const ext = normalizeInlayExt(path.extname(filePath).slice(1));
-    const buffer = await fs.readFile(filePath);
     const stat = await fs.stat(filePath);
     return {
-        buffer,
         ext,
         filePath,
         mtimeMs: stat.mtimeMs,
-        mime: getMimeFromExt(ext, buffer),
+        size: stat.size,
     };
 }
 
@@ -1194,6 +1212,7 @@ function writeInlaySidecarSync(id, info) {
 async function writeInlayFile(id, ext, buffer, info = null) {
     await ensureInlayDir();
     await deleteInlayRawFile(id);
+    await deleteInlayVideoThumbnail(id);
     const normalizedExt = normalizeInlayExt(ext);
     await fs.writeFile(getInlayFilePath(id, normalizedExt), Buffer.from(buffer));
     await writeInlaySidecar(id, {
@@ -1205,6 +1224,7 @@ async function writeInlayFile(id, ext, buffer, info = null) {
 function writeInlayFileSync(id, ext, buffer, info = null) {
     ensureInlayDirSync();
     deleteInlayRawFileSync(id);
+    deleteInlayVideoThumbnailSync(id);
     const normalizedExt = normalizeInlayExt(ext);
     writeFileSync(getInlayFilePath(id, normalizedExt), Buffer.from(buffer));
     writeInlaySidecarSync(id, {
@@ -1231,11 +1251,13 @@ function deleteInlayRawFileSync(id) {
 
 async function deleteInlayFile(id) {
     await deleteInlayRawFile(id);
+    await deleteInlayVideoThumbnail(id);
     await fs.unlink(getInlaySidecarPath(id)).catch(() => {});
 }
 
 function deleteInlayFileSync(id) {
     deleteInlayRawFileSync(id);
+    deleteInlayVideoThumbnailSync(id);
     try {
         unlinkSync(getInlaySidecarPath(id));
     } catch {
@@ -1389,7 +1411,7 @@ async function fetchLatestRelease(lang) {
 
 function compareReleaseVersions(left, right) {
     const parse = (value) => {
-        const normalized = String(value || '').trim().replace(/^v/i, '');
+        const normalized = normalizeReleaseVersion(value);
         const [core, prerelease = ''] = normalized.split('-', 2);
         return {
             core: core.split('.').map((part) => Number.parseInt(part, 10) || 0),
@@ -1410,8 +1432,12 @@ function compareReleaseVersions(left, right) {
     return a.prerelease.localeCompare(b.prerelease, undefined, { numeric: true });
 }
 
+function normalizeReleaseVersion(value) {
+    return String(value || '').trim().replace(/^(?:kei-)?v/i, '');
+}
+
 function normalizeGitHubRelease(release, currentVersion) {
-    const latestVersion = String(release?.tag_name || '').replace(/^v/i, '');
+    const latestVersion = normalizeReleaseVersion(release?.tag_name);
     const hasUpdate = !!latestVersion && compareReleaseVersions(latestVersion, currentVersion) > 0;
     return {
         currentVersion,
@@ -1494,9 +1520,10 @@ function detectMime(buf) {
 }
 const ASSET_EXT_MIME = {
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-    gif: 'image/gif', webp: 'image/webp',
-    mp4: 'video/mp4', webm: 'video/webm',
-    mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav',
+    gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
+    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+    m4v: 'video/x-m4v', avi: 'video/x-msvideo',
+    mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4',
 }
 
 async function checkDiskSpace(requiredBytes) {
@@ -1516,7 +1543,7 @@ async function checkDiskSpace(requiredBytes) {
 // is retained to suppress self-echoes on the sync WebSocket.
 
 function getSyncClientIdFromRequest(req) {
-    return req.headers['x-sync-client-id'] || req.headers['x-session-id'] || ''
+    return req?.headers?.['x-sync-client-id'] || req?.headers?.['x-session-id'] || ''
 }
 
 function requireSyncClientId(req, res) {
@@ -1548,19 +1575,43 @@ function broadcastDatabaseInvalidated(req, payload = {}) {
     );
 }
 
-// --- Proxy Stream Job constants ---
-const PROXY_STREAM_DEFAULT_TIMEOUT_MS = 600000;
-const PROXY_STREAM_MAX_TIMEOUT_MS = 3600000;
-const PROXY_STREAM_DEFAULT_HEARTBEAT_SEC = 15;
-const PROXY_STREAM_HEARTBEAT_MIN_SEC = 5;
-const PROXY_STREAM_HEARTBEAT_MAX_SEC = 60;
-const PROXY_STREAM_GC_INTERVAL_MS = 60000;
-const PROXY_STREAM_DONE_GRACE_MS = 30000;
-const PROXY_STREAM_MAX_ACTIVE_JOBS = 64;
-const PROXY_STREAM_MAX_PENDING_EVENTS = 512;
-const PROXY_STREAM_MAX_PENDING_BYTES = 2 * 1024 * 1024;
-const PROXY_STREAM_MAX_BODY_BASE64_BYTES = 8 * 1024 * 1024;
-const proxyStreamJobs = new Map();
+function publishChatCommitted(event, originClientId) {
+    broadcastSync('database-invalidated', {
+        chats: [{ characterId: event.characterId, chatId: event.chatId }],
+        etag: dbEtag ?? undefined,
+        chatEtag: event.etag,
+        reason: event.reason,
+        timestamp: Date.now(),
+    }, originClientId || null);
+}
+
+function broadcastRevenantWorkflowUpdated(workflow) {
+    if (!workflow?.workflowId || !workflow.characterId || !workflow.roomId) return;
+    broadcastSync('generation-workflow-updated', {
+        workflowId: workflow.workflowId,
+        characterId: workflow.characterId,
+        roomId: workflow.roomId,
+        status: workflow.status,
+        timestamp: Date.now(),
+    });
+}
+
+// --- Generation Job constants ---
+const GENERATION_JOB_DEFAULT_TIMEOUT_MS = GENERATION_REQUEST_DEFAULT_TIMEOUT_MS;
+const GENERATION_JOB_DEFAULT_HEARTBEAT_SEC = 15;
+const GENERATION_JOB_HEARTBEAT_MIN_SEC = 5;
+const GENERATION_JOB_HEARTBEAT_MAX_SEC = 60;
+const GENERATION_JOB_GC_INTERVAL_MS = 60000;
+const GENERATION_JOB_DONE_GRACE_MS = 30000;
+const GENERATION_JOB_MAX_ACTIVE_JOBS = 64;
+const GENERATION_JOB_MAX_BODY_BASE64_BYTES = 8 * 1024 * 1024;
+const generationRuntimeJobs = new Map();
+
+function countActiveGenerationJobs() {
+    return Array.from(generationRuntimeJobs.values())
+        .filter(job => !job.done && !job.waitingDispatch)
+        .length;
+}
 
 const loginRouteLimiter = rateLimit({
     windowMs: 30 * 1000,
@@ -1623,7 +1674,7 @@ function createTimeoutController(timeoutMs) {
     };
 }
 
-// --- Proxy Stream: auth helpers ---
+// --- Generation: auth helpers ---
 
 function normalizeAuthHeader(authHeader) {
     if (Array.isArray(authHeader)) {
@@ -1640,83 +1691,6 @@ async function checkProxyAuth(req, res) {
     return await checkAuth(req, res);
 }
 
-// --- Proxy Stream: network helpers ---
-
-function isPrivateIPv4Host(hostname) {
-    const parts = hostname.split('.');
-    if (parts.length !== 4) {
-        return false;
-    }
-    const octets = parts.map((part) => Number.parseInt(part, 10));
-    if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
-        return false;
-    }
-    const [a, b] = octets;
-    if (a === 10) return true;
-    if (a === 127) return true;
-    if (a === 0) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 169 && b === 254) return true;
-    return false;
-}
-
-function isLocalNetworkHost(hostname) {
-    if (typeof hostname !== 'string' || hostname.trim() === '') {
-        return false;
-    }
-    const normalizedHost = hostname.toLowerCase().replace(/\.$/, '').split('%')[0];
-    if (normalizedHost === 'localhost' || normalizedHost === '::1' || normalizedHost.endsWith('.local')) {
-        return true;
-    }
-    // NodeOnly policy: keep server-side validation aligned with the client helper
-    // for Node/self-hosted deployments where single-label LAN or Docker DNS names
-    // like "litellm" / "ollama" are valid local targets. Upstream currently only
-    // allows localhost/.local/IP here, but NodeOnly routes all local-network-mode
-    // traffic through the Node server, so rejecting single-label hosts would make
-    // the feature unusable for common self-hosted setups.
-    if (/^[a-z0-9_-]+$/i.test(normalizedHost) && !normalizedHost.includes('.')) {
-        return true;
-    }
-    if (net.isIP(normalizedHost) === 4) {
-        return isPrivateIPv4Host(normalizedHost);
-    }
-    if (net.isIP(normalizedHost) === 6) {
-        if (normalizedHost.startsWith('::ffff:')) {
-            const mapped = normalizedHost.substring(7);
-            return net.isIP(mapped) === 4 && isPrivateIPv4Host(mapped);
-        }
-        if (normalizedHost.startsWith('fc') || normalizedHost.startsWith('fd')) {
-            return true;
-        }
-        if (/^fe[89ab]/.test(normalizedHost)) {
-            return true;
-        }
-        return normalizedHost === '::1';
-    }
-    return false;
-}
-
-function sanitizeTargetUrl(raw) {
-    if (typeof raw !== 'string' || raw.trim() === '') {
-        return null;
-    }
-    try {
-        const parsed = new URL(raw);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            return null;
-        }
-        if (!isLocalNetworkHost(parsed.hostname)) {
-            return null;
-        }
-        parsed.username = '';
-        parsed.password = '';
-        return parsed.toString();
-    } catch {
-        return null;
-    }
-}
-
 function sanitizeGenerationTargetUrl(raw) {
     if (typeof raw !== 'string' || raw.trim() === '') return null;
     try {
@@ -1730,7 +1704,7 @@ function sanitizeGenerationTargetUrl(raw) {
     }
 }
 
-// --- Proxy Stream: request/response helpers ---
+// --- Generation: request/response helpers ---
 
 function normalizeForwardHeaders(input) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -1751,100 +1725,16 @@ function normalizeForwardHeaders(input) {
     return normalized;
 }
 
-function normalizeProxyResponseHeaders(headers) {
-    const normalized = {};
-    for (const [key, value] of Object.entries(headers || {})) {
-        if (value === undefined) continue;
-        normalized[key.toLowerCase()] = Array.isArray(value) ? value.join(', ') : String(value);
-    }
-    return normalized;
-}
-
-function normalizeProxyStreamTimeoutMs(timeoutMs) {
-    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-        return PROXY_STREAM_DEFAULT_TIMEOUT_MS;
-    }
-    const parsed = Math.max(1, Math.floor(timeoutMs));
-    return Math.min(PROXY_STREAM_MAX_TIMEOUT_MS, parsed);
+function normalizeGenerationJobTimeoutMs(timeoutMs) {
+    return normalizeGenerationRequestTimeoutMs(timeoutMs);
 }
 
 function normalizeHeartbeatSec(heartbeatSec) {
     if (!Number.isFinite(heartbeatSec)) {
-        return PROXY_STREAM_DEFAULT_HEARTBEAT_SEC;
+        return GENERATION_JOB_DEFAULT_HEARTBEAT_SEC;
     }
     const parsed = Math.floor(heartbeatSec);
-    return Math.min(PROXY_STREAM_HEARTBEAT_MAX_SEC, Math.max(PROXY_STREAM_HEARTBEAT_MIN_SEC, parsed));
-}
-
-function extractGenerationTextFromWire(rawBuffer) {
-    const text = Buffer.from(rawBuffer || '').toString('utf-8');
-    const payloads = [];
-    for (const line of text.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
-        const data = trimmed.slice(5).trim();
-        if (!data || data === '[DONE]') continue;
-        try { payloads.push(JSON.parse(data)); } catch { /* partial/non-JSON event */ }
-    }
-    if (payloads.length === 0) {
-        try {
-            const parsed = JSON.parse(text);
-            if (Array.isArray(parsed)) payloads.push(...parsed);
-            else payloads.push(parsed);
-        } catch { return ''; }
-    }
-
-    let output = '';
-    let reasoning = '';
-    const appendParts = (parts) => {
-        if (!Array.isArray(parts)) return;
-        for (const part of parts) {
-            const value = typeof part?.text === 'string'
-                ? part.text
-                : typeof part?.content === 'string'
-                    ? part.content
-                    : '';
-            if (!value) continue;
-            if (part?.thought === true || part?.type === 'reasoning' || part?.type === 'thinking') {
-                reasoning += value;
-            } else {
-                output += value;
-            }
-        }
-    };
-    for (const payload of payloads) {
-        const choice = payload?.choices?.[0];
-        const deltaContent = choice?.delta?.content;
-        if (typeof deltaContent === 'string') output += deltaContent;
-        else if (Array.isArray(deltaContent)) appendParts(deltaContent);
-        else if (typeof choice?.text === 'string') output += choice.text;
-        else if (typeof choice?.message?.content === 'string') output += choice.message.content;
-
-        const choiceReasoning = choice?.delta?.reasoning_content
-            ?? choice?.delta?.reasoning
-            ?? choice?.message?.reasoning_content
-            ?? choice?.message?.reasoning
-            ?? choice?.reasoning_content;
-        if (typeof choiceReasoning === 'string') reasoning += choiceReasoning;
-
-        if (typeof payload?.delta?.text === 'string') output += payload.delta.text;
-        if (typeof payload?.delta?.thinking === 'string') reasoning += payload.delta.thinking;
-        if (typeof payload?.completion === 'string') output += payload.completion;
-        appendParts(payload?.content);
-
-        const candidateParts = payload?.candidates?.[0]?.content?.parts;
-        appendParts(candidateParts);
-
-        if (payload?.type === 'response.output_text.delta' && typeof payload?.delta === 'string') {
-            output += payload.delta;
-        }
-        if (payload?.type === 'response.reasoning_text.delta' && typeof payload?.delta === 'string') {
-            reasoning += payload.delta;
-        }
-        if (typeof payload?.output_text === 'string') output += payload.output_text;
-    }
-    if (!reasoning) return output;
-    return `<Thoughts>\n${reasoning.replace(/<\/?think>/g, '')}\n</Thoughts>\n\n${output}`;
+    return Math.min(GENERATION_JOB_HEARTBEAT_MAX_SEC, Math.max(GENERATION_JOB_HEARTBEAT_MIN_SEC, parsed));
 }
 
 function hasGenerationStreamTerminalMarker(rawBuffer) {
@@ -1878,394 +1768,446 @@ function hasGenerationStreamTerminalMarker(rawBuffer) {
     return false;
 }
 
-// --- Proxy Stream: native HTTP request to local target ---
+// --- Generation: job lifecycle ---
 
-function requestLocalTargetStream(targetUrl, arg) {
-    return new Promise((resolve, reject) => {
-        const parsedUrl = new URL(targetUrl);
-        const client = parsedUrl.protocol === 'https:' ? https : http;
-        const headers = normalizeForwardHeaders(arg.headers);
-        if (!headers['host']) {
-            headers['host'] = parsedUrl.host;
-        }
-        if (arg.bodyBuffer && !headers['content-length']) {
-            headers['content-length'] = String(arg.bodyBuffer.length);
-        }
-
-        let settled = false;
-        let cleanupAbort = () => {};
-        const finishReject = (error) => {
-            if (settled) return;
-            settled = true;
-            cleanupAbort();
-            reject(error);
-        };
-
-        const req = client.request(parsedUrl, {
-            method: arg.method,
-            headers
-        }, (res) => {
-            if (settled) {
-                res.destroy();
-                return;
-            }
-            settled = true;
-            cleanupAbort();
-            resolve({
-                status: res.statusCode || 502,
-                headers: normalizeProxyResponseHeaders(res.headers),
-                body: res
-            });
-        });
-
-        req.on('error', (error) => {
-            finishReject(error);
-        });
-
-        req.setTimeout(arg.timeoutMs, () => {
-            req.destroy(new Error(`Upstream request timed out after ${arg.timeoutMs}ms`));
-        });
-
-        if (arg.signal) {
-            const onAbort = () => {
-                const abortError = new Error('Proxy stream job aborted');
-                abortError.name = 'AbortError';
-                req.destroy(abortError);
-            };
-            if (arg.signal.aborted) {
-                onAbort();
-                return;
-            }
-            arg.signal.addEventListener('abort', onAbort, { once: true });
-            cleanupAbort = () => arg.signal.removeEventListener('abort', onAbort);
-        }
-
-        if (arg.bodyBuffer && arg.method !== 'GET' && arg.method !== 'HEAD') {
-            req.write(arg.bodyBuffer);
-        }
-        req.end();
-    });
-}
-
-// --- Proxy Stream: job lifecycle ---
-
-function createProxyStreamJob(arg) {
+function createGenerationRuntimeJob(arg) {
     const jobId = arg.jobId || nodeCrypto.randomUUID();
-    const timeoutMs = normalizeProxyStreamTimeoutMs(Number(arg.timeoutMs));
+    const timeoutMs = normalizeGenerationJobTimeoutMs(Number(arg.timeoutMs));
     const heartbeatSec = normalizeHeartbeatSec(arg.heartbeatSec);
     const controller = new AbortController();
     const createdAt = Date.now();
     const job = {
         id: jobId,
+        workflowId: arg.workflowId || null,
         createdAt,
         updatedAt: createdAt,
         done: false,
         cleanupAt: 0,
         clients: new Set(),
-        pendingEvents: [],
-        pendingBytes: 0,
-        latestGenerationContent: '',
+        rawBytes: 0,
+        journalWaiters: [],
+        providerStartedAt: null,
+        responseStatus: null,
+        responseHeaders: {},
+        terminalEvent: null,
         abortController: controller,
+        cancelUpstream: null,
         deadlineAt: createdAt + timeoutMs,
         heartbeatSec,
         timeoutMs
     };
-    proxyStreamJobs.set(jobId, job);
+    generationRuntimeJobs.set(jobId, job);
     return job;
 }
 
-function loadPersistedProxyStreamJob(jobId) {
-    const persisted = getGenerationJob(jobId);
+function loadPersistedGenerationRuntimeJob(jobId) {
+    const persisted = getGenerationJob(jobId, false);
     if (!persisted) return null;
     const createdAt = persisted.createdAt || Date.now();
+    const active = ['queued', 'generating'].includes(persisted.status);
     const job = {
         id: jobId,
+        workflowId: persisted.workflowId || null,
         createdAt,
         updatedAt: persisted.updatedAt || createdAt,
-        done: true,
-        cleanupAt: Date.now() + PROXY_STREAM_DONE_GRACE_MS,
+        done: !active,
+        waitingDispatch: persisted.status === 'queued',
+        cleanupAt: active ? 0 : Date.now() + GENERATION_JOB_DONE_GRACE_MS,
         clients: new Set(),
-        pendingEvents: [],
-        pendingBytes: 0,
-        latestGenerationContent: persisted.rawContent || '',
+        rawBytes: persisted.rawBytes || 0,
+        journalWaiters: [],
+        providerStartedAt: persisted.dispatchedAt || null,
+        responseStatus: persisted.responseStatus || null,
+        responseHeaders: persisted.responseHeaders || {},
+        terminalEvent: active ? null : persisted.status === 'failed'
+            ? {
+                type: 'error',
+                status: 502,
+                message: persisted.error || 'Generation job failed',
+            }
+            : {
+                type: 'done',
+                status: persisted.status,
+                partial: ['cancelled', 'interrupted', 'failed_partial'].includes(persisted.status),
+                finishReason: persisted.finishReason,
+            },
         abortController: new AbortController(),
+        cancelUpstream: null,
         deadlineAt: Date.now(),
-        heartbeatSec: PROXY_STREAM_DEFAULT_HEARTBEAT_SEC,
-        timeoutMs: PROXY_STREAM_DEFAULT_TIMEOUT_MS,
-        persistent: true,
+        heartbeatSec: GENERATION_JOB_DEFAULT_HEARTBEAT_SEC,
+        timeoutMs: GENERATION_JOB_DEFAULT_TIMEOUT_MS,
     };
-    if (persisted.responseStatus) {
-        job.pendingEvents.push(JSON.stringify({
-            type: 'upstream_headers',
-            status: persisted.responseStatus,
-            headers: persisted.responseHeaders || {},
-        }));
-    }
-    if (persisted.rawResponse?.length) {
-        job.pendingEvents.push(JSON.stringify({
-            type: 'chunk',
-            dataBase64: persisted.rawResponse.toString('base64'),
-        }));
-    }
-    if (persisted.status === 'failed') {
-        job.pendingEvents.push(JSON.stringify({
-            type: 'error',
-            status: 502,
-            message: persisted.error || 'Generation job failed',
-        }));
-    } else {
-        job.pendingEvents.push(JSON.stringify({
-            type: 'done',
-            partial: ['cancelled', 'interrupted', 'failed_partial'].includes(persisted.status),
-            finishReason: persisted.finishReason,
-        }));
-    }
-    job.pendingBytes = job.pendingEvents.reduce((sum, event) => sum + Buffer.byteLength(event), 0);
-    proxyStreamJobs.set(jobId, job);
+    generationRuntimeJobs.set(jobId, job);
     return job;
 }
 
-function pushJobEvent(job, event) {
+function notifyGenerationJob(job) {
     job.updatedAt = Date.now();
-    const text = JSON.stringify(event);
-    if (job.clients.size === 0) {
-        job.pendingEvents.push(text);
-        job.pendingBytes += Buffer.byteLength(text);
-        while (
-            job.pendingEvents.length > PROXY_STREAM_MAX_PENDING_EVENTS
-            || job.pendingBytes > PROXY_STREAM_MAX_PENDING_BYTES
-        ) {
-            const removed = job.pendingEvents.shift();
-            if (!removed) break;
-            job.pendingBytes -= Buffer.byteLength(removed);
-        }
-        return;
-    }
-    for (const client of job.clients) {
-        if (client.readyState === client.OPEN) {
-            client.send(text);
-        }
-    }
+    notifyRevenantJournalWaiters(job);
 }
 
-function pushGenerationContent(job, content) {
-    job.latestGenerationContent = content;
-    const text = JSON.stringify({ type: 'generation_content', content });
-    for (const client of job.clients) {
-        if (client.recoverySubscriber && client.readyState === client.OPEN) {
-            client.send(text);
-        }
-    }
-}
-
-function markJobDone(job) {
+function markGenerationJobDone(job) {
     if (job.done) return;
     job.done = true;
-    job.cleanupAt = Date.now() + PROXY_STREAM_DONE_GRACE_MS;
+    job.cleanupAt = Date.now() + GENERATION_JOB_DONE_GRACE_MS;
+    notifyRevenantJournalWaiters(job);
 }
 
-function cleanupJob(jobId) {
-    const job = proxyStreamJobs.get(jobId);
+function cleanupGenerationRuntimeJob(jobId) {
+    const job = generationRuntimeJobs.get(jobId);
     if (!job) return;
     for (const client of job.clients) {
         try { client.close(); } catch { /* ignore */ }
     }
-    proxyStreamJobs.delete(jobId);
+    generationRuntimeJobs.delete(jobId);
 }
 
-async function runProxyStreamJob(job, arg) {
-    const targetUrl = arg.allowExternal
-        ? sanitizeGenerationTargetUrl(arg.targetUrl)
-        : sanitizeTargetUrl(arg.targetUrl);
+const generationWorkers = createGenerationWorkers({
+    repository: generationDb,
+    logger,
+    generationRuntimeJobs,
+    maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,
+    countActiveGenerationJobs,
+    createGenerationRuntimeJob,
+    runGenerationProviderJob,
+    markGenerationJobDone,
+    sanitizeGenerationTargetUrl,
+});
+const {
+    abortHypaWorkflowExecution,
+    scheduleGenerationDispatch,
+    scheduleHypaWorkflowExecution,
+} = generationWorkers;
+
+const canonicalChatService = createCanonicalChatService({
+    queueStorageOperation,
+    ensureChatStore,
+    getChat: (characterId, chatId) => fullChatStore.get(characterId)?.get(chatId),
+    replaceChat: (characterId, chatId, chat) => {
+        const chats = fullChatStore.get(characterId);
+        if (!chats) return;
+        if (chat) chats.set(chatId, chat);
+        else chats.delete(chatId);
+    },
+    commitChatContent: (characterId, chatId, chat, expectedEtag, options) =>
+        commitChatContent(fullChatStore, characterId, chatId, chat, expectedEtag, options),
+    computeChatEtag,
+    getActiveGenerationWorkflow,
+    getLatestGenerationWorkflow: generationDb.getLatestGenerationWorkflow,
+    persistNow: persistCanonicalChatState,
+    schedulePersist: scheduleCanonicalChatPersist,
+    publishChatCommitted,
+});
+const revenantMaterializer = createRevenantMaterializer({
+    repository: generationDb,
+    canonicalChatService,
+});
+const generationWorkflowService = createGenerationWorkflowService({
+    finishGenerationWorkflow,
+    cancelGenerationWorkflow,
+    cancelGenerationStepExecution,
+    generationRuntimeJobs,
+    markGenerationJobDone,
+    abortHypaWorkflowExecution,
+    commitWorkflowInput: commitRevenantWorkflowInput,
+    updateGenerationWorkflowStep: generationDb.updateGenerationWorkflowStep,
+    getGenerationWorkflow,
+    materializeCancelledWorkflow: revenantMaterializer.materializeCancellation,
+    publishCanonicalWorkflowChat: workflowId => {
+        const workflow = getGenerationWorkflow(workflowId);
+        if (!workflow) return false;
+        return canonicalChatService.publishCurrent(
+            workflow.characterId,
+            workflow.roomId,
+            'workflow-failed',
+        );
+    },
+});
+const revenantPostprocessWorker = createRevenantPostprocessWorker({
+    repository: generationDb,
+    logger,
+    materializeGeneration: revenantMaterializer.materialize,
+    onWorkflowUpdated: broadcastRevenantWorkflowUpdated,
+});
+const scheduleRevenantPostprocess = revenantPostprocessWorker.schedule;
+
+async function runGenerationProviderJob(job, arg) {
+    const targetUrl = sanitizeGenerationTargetUrl(arg.targetUrl);
     if (!targetUrl) {
-        pushJobEvent(job, { type: 'error', status: 400, message: 'Blocked non-local target URL' });
-        if (job.persistent) finishGenerationJob(job.id, 'failed', 'invalid_target', 'Invalid target URL');
-        markJobDone(job);
+        finishGenerationJob(job.id, 'failed', 'invalid_target', 'Invalid target URL');
+        markGenerationJobDone(job);
         return;
     }
 
     const headers = normalizeForwardHeaders(arg.headers);
-    if (!arg.allowExternal && !headers['x-forwarded-for']) {
-        headers['x-forwarded-for'] = arg.clientIp;
-    }
     const bodyBuffer = arg.bodyBase64 ? Buffer.from(arg.bodyBase64, 'base64') : undefined;
-    let persistBuffer = [];
-    let persistBytes = 0;
-    let accumulatedRaw = Buffer.alloc(0);
     let completionProbe = Buffer.alloc(0);
     let providerCompleted = false;
-    let lastPublishedContent = '';
-    let lastPersistAt = Date.now();
-    const flushRaw = () => {
-        if (!job.persistent || persistBytes === 0) return;
-        const flushed = Buffer.concat(persistBuffer, persistBytes);
-        appendGenerationJobRaw(job.id, flushed);
-        const incrementalText = extractGenerationTextFromWire(accumulatedRaw);
-        if (incrementalText) {
-            setGenerationJobRawContent(job.id, incrementalText);
+    const journalWriter = generationJournalStore.openWriter(job.workflowId, job.id);
+    let journalWriteError = null;
+    let journalClosed = false;
+    journalWriter?.on('error', (error) => {
+        journalWriteError ||= error;
+        notifyRevenantJournalWaiters(job);
+    });
+    const closeJournal = async () => {
+        if (journalClosed) return;
+        journalClosed = true;
+        if (!journalWriter.destroyed) {
+            await new Promise((resolve) => {
+                const done = () => {
+                    journalWriter.off('close', done);
+                    resolve();
+                };
+                journalWriter.once('close', done);
+                journalWriter.end();
+            });
         }
-        persistBuffer = [];
-        persistBytes = 0;
-        lastPersistAt = Date.now();
+        notifyRevenantJournalWaiters(job);
+        if (journalWriteError) throw journalWriteError;
     };
 
     try {
-        if (job.persistent) setGenerationJobGenerating(job.id);
-        const upstreamResponse = arg.allowExternal
-            ? await (async () => {
-                const response = await fetch(targetUrl, {
-                    method: arg.method,
-                    headers,
-                    body: bodyBuffer && arg.method !== 'GET' && arg.method !== 'HEAD' ? bodyBuffer : undefined,
-                    signal: job.abortController.signal,
-                    redirect: 'follow',
-                });
-                return {
-                    status: response.status,
-                    headers: Object.fromEntries(response.headers.entries()),
-                    body: response.body,
-                };
-            })()
-            : await requestLocalTargetStream(targetUrl, {
-                method: arg.method,
-                headers,
-                bodyBuffer,
-                timeoutMs: job.timeoutMs,
-                signal: job.abortController.signal
-            });
+        job.providerStartedAt ||= Date.now();
+        notifyRevenantJournalWaiters(job);
+        setGenerationJobGenerating(job.id);
+        addRequestLog({
+            id: job.id,
+            timestamp: job.providerStartedAt,
+            date: new Date(job.providerStartedAt).toLocaleTimeString(),
+            url: targetUrl,
+            body: bodyBuffer?.toString('utf-8') || '',
+            header: JSON.stringify(headers, null, 2),
+            response: 'Streamed Fetch',
+            responseType: 'stream',
+            success: true,
+            chatId: arg.requestLog?.chatId,
+            clientId: arg.requestLog?.clientId,
+            platform: arg.requestLog?.platform,
+        });
+        const providerRequest = {
+            url: targetUrl,
+            method: arg.method,
+            headers,
+            body: bodyBuffer && arg.method !== 'GET' && arg.method !== 'HEAD' ? bodyBuffer : undefined,
+            signal: job.abortController.signal,
+        };
+        const upstreamResponse = arg.adapterKind === 'echo'
+            ? await executeEchoProviderRequest(providerRequest)
+            : await executeUpstreamRequest(providerRequest);
+        const filteredHeaders = upstreamResponse.headers;
 
-        const filteredHeaders = {};
-        for (const [key, value] of Object.entries(upstreamResponse.headers)) {
-            if (
-                key === 'content-security-policy'
-                || key === 'content-security-policy-report-only'
-                || key === 'clear-site-data'
-                || key === 'content-encoding'
-                || key === 'content-length'
-                || key === 'transfer-encoding'
-            ) {
-                continue;
-            }
-            filteredHeaders[key] = value;
-        }
-
-        if (job.persistent) {
-            setGenerationJobHeaders(job.id, upstreamResponse.status, filteredHeaders);
-        }
-        pushJobEvent(job, { type: 'upstream_headers', status: upstreamResponse.status, headers: filteredHeaders });
+        setGenerationJobHeaders(job.id, upstreamResponse.status, filteredHeaders);
+        job.responseStatus = upstreamResponse.status;
+        job.responseHeaders = filteredHeaders;
+        notifyGenerationJob(job);
 
         if (upstreamResponse.body) {
-            for await (const value of upstreamResponse.body) {
-                if (job.abortController.signal.aborted) break;
-                if (value && value.length > 0) {
-                    const bytes = Buffer.from(value);
-                    completionProbe = Buffer.concat([completionProbe, bytes]);
-                    if (job.persistent) {
-                        persistBuffer.push(bytes);
-                        persistBytes += bytes.length;
-                        accumulatedRaw = Buffer.concat([accumulatedRaw, bytes]);
-                        const liveContent = extractGenerationTextFromWire(accumulatedRaw);
-                        if (liveContent && liveContent !== lastPublishedContent) {
-                            lastPublishedContent = liveContent;
-                            pushGenerationContent(job, liveContent);
-                        }
-                        if (Date.now() - lastPersistAt >= 250 || persistBytes >= 256 * 1024) {
-                            flushRaw();
-                        }
-                    }
-                    pushJobEvent(job, { type: 'chunk', dataBase64: bytes.toString('base64') });
-                    if (hasGenerationStreamTerminalMarker(completionProbe)) {
-                        providerCompleted = true;
+            const iterator = upstreamResponse.body[Symbol.asyncIterator]();
+            let upstreamDone = false;
+            let cancelPromise = null;
+            const cancelUpstream = (reason) => {
+                if (upstreamDone || typeof iterator.return !== 'function') return Promise.resolve();
+                cancelPromise ||= Promise.resolve(iterator.return(reason)).then(() => {});
+                return cancelPromise;
+            };
+            job.cancelUpstream = cancelUpstream;
+            try {
+                while (!job.abortController.signal.aborted) {
+                    const next = await iterator.next();
+                    if (next.done) {
+                        upstreamDone = true;
                         break;
                     }
+                    const value = next.value;
+                    if (value && value.length > 0) {
+                        const bytes = Buffer.from(value);
+                        completionProbe = Buffer.concat([completionProbe, bytes]);
+                        if (completionProbe.length > 256 * 1024) {
+                            completionProbe = completionProbe.subarray(completionProbe.length - 256 * 1024);
+                        }
+                        if (journalWriteError) throw journalWriteError;
+                        job.rawBytes += bytes.length;
+                        const writable = journalWriter.write(bytes, () => {
+                            notifyRevenantJournalWaiters(job);
+                        });
+                        if (!writable) {
+                            await new Promise((resolve, reject) => {
+                                const cleanup = () => {
+                                    journalWriter.off('drain', onDrain);
+                                    journalWriter.off('error', onError);
+                                };
+                                const onDrain = () => {
+                                    cleanup();
+                                    resolve();
+                                };
+                                const onError = (error) => {
+                                    cleanup();
+                                    reject(error);
+                                };
+                                journalWriter.once('drain', onDrain);
+                                journalWriter.once('error', onError);
+                            });
+                        }
+                        notifyGenerationJob(job);
+                        if (hasGenerationStreamTerminalMarker(completionProbe)) {
+                            providerCompleted = true;
+                            break;
+                        }
+                    }
                 }
+            } finally {
+                if (!upstreamDone) {
+                    await cancelUpstream(job.abortController.signal.reason);
+                }
+                if (job.cancelUpstream === cancelUpstream) job.cancelUpstream = null;
             }
         }
-        flushRaw();
+        await closeJournal();
         const cancelled = job.abortController.signal.aborted;
-        if (job.persistent) {
-            const persisted = getGenerationJob(job.id);
-            const serverParsed = extractGenerationTextFromWire(persisted?.rawResponse);
-            if (serverParsed) {
-                // The browser may have disconnected while the provider kept
-                // streaming. Server parsing therefore wins at completion; the
-                // client still owns output-script postprocessing.
-                setGenerationJobRawContent(job.id, serverParsed);
+        const persisted = getGenerationJob(job.id, false);
+        const cancelFinishReason = persisted?.finishReason || 'user_cancelled';
+        const rawResponse = readGenerationJobRaw(job.id);
+        let projection = persisted?.projection;
+        let terminalFailure;
+        if (cancelled || (upstreamResponse.status >= 200 && upstreamResponse.status < 300)) {
+            try {
+                projection = await projectGenerationJournal(persisted, rawResponse);
+                setGenerationJobProjection(job.id, projection);
+            } catch (error) {
+                const message = `Failed to normalize provider journal: ${error}`;
+                setGenerationJobProjectionError(job.id, message);
+                if (!cancelled) {
+                    terminalFailure = { finishReason: 'projection_error', message };
+                } else {
+                    logger.warn(`[GenerationJob] Cancelled projection unavailable for ${job.id}:`, error);
+                }
             }
-            updateRequestLogResponseById(
+        } else {
+            if (upstreamResponse.status < 200 || upstreamResponse.status >= 300) {
+                terminalFailure = {
+                    finishReason: 'upstream_http_error',
+                    message: `Provider request failed with HTTP ${upstreamResponse.status}`,
+                };
+            }
+        }
+        updateRequestLogResponseById(
+            job.id,
+            rawResponse.toString('utf-8'),
+            upstreamResponse.status,
+            upstreamResponse.status >= 200 && upstreamResponse.status < 400,
+        );
+        recordGenerationUsage({
+            jobId: job.id,
+            timestamp: persisted?.createdAt,
+            chatId: persisted?.chatId,
+            targetUrl,
+            bodyBase64: arg.bodyBase64,
+            rawResponse,
+            outputText: projection?.content,
+            usageProviderId: arg.usageProviderId,
+            usageModelId: arg.usageModelId,
+            usageServiceTier: arg.usageServiceTier,
+        });
+        if (terminalFailure) {
+            finishGenerationJob(
                 job.id,
-                persisted?.rawResponse?.toString('utf-8') || '',
-                upstreamResponse.status,
-                upstreamResponse.status >= 200 && upstreamResponse.status < 400,
+                'failed',
+                terminalFailure.finishReason,
+                terminalFailure.message,
+                rawResponse.length,
             );
-            recordGenerationUsage({
-                jobId: job.id,
-                timestamp: persisted?.createdAt,
-                chatId: persisted?.chatId,
-                targetUrl,
-                bodyBase64: arg.bodyBase64,
-                rawResponse: persisted?.rawResponse,
-                outputText: serverParsed,
-                usageProviderId: arg.usageProviderId,
-                usageModelId: arg.usageModelId,
-                usageServiceTier: arg.usageServiceTier,
-            });
+        } else {
             finishGenerationJob(
                 job.id,
                 cancelled ? 'cancelled' : 'generated',
-                cancelled ? 'user_cancelled' : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
+                cancelled ? cancelFinishReason : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
+                null,
+                rawResponse.length,
             );
         }
-        pushJobEvent(job, {
-            type: 'done',
-            partial: cancelled,
-            finishReason: cancelled ? 'user_cancelled' : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
-        });
-        markJobDone(job);
+        // A non-2xx upstream response is still a complete HTTP response. Close
+        // its journal normally so the client adapter can read the provider's
+        // error body and surface the precise message instead of a transport
+        // level "HTTP N" fallback. The job remains failed in durable storage.
+        if (terminalFailure?.finishReason === 'upstream_http_error') {
+            job.terminalEvent = {
+                type: 'done',
+                status: 'failed',
+                partial: false,
+                finishReason: terminalFailure.finishReason,
+            };
+        } else if (terminalFailure) {
+            job.terminalEvent = {
+                type: 'error',
+                status: 502,
+                message: terminalFailure.message,
+            };
+        } else {
+            job.terminalEvent = {
+                type: 'done',
+                status: cancelled ? 'cancelled' : 'generated',
+                partial: cancelled,
+                finishReason: cancelled ? cancelFinishReason : (providerCompleted ? 'provider_complete' : 'upstream_complete'),
+            };
+        }
+        markGenerationJobDone(job);
+        scheduleHypaWorkflowExecution();
+        scheduleRevenantPostprocess();
     } catch (error) {
-        try { flushRaw(); } catch (persistError) {
-            logger.error('[GenerationJob] Failed to flush partial response:', persistError);
+        job.cancelUpstream = null;
+        try { await closeJournal(); } catch (persistError) {
+            logger.error('[GenerationJob] Failed to close partial response journal:', persistError);
         }
-        const message = error?.name === 'AbortError' ? 'Proxy stream job aborted' : `${error}`;
-        if (job.persistent) {
-            const persistedWithRaw = getGenerationJob(job.id);
-            const serverParsed = extractGenerationTextFromWire(persistedWithRaw?.rawResponse);
-            if (serverParsed) setGenerationJobRawContent(job.id, serverParsed);
-            updateRequestLogResponseById(
-                job.id,
-                persistedWithRaw?.rawResponse?.toString('utf-8') || message,
-                persistedWithRaw?.responseStatus,
-                false,
-            );
-            recordGenerationUsage({
-                jobId: job.id,
-                timestamp: persistedWithRaw?.createdAt,
-                chatId: persistedWithRaw?.chatId,
-                targetUrl,
-                bodyBase64: arg.bodyBase64,
-                rawResponse: persistedWithRaw?.rawResponse,
-                outputText: serverParsed,
-                usageProviderId: arg.usageProviderId,
-                usageModelId: arg.usageModelId,
-                usageServiceTier: arg.usageServiceTier,
-            });
-            const persisted = getGenerationJob(job.id, false);
-            const hasPartial = (persisted?.rawBytes || 0) > 0;
-            finishGenerationJob(
-                job.id,
-                error?.name === 'AbortError' ? 'cancelled' : (hasPartial ? 'failed_partial' : 'failed'),
-                error?.name === 'AbortError' ? 'user_cancelled' : 'upstream_error',
-                message,
-            );
-        }
-        pushJobEvent(job, { type: 'error', status: 504, message });
-        markJobDone(job);
+        const cancelled = job.abortController.signal.aborted;
+        const message = cancelled ? 'Generation job aborted' : `${error}`;
+        let cancelFinishReason = 'user_cancelled';
+        const persistedWithRaw = getGenerationJob(job.id, false);
+        const rawResponse = readGenerationJobRaw(job.id);
+        updateRequestLogResponseById(
+            job.id,
+            rawResponse.length > 0 ? rawResponse.toString('utf-8') : message,
+            persistedWithRaw?.responseStatus,
+            false,
+        );
+        recordGenerationUsage({
+            jobId: job.id,
+            timestamp: persistedWithRaw?.createdAt,
+            chatId: persistedWithRaw?.chatId,
+            targetUrl,
+            bodyBase64: arg.bodyBase64,
+            rawResponse,
+            outputText: persistedWithRaw?.projection?.content,
+            usageProviderId: arg.usageProviderId,
+            usageModelId: arg.usageModelId,
+            usageServiceTier: arg.usageServiceTier,
+        });
+        const hasPartial = rawResponse.length > 0;
+        cancelFinishReason = persistedWithRaw?.finishReason || cancelFinishReason;
+        finishGenerationJob(
+            job.id,
+            cancelled ? 'cancelled' : (hasPartial ? 'failed_partial' : 'failed'),
+            cancelled ? cancelFinishReason : 'upstream_error',
+            message,
+            rawResponse.length,
+        );
+        job.rawBytes = rawResponse.length;
+        job.terminalEvent = cancelled
+            ? {
+                type: 'done',
+                status: 'cancelled',
+                partial: true,
+                finishReason: cancelFinishReason,
+            }
+            : { type: 'error', status: 504, message };
+        markGenerationJobDone(job);
+        scheduleHypaWorkflowExecution();
     }
 }
 
-// --- Proxy Stream: WebSocket setup ---
+// --- Generation: WebSocket setup ---
 
-function setupProxyStreamWebSocket(server) {
+function setupGenerationWebSocket(server) {
     const wsServer = new WebSocketServer({ noServer: true });
     const syncWsServer = new WebSocketServer({ noServer: true });
     server.on('upgrade', async (req, socket, head) => {
@@ -2284,7 +2226,10 @@ function setupProxyStreamWebSocket(server) {
                 });
                 return;
             }
-            if (!reqUrl.pathname.startsWith('/proxy-stream-jobs/') || !reqUrl.pathname.endsWith('/ws')) {
+            const generationJournalMatch = reqUrl.pathname.match(
+                /^\/api\/generation\/jobs\/([^/]+)\/journal\/ws$/,
+            );
+            if (!generationJournalMatch) {
                 socket.destroy();
                 return;
             }
@@ -2296,9 +2241,8 @@ function setupProxyStreamWebSocket(server) {
                 return;
             }
 
-            const pathParts = reqUrl.pathname.split('/').filter(Boolean);
-            const jobId = pathParts.length >= 3 ? pathParts[1] : '';
-            const job = proxyStreamJobs.get(jobId) || loadPersistedProxyStreamJob(jobId);
+            const jobId = decodeURIComponent(generationJournalMatch[1]);
+            const job = generationRuntimeJobs.get(jobId) || loadPersistedGenerationRuntimeJob(jobId);
             if (!job) {
                 socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
                 socket.destroy();
@@ -2344,27 +2288,24 @@ function setupProxyStreamWebSocket(server) {
     });
 
     wsServer.on('connection', (ws, req, jobId) => {
-        const job = proxyStreamJobs.get(jobId) || loadPersistedProxyStreamJob(jobId);
+        const job = generationRuntimeJobs.get(jobId) || loadPersistedGenerationRuntimeJob(jobId);
         if (!job) {
             ws.close();
             return;
         }
 
         const reqUrl = new URL(req.url, `http://${req.headers.host}`);
-        ws.recoverySubscriber = reqUrl.searchParams.get('mode') === 'recovery';
+        ws.journalRecoverySubscriber = reqUrl.searchParams.get('recovery') === '1';
         job.clients.add(ws);
         ws.send(JSON.stringify({ type: 'job_accepted', jobId }));
-        for (const event of job.pendingEvents) {
-            ws.send(event);
-        }
-        job.pendingEvents = [];
-        job.pendingBytes = 0;
-        if (ws.recoverySubscriber && job.latestGenerationContent) {
-            ws.send(JSON.stringify({
-                type: 'generation_content',
-                content: job.latestGenerationContent,
-            }));
-        }
+        void streamRevenantJournal(
+            ws,
+            job,
+            Number(reqUrl.searchParams.get('offset')),
+        ).catch((error) => {
+            logger.error(`[GenerationJob] Failed to stream journal ${jobId}:`, error);
+            try { ws.close(); } catch { /* ignore */ }
+        });
 
         const pingTimer = setInterval(() => {
             if (ws.readyState !== ws.OPEN) return;
@@ -2373,12 +2314,9 @@ function setupProxyStreamWebSocket(server) {
 
         ws.on('close', () => {
             clearInterval(pingTimer);
-            const currentJob = proxyStreamJobs.get(jobId);
+            const currentJob = generationRuntimeJobs.get(jobId);
             if (!currentJob) return;
             currentJob.clients.delete(ws);
-            if (currentJob.done && currentJob.clients.size === 0 && !currentJob.persistent) {
-                cleanupJob(jobId);
-            }
         });
 
         ws.on('error', () => {
@@ -2618,35 +2556,15 @@ const reverseProxyFunc = async (req, res, next) => {
                 requestBody = JSON.stringify(req.body);
             }
         }
-        // make request to original server
-        originalResponse = await fetch(urlParam, {
+        originalResponse = await executeUpstreamRequest({
+            url: urlParam,
             method: req.method,
             headers: header,
             body: requestBody,
             signal: timeout.signal
         });
-        // get response body as stream
-        const originalBody = originalResponse.body;
-        // get response headers
-        const head = new Headers(originalResponse.headers);
-        head.delete('content-security-policy');
-        head.delete('content-security-policy-report-only');
-        head.delete('clear-site-data');
-        head.delete('Cache-Control');
-        head.delete('Content-Encoding');
-        // Node's fetch already decompressed the body, so the upstream
-        // (compressed) Content-Length no longer matches and would truncate the
-        // response. Drop it and let the body stream out chunked.
-        head.delete('Content-Length');
-        const headObj = {};
-        for (let [k, v] of head) {
-            headObj[k] = v;
-        }
-        // send response headers to client
-        res.header(headObj);
-        // send response status to client
+        res.header(originalResponse.headers);
         res.status(originalResponse.status);
-        // send response body to client
         await pipeline(originalResponse.body, res);
 
 
@@ -2668,83 +2586,6 @@ const reverseProxyFunc = async (req, res, next) => {
         // Express error middleware knows to skip. The cause chain is preserved
         // via formatErrorWithCause in normalizeArgs.
         logger.error(`[Proxy] ${req.method} ${urlParam}`, err);
-        next(err);
-        return;
-    } finally {
-        timeout.cleanup();
-    }
-}
-
-const reverseProxyFunc_get = async (req, res, next) => {
-    if(!await checkAuth(req, res)){
-        return;
-    }
-    
-    const urlParam = req.headers['risu-url'] ? decodeURIComponent(req.headers['risu-url']) : req.query.url;
-
-    if (!urlParam) {
-        res.status(400).send({
-            error:'URL has no param'
-        });
-        return;
-    }
-    const timeoutMs = getRequestTimeoutMs(req.headers['risu-timeout-ms']);
-    const timeout = createTimeoutController(timeoutMs);
-    let originalResponse;
-    try {
-    const header = req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : req.headers;
-    if (req.headers['x-risu-tk'] && !header['x-risu-tk']) {
-        header['x-risu-tk'] = req.headers['x-risu-tk'];
-    }
-    if (req.headers['risu-location'] && !header['risu-location']) {
-        header['risu-location'] = req.headers['risu-location'];
-    }
-    if(!header['x-forwarded-for']){
-        header['x-forwarded-for'] = req.ip
-    }
-        // make request to original server
-        originalResponse = await fetch(urlParam, {
-            method: 'GET',
-            headers: header,
-            signal: timeout.signal
-        });
-        // get response body as stream
-        const originalBody = originalResponse.body;
-        // get response headers
-        const head = new Headers(originalResponse.headers);
-        head.delete('content-security-policy');
-        head.delete('content-security-policy-report-only');
-        head.delete('clear-site-data');
-        head.delete('Cache-Control');
-        head.delete('Content-Encoding');
-        // Node's fetch already decompressed the body, so the upstream
-        // (compressed) Content-Length no longer matches and would truncate the
-        // response. Drop it and let the body stream out chunked.
-        head.delete('Content-Length');
-        const headObj = {};
-        for (let [k, v] of head) {
-            headObj[k] = v;
-        }
-        // send response headers to client
-        res.header(headObj);
-        // send response status to client
-        res.status(originalResponse.status);
-        // send response body to client
-        await pipeline(originalResponse.body, res);
-    }
-    catch (err) {
-        if (err?.name === 'AbortError') {
-            if (!res.headersSent) {
-                res.status(504).send({
-                    error: timeoutMs
-                        ? `Proxy request timed out after ${timeoutMs}ms`
-                        : 'Proxy request aborted'
-                });
-            } else {
-                res.end();
-            }
-            return;
-        }
         next(err);
         return;
     } finally {
@@ -2916,115 +2757,46 @@ async function hubProxyFunc(req, res) {
     }
 }
 
-app.get('/proxy', reverseProxyFunc_get);
-app.get('/proxy2', reverseProxyFunc_get);
+app.get('/proxy2', reverseProxyFunc);
 app.get('/hub-proxy/*splat', hubProxyFunc);
 
-app.post('/proxy', reverseProxyFunc);
 app.post('/proxy2', reverseProxyFunc);
-app.put('/proxy', reverseProxyFunc);
 app.put('/proxy2', reverseProxyFunc);
-app.patch('/proxy', reverseProxyFunc);
 app.patch('/proxy2', reverseProxyFunc);
-app.delete('/proxy', reverseProxyFunc);
 app.delete('/proxy2', reverseProxyFunc);
 app.post('/hub-proxy/*splat', hubProxyFunc);
 
-// --- Proxy Stream Job endpoints ---
-app.post('/proxy-stream-jobs', async (req, res) => {
-    if (!await checkProxyAuth(req, res)) {
-        return;
-    }
-
-    const rawUrl = typeof req.body?.url === 'string' ? req.body.url : '';
-    const encodedUrl = encodeURIComponent(rawUrl);
-    const url = sanitizeTargetUrl(decodeURIComponent(encodedUrl));
-    if (!url) {
-        res.status(400).send({ error: 'Invalid target URL. Only local/private network http(s) endpoints are allowed.' });
-        return;
-    }
-
-    const method = typeof req.body?.method === 'string' ? req.body.method.toUpperCase() : 'POST';
-    if (!['POST', 'GET', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
-        res.status(400).send({ error: 'Invalid method' });
-        return;
-    }
-
-    const bodyBase64 = typeof req.body?.bodyBase64 === 'string' ? req.body.bodyBase64 : '';
-    if (bodyBase64.length > PROXY_STREAM_MAX_BODY_BASE64_BYTES) {
-        res.status(413).send({ error: 'Request body too large' });
-        return;
-    }
-    if (proxyStreamJobs.size >= PROXY_STREAM_MAX_ACTIVE_JOBS) {
-        res.status(429).send({ error: 'Too many active stream jobs. Retry shortly.' });
-        return;
-    }
-    const headers = normalizeForwardHeaders(req.body?.headers);
-    const heartbeatSec = normalizeHeartbeatSec(Number(req.body?.heartbeatSec));
-    const job = createProxyStreamJob({
-        heartbeatSec,
-        timeoutMs: req.body?.timeoutMs
-    });
-
-    void runProxyStreamJob(job, {
-        targetUrl: url,
-        headers,
-        method,
-        bodyBase64,
-        clientIp: req.ip
-    });
-
-    res.send({
-        jobId: job.id,
-        heartbeatSec: job.heartbeatSec
-    });
-});
-
-app.delete('/proxy-stream-jobs/:jobId', async (req, res) => {
-    if (!await checkProxyAuth(req, res)) {
-        return;
-    }
-    const job = proxyStreamJobs.get(req.params.jobId);
-    if (!job) {
-        res.send({ success: true });
-        return;
-    }
-    job.abortController.abort();
-    markJobDone(job);
-    cleanupJob(job.id);
-    res.send({ success: true });
-});
-
 // --- Revenant generation jobs -------------------------------------------------
+async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
+    return canonicalChatService.commitGenerationInput({
+        characterId,
+        chatId: roomId,
+        chat: input.chat,
+        expectedEtag: input.expectedEtag,
+    });
+}
+
 installRevenantGenerationRoutes(app, {
     checkProxyAuth,
     requireSyncClientId,
     sanitizeGenerationTargetUrl,
     normalizeForwardHeaders,
-    createProxyStreamJob,
-    runProxyStreamJob,
-    proxyStreamJobs,
-    maxActiveJobs: PROXY_STREAM_MAX_ACTIVE_JOBS,
-    maxBodyBase64Bytes: PROXY_STREAM_MAX_BODY_BASE64_BYTES,
+    createGenerationRuntimeJob,
+    runGenerationProviderJob,
+    scheduleGenerationDispatch,
+    scheduleHypaWorkflowExecution,
+    scheduleRevenantPostprocess,
+    notifyRevenantWorkflowUpdated: broadcastRevenantWorkflowUpdated,
+    terminateGenerationWorkflow: generationWorkflowService.terminateWorkflow,
+    commitWorkflowInput: generationWorkflowService.commitInput,
+    cancelGenerationStepExecution: generationWorkflowService.cancelStepExecution,
+    generationRuntimeJobs,
+    countActiveGenerationJobs,
+    maxActiveJobs: GENERATION_JOB_MAX_ACTIVE_JOBS,
+    maxBodyBase64Bytes: GENERATION_JOB_MAX_BODY_BASE64_BYTES,
     randomUUID: () => nodeCrypto.randomUUID(),
     addRequestLog,
-    queueStorageOperation,
-    chatStorage: {
-        ensureChatStore,
-        getState: () => ({ fullChatStore, saveTimers, dbCache }),
-        databaseHexKey: DB_HEX_KEY,
-        persistDbCacheWithChats,
-        kvGet,
-        normalizeJSON,
-        decodeRisuSave,
-        reassembleFullDb,
-        stripChatsFromDb,
-        kvSet,
-        encodeRisuSaveLegacy,
-        initChatStore,
-        createBackupAndRotate,
-        broadcastDatabaseInvalidated,
-    },
+    materializeGeneration: revenantMaterializer.materialize,
 });
 
 // app.get('/api/password', async(req, res)=> {
@@ -3161,22 +2933,188 @@ function resolveAssetPayload(key, rawValue) {
     return { binary: rawValue, contentType }
 }
 
-const THUMB_MAX_SIDE = 320;
+const THUMB_SHORT_SIDE = 320;
+const THUMB_LONG_SIDE = 640;
 const THUMB_QUALITY = 75;
 const THUMB_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+const videoThumbnailJobs = new Map();
 
 async function generateThumbnail(buffer) {
     const vips = await getVips()
-    const img = vips.Image.thumbnailBuffer(buffer, THUMB_MAX_SIDE, {
-        height: THUMB_MAX_SIDE,
-        size: 'down',
-    })
+    const source = vips.Image.newFromBuffer(buffer)
+    let rotated = null
+    let img = null
     try {
+        rotated = source.autorot()
+        const landscape = rotated.width >= rotated.height
+        const targetWidth = landscape ? THUMB_LONG_SIDE : THUMB_SHORT_SIDE
+        const targetHeight = landscape ? THUMB_SHORT_SIDE : THUMB_LONG_SIDE
+        const scale = Math.min(targetWidth / rotated.width, targetHeight / rotated.height, 1)
+        img = scale < 1
+            ? rotated.resize(scale, { kernel: vips.Kernel.lanczos3 })
+            : rotated
         const out = img.writeToBuffer('.webp', { Q: THUMB_QUALITY })
         return Buffer.from(out);
     } finally {
-        img.delete()
+        if (img && img !== rotated) img.delete()
+        if (rotated) rotated.delete()
+        source.delete()
     }
+}
+
+function extractVideoThumbnailFrame(inputPath, outputPath) {
+    const bundledExecutable = path.join(
+        process.cwd(),
+        'bin',
+        process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg',
+    )
+    const executable = process.env.RISU_FFMPEG_PATH || (
+        existsSync(bundledExecutable) ? bundledExecutable : 'ffmpeg'
+    )
+
+    return new Promise((resolve) => {
+        const child = spawn(executable, [
+            '-hide_banner',
+            '-loglevel', 'error',
+            '-ss', '0.1',
+            '-i', inputPath,
+            '-map', '0:v:0',
+            '-frames:v', '1',
+            '-an',
+            '-sn',
+            '-c:v', 'png',
+            '-y',
+            outputPath,
+        ], {
+            stdio: 'ignore',
+            windowsHide: true,
+        })
+        let settled = false
+        const finish = (success) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timeout)
+            resolve(success)
+        }
+        const timeout = setTimeout(() => {
+            child.kill('SIGKILL')
+            finish(false)
+        }, 30_000)
+        child.once('error', () => finish(false))
+        child.once('close', (code) => finish(code === 0))
+    })
+}
+
+async function ensureInlayVideoThumbnail(id) {
+    const existingJob = videoThumbnailJobs.get(id)
+    if (existingJob) return await existingJob
+
+    const job = (async () => {
+        const [source, sidecar] = await Promise.all([
+            getInlayFileInfo(id),
+            readInlaySidecar(id),
+        ])
+        if (!source || sidecar?.type !== 'video') return null
+
+        const thumbnailPath = getInlayVideoThumbnailPath(id)
+        try {
+            const thumbnailStat = await fs.stat(thumbnailPath)
+            if (thumbnailStat.mtimeMs >= source.mtimeMs) {
+                return { filePath: thumbnailPath, mtimeMs: thumbnailStat.mtimeMs }
+            }
+        } catch {
+            // Generate a missing or stale thumbnail below.
+        }
+
+        await fs.mkdir(inlayVideoThumbnailDir, { recursive: true })
+        const temporaryBase = `${id}.${process.pid}.${nodeCrypto.randomBytes(6).toString('hex')}`
+        const framePath = path.join(
+            inlayVideoThumbnailDir,
+            `${temporaryBase}.frame.png`,
+        )
+        const temporaryThumbnailPath = path.join(
+            inlayVideoThumbnailDir,
+            `${temporaryBase}.tmp.webp`,
+        )
+        const extracted = await extractVideoThumbnailFrame(source.filePath, framePath)
+        if (!extracted) {
+            await fs.unlink(framePath).catch(() => {})
+            return null
+        }
+
+        try {
+            const frame = await fs.readFile(framePath)
+            const thumbnail = await generateThumbnail(frame)
+            await fs.writeFile(temporaryThumbnailPath, thumbnail)
+            await fs.rename(temporaryThumbnailPath, thumbnailPath)
+            const thumbnailStat = await fs.stat(thumbnailPath)
+            return { filePath: thumbnailPath, mtimeMs: thumbnailStat.mtimeMs }
+        } catch {
+            return null
+        } finally {
+            await Promise.allSettled([
+                fs.unlink(framePath),
+                fs.unlink(temporaryThumbnailPath),
+            ])
+        }
+    })().finally(() => {
+        videoThumbnailJobs.delete(id)
+    })
+
+    videoThumbnailJobs.set(id, job)
+    return await job
+}
+
+function parseSingleByteRange(rangeHeader, size) {
+    if (typeof rangeHeader !== 'string' || !rangeHeader.startsWith('bytes=')) return null
+    if (!Number.isSafeInteger(size) || size <= 0) return false
+
+    const spec = rangeHeader.slice('bytes='.length).trim()
+    if (!spec || spec.includes(',')) return false
+
+    const separator = spec.indexOf('-')
+    if (separator === -1) return false
+
+    const startText = spec.slice(0, separator).trim()
+    const endText = spec.slice(separator + 1).trim()
+    if (!startText && !endText) return false
+
+    if (!startText) {
+        const suffixLength = Number(endText)
+        if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return false
+        return {
+            start: Math.max(size - suffixLength, 0),
+            end: size - 1,
+        }
+    }
+
+    const start = Number(startText)
+    const requestedEnd = endText ? Number(endText) : size - 1
+    if (
+        !Number.isSafeInteger(start) ||
+        !Number.isSafeInteger(requestedEnd) ||
+        start < 0 ||
+        start >= size ||
+        requestedEnd < start
+    ) return false
+
+    return {
+        start,
+        end: Math.min(requestedEnd, size - 1),
+    }
+}
+
+function pipeFileResponse(res, filePath, options) {
+    const stream = createReadStream(filePath, options)
+    stream.on('error', (error) => {
+        if (res.headersSent) res.destroy(error)
+        else {
+            res.removeHeader('Content-Length')
+            res.removeHeader('Content-Range')
+            res.status(500).end()
+        }
+    })
+    return stream.pipe(res)
 }
 
 app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
@@ -3185,18 +3123,51 @@ app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
 
         if (key.startsWith('inlay/')) {
             const id = key.slice('inlay/'.length)
-            const file = await readInlayFile(id)
+            const file = await getInlayFileInfo(id)
             if (file) {
                 const etag = `"${Math.floor(file.mtimeMs)}"`
-                if (req.headers['if-none-match'] === etag) {
-                    return res.status(304).set('Cache-Control', 'public, max-age=31536000, immutable').end()
-                }
-                res.set({
-                    'Content-Type': file.mime,
+                const cacheHeaders = {
+                    'Content-Type': getMimeFromExt(file.ext),
                     'Cache-Control': 'public, max-age=31536000, immutable',
                     'ETag': etag,
+                    'Accept-Ranges': 'bytes',
+                }
+                const rangeHeader = req.headers.range
+                if (!rangeHeader && req.headers['if-none-match'] === etag) {
+                    return res.status(304).set(cacheHeaders).end()
+                }
+
+                const shouldUseRange = rangeHeader && (
+                    !req.headers['if-range'] || req.headers['if-range'] === etag
+                )
+                const range = shouldUseRange
+                    ? parseSingleByteRange(rangeHeader, file.size)
+                    : null
+                if (range === false) {
+                    return res.status(416).set({
+                        ...cacheHeaders,
+                        'Content-Range': `bytes */${file.size}`,
+                    }).end()
+                }
+                if (range) {
+                    res.status(206).set({
+                        ...cacheHeaders,
+                        'Content-Range': `bytes ${range.start}-${range.end}/${file.size}`,
+                        'Content-Length': String(range.end - range.start + 1),
+                    })
+                    if (req.method === 'HEAD') return res.end()
+                    return pipeFileResponse(res, file.filePath, {
+                        start: range.start,
+                        end: range.end,
+                    })
+                }
+
+                res.set({
+                    ...cacheHeaders,
+                    'Content-Length': String(file.size),
                 })
-                return res.send(file.buffer)
+                if (req.method === 'HEAD') return res.end()
+                return pipeFileResponse(res, file.filePath)
             }
             return res.status(404).set('Cache-Control', 'no-store').end()
         }
@@ -3220,6 +3191,27 @@ app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
                 'ETag': etag,
             })
             return res.send(thumb)
+        }
+
+        if (key.startsWith('inlay_video_thumb/')) {
+            const id = key.slice('inlay_video_thumb/'.length)
+            const thumbnail = await ensureInlayVideoThumbnail(id)
+            if (!thumbnail) return res.status(404).set('Cache-Control', 'no-store').end()
+
+            const stat = await fs.stat(thumbnail.filePath)
+            const etag = `"video-thumb-${Math.floor(thumbnail.mtimeMs)}"`
+            const cacheHeaders = {
+                'Content-Type': 'image/webp',
+                'Cache-Control': 'public, max-age=86400',
+                'ETag': etag,
+                'Content-Length': String(stat.size),
+            }
+            if (req.headers['if-none-match'] === etag) {
+                return res.status(304).set(cacheHeaders).end()
+            }
+            res.set(cacheHeaders)
+            if (req.method === 'HEAD') return res.end()
+            return pipeFileResponse(res, thumbnail.filePath)
         }
 
         // Fast-path 304: check updated_at BEFORE loading the blob.
@@ -3468,6 +3460,19 @@ app.get('/api/list', async (req, res, next) => {
     }
     try {
         const keyPrefix = req.headers['key-prefix'] || '';
+        const requestedLimit = Number(req.headers['key-limit']);
+        const requestedOffset = Number(req.headers['key-offset']);
+        const listOptions = req.headers['key-order'] === 'updated-desc'
+            && Number.isSafeInteger(requestedLimit)
+            && requestedLimit > 0
+            ? {
+                order: 'updated-desc',
+                limit: Math.min(requestedLimit, 5000),
+                offset: Number.isSafeInteger(requestedOffset) && requestedOffset > 0
+                    ? requestedOffset
+                    : 0,
+            }
+            : undefined;
         let data;
         if (keyPrefix === 'inlay/') {
             const fileKeys = (await listInlayFiles()).map((entry) => `inlay/${entry.id}`);
@@ -3476,9 +3481,13 @@ app.get('/api/list', async (req, res, next) => {
                 ...kvList('inlay/'),
             ])];
         } else {
-            data = kvList(keyPrefix || undefined);
+            data = kvList(keyPrefix || undefined, listOptions);
         }
-        res.send({ success: true, content: data });
+        res.send({
+            success: true,
+            content: data,
+            total: keyPrefix === 'inlay/' ? data.length : kvCount(keyPrefix || undefined),
+        });
     } catch (error) {
         next(error);
     }
@@ -3656,13 +3665,19 @@ app.post('/api/write', async (req, res, next) => {
                 try {
                     let incomingDb = await decodeRisuSave(fileContent);
                     await ensureChatStore();
-                    if (isCloudflareTunnelRequest(req)) {
+                    let currentDb = dbCache[DB_HEX_KEY];
+                    if (!currentDb) {
                         const raw = kvGet('database/database.bin');
                         if (raw) {
-                            const originalDb = normalizeJSON(stripChatsFromDb(
+                            currentDb = normalizeJSON(stripChatsFromDb(
                                 await decodeDatabaseWithPersistentChatIds(raw)
                             ));
-                            incomingDb = mergeRemoteFilteredDatabase(originalDb, incomingDb);
+                        }
+                    }
+                    restoreGenerationOwnedMetadata(incomingDb, currentDb);
+                    if (isCloudflareTunnelRequest(req)) {
+                        if (currentDb) {
+                            incomingDb = mergeRemoteFilteredDatabase(currentDb, incomingDb);
                         }
                     }
                     const fullDb = reassembleFullDb(incomingDb);
@@ -3833,11 +3848,39 @@ app.post('/api/patch', async (req, res, next) => {
             const patchBaseline = remoteFilteredDb ?? dbCache[filePath];
             const serverHash = calculateHash(patchBaseline).toString(16);
 
+            // JSON Patch identity: no operation means no compare-and-swap and
+            // no write. Older open clients may still submit these while a
+            // server-owned generation commit advances the database, so return
+            // the current view without manufacturing a hash conflict.
+            if (Array.isArray(patch) && patch.length === 0) {
+                let currentEtag;
+                if (decodedKey === 'database/database.bin') {
+                    currentEtag = computeBufferEtag(Buffer.from(
+                        encodeRisuSaveLegacy(patchBaseline)
+                    ));
+                    dbEtag = currentEtag;
+                }
+                const responsePayload = {
+                    success: true,
+                    appliedOperations: 0,
+                    etag: currentEtag,
+                };
+                const persistWarning = currentPersistWarning();
+                if (persistWarning) responsePayload.persistWarning = persistWarning;
+                res.send(responsePayload);
+                return;
+            }
+
             if (expectedHash !== serverHash) {
+                const patchPaths = Array.isArray(patch)
+                    ? patch.slice(0, 8).map(operation =>
+                        `${String(operation?.op || '?')} ${String(operation?.path || '?')}`)
+                    : [];
                 logger.warn(
                     `[Patch] Hash mismatch for ${decodedKey}: `
                     + `expected=${expectedHash}, server=${serverHash}, `
-                    + `client=${String(getSyncClientIdFromRequest(req) || 'none')}`
+                    + `client=${String(getSyncClientIdFromRequest(req) || 'none')}, `
+                    + `ops=[${patchPaths.join(', ')}]`
                 );
                 let currentEtag = undefined;
                 if (decodedKey === 'database/database.bin') {
@@ -3867,10 +3910,7 @@ app.post('/api/patch', async (req, res, next) => {
                 : snapshot;
 
             // Schedule save to KV (debounced) — merge full chats back for database.bin
-            if (saveTimers[filePath]) {
-                clearTimeout(saveTimers[filePath]);
-            }
-            saveTimers[filePath] = setTimeout(async () => {
+            scheduleStorageOperation(filePath, async () => {
                 try {
                     if (decodedKey === 'database/database.bin') {
                         await persistDbCacheWithChats(filePath, decodedKey);
@@ -3898,10 +3938,8 @@ app.post('/api/patch', async (req, res, next) => {
                 } catch (error) {
                     logger.error(`[Patch] Error saving ${decodedKey}:`, error);
                     recordPersistFailure(error, `patch:${decodedKey}`);
-                } finally {
-                    delete saveTimers[filePath];
                 }
-            }, SAVE_INTERVAL);
+            });
 
             // Update ETag after successful patch (based on stripped version)
             if (decodedKey === 'database/database.bin') {
@@ -4673,6 +4711,7 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 }
                 const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
                 res.setHeader('Content-Type', 'application/octet-stream');
+                res.setHeader('x-chat-etag', computeChatEtag(chat));
                 return res.send(encoded);
             }
         }
@@ -4697,6 +4736,7 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
         }
         const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
         res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('x-chat-etag', computeChatEtag(chat));
         res.send(encoded);
     } catch (error) {
         next(error);
@@ -4708,92 +4748,51 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
     if (!requireSyncClientId(req, res)) return;
     try {
-        await queueStorageOperation(async () => {
-            const chaId = req.params.chaId;
-            const chatIndex = parseInt(req.params.chatIndex, 10);
-            const expectedChatId = req.headers['x-chat-id'];
-            let chatData;
-            if (Buffer.isBuffer(req.body)) {
-                // Binary msgpack body (application/octet-stream)
-                try {
-                    chatData = await decodeRisuSave(req.body);
-                } catch (e) {
-                    return res.status(400).json({ error: 'Invalid binary chat data' });
-                }
-            } else {
-                // JSON body (legacy)
-                chatData = req.body;
+        const chaId = req.params.chaId;
+        const chatIndex = parseInt(req.params.chatIndex, 10);
+        const expectedChatId = req.headers['x-chat-id'];
+        let chatData;
+        if (Buffer.isBuffer(req.body)) {
+            try {
+                chatData = await decodeRisuSave(req.body);
+            } catch {
+                return res.status(400).json({ error: 'Invalid binary chat data' });
             }
+        } else {
+            chatData = req.body;
+        }
 
-            if (!chatData || !expectedChatId) {
-                return res.status(400).json({ error: 'Chat data and x-chat-id required' });
-            }
+        if (!chatData || !expectedChatId) {
+            return res.status(400).json({ error: 'Chat data and x-chat-id required' });
+        }
 
-            await ensureChatStore();
-            if (isCloudflareTunnelRequest(req)) {
-                const raw = kvGet('database/database.bin');
-                if (raw) {
-                    const dbObj = await decodeDatabaseWithPersistentChatIds(raw);
-                    if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
-                        return res.status(404).json({ error: 'Chat not found' });
-                    }
+        if (isCloudflareTunnelRequest(req)) {
+            const raw = kvGet('database/database.bin');
+            if (raw) {
+                const dbObj = await decodeDatabaseWithPersistentChatIds(raw);
+                if (isChatHiddenFromRemote(dbObj, chaId, chatIndex, expectedChatId)) {
+                    return res.status(404).json({ error: 'Chat not found' });
                 }
             }
+        }
 
-            // Update fullChatStore
-            if (!fullChatStore.has(chaId)) {
-                fullChatStore.set(chaId, new Map());
-            }
-            fullChatStore.get(chaId).set(expectedChatId, chatData);
-
-            // Schedule debounced persist (reuses existing timer mechanism)
-            if (saveTimers[DB_HEX_KEY]) {
-                clearTimeout(saveTimers[DB_HEX_KEY]);
-            }
-            saveTimers[DB_HEX_KEY] = setTimeout(async () => {
-                try {
-                    // If dbCache has stripped DB, persist with merged chats
-                    if (dbCache[DB_HEX_KEY]) {
-                        await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
-                    } else {
-                        // No stripped cache — load, merge, save
-                        const raw = kvGet('database/database.bin');
-                        if (raw) {
-                            const dbObj = normalizeJSON(await decodeRisuSave(raw));
-                            const fullDb = reassembleFullDb(stripChatsFromDb(dbObj));
-                            const encoded = Buffer.from(encodeRisuSaveLegacy(fullDb));
-                            try {
-                                kvSet('database/database.bin', encoded);
-                            } catch (err) {
-                                if (err && typeof err === 'object') {
-                                    try { err.attemptedSize = encoded.length; } catch {}
-                                }
-                                throw err;
-                            }
-                        }
-                    }
-                    // Persist succeeded — clear before backup so a backup-only
-                    // failure isn't attributed to data loss.
-                    clearPersistFailure();
-                    try {
-                        createBackupAndRotate();
-                    } catch (backupErr) {
-                        logger.warn('[ChatContent] Backup rotation failed:', backupErr);
-                    }
-                } catch (error) {
-                    logger.error('[ChatContent] Error persisting chat:', error);
-                    recordPersistFailure(error, 'chat-content');
-                } finally {
-                    delete saveTimers[DB_HEX_KEY];
-                }
-            }, SAVE_INTERVAL);
-
-            broadcastDatabaseInvalidated(req, {
-                chats: [{ characterId: chaId, chatId: expectedChatId }],
-            });
-            res.json({ success: true });
+        const commit = await canonicalChatService.commitUserEdit({
+            characterId: chaId,
+            chatId: expectedChatId,
+            chat: chatData,
+            expectedEtag: req.headers['x-chat-if-match'],
+            originClientId: getSyncClientIdFromRequest(req),
         });
+        res.json({ success: true, etag: commit.etag });
     } catch (error) {
+        if (error instanceof CanonicalChatCommitError) {
+            return res.status(error.httpStatus).json({
+                error: error.message,
+                ...(error.currentEtag ? { currentEtag: error.currentEtag } : {}),
+                ...(error.conflicts ? { conflicts: error.conflicts } : {}),
+                ...(error.code ? { code: error.code } : {}),
+            });
+        }
         next(error);
     }
 });
@@ -5594,7 +5593,7 @@ app.post('/api/db/snapshots/restore', async (req, res, next) => {
             return res.status(404).json({ error: 'Snapshot not found' });
         }
         await restoreDatabaseBlob(blob);
-        broadcastDatabaseInvalidated(req);
+        broadcastDatabaseInvalidated(req, { allChats: true });
         res.json({ ok: true });
     } catch (err) { next(err); }
 });
@@ -5712,7 +5711,7 @@ app.post('/api/db/manual-snapshots/restore', async (req, res, next) => {
             throw err;
         }
         await restoreDatabaseBlob(blob);
-        broadcastDatabaseInvalidated(req);
+        broadcastDatabaseInvalidated(req, { allChats: true });
         res.json({ ok: true });
     } catch (err) { next(err); }
 });
@@ -6446,7 +6445,7 @@ async function startServer() {
             // HTTPS
             serverIsHttps = true;
             server = https.createServer(httpsOptions, app);
-            setupProxyStreamWebSocket(server);
+            setupGenerationWebSocket(server);
             server.listen(port, () => {
                 console.log("[Server] HTTPS server is running.");
                 console.log(`[Server] https://localhost:${port}/`);
@@ -6454,7 +6453,7 @@ async function startServer() {
         } else {
             // HTTP
             server = http.createServer(app);
-            setupProxyStreamWebSocket(server);
+            setupGenerationWebSocket(server);
             server.listen(port, () => {
                 console.log("[Server] HTTP server is running.");
                 console.log(`[Server] http://localhost:${port}/`);
@@ -6466,11 +6465,51 @@ async function startServer() {
     }
 }
 
+async function rebuildMissingGenerationProjections() {
+    const jobs = listGenerationJobsNeedingProjection(
+        200,
+        NORMALIZED_PROJECTION_SCHEMA_VERSION,
+    );
+    let rebuilt = 0;
+    for (const job of jobs) {
+        const rawResponse = readGenerationJobRaw(job.jobId);
+        try {
+            const projection = await projectGenerationJournal(job, rawResponse);
+            setGenerationJobProjection(job.jobId, projection);
+            if (job.status === 'failed' && job.finishReason === 'projection_error') {
+                finishGenerationJob(
+                    job.jobId,
+                    'generated',
+                    'projection_rebuilt',
+                    null,
+                    rawResponse.length,
+                );
+            }
+            rebuilt += 1;
+        } catch (error) {
+            setGenerationJobProjectionError(
+                job.jobId,
+                `Failed to rebuild normalized projection: ${error}`,
+            );
+        }
+    }
+    if (rebuilt > 0) {
+        logger.info(`[GenerationJob] Rebuilt ${rebuilt} normalized projection(s) from raw journals`);
+    }
+}
+
 // Graceful shutdown: flush pending patches and checkpoint WAL before exit
 for (const sig of ['SIGTERM', 'SIGINT']) {
     process.on(sig, async () => {
         console.log(`[Server] Received ${sig}, flushing pending data...`);
         stopTunnel();
+        const generationRuns = [];
+        for (const job of generationRuntimeJobs.values()) {
+            if (job.done) continue;
+            job.abortController.abort();
+            if (job.runPromise) generationRuns.push(job.runPromise);
+        }
+        if (generationRuns.length > 0) await Promise.allSettled(generationRuns);
         try { await flushPendingDb(); } catch (e) { logger.error('[Server] Flush error:', e); }
         try { checkpointWal('TRUNCATE'); } catch { /* non-fatal */ }
         try { checkpointGenerationDb('TRUNCATE'); } catch { /* non-fatal */ }
@@ -6479,22 +6518,31 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
 }
 
 (async () => {
-    // Proxy stream job garbage collection
+    try { await rebuildMissingGenerationProjections(); }
+    catch (error) { logger.error('[GenerationJob] Initial projection rebuild failed:', error); }
+    try { pruneRetainedGenerationJobs(); }
+    catch (error) { logger.error('[GenerationJob] Initial retention cleanup failed:', error); }
+    scheduleGenerationDispatch();
+    scheduleHypaWorkflowExecution();
+    scheduleRevenantPostprocess();
+
+    // In-memory generation runtime garbage collection
     setInterval(() => {
         const now = Date.now();
-        for (const [jobId, job] of proxyStreamJobs.entries()) {
-            if (!job.done && now >= job.deadlineAt && !job.abortController.signal.aborted) {
+        for (const [jobId, job] of generationRuntimeJobs.entries()) {
+            if (!job.done && !job.waitingDispatch && now >= job.deadlineAt && !job.abortController.signal.aborted) {
                 job.abortController.abort();
             }
             if (job.done && job.clients.size === 0 && job.cleanupAt > 0 && now >= job.cleanupAt) {
-                cleanupJob(jobId);
+                cleanupGenerationRuntimeJob(jobId);
                 continue;
             }
-            if (!job.done && now - job.updatedAt > Math.max(PROXY_STREAM_DEFAULT_TIMEOUT_MS, job.timeoutMs * 2)) {
-                cleanupJob(jobId);
+            if (!job.done && !job.waitingDispatch
+                && now - job.updatedAt > Math.max(GENERATION_JOB_DEFAULT_TIMEOUT_MS, job.timeoutMs * 2)) {
+                cleanupGenerationRuntimeJob(jobId);
             }
         }
-    }, PROXY_STREAM_GC_INTERVAL_MS);
+    }, GENERATION_JOB_GC_INTERVAL_MS);
 
     await startServer();
 
@@ -6507,5 +6555,12 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
         try { checkpointGenerationDb('PASSIVE'); }
         catch { /* non-fatal */ }
     }, 5 * 60 * 1000); // every 5 minutes
+
+    // Terminal recovery data is temporary. Keep it for one day, then remove DB
+    // metadata and its journal even if no client reconnects.
+    setInterval(() => {
+        try { pruneRetainedGenerationJobs(); }
+        catch (error) { logger.error('[GenerationJob] Retention cleanup failed:', error); }
+    }, 60 * 60 * 1000);
 
 })();

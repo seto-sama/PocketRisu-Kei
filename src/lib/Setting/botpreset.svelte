@@ -142,12 +142,12 @@
         itemNames={DBState.db.botPresets.map(preset => preset.name ?? '')}
         bind:selectedFolder
         itemDragDataKey="presetIndex"
+        readOnly={!$settingsOpen}
         {close}
         configure={!$settingsOpen ? () => {
                 close()
                 openSettings(SettingsRoute.PromptPreset)
             } : undefined}
-        configureLabel={language.presetEdit}
         onFoldersChange={(next) => { DBState.db.promptPresetFolders = next }}
         onAssignItem={assignPresetToFolder}
         onDeleteFolder={(folderId) => {
@@ -176,7 +176,7 @@
                 <span class="min-w-0 grow truncate">{preset.name}</span>
             {/if}
             {#if DBState.db.showPromptComparison}
-                <button type="button" class="ml-3 shrink-0 {selectedDiffPreset === index ? 'text-green-500' : 'text-textcolor2 hover:text-primary'} cursor-pointer" onclick={(e) => {
+                <button type="button" class="ml-3 shrink-0 {selectedDiffPreset === index ? 'text-green-500' : 'text-textcolor2 risu-interactive-accent'} cursor-pointer" onclick={(e) => {
                     e.stopPropagation()
                     handleDiffMode(index)
                 }}>
@@ -184,29 +184,31 @@
                 </button>
             {/if}
         {/snippet}
-        <PresetPickerActions
-            onCreate={() => {
-                let botPresets = DBState.db.botPresets
-                let newPreset = safeStructuredClone(prebuiltPresets.OAI2)
-                newPreset.id = uuidv4()
-                newPreset.name = `New Preset`
-                newPreset.folderId = selectedFolder !== 'all' && selectedFolder !== 'uncategorized' ? selectedFolder : undefined
-                botPresets.push(newPreset)
+        {#if $settingsOpen}
+            <PresetPickerActions
+                onCreate={() => {
+                    let botPresets = DBState.db.botPresets
+                    let newPreset = safeStructuredClone(prebuiltPresets.OAI2)
+                    newPreset.id = uuidv4()
+                    newPreset.name = `New Preset`
+                    newPreset.folderId = selectedFolder !== 'all' && selectedFolder !== 'uncategorized' ? selectedFolder : undefined
+                    botPresets.push(newPreset)
 
-                DBState.db.botPresets = botPresets
-            }}
-            onImport={async () => {
-                const before = DBState.db.botPresets.length
-                await importPreset()
-                const after = DBState.db.botPresets.length
-                if (after > before) {
-                    assignPresetToFolder(after - 1, selectedFolder)
-                    changeToPreset(after - 1)
-                    notifySuccess(language.presetImported)
-                }
-            }}
-            onRename={() => { editMode = !editMode }}
-        />
+                    DBState.db.botPresets = botPresets
+                }}
+                onImport={async () => {
+                    const before = DBState.db.botPresets.length
+                    await importPreset()
+                    const after = DBState.db.botPresets.length
+                    if (after > before) {
+                        assignPresetToFolder(after - 1, selectedFolder)
+                        changeToPreset(after - 1)
+                        notifySuccess(language.presetImported)
+                    }
+                }}
+                onRename={() => { editMode = !editMode }}
+            />
+        {/if}
 </PresetPickerLayout>
 
 {#if showDiffModal && firstPresetId !== null && secondPresetId !== null}

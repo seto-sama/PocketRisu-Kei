@@ -1,5 +1,5 @@
 import { hasher } from "../parser/parser.svelte";
-import { forageStorage } from "../globalApi.svelte";
+import { forageStorage } from "./autoStorage";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -38,6 +38,23 @@ export async function readPersistentJson<T>(storageKey: string): Promise<T | nul
     return JSON.parse(decoder.decode(data)) as T;
 }
 
+export async function readPersistentJsonBatch<T>(storageKeys: string[]): Promise<Map<string, T>> {
+    await ensureStorageReady();
+    if (storageKeys.length === 0) return new Map();
+
+    const entries = await forageStorage.getItems(storageKeys);
+    const values = new Map<string, T>();
+    for (const entry of entries) {
+        try {
+            values.set(entry.key, JSON.parse(decoder.decode(entry.value)) as T);
+        }
+        catch {
+            // Match readPersistentJson: a malformed cache entry is unusable.
+        }
+    }
+    return values;
+}
+
 export async function writePersistentJson<T>(storageKey: string, value: T): Promise<void> {
     await ensureStorageReady();
     await forageStorage.setItem(storageKey, encoder.encode(JSON.stringify(value)));
@@ -48,9 +65,20 @@ export async function removePersistentKey(storageKey: string): Promise<void> {
     await forageStorage.removeItem(storageKey);
 }
 
-export async function listPersistentKeys(prefix = ""): Promise<string[]> {
+export async function listPersistentKeys(
+    prefix = "",
+    options?: { order?: 'updated-desc'; limit?: number; offset?: number },
+): Promise<string[]> {
     await ensureStorageReady();
-    return await forageStorage.keys(prefix);
+    return await forageStorage.keys(prefix, options);
+}
+
+export async function listPersistentKeyPage(
+    prefix = "",
+    options?: { order?: 'updated-desc'; limit?: number; offset?: number },
+): Promise<{ keys: string[]; total: number }> {
+    await ensureStorageReady();
+    return await forageStorage.keyPage(prefix, options);
 }
 
 export async function clearPersistentPrefix(prefix: string): Promise<void> {

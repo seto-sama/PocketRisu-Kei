@@ -66,7 +66,7 @@
                 {#if isUpdating}
                     {#if progress?.step === 'error'}
                         <span class="p-2 rounded-full bg-draculared/20" aria-hidden="true">
-                            <XCircle size={20} class="text-red-400" />
+                            <XCircle size={20} class="text-draculared" />
                         </span>
                     {:else if progress?.step === 'done'}
                         <span class="p-2 rounded-full bg-success/20" aria-hidden="true">
@@ -83,7 +83,7 @@
                     </span>
                 {:else}
                     <span class="p-2 rounded-full bg-draculared/20" aria-hidden="true">
-                        <AlertTriangle size={20} class="text-red-400" />
+                        <AlertTriangle size={20} class="text-draculared" />
                     </span>
                 {/if}
                 <span>

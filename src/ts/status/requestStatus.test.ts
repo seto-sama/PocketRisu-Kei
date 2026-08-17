@@ -3,12 +3,16 @@ import { get } from 'svelte/store'
 import {
     addBadge,
     appendText,
+    abortStatusesForChat,
     clearStatus,
     computeTokPerSec,
     endStatus,
+    endStatusesForChat,
     isTerminalPhase,
     markPhase,
+    observeText,
     recomputeEntry,
+    requestStatusIdForJob,
     requestStatuses,
     setStatusTokenCounter,
     startStatus,
@@ -134,6 +138,14 @@ describe('isTerminalPhase', () => {
 })
 
 describe('publish API', () => {
+    it('uses the shared request id for recovered main and auxiliary jobs', () => {
+        expect(requestStatusIdForJob({
+            jobId: 'server-job',
+            chatId: 'aux-request',
+        })).toBe('aux-request')
+        expect(requestStatusIdForJob({ jobId: 'legacy-job' })).toBe('legacy-job')
+    })
+
     it('startStatus creates an entry', () => {
         startStatus('g1', { kind: 'main', label: 'gpt', chatId: 'c1', now: 100 })
         const e = get(requestStatuses).get('g1')!
@@ -141,6 +153,55 @@ describe('publish API', () => {
         expect(e.label).toBe('gpt')
         expect(e.chatId).toBe('c1')
         expect(e.startedAt).toBe(100)
+    })
+
+    it('moves a live request to aborted as soon as its signal is cancelled', () => {
+        const controller = new AbortController()
+        startStatus('g1', {
+            kind: 'main', label: 'gpt', chatId: 'c1', now: 100,
+            abortSignal: controller.signal,
+        })
+
+        controller.abort()
+
+        const entry = get(requestStatuses).get('g1')!
+        expect(entry.phase).toBe('aborted')
+        expect(entry.endedAt).toBeTypeOf('number')
+    })
+
+    it('starts pre-aborted requests in the aborted terminal phase', () => {
+        const controller = new AbortController()
+        controller.abort()
+
+        startStatus('g1', {
+            kind: 'main', label: 'gpt', now: 100,
+            abortSignal: controller.signal,
+        })
+
+        expect(get(requestStatuses).get('g1')!.phase).toBe('aborted')
+    })
+
+    it('aborts every live recovered status scoped to a chat', () => {
+        startStatus('main', { kind: 'main', label: '', chatId: 'room-1', now: 0 })
+        startStatus('memory', { kind: 'memory', label: '', chatId: 'room-1', now: 0 })
+        startStatus('other', { kind: 'main', label: '', chatId: 'room-2', now: 0 })
+        endStatus('memory', 'done', { now: 5 })
+
+        abortStatusesForChat('room-1', 10)
+
+        expect(get(requestStatuses).get('main')!.phase).toBe('aborted')
+        expect(get(requestStatuses).get('memory')!.phase).toBe('done')
+        expect(get(requestStatuses).get('other')!.phase).toBe('connecting')
+    })
+
+    it('ends only the requested kind when a chat workflow becomes terminal', () => {
+        startStatus('main', { kind: 'main', label: '', chatId: 'room-1', now: 0 })
+        startStatus('translate', { kind: 'translate', label: '', chatId: 'room-1', now: 0 })
+
+        endStatusesForChat('room-1', 'done', 10, 'main')
+
+        expect(get(requestStatuses).get('main')!.phase).toBe('done')
+        expect(get(requestStatuses).get('translate')!.phase).toBe('connecting')
     })
 
     it('markPhase increments retryAttempt only on retrying', () => {
@@ -180,6 +241,20 @@ describe('publish API', () => {
         // Next chunk must restore the live phase.
         appendText('g1', { response: 'b' }, 30)
         expect(get(requestStatuses).get('g1')!.phase).toBe('responding')
+    })
+
+    it('observes replayed projections without duplicating reasoning or response prefixes', () => {
+        startStatus('g1', { kind: 'main', label: 'x', now: 0 })
+        observeText('g1', { thinking: 'thought' }, 10)
+        expect(get(requestStatuses).get('g1')!.phase).toBe('thinking')
+        observeText('g1', { thinking: 'thought', response: 'first' }, 20)
+        observeText('g1', { thinking: 'thought', response: 'first chunk' }, 30)
+
+        const entry = get(requestStatuses).get('g1')!
+        expect(entry.phase).toBe('responding')
+        expect(entry.thinkingText).toBe('thought')
+        expect(entry.responseText).toBe('first chunk')
+        expect(entry.lastChunkAt).toBe(30)
     })
 
     it('appendText is a no-op on a terminal entry', () => {
@@ -281,6 +356,24 @@ describe('tick-time tokenization', () => {
         endStatus('g1', 'done', { now: 20, usage: { responseTokens: 42 } })
         const e = get(requestStatuses).get('g1')!
         expect(e.responseTokens).toBe(42)
+    })
+
+    it('enriches an already-terminal server status with later provider usage', async () => {
+        let release!: () => void
+        const gate = new Promise<void>(resolve => { release = resolve })
+        setStatusTokenCounter(async text => { await gate; return text.length })
+        startStatus('g1', { kind: 'main', label: 'x', now: 0 })
+        appendText('g1', { response: 'hello' }, 10)
+
+        endStatus('g1', 'done', { now: 20 })
+        endStatus('g1', 'done', { now: 30, usage: { responseTokens: 42 } })
+        release()
+        await new Promise(resolve => setTimeout(resolve, 0))
+
+        const entry = get(requestStatuses).get('g1')!
+        expect(entry.phase).toBe('done')
+        expect(entry.endedAt).toBe(20)
+        expect(entry.responseTokens).toBe(42)
     })
 
     it('final recount does not clobber a restarted request (retry reuses id)', async () => {

@@ -1,4 +1,4 @@
-import { type HypaModel, localModels, getPersistedHypaVector, setPersistedHypaVector, contextHash } from "./hypamemory";
+import { type HypaModel, localModels, isBrowserLocalHypaModel, getPersistedHypaVector, setPersistedHypaVector, contextHash } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskRateLimiter, TaskCanceledError } from "./taskRateLimiter";
 import { runEmbedding } from "../transformers";
@@ -396,7 +396,7 @@ export class HypaProcessorV2<TMetadata> {
   }
 
   private isLocalModel(): boolean {
-    return Object.keys(localModels.models).includes(this.options.model);
+    return isBrowserLocalHypaModel(this.options.model);
   }
 
   private chunkArray<T>(array: T[], size: number): T[][] {

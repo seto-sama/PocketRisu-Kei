@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, CopyIcon, PowerOff, GitBranch, HamburgerIcon, LanguagesIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, UserIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
+    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, CopyIcon, PowerOff, GitBranch, HamburgerIcon, LanguagesIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
     import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createChatCopyName } from "src/ts/globalApi.svelte"
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme"
     import { getModelInfo } from "src/ts/model/modellist"
@@ -10,23 +10,28 @@
     import { DBState, ReloadChatPointer, CurrentTriggerIdStore, popupStore } from 'src/ts/stores.svelte'
 
     import { capitalize, getUserIcon, getUserName, sleep } from "src/ts/util"
-    import { onDestroy, onMount } from "svelte"
+    import { onDestroy, onMount, tick } from "svelte"
     import { type Unsubscriber } from "svelte/store"
     import { v4 as uuidv4, v4 } from 'uuid'
     import { language } from "../../lang"
     import { alertClear, alertConfirm, alertConfirmMulti, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { getLLMCache, setLLMCache } from "../../ts/translator/translator"
-    import { getCurrentCharacter, getCurrentChat, setCurrentChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
+    import { getCurrentCharacter, getCurrentChat, normalizeChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
-    import AutoresizeArea from "../UI/GUI/TextAreaResizable.svelte"
+    import TextAreaInput from "../UI/GUI/TextAreaInput.svelte"
     import ChatBody from './ChatBody.svelte'
     import PopupButton from "../UI/PopupButton.svelte";
-    import { createRevenantChatTranslationRecovery } from "src/ts/process/revenantGeneration/chatRecovery.svelte";
+    import { createRevenantChatTranslationRecovery, type RevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from "src/ts/process/revenant/recovery";
+    import { resolveRequestDiagnosticContext } from "src/ts/requestDiagnostics";
+    import type { RevenantChatMessageTranslationTarget } from "src/ts/process/revenant";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";
+    import { createSubscriber } from "svelte/reactivity";
+    import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges } from "./chatBodyRenderController.svelte";
+    import type { ChatScrollController } from "./chatScroll";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -36,18 +41,20 @@
     let editTranslationMode = $state(false)
     let editTranslationKeyMode = $state(false)
     let editTranslationText = $state('')
+    let editTranslationCacheKey = $state<string | null>(null)
     let translationRevision = $state(0)
     let originalEditTranslationKey = $state<string | null>(null)
     let bodyRoot:HTMLElement|null = $state(null)
     let partialEditRoot: HTMLDivElement | null = $state(null)
+    const generationInfoAlignsLeft = $derived(DBState.db.theme === '')
     let activeTranslationTasks = 0
     let cancelTranslationRequest: (() => void) | null = $state(null)
+    let messageEditTextAreaStyle = $derived(`font-size:${0.875 * (DBState.db.zoomsize / 100)}rem;line-height:${(DBState.db.lineHeight ?? 1.25) * (DBState.db.zoomsize / 100)}rem`)
     const translationDisabledClasses = 'disabled:opacity-50 disabled:cursor-not-allowed'
     interface Props {
         message?: string;
         name?: string;
         largePortrait?: boolean;
-        isLastMemory: boolean;
         img?: string|Promise<string>;
         idx?: number;
         messageGenerationInfo?: MessageGenerationInfo|null;
@@ -65,15 +72,21 @@
         totalPages?: number;
         swipeNavigationOnly?: boolean;
         isStreamingDisplay?: boolean;
+        generationOwned?: boolean;
+        hideSender?: boolean;
         isComment?: boolean;
         disabled?: boolean | 'allBefore';
+        renderCacheKey?: string;
+        translationRecoveryContext?: RevenantChatTranslationRecoveryContext;
+        translationRecoveryScope?: RevenantChatTranslationRecoveryScope | null;
+        translationRecoveryTarget?: RevenantChatMessageTranslationTarget | null;
+        getScrollController?: () => ChatScrollController | null;
     }
 
     let {
-        message = $bindable(''),
+        message = '',
         name = '',
         largePortrait = false,
-        isLastMemory,
         img = '',
         idx = -1,
         rerollIcon = false,
@@ -91,14 +104,56 @@
         totalPages = 1,
         swipeNavigationOnly = false,
         isStreamingDisplay = false,
+        generationOwned = false,
+        hideSender = false,
         isComment = false,
         disabled = false,
+        renderCacheKey = '',
+        translationRecoveryContext,
+        translationRecoveryScope,
+        translationRecoveryTarget,
+        getScrollController = () => null,
     }: Props = $props();
+
+    function toggleMessageRole() {
+        const currentCharacter = DBState.db.characters[selIdState.selId]
+        const currentMessage = currentCharacter?.chats[currentCharacter.chatPage]?.message?.[idx]
+        if (!currentMessage) return
+        currentMessage.role = currentMessage.role === 'char' ? 'user' : 'char'
+        ReloadChatPointer.update((value) => {
+            value[idx] = (value[idx] ?? 0) + 1
+            return value
+        })
+    }
 
     let msgDisplay = $state('')
     let translated = $state(false)
+    const translationTaskKey = $derived(renderCacheKey
+        ? JSON.stringify([
+            renderCacheKey,
+            translationRecoveryTarget?.swipeId ?? (firstMessage ? currentPage - 1 : 0),
+        ])
+        : '')
+    const translationSourceIdentity = $derived(JSON.stringify([
+        renderCacheKey,
+        translationRecoveryTarget?.messageChatId ?? null,
+        translationRecoveryTarget?.swipeId ?? (firstMessage ? currentPage - 1 : 0),
+    ]))
+    let previousTranslationSource: {
+        identity: string
+        message: string
+        streaming: boolean
+    } | null = null
+    const trackSharedTranslationTasks = createSubscriber((update) =>
+        subscribeSharedTranslationTaskChanges(update)
+    )
+    const sharedTranslationPending = $derived.by(() => {
+        trackSharedTranslationTasks()
+        return hasSharedTranslationTask(translationTaskKey)
+    })
 
     async function rm(){
+        if (generationOwned) return
         const messages = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
         const cascadeCount = messages.length - idx
 
@@ -131,7 +186,10 @@
         }
         const action = selectedAction.id
         if(action === 'swipe'){
-            onDeleteSwipe()
+            // Deleting the selected swipe also navigates to the response that
+            // takes its place. Use the same transition as the arrow controls
+            // so cached-only auto translation inspects the new source text.
+            changeSwipe(onDeleteSwipe)
             return
         }
         let msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
@@ -146,11 +204,28 @@
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message = msg
     }
 
-    async function edit(){
+    async function edit(nextMessage:string){
         const msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
-        msg.data = message
+        msg.data = nextMessage
         if (msg.swipes && msg.swipeId !== undefined) {
-            msg.swipes[msg.swipeId] = message
+            msg.swipes[msg.swipeId] = nextMessage
+        }
+    }
+
+    async function preservePositionWhileEditing(update: () => void | Promise<void>) {
+        const release = partialEditRoot
+            ? getScrollController()?.preserveElementPosition(partialEditRoot)
+            : undefined
+        try {
+            await update()
+            // The editor first mounts and then measures its scrollHeight on a
+            // following Svelte tick. Keep the old message anchor through both
+            // layouts so the intermediate 44px textarea cannot move the view.
+            await tick()
+            await tick()
+        }
+        finally {
+            release?.()
         }
     }
 
@@ -158,8 +233,10 @@
         // Keep the editor independent from streaming/recovery prop updates.
         // Otherwise a parent refresh can replace every keystroke with the
         // latest server-owned display value.
-        editDraft = message
-        editMode = true
+        await preservePositionWhileEditing(() => {
+            editDraft = message
+            editMode = true
+        })
         if (translated && DBState.db.translatorType === 'llm') {
             editTranslationKeyMode = true
             originalEditTranslationKey = await getTranslationCacheKey()
@@ -173,11 +250,13 @@
     async function saveOriginalEdit() {
         const oldKey = originalEditTranslationKey
         const shouldMigrateTranslationKey = editTranslationKeyMode
-        message = editDraft
-        editMode = false
-        editTranslationKeyMode = false
-        await edit()
-        displaya(message)
+        const nextMessage = editDraft
+        await preservePositionWhileEditing(async () => {
+            editMode = false
+            editTranslationKeyMode = false
+            await edit(nextMessage)
+            displaya(nextMessage)
+        })
 
         if (shouldMigrateTranslationKey && oldKey) {
             const newKey = await getTranslationCacheKey()
@@ -216,8 +295,10 @@
     async function handlePartialEditTranslationSave(event: Event) {
         const { key, data } = (event as CustomEvent<{ key: string; data: string }>).detail
         await setLLMCache(key, data)
-        if (editTranslationMode) editTranslationText = data
-        if (translated) translationRevision += 1
+        await preservePositionWhileEditing(() => {
+            if (editTranslationMode) editTranslationText = data
+            if (translated) translationRevision += 1
+        })
     }
 
     function getCbsCondition(){
@@ -246,35 +327,90 @@
         return await ParseMarkdown(source, character, 'notrim', idx, getCbsCondition())
     }
 
+    function getTranslationTarget(): RevenantChatMessageTranslationTarget | null {
+        if (translationRecoveryTarget !== undefined) {
+            return translationRecoveryTarget
+        }
+        if (idx < 0) return null
+        const currentCharacter = DBState.db.characters[selIdState.selId]
+        const message = currentCharacter?.chats?.[currentCharacter.chatPage]?.message?.[idx]
+        if (!message) return null
+        return {
+            kind: 'chat-message',
+            messageChatId: message.chatId ?? null,
+            messageIndex: idx,
+            swipeId: message.swipeId ?? 0,
+        }
+    }
+
     const revenantTranslationRecovery = createRevenantChatTranslationRecovery({
-        getSource: () => msgDisplay,
-        getCacheKey: getTranslationCacheKey,
+        getTarget: getTranslationTarget,
+        getScope: () => translationRecoveryScope,
         translationCache: {
             get: getLLMCache,
             store: setLLMCache,
         },
+        getContext: () => translationRecoveryContext,
     })
+    const revenantTranslationRecoverySnapshot = $derived.by(() =>
+        revenantTranslationRecovery.capture()
+    )
+    const translationPending = $derived(
+        (DBState.db.translatorType === 'llm' ? sharedTranslationPending : translating)
+        || revenantTranslationRecoverySnapshot.pending
+    )
+    const revenantTranslationInspectionReady = $derived(
+        revenantTranslationRecovery.inspectionReady
+    )
 
     async function loadTranslationForEdit() {
         const key = await getTranslationCacheKey()
         const cached = await getLLMCache(key)
-        editTranslationText = cached ?? ''
-        editTranslationMode = true
+        await preservePositionWhileEditing(() => {
+            editTranslationCacheKey = key
+            editTranslationText = cached ?? ''
+            editTranslationMode = true
+        })
     }
 
     async function saveTranslationEdit() {
-        const key = await getTranslationCacheKey()
+        const key = editTranslationCacheKey
+        if (key === null) return
         await setLLMCache(key, editTranslationText)
-        editTranslationMode = false
+        await preservePositionWhileEditing(() => {
+            editTranslationMode = false
+            editTranslationCacheKey = null
+        })
+    }
+
+    async function cancelOriginalEdit() {
+        await preservePositionWhileEditing(() => {
+            editMode = false
+            editTranslationKeyMode = false
+            originalEditTranslationKey = null
+        })
     }
 
     function isTranslationBusy() {
-        return translating || retranslate || revenantTranslationRecovery.pending
+        return translationPending || retranslate
     }
 
     function isTranslationControlBusy() {
-        return isTranslationBusy() || !revenantTranslationRecovery.inspectionReady
+        return isTranslationBusy() || !revenantTranslationInspectionReady
     }
+
+    const currentTextEditActive = $derived(editMode || editTranslationMode)
+    const controlDisabled = $derived.by(() => ({
+        translationToggle: generationOwned || currentTextEditActive
+            || (isTranslationControlBusy() && cancelTranslationRequest === null),
+        translationAction: generationOwned || currentTextEditActive || isTranslationControlBusy(),
+        swipe: generationOwned || currentTextEditActive || isTranslationBusy(),
+        edit: generationOwned || isTranslationBusy()
+            || (translated
+                && DBState.db.translatorType === 'llm'
+                && !revenantTranslationInspectionReady),
+        partialEdit: generationOwned || currentTextEditActive || isTranslationBusy(),
+    }))
 
     function updateTranslationTasks(delta:1|-1) {
         activeTranslationTasks = Math.max(0, activeTranslationTasks + delta)
@@ -285,38 +421,71 @@
         if (!isTranslationControlBusy()) translated = !translated
     }
 
+    function resetTranslationState() {
+        translated = false
+        retranslate = false
+    }
+
+    // Local controls and remote canonical sync both eventually replace this
+    // message source. Reset at that shared boundary so a translated old swipe
+    // cannot initiate a translation for the new one. Cached-only auto
+    // translation may then inspect and restore the new swipe's existing cache.
+    $effect.pre(() => {
+        const nextSource = {
+            identity: translationSourceIdentity,
+            message,
+            streaming: isStreamingDisplay,
+        }
+        const previousSource = previousTranslationSource
+        previousTranslationSource = nextSource
+        if (previousSource === null) {
+            return
+        }
+        const identityChanged = previousSource.identity !== nextSource.identity
+        const settledMessageChanged = !previousSource.streaming
+            && !nextSource.streaming
+            && previousSource.message !== nextSource.message
+        if (!identityChanged && !settledMessageChanged) return
+        cancelTranslationRequest?.()
+        resetTranslationState()
+        translationRevision += 1
+    })
+
     function handleTranslationButton() {
+        if (currentTextEditActive) return
         if (isTranslationBusy()) {
             cancelTranslationRequest?.()
-            translated = false
-            retranslate = false
+            resetTranslationState()
             return
         }
         toggleTranslation()
     }
 
     function requestRetranslation() {
-        if (!isTranslationControlBusy()) retranslate = true
+        if (!controlDisabled.translationAction) retranslate = true
     }
 
     function changeSwipe(change: () => void) {
-        translated = false
-        retranslate = false
+        if (controlDisabled.swipe) return
         change()
-        translationRevision += 1
     }
 
-    function toggleTranslationEdit() {
-        if (isTranslationControlBusy()) return
+    async function toggleCurrentTextEdit() {
+        if (isTranslationBusy()) return
+        if (editTranslationMode) {
+            await saveTranslationEdit()
+            return
+        }
         if (editMode) {
-            editTranslationKeyMode = !editTranslationKeyMode
+            await saveOriginalEdit()
+            return
         }
-        else if (editTranslationMode) {
-            saveTranslationEdit()
+        if (translated && DBState.db.translatorType === 'llm') {
+            if (isTranslationControlBusy()) return
+            await loadTranslationForEdit()
+            return
         }
-        else {
-            loadTranslationForEdit()
-        }
+        await enterEditMode()
     }
 
     function displaya(message:string){
@@ -352,7 +521,10 @@
 
     $effect(() => {
         const root = partialEditRoot
-        if (!root) return
+        if (
+            !root
+            || (!DBState.db.enableBlockPartialEdit && !DBState.db.enableDragPartialEdit)
+        ) return
         root.addEventListener('risu-partial-edit-translation-context', handlePartialEditTranslationContext)
         root.addEventListener('risu-partial-edit-translation-save', handlePartialEditTranslationSave)
         return () => {
@@ -385,6 +557,10 @@
         if(!currentChar){
             return
         }
+        const characterId = currentChar.chaId
+        const currentChat = getCurrentChat()
+        const roomId = currentChat?.id
+        if (!characterId || !roomId) return
 
         const target = event.target as HTMLElement
         const origin = target.closest('[risu-trigger], [risu-btn]')
@@ -396,10 +572,15 @@
         const triggerId = origin.getAttribute('risu-id')
         const btnEvent = origin.getAttribute('risu-btn')
 
+        // A trigger may update reactive Lua/CBS state before its promise
+        // returns. Disable translation first so an intermediate render cannot
+        // start a new automatic translation request.
+        resetTranslationState()
+
         const triggerResult =
             triggerName ?
                 await runTrigger(currentChar, 'manual', {
-                    chat: getCurrentChat(),
+                    chat: currentChat,
                     manualName: triggerName,
                     triggerId: triggerId || undefined,
                 }) :
@@ -408,7 +589,13 @@
             null
 
         if(triggerResult) {
-            setCurrentChat(triggerResult.chat)
+            const targetCharacter = DBState.db.characters.find(character =>
+                character?.chaId === characterId)
+            const targetChatIndex = targetCharacter?.chats?.findIndex(chat =>
+                chat?.id === roomId) ?? -1
+            if (targetCharacter && targetChatIndex >= 0) {
+                targetCharacter.chats[targetChatIndex] = normalizeChat(triggerResult.chat)
+            }
             ReloadChatPointer.update((v) => {
                 v[idx] = (v[idx] ?? 0) + 1
                 return v
@@ -482,62 +669,63 @@
 
 
 {#snippet genInfo()}
-    <div class="flex flex-col items-end" class:standard-risu-gen-info={DBState.db.theme === 'standardRisu'}>
+    <IconButtonGroup
+        size="lg"
+        className={`chat-generation-info flex-wrap gap-1 ${generationInfoAlignsLeft ? 'justify-start' : 'chat-width w-full justify-end'}`}
+        style="min-height:var(--icon-cell-size)"
+    >
         {#if messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())}
-            <button class="text-sm p-1 text-textcolor2 float-end mr-2 my-1
-                    rounded-md hover:text-primary transition-colors flex justify-center items-center"
-                    onclick={() => {
-                        const currentGenerationInfo = idx >= 0 ? 
-                            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx].generationInfo :
-                            messageGenerationInfo
-
-                        alertRequestData({
-                            genInfo: currentGenerationInfo,
-                            idx: idx,
-                        })
-                    }}
+            {@const diagnosticMessage = idx >= 0
+                ? DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[idx]
+                : undefined}
+            {@const diagnosticGenerationInfo = diagnosticMessage
+                ? resolveRequestDiagnosticContext(diagnosticMessage, messageGenerationInfo).generationInfo
+                : messageGenerationInfo}
+            {@const modelLabel = diagnosticGenerationInfo?.model
+                ? capitalize(getModelInfo(diagnosticGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))
+                : language.requestDiagnostics.unavailable}
+            <IconButton
+                expanded
+                className={`text-sm ${generationInfoAlignsLeft ? '' : 'order-last'}`}
+                aria-label={modelLabel}
+                title={modelLabel}
+                onclick={() => {
+                    alertRequestData({
+                        genInfo: diagnosticGenerationInfo ?? {},
+                        idx: idx,
+                    })
+                }}
             >
-                <BotIcon size={20} />
-                <span class="ml-1 max-w-[288px] truncate">
-                    {capitalize(getModelInfo(messageGenerationInfo.model).shortName.replace(/^pluginmodel:::/, ''))}
+                <BotIcon />
+                <span class="hidden max-w-[288px] truncate sm:inline">
+                    {modelLabel}
                 </span>
-            </button>
+            </IconButton>
         {/if}
         {#if DBState.db.translatorType === 'llm' && translated}
-            <button class="text-sm p-1 text-textcolor2 float-end mr-2 my-1
-                            rounded-md hover:text-primary transition-colors flex justify-center items-center
-                            {translationDisabledClasses} disabled:hover:text-textcolor2"
-                    disabled={isTranslationControlBusy()}
-                    onclick={requestRetranslation}
+            <IconButton
+                expanded
+                className="text-sm"
+                disabled={controlDisabled.translationAction}
+                aria-label={language.retranslate}
+                title={language.retranslate}
+                onclick={requestRetranslation}
             >
-                <RefreshCcwIcon size={20} />
-                <span class="ml-1">
-                    {language.retranslate}
-                </span>
-            </button>
-            <button class={"text-sm p-1 float-end mr-2 my-1 rounded-md hover:text-primary transition-colors flex justify-center items-center " + translationDisabledClasses + " " + ((editTranslationMode || editTranslationKeyMode) ? 'text-primary' : 'text-textcolor2')}
-                    disabled={isTranslationControlBusy()}
-                    onclick={toggleTranslationEdit}
-            >
-                <PencilIcon size={20} />
-                <span class="ml-1">
-                    {editTranslationMode ? language.editTranslationSave : editMode ? language.keepTranslation : language.editTranslation}
-                </span>
-            </button>
+                <RefreshCcwIcon />
+                <span>{language.retranslate}</span>
+            </IconButton>
         {/if}
-    </div>
+    </IconButtonGroup>
 {/snippet}
 
 {#snippet textBox()}
     {#if editTranslationMode}
-        <AutoresizeArea bind:value={editTranslationText} handleLongPress={() => {
+        <TextAreaInput bind:value={editTranslationText} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             saveTranslationEdit()
         }} />
     {:else if editMode}
-        <AutoresizeArea bind:value={editDraft} handleLongPress={() => {
-            editMode = false
-            editTranslationKeyMode = false
-            originalEditTranslationKey = null
+        <TextAreaInput bind:value={editDraft} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
+            void cancelOriginalEdit()
         }} />
     {:else if isComment}
         <div class="w-full flex justify-center text-textcolor2 italic mb-12">
@@ -570,7 +758,7 @@
         <!-- Streaming content is already propagated through the reactive message
              prop. Remounting ChatBody for every chunk resets the browser's scroll
              anchor and pulls a user who is reading history back to the bottom. -->
-        {@const chatReloadPointer = $ReloadGUIPointer + (isStreamingDisplay ? 0 : ($ReloadChatPointer[idx] ?? 0))}
+        {@const chatReloadPointer = `${$ReloadGUIPointer}|${isStreamingDisplay ? 0 : ($ReloadChatPointer[idx] ?? 0)}`}
         {@const totalLengthPointer = (idx > totalLength - 6) ? totalLength : 0}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -578,33 +766,36 @@
             class:prose-invert={$ColorSchemeTypeStore === 'dark'}
             bind:this={bodyRoot}
             onclick={async () => {
-            if(DBState.db.clickToEdit && idx > -1 && !editMode && !editTranslationMode && !isTranslationBusy()){
+            if(DBState.db.clickToEdit && idx > -1 && !controlDisabled.partialEdit){
                 await enterEditMode()
             }
         }}
             style:font-size="{0.875 * (DBState.db.zoomsize / 100)}rem"
             style:line-height="{(DBState.db.lineHeight ?? 1.25) * (DBState.db.zoomsize / 100)}rem"
         >
-            {#key `${totalLengthPointer}|${chatReloadPointer}`}
-                <ChatBody
-                    {character}
-                    {firstMessage}
-                    {idx}
-                    {msgDisplay}
-                    {name}
-                    {bodyRoot}
-                    {translationRevision}
-                    {isStreamingDisplay}
-                    {revenantTranslationRecovery}
-                    modelShortName={
-                        messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
-                    }
-                    role={role ?? null}
-                    onTranslationTaskChange={updateTranslationTasks}
-                    onTranslationCancelAvailabilityChange={(cancel) => cancelTranslationRequest = cancel}
-                    bind:translated={translated}
-                    bind:retranslate={retranslate} />
-            {/key}
+            <ChatBody
+                {character}
+                {firstMessage}
+                {idx}
+                {msgDisplay}
+                {name}
+                {bodyRoot}
+                {translationRevision}
+                {isStreamingDisplay}
+                {translationTaskKey}
+                renderRevision={`${totalLengthPointer}|${chatReloadPointer}`}
+                renderCacheKey={renderCacheKey ? `${renderCacheKey}|${totalLengthPointer}|${chatReloadPointer}` : ''}
+                {revenantTranslationRecovery}
+                {revenantTranslationRecoverySnapshot}
+                {translationPending}
+                modelShortName={
+                    messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
+                }
+                role={role ?? null}
+                onTranslationTaskChange={updateTranslationTasks}
+                onTranslationCancelAvailabilityChange={(cancel) => cancelTranslationRequest = cancel}
+                bind:translated={translated}
+                bind:retranslate={retranslate} />
         </span>
     {/if}
 {/snippet}
@@ -715,7 +906,6 @@
                         max-width: 100%;
                         margin: 10px 0;
                         border-radius: 8px;
-                        box-shadow: rgba(0,0,0,0.1) 0px 2px 8px;
                         display: block;
                         margin-left: auto;
                         margin-right: auto;
@@ -854,7 +1044,7 @@
                     }
                 }
                 
-                const html = `<div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; color: ${root.style.getPropertyValue('--risu-theme-textcolor')}; line-height: 1.6; max-width: 600px; margin: 1rem auto; background: ${root.style.getPropertyValue('--risu-theme-bgcolor')}; border-radius: 12px; box-shadow: 0px 4px 12px rgba(0,0,0,0.15); overflow: hidden;">
+                const html = `<div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; color: ${root.style.getPropertyValue('--risu-theme-textcolor')}; line-height: 1.6; max-width: 600px; margin: 1rem auto; background: ${root.style.getPropertyValue('--risu-theme-bgcolor')}; border-radius: 12px; overflow: hidden;">
 <div style="padding: 20px;">
 <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 1rem; text-align: center;">
     ${finalHasValidImage ? `<img style="width: 80px; height: 80px; border-radius: 50%; border: 3px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')}; margin-bottom: 0.75rem; object-fit: cover;" src="${finalIconDataUrl}" alt="profile">` : ''}
@@ -907,7 +1097,7 @@
             {/if}
         </IconButton>
     {/if}
-    <IconButton size="lg" expanded={showNames} tone="destructive" className="button-icon-remove" onclick={rm}>
+    <IconButton size="lg" expanded={showNames} tone="destructive" className="button-icon-remove" disabled={generationOwned} onclick={rm}>
         <TrashIcon />
 
         {#if showNames}
@@ -924,9 +1114,9 @@
             expanded={showNames}
             active={translated}
             activeColor="primary"
-            tone={cancelTranslationRequest ? 'destructive' : 'default'}
-            className={"button-icon-translate " + translationDisabledClasses + ((translating || revenantTranslationRecovery.pending) ? ' translating' : '')}
-            disabled={isTranslationControlBusy() && cancelTranslationRequest === null}
+             tone={cancelTranslationRequest ? 'destructive' : 'default'}
+             className={"button-icon-translate " + translationDisabledClasses + (translationPending ? ' translating' : '')}
+             disabled={controlDisabled.translationToggle}
             aria-label={cancelTranslationRequest ? language.cancel : language.translate}
             title={cancelTranslationRequest ? language.cancel : language.translate}
             onclick={handleTranslationButton}>
@@ -940,24 +1130,13 @@
         <IconButton
             size="lg"
             expanded={showNames}
-            active={editMode}
+            active={currentTextEditActive}
             activeColor="primary"
             className={"button-icon-edit " + translationDisabledClasses}
-            disabled={isTranslationBusy()}
-            onclick={async () => {
-            if(isTranslationBusy()){
-                return
-            }
-            if(editTranslationMode){
-                return
-            }
-            if(!editMode){
-                await enterEditMode()
-            }
-            else{
-                await saveOriginalEdit()
-            }
-        }}>
+            disabled={controlDisabled.edit}
+            aria-label={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
+            title={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
+            onclick={toggleCurrentTextEdit}>
             <PencilIcon />
 
             {#if showNames}
@@ -969,7 +1148,7 @@
 
 {#snippet rerolls()}
     {#if (rerollIcon || altGreeting) && role !== 'user'}
-        <fieldset class="contents" disabled={isTranslationBusy()}>
+        <fieldset class="contents" disabled={controlDisabled.swipe}>
         {#if altGreeting}
             <!-- First message: ← counter → -->
             <IconButton size="lg" className="button-icon-unreroll" onclick={() => changeSwipe(unReroll)}>
@@ -1021,7 +1200,15 @@
 {/snippet}
 
 {#snippet minorIconButtonsBody(showNames:boolean)}
+    <fieldset class="contents" disabled={generationOwned}>
     {#if idx > -1}
+        <IconButton size="lg" expanded={showNames} onclick={toggleMessageRole}>
+            <ArrowLeftRightIcon />
+            {#if showNames}
+                <span class="ml-1">{language.changeMessageRole}</span>
+            {/if}
+        </IconButton>
+
         <IconButton size="lg" expanded={showNames} active={isBookmarked} activeColor="primary" className="button-icon-bookmark" onclick={async () => {
             await sleep(1)
             toggleBookmark()
@@ -1091,33 +1278,23 @@
         {/if}
     </IconButton>
     {/if}
+    </fieldset>
 {/snippet}
 
 {#snippet senderIcon(options:{rounded?:boolean,styleFix?:string} = {})}
-    {#if !blankMessage && !$HideIconStore}
-        {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground"}
-        <div class="shadow-lg border-textcolor2 border flex justify-center items-center text-textcolor2" style={options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
-            class:rounded-md={options?.rounded} class:rounded-full={options?.rounded}>
-                {#if name === 'assistant'}
-                    <BotIcon />
-                {:else}
-                    <UserIcon />
-                {/if}
-            </div>
-        {:else}
-            {#await img}
-                <div class="shadow-lg bg-textcolor2" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
+    {#if !blankMessage && !$HideIconStore && !hideSender}
+        {#await img}
+            <div class="shadow-lg bg-textcolor2" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
+            class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
+        {:then m}
+            {#if largePortrait && (!options?.rounded)}
+                <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100 / 0.75}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
                 class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
-            {:then m}
-                {#if largePortrait && (!options?.rounded)}
-                    <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100 / 0.75}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
-                    class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
-                {:else}
-                    <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
-                    class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
-                {/if}
-            {/await}
-        {/if}
+            {:else}
+                <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
+                class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
+            {/if}
+        {/await}
     {/if}
 {/snippet}
 
@@ -1271,9 +1448,8 @@
      bind:this={partialEditRoot}
      data-chat-index={idx}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
-     data-partial-edit-disabled={editMode || editTranslationMode || isTranslationBusy() || isStreamingDisplay}
+     data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
-     style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid rgba(98, 114, 164, 0.7);` : ''}
      onclickcapture={handleButtonTriggerWithin}>
     <div class="text-textcolor grow max-w-full sm:px-4 py-4">
         {#if !blankMessage}
@@ -1282,24 +1458,15 @@
                 DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
                 'max-w-3xl'}
             <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto py-6 px-4 sm:px-8 bg-bgcolor sm:rounded-lg">
-                <!-- Header: icon + name -->
-                <div class="flex items-center gap-3 mb-4">
-                    {@render senderIcon({rounded: DBState.db.roundIcons})}
-                    {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
-                        <span class="text-lg sm:text-xl text-textcolor flex items-center">
-                            <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
-                            <button class="ml-2 text-textcolor2 hover:text-textcolor" onclick={() => {
-                                DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'user' : 'char'
-                                ReloadChatPointer.update((v) => {
-                                    v[idx] = (v[idx] ?? 0) + 1
-                                    return v
-                                })
-                            }}><ArrowLeftRightIcon size="18" /></button>
-                        </span>
-                    {:else if !$HideIconStore}
-                        <span class="text-lg sm:text-xl text-textcolor">{name}</span>
-                    {/if}
-                </div>
+                {#if !hideSender}
+                    <!-- Header: icon + name -->
+                    <div class="flex items-center gap-3 mb-4">
+                        {@render senderIcon({rounded: DBState.db.roundIcons})}
+                        {#if !$HideIconStore}
+                            <span class="text-lg sm:text-xl text-textcolor">{name}</span>
+                        {/if}
+                    </div>
+                {/if}
                 <!-- Body: message text -->
                 <div class="mb-3 leading-relaxed">
                     {@render textBox()}
@@ -1309,7 +1476,7 @@
                     <div class="min-w-0">
                         {@render genInfo()}
                     </div>
-                    <div class="w-full sm:w-auto ml-auto">
+                    <div class="chat-message-actions w-auto ml-auto">
                         {@render iconButtons()}
                     </div>
                 </div>
@@ -1323,9 +1490,8 @@
      bind:this={partialEditRoot}
      data-chat-index={idx}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
-     data-partial-edit-disabled={editMode || editTranslationMode || isTranslationBusy() || isStreamingDisplay}
+     data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
-     style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid rgba(98, 114, 164, 0.7);` : ''}
      onclickcapture={handleButtonTriggerWithin}>
     <div class="text-textcolor mt-1 ml-4 mr-4 mb-1 p-2 bg-transparent grow border-t-gray-900 border-opacity/30 border-transparent flexium items-start max-w-full" >
         {#if DBState.db.theme === 'mobilechat' && !blankMessage}
@@ -1334,11 +1500,11 @@
                     {@render senderIcon({rounded: true})}
                 {/if}
                 <div
-                    class="bg-gray-100 rounded-lg p-3 max-w-[70%] mx-2"
+                    class="bg-darkbg rounded-lg p-3 max-w-[70%] mx-2"
                     class:rounded-tl-none={role !== 'user'}
                     class:rounded-tr-none={role === 'user'}
                 >
-                    <p class="text-gray-800">{@render textBox()}</p>
+                    <p class="text-textcolor">{@render textBox()}</p>
                     {#if DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.time}
                         <span class="text-xs text-textcolor2 mt-1 block">
                             {new Intl.DateTimeFormat(undefined, {
@@ -1358,17 +1524,18 @@
             </div>
         {:else if DBState.db.theme === 'cardboard' && !blankMessage}
             <div class="w-full flex flex-col px-0 sm:px-4 py-4 relative">
-                <div class="bg-linear-to-b from-gray-100 to-gray-200 rounded-lg shadow-lg border-gray-400 border p-4 flex flex-col">
+                <div class="bg-linear-to-b from-bgcolor to-darkbg rounded-lg shadow-lg border-darkborderc border p-4 flex flex-col">
                     <div class="flex gap-4 mt-2 flex-col sm:flex-row">
-                        <div class="flex flex-col items-center">
-                            <div class="sm:h-96 sm:w-72 sm:min-w-72 w-48 h-64">
-                                {@render senderIcon({rounded: false, styleFix:'height:100%;width:100%;'})}
+                        {#if !hideSender}
+                            <div class="flex flex-col items-center">
+                                <div class="sm:h-96 sm:w-72 sm:min-w-72 w-48 h-64">
+                                    {@render senderIcon({rounded: false, styleFix:'height:100%;width:100%;'})}
+                                </div>
+                                <h2 class="text-base font-bold text-textcolor2 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
                             </div>
-                            <h2 class="text-base font-bold text-gray-500 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
-
-                        </div>
+                        {/if}
                         {#if editMode}
-                            <textarea class="grow h-138 sm:h-96 overflow-y-auto bg-transparent text-black p-2 mb-2 resize-none message-edit-area" bind:value={message}></textarea>
+                            <textarea class="grow h-138 sm:h-96 overflow-y-auto bg-transparent text-textcolor p-2 mb-2 resize-none message-edit-area" bind:value={editDraft}></textarea>
                         {:else}
                             <div class="grow h-138 sm:h-96 overflow-y-auto p-2 mb-2 sm:mb-0">
                                 {@render textBox()}
@@ -1376,7 +1543,7 @@
                         {/if}
                     </div>
                 </div>
-                <div class="absolute bottom-0 right-0 bg-linear-to-b from-gray-200 to-gray-300 p-2 rounded-md border border-gray-400 text-gray-400">
+                <div class="absolute bottom-0 right-0 bg-darkbg p-2 rounded-md border border-darkborderc text-textcolor2">
                     {@render iconButtons({applyTextColors: false})}
                 </div>
             </div>
@@ -1384,20 +1551,9 @@
             {@render renderGuiHtmlPart(renderedGuiHtml)}
         {:else if DBState.db.theme === 'standardRisu' && !blankMessage}
             {@render senderIcon({rounded: DBState.db.roundIcons})}
-            <span class="flex flex-col ml-4 w-full max-w-full min-w-0 text-black">
+            <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
                 <div class="flexium items-center chat-width">
-                    {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && !blankMessage && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
-                        <span class="chat-width text-xl border-darkborderc flex items-center text-textcolor">
-                            <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
-                            <button class="ml-2 text-textcolor2 hover:text-textcolor" onclick={() => {
-                                DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'user' : 'char'
-                                ReloadChatPointer.update((v) => {
-                                    v[idx] = (v[idx] ?? 0) + 1
-                                    return v
-                                })
-                            }}><ArrowLeftRightIcon size="18" /></button>
-                        </span>
-                    {:else if !blankMessage && !$HideIconStore}
+                    {#if !blankMessage && !$HideIconStore && !hideSender}
                         <div class="chat-width text-xl unmargin text-textcolor flex items-center">
                             <span>{name}</span>
                         </div>
@@ -1409,20 +1565,9 @@
             </span>
         {:else}
             {@render senderIcon({rounded: DBState.db.roundIcons})}
-            <span class="flex flex-col ml-4 w-full max-w-full min-w-0 text-black">
+            <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
                 <div class="flexium items-center chat-width">
-                    {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && !blankMessage && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
-                        <span class="chat-width text-xl border-darkborderc flex items-center text-textcolor">
-                            <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
-                            <button class="ml-2 text-textcolor2 hover:text-textcolor" onclick={() => {
-                                DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'user' : 'char'
-                                ReloadChatPointer.update((v) => {
-                                    v[idx] = (v[idx] ?? 0) + 1
-                                    return v
-                                })
-                            }}><ArrowLeftRightIcon size="18" /></button>
-                        </span>
-                    {:else if !blankMessage && !$HideIconStore}
+                    {#if !blankMessage && !$HideIconStore && !hideSender}
                         <div class="chat-width text-xl unmargin text-textcolor flex items-center">
                             <span>{name}</span>
                         </div>
@@ -1444,9 +1589,3 @@
     "border-warning": disabled === 'allBefore',
 }}></div>
 {/if}
-
-<style>
-    .standard-risu-gen-info {
-        flex-direction: row-reverse;
-    }
-</style>

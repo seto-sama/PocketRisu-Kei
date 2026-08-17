@@ -1,12 +1,12 @@
 <script lang="ts">
     import { DBState } from 'src/ts/stores.svelte';
     import Hub from "./Realm/RealmMain.svelte";
-    import { OpenRealmStore, RealmInitialOpenChar } from "src/ts/stores.svelte";
-    import { ArrowLeft, ChevronDown, SendIcon, TriangleAlertIcon, UsersIcon } from "@lucide/svelte";
+    import { OpenRealmStore } from "src/ts/stores.svelte";
+    import { ChevronDown, HomeIcon, SendIcon, TriangleAlertIcon, UsersIcon } from "@lucide/svelte";
     import GithubIcon from "./GithubIcon.svelte";
     import { getVersionString, openURL } from "src/ts/globalApi.svelte";
     import { language } from "src/lang";
-    import { getRisuHub, hubAdditionalHTML } from "src/ts/characterCards";
+    import { getRisuHub, hubAdditionalHTML, showRealmInfoStore } from "src/ts/characterCards";
     import RisuHubIcon from "./Realm/RealmHubIcon.svelte";
     import Title from "./Title.svelte";
     import { updateInfoStore, updatePopupStore } from "src/ts/update";
@@ -14,6 +14,8 @@
     import { isSecureContext } from "src/ts/secureContext";
     import { openSettings, SettingsRoute } from "src/ts/routing";
     import ShButton from "./GUI/ShButton.svelte";
+    import ShAlert from "./GUI/ShAlert.svelte";
+    import IconButton from "./GUI/IconButton.svelte";
 
     let realmOpen = $state(!DBState.db.hideRealm);
 
@@ -25,11 +27,10 @@
       <Title />
       <h3 class="text-textcolor2 mt-1">v{getVersionString()}</h3>
       {#if $updateInfoStore?.hasUpdate}
-        <button
-          class="mt-1.5 px-3 py-1 rounded-full text-sm font-medium transition-colors
-            {$updateInfoStore.severity === 'optional'
-              ? 'bg-green-900/30 text-green-400 border border-green-800/50 hover:bg-green-900/50'
-              : 'bg-red-900/30 text-red-400 border border-red-800/50 hover:bg-red-900/50'}"
+        <ShButton
+          variant={$updateInfoStore.severity === 'optional' ? 'success' : 'destructive'}
+          size="sm"
+          className="mt-1.5 rounded-full"
           onclick={() => updatePopupStore.set($updateInfoStore)}
         >
           {#if $updateInfoStore.severity === 'outdated'}
@@ -39,7 +40,7 @@
           {:else}
             {language.updateAvailable.replace('{{version}}', $updateInfoStore.latestVersion)}
           {/if}
-        </button>
+        </ShButton>
       {/if}
       {#if $publicStatsStore}
       <div class="mt-3 flex gap-2 flex-wrap justify-center">
@@ -56,24 +57,22 @@
     <div class="w-full flex p-4 flex-col text-textcolor max-w-4xl">
       {#if !$OpenRealmStore}
       {#if !isSecureContext}
-        <div class="mt-4 w-full bg-yellow-900/30 border border-yellow-700/40 rounded-md px-4 py-3 flex items-center justify-between gap-3 flex-wrap text-yellow-300">
-          <div class="flex items-start gap-2.5 min-w-0 flex-1">
-            <TriangleAlertIcon class="size-4 shrink-0 mt-0.5 text-yellow-400" />
-            <div class="flex flex-col min-w-0">
-              <span class="font-medium text-sm">{language.httpInsecureWarningTitle}</span>
-              <span class="leading-relaxed text-sm opacity-90">{language.httpInsecureWarningBody}</span>
-            </div>
-          </div>
-          <ShButton variant="outline" size="sm" onclick={() => openSettings(SettingsRoute.RemoteAccess)}>
-            {language.httpInsecureOpenRemoteAccess}
-          </ShButton>
-        </div>
+        <ShAlert variant="warning" className="mt-4 w-full">
+          {#snippet icon()}<TriangleAlertIcon />{/snippet}
+          {#snippet title()}{language.httpInsecureWarningTitle}{/snippet}
+          {language.httpInsecureWarningBody}
+          {#snippet action()}
+            <ShButton variant="outline" size="sm" onclick={() => openSettings(SettingsRoute.RemoteAccess)}>
+              {language.httpInsecureOpenRemoteAccess}
+            </ShButton>
+          {/snippet}
+        </ShAlert>
       {/if}
       <div class="mt-4 mb-4 w-full border-t border-t-selected"></div>
       <div class="flex items-center gap-2">
         <button
           type="button"
-          class="flex-1 flex items-center gap-2 text-2xl font-bold text-left outline-none focus-visible:ring-2 focus-visible:ring-borderc/50 rounded"
+          class="flex-1 flex items-center gap-2 rounded border border-transparent text-2xl font-bold text-left transition-colors"
           aria-expanded={realmOpen}
           aria-controls="main-realm-section"
           onclick={() => (realmOpen = !realmOpen)}
@@ -84,13 +83,14 @@
             class="shrink-0 transition-transform duration-150 {realmOpen ? 'rotate-180' : ''}"
           />
         </button>
-        <button
-          type="button"
-          class="text-base font-medium p-1 bg-darkbg rounded-md hover:ring-3"
+        <ShButton
+          variant="ghost"
+          size="sm"
+          className="bg-darkbg"
           onclick={() => {
             $OpenRealmStore = true
           }}
-        >Get More</button>
+        >Get More</ShButton>
       </div>
       <div
         id="main-realm-section"
@@ -107,13 +107,10 @@
             }) then charas}
             {#if charas.length > 0}
               {@html hubAdditionalHTML}
-              <div class="w-full flex gap-4 p-2 flex-wrap justify-center">
+              <div class="grid w-full grid-cols-1 gap-4 p-2 md:grid-cols-2">
                   {#each charas as chara}
                       <RisuHubIcon onClick={() => {
-                        $OpenRealmStore = true
-                        if(DBState.db.realmDirectOpen){
-                            $RealmInitialOpenChar = chara
-                        }
+                        $showRealmInfoStore = chara
                       }} chara={chara} />
                   {/each}
               </div>
@@ -128,8 +125,8 @@
         Related Links
       </h1>
         <div class="grid w-full grid-cols-1 gap-4 p-2 md:grid-cols-2">
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
-            openURL("https://github.com/seto-sama/PocketRisu-Kei")
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+            openURL("https://github.com/PocketRisu/PocketRisu")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
               <h2 class="text-2xl font-bold tracking-tight text-textcolor">{language.relatedGithub}</h2>
@@ -141,7 +138,7 @@
               <GithubIcon class={relatedLinkIconClass} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://github.com/seto-sama/PocketRisu-Kei/issues/new")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -154,20 +151,20 @@
               <SendIcon class={relatedLinkIconClass} strokeWidth={1} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
-            openURL("https://github.com/seto-sama")
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+            openURL("https://discord.gg/Exy3NrqkGm")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
-              <h2 class="text-2xl font-bold tracking-tight text-textcolor">{language.relatedContactEmail}</h2>
+              <h2 class="text-2xl font-bold tracking-tight text-textcolor">{language.officialDiscord}</h2>
               <span class="mt-2 block text-base leading-relaxed text-textcolor2">
-                {language.relatedContactEmailDesc}
+                {language.officialDiscordDesc}
               </span>
             </div>
             <div aria-hidden="true" class="pointer-events-none absolute -right-12 top-1/2 -translate-y-1/2 text-textcolor">
-              <GithubIcon class={relatedLinkIconClass} />
+              <SendIcon class={relatedLinkIconClass} strokeWidth={1} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://arca.live/b/characterai")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -183,10 +180,10 @@
         </div>
 
       {:else}
-        <div class="flex items-center mt-4">
-          <button class="mr-2 text-textcolor2 hover:text-primary" onclick={() => ($OpenRealmStore = false)}>
-            <ArrowLeft/>
-          </button>
+        <div class="mt-4 flex w-full items-center px-2">
+          <IconButton size="xl" onclick={() => ($OpenRealmStore = false)} aria-label={language.home}>
+            <HomeIcon/>
+          </IconButton>
         </div>
         <Hub />
       {/if}

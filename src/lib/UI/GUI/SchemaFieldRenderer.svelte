@@ -349,7 +349,7 @@
         {#if showReset}
             <button
                 type="button"
-                class="text-textcolor2 hover:text-draculared transition-colors flex items-center gap-1 text-xs"
+                class="text-textcolor2 risu-interactive-danger transition-colors flex items-center gap-1 text-xs"
                 title={language.reset}
                 onclick={resetField}
             >
@@ -413,7 +413,7 @@
     {:else if uiField.widget === 'combobox'}
         <input
             type="text"
-            class="bg-darkbg border border-darkborderc rounded-md px-3 py-2 text-textcolor focus:outline-hidden focus:ring-2 focus:ring-borderc"
+            class="risu-field-border bg-darkbg rounded-md px-3 py-2 text-textcolor"
             bind:value={userValues[fieldKey] as string}
             placeholder={uiField.placeholder ?? ''}
         />

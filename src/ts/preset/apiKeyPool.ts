@@ -14,7 +14,7 @@ export interface ApiKeyProviderOption {
 
 export function normalizeApiKeyProvider(provider: string | undefined): string | undefined {
     if (!provider) return undefined
-    const withoutWireSuffix = provider.replace(/--responses$/, '')
+    const withoutWireSuffix = provider.replace(/--(?:anthropic|responses)$/, '')
     return API_KEY_PROVIDER_ALIASES[withoutWireSuffix] ?? withoutWireSuffix
 }
 

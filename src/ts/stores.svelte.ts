@@ -5,7 +5,6 @@ import type { alertData } from "./alert";
 import { moduleUpdate } from "./process/modules";
 import { deepTouch } from "./gui/deepTouch.svelte";
 import { resetScriptCache } from "./process/scripts";
-import type { hubType } from "./characterCards";
 import type { PluginSafetyErrors } from "./plugins/pluginSafety";
 
 function updateSize(){
@@ -79,11 +78,22 @@ export const AdminStatsSubmenuIndex = writable(0)
 // mode gear button can deep-link to the Sidebar tab — see src/ts/routing
 // (AccessibilityTab) and Setting/Pages/AccessibilitySettings.svelte.
 export const AccessibilitySubmenuIndex = writable(0)
+// Shared tab state lets settings search deep-link into pages that previously
+// kept their selected tab as component-local state.
+export const DisplaySubmenuIndex = writable(0)
+export const AdvancedSubmenuIndex = writable(0)
+export const LanguageSubmenuIndex = writable(0)
+export const PromptPresetSubmenuIndex = writable(0)
+export const OtherBotsSubmenuIndex = writable(0)
+export const InlayGallerySubmenuIndex = writable(0)
+export const ModelPresetListTabIndex = writable(0)
 export const ReloadGUIPointer = writable(0)
+// Room switches need background/script-cache refreshes, but they must not
+// invalidate every room's parsed-message cache like a real GUI/script edit.
+export const ChatRoomReloadPointer = writable(0)
 export const ReloadChatPointer = writable({} as Record<number, number>)
-export const ScrollToMessageStore = $state({ value: -1 })
+export const ScrollToMessageStore = $state({ value: -1, exact: false })
 export const OpenRealmStore = writable(false)
-export const RealmInitialOpenChar = writable<null | hubType>(null)
 export const PlaygroundStore = writable(0)
 export const HideIconStore = writable(false)
 export const CustomCSSStore = writable('')
@@ -130,6 +140,7 @@ export function createSimpleCharacter(char:character){
 
     const simpleChar:simpleCharacterArgument = {
         type: "simple",
+        name: char.name,
         customscript: char.customscript,
         chaId: char.chaId,
         additionalAssets: char.additionalAssets,
@@ -205,21 +216,51 @@ export const popupStore = $state({
     openId: 0,
 })
 
+export interface PopupEditorMetadata {
+    label: string
+    value: string
+}
+
+export interface PopupEditorOptions {
+    value: string
+    title?: string
+    metadata?: PopupEditorMetadata[]
+    formatJson?: boolean
+    mode?: 'plain' | 'cbs'
+    onSave: (value: string) => boolean | Promise<boolean>
+}
+
 export const popUpEditorStore = $state({
     open: false,
     value: '',
-    mode: 'default' as 'default',
-    language: 'markdown' as string,
-    onSave: null as null | (() => boolean | Promise<boolean>)
+    originalValue: '',
+    title: '',
+    metadata: [] as PopupEditorMetadata[],
+    formatJson: false,
+    mode: 'cbs' as 'plain' | 'cbs',
+    onSave: null as null | ((value: string) => boolean | Promise<boolean>)
 })
+
+export function showPopupEditor(options: PopupEditorOptions) {
+    popUpEditorStore.value = options.value
+    popUpEditorStore.originalValue = options.value
+    popUpEditorStore.title = options.title ?? ''
+    popUpEditorStore.metadata = options.metadata ?? []
+    popUpEditorStore.formatJson = options.formatJson ?? false
+    popUpEditorStore.mode = options.mode ?? 'cbs'
+    popUpEditorStore.onSave = options.onSave
+    popUpEditorStore.open = true
+}
 
 //Set might be more ideal, however since Svelte doesn't support reactive Sets, using array for now
 export const hotReloading = $state<string[]>([])
 
-ReloadGUIPointer.subscribe(() => {
+const resetChatRenderState = () => {
     ReloadChatPointer.set({})
     resetScriptCache()
-})
+}
+ReloadGUIPointer.subscribe(resetChatRenderState)
+ChatRoomReloadPointer.subscribe(resetChatRenderState)
 
 $effect.root(() => {
     selectedCharID.subscribe((v) => {

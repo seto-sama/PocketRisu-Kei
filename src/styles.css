@@ -2,6 +2,22 @@
 
 @plugin '@tailwindcss/typography';
 
+/*
+  Treat keyboard focus as the keyboard equivalent of hover. Existing hover:*
+  utilities keep their pointer behavior and also apply to :focus-visible.
+*/
+@custom-variant hover {
+  &:focus-visible {
+    @slot;
+  }
+
+  @media (hover: hover) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
 @theme {
   --breakpoint-xs: 25rem;
 
@@ -20,6 +36,21 @@
   --color-scoped: var(--risu-theme-scoped);
   --color-highlight: var(--risu-theme-highlight);
   --color-accent: var(--risu-theme-accent);
+
+  /* CBS nesting keeps five distinct theme-aware hues before cycling. */
+  /* The parser's first nesting level is cbsnest1, then 2/3/4/0. */
+  --color-syntax-depth-0: var(--risu-theme-success);
+  --color-syntax-depth-1: var(--risu-theme-primary);
+  --color-syntax-depth-2: var(--risu-theme-scoped);
+  --color-syntax-depth-3: var(--risu-theme-highlight);
+  --color-syntax-depth-4: var(--risu-theme-accent);
+
+  /* Non-nesting syntax roles reuse the same theme hues. */
+  --color-syntax-comment: var(--risu-theme-textcolor2);
+  --color-syntax-type: var(--risu-theme-primary);
+  --color-syntax-keyword: var(--risu-theme-accent);
+  --color-syntax-variable: var(--risu-theme-highlight);
+  --color-syntax-literal: var(--risu-theme-scoped);
 
   --color-primary-50: var(--risu-theme-primary-50);
   --color-primary-100: var(--risu-theme-primary-100);
@@ -124,7 +155,67 @@
   --height-124: 32rem;
   --height-138: 36rem;
 
-  --default-ring-color: rgb(59 130 246 / 0.5);
+  --default-ring-color: var(--color-primary);
+}
+
+/*
+  Shared interaction vocabulary. These classes describe intent while the
+  hover variant above keeps pointer hover and keyboard focus-visible aligned.
+  Component-specific motion and layout effects should remain local.
+*/
+@utility risu-interactive-accent {
+  @apply hover:text-primary;
+}
+
+@utility risu-interactive-foreground {
+  @apply hover:text-textcolor;
+}
+
+@utility risu-interactive-danger {
+  @apply hover:text-draculared;
+}
+
+@utility risu-interactive-surface {
+  @apply hover:bg-selected/30;
+}
+
+@utility risu-interactive-surface-strong {
+  @apply hover:bg-selected/50;
+}
+
+@utility risu-interactive-surface-solid {
+  @apply hover:bg-selected;
+}
+
+@utility risu-interactive-primary {
+  @apply hover:bg-primary/90;
+}
+
+@utility risu-interactive-primary-soft {
+  @apply hover:bg-primary/20;
+}
+
+@utility risu-interactive-border {
+  @apply hover:border-borderc;
+}
+
+@utility risu-interactive-border-subtle {
+  @apply hover:border-borderc/30;
+}
+
+@utility risu-interactive-reveal {
+  @apply hover:opacity-100;
+}
+
+/* Full-viewport modal scrim. 100dvh follows mobile browser chrome as it
+   expands and collapses; 100vh remains the fallback for older engines. */
+@utility risu-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  background-color: var(--risu-black-50);
 }
 
 /*
@@ -151,7 +242,7 @@
 
   input::placeholder,
   textarea::placeholder {
-    color: var(--color-gray-400);
+    color: var(--risu-theme-textcolor2);
   }
 
   /* Keep the chat composer placeholder on a single line: the textarea height is
@@ -167,6 +258,18 @@
 
   dialog {
     margin: auto;
+  }
+}
+
+:focus-visible {
+  outline: none;
+}
+
+/* Preserve a system-native indicator for Windows High Contrast and similar modes. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
   }
 }
 
@@ -205,6 +308,7 @@ body {
   --risu-theme-primary: #3b82f6;
   --risu-theme-accent: #7581ff;
   --risu-theme-scoped: #a470ff;
+  --risu-black-50: rgb(0 0 0 / 50%);
   --risu-status-danger-bg: color-mix(in srgb, var(--risu-theme-draculared) 15%, var(--risu-theme-darkbg));
   --risu-status-danger-border: color-mix(in srgb, var(--risu-theme-draculared) 45%, var(--risu-theme-darkborderc));
   --risu-status-warning-bg: color-mix(in srgb, var(--risu-theme-warning) 15%, var(--risu-theme-darkbg));
@@ -213,7 +317,6 @@ body {
   --risu-status-info-border: color-mix(in srgb, var(--risu-theme-accent) 45%, var(--risu-theme-darkborderc));
   --risu-status-success-bg: color-mix(in srgb, var(--risu-theme-success) 15%, var(--risu-theme-darkbg));
   --risu-status-success-border: color-mix(in srgb, var(--risu-theme-success) 45%, var(--risu-theme-darkborderc));
-  --risu-height-size: 100%;
   --risu-font-family: Arial, sans-serif, serif;
 
   --risu-theme-neutral-50: #f9fafb;
@@ -313,6 +416,9 @@ body {
   --error-text: var(--risu-theme-draculared) !important;
   --error-border: var(--risu-status-danger-border) !important;
   font-family: inherit;
+  /* bits-ui dialogs disable pointer events on body while modal. Sonner is a
+     sibling portal, so explicitly keep its interaction surface available. */
+  pointer-events: auto;
 }
 
 .risu-toast {
@@ -331,7 +437,8 @@ body {
 
 html,
 body {
-  height: var(--risu-height-size);
+  height: 100%;
+  height: 100dvh;
 }
 
 .chattext p {
@@ -411,11 +518,6 @@ body {
   text-shadow: 0 0 12px color-mix(in srgb, transparent 70%, var(--FontColorBold) 30%);
 }
 
-.strokeme {
-  color: #000;
-  text-shadow: -1px -1px 0 white, 1px -1px 0 white, -1px 1px 0 white, 1px 1px 0 white;
-}
-
 /* Track */
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -448,22 +550,6 @@ html {
   scrollbar-color: color-mix(in srgb, var(--color-textcolor2) 35%, transparent) transparent;
 }
 
-/* Narrow screens: set UI Text Color 2 on each element instead of relying on
-   inheritance from html. Full-height mobile scroll surfaces may define their
-   own scrollbar color, which wins over an inherited value. */
-@media (max-width: 768px) {
-
-  /* Chromium may promote a single viewport-filling overflow element to its
-     implicit root scroller and paint a native, unstyleable scroll indicator.
-     A non-default opacity keeps these full-screen scrollers as regular element
-     scrollers; this value rounds to fully opaque when composited. */
-  .default-chat-screen,
-  .rs-setting-cont-3,
-  .rs-setting-cont-4 {
-    opacity: 0.999999;
-  }
-}
-
 * {
   font-family: var(--risu-font-family);
 }
@@ -472,17 +558,25 @@ html {
   margin-top: 0.3rem;
 }
 
+.chattext {
+  paint-order: stroke fill;
+  -webkit-text-stroke: var(--risu-chat-text-stroke, 0 transparent);
+  text-shadow: var(--risu-chat-text-shadow, none);
+}
+
 #app {
   width: 100%;
   height: 100%;
 }
 
-.bgc {
-  border-top: 1px solid rgba(98, 114, 164, 0.7);
+/* Shared border treatment for text fields and compound input frames. */
+.risu-field-border {
+  border: 1px solid var(--risu-theme-darkborderc);
+  transition: border-color 200ms ease;
 }
 
-.text-bordered {
-  -webkit-text-stroke: 1px #000;
+.risu-field-border:focus-within {
+  border-color: var(--risu-theme-primary);
 }
 
 .x-risu-risu-file {
@@ -498,13 +592,13 @@ html {
 }
 
 .x-risu-button-default {
-  @apply border text-textcolor rounded-md shadow-xs focus:outline-hidden focus:ring-2 transition-colors duration-200 border-darkborderc px-4 py-2 bg-darkbutton hover:bg-borderc focus:ring-borderc;
+  @apply border text-textcolor rounded-md shadow-xs transition-colors duration-200 border-darkborderc px-4 py-2 bg-darkbutton hover:bg-borderc;
 }
 
 .loadmove {
   animation: spin 1s linear infinite;
   border-radius: 50%;
-  border: 0.4rem solid rgba(0, 0, 0, 0);
+  border: 0.4rem solid transparent;
   width: 1rem;
   height: 1rem;
   border-top: 0.4rem solid var(--risu-theme-borderc);
@@ -514,7 +608,7 @@ html {
 }
 
 .x-risu-risu-comment {
-  @apply border border-darkborderc bg-darkbg text-textcolor rounded-md shadow-xs focus:outline-hidden transition-colors duration-200 px-4 py-2 min-w-0;
+  @apply border border-darkborderc bg-darkbg text-textcolor rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0;
 }
 
 .prose pre {
@@ -541,49 +635,45 @@ html {
   padding: 0.125rem 0.25rem;
 }
 
-@keyframes risu-spin {
-  to { transform: rotate(360deg); }
-}
-
 @keyframes risu-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
-.risu-loading-spinner::after {
-  content: '';
-  display: block;
-  width: 32px;
-  height: 32px;
-  border: 3px solid rgba(255, 255, 255, 0.3);
-  border-top-color: rgba(255, 255, 255, 0.8);
-  border-radius: 50%;
-  animation: risu-spin 0.8s linear infinite;
-}
-
 .x-risu-risu-inlay-image {
   @apply w-full flex justify-center;
+  margin-block: 0;
 }
 
 .x-risu-risu-inlay-image img {
-  @apply rounded-lg focus:outline-hidden max-w-80 w-full;
+  @apply rounded-lg max-w-80 w-full;
   margin: 0;
   max-width: 100%;
-  filter: drop-shadow(0 0 0.5rem rgba(0, 0, 0, 0.5));
+  filter: drop-shadow(0 0 0.5rem var(--risu-black-50));
   border-radius: 0.5rem;
 }
 
 .x-risu-risu-inlay-image video {
-  @apply rounded-lg focus:outline-hidden max-w-80 w-full;
+  @apply rounded-lg max-w-80 w-full;
 }
 
 .x-risu-risu-inlay-image audio {
-  @apply rounded-lg focus:outline-hidden max-w-80 w-full;
+  @apply rounded-lg max-w-80 w-full;
 }
 
 .x-risu-risu-inlay-missing {
-  @apply w-full max-w-80 rounded-lg border border-darkborderc/70 bg-black/15 text-textcolor2 flex flex-col items-center justify-center text-center px-4 py-6 gap-1;
+  @apply w-full max-w-80 rounded-lg border border-darkborderc/70 bg-darkbg text-textcolor2 flex flex-col items-center justify-center text-center px-4 py-6 gap-1;
   min-height: 120px;
+  margin-block: 0;
+}
+
+.x-risu-risu-inlay-image + :is(.x-risu-risu-inlay-image, .x-risu-risu-inlay-missing),
+.x-risu-risu-inlay-missing + :is(.x-risu-risu-inlay-image, .x-risu-risu-inlay-missing) {
+  margin-block-start: 1.25rem;
+}
+
+.x-risu-risu-inlay-image > .x-risu-risu-inlay-missing {
+  margin-block: 0;
 }
 
 .x-risu-risu-inlay-missing-title {
@@ -595,7 +685,7 @@ html {
 }
 
 .x-risu-risu-error {
-  @apply border-2 border-red-700 bg-red-500 text-white rounded-md shadow-xs focus:outline-hidden transition-colors duration-200 px-4 py-2 min-w-0 wrap-break-word;
+  @apply border-2 border-red-700 bg-red-500 text-white rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0 wrap-break-word;
 }
 
 .x-risu-risu-error h1 {
@@ -609,6 +699,10 @@ html {
 .saving-animation {
   animation: saving-anime 1s infinite;
   background-size: 200% auto;
+}
+
+.risu-saving-gradient {
+  @apply from-blue-500 to-purple-800;
 }
 
 @keyframes saving-anime {
@@ -638,13 +732,13 @@ html {
   display: none;
 }
 
-.chat-message-container:first-of-type .dyna-icon,
+.chat-message-container:last-of-type .dyna-icon,
 .chat-message-container .dyna-icon.force-show {
   display: block;
 }
 
 .x-risu-tool-call {
-  @apply border border-darkborderc bg-darkbg text-textcolor rounded-md shadow-xs focus:outline-hidden transition-colors duration-200 px-4 py-2 min-w-0;
+  @apply border border-darkborderc bg-darkbg text-textcolor rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0;
 }
 
 .root-loaded-image {

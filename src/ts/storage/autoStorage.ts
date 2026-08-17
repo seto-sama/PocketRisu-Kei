@@ -12,9 +12,13 @@ export class AutoStorage{
     async getItem(key:string):Promise<Buffer> {
         return await this.realStorage.getItem(key)
     }
-    async keys(prefix: string = ''):Promise<string[]>{
+    async keys(prefix: string = '', options?: { order?: 'updated-desc'; limit?: number; offset?: number }):Promise<string[]>{
         await this.Init()
-        return await this.realStorage.keys(prefix)
+        return await this.realStorage.keys(prefix, options)
+    }
+    async keyPage(prefix: string = '', options?: { order?: 'updated-desc'; limit?: number; offset?: number }) {
+        await this.Init()
+        return await this.realStorage.keyPage(prefix, options)
     }
     async removeItem(key:string){
         return await this.realStorage.removeItem(key)
@@ -86,3 +90,6 @@ export class AutoStorage{
     async scanCleanup() { await this.Init(); return this.realStorage.scanCleanup() }
     async executeCleanup() { await this.Init(); return this.realStorage.executeCleanup() }
 }
+
+/** Process-wide storage facade shared by persistence and network services. */
+export const forageStorage = new AutoStorage()

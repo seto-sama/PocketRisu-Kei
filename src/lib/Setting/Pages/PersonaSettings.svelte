@@ -46,6 +46,7 @@
         bindKey: 'personaPrompt',
         options: {
             placeholder: 'Put the description of this persona here.\nExample: [<user> is a 20 year old girl.]',
+            showTokenCount: true,
         },
     }];
 
@@ -71,7 +72,7 @@
             <div class="flex h-[16.5rem] w-44 shrink-0 flex-col gap-2 max-sm:w-full max-sm:items-center">
                 <button
                     type="button"
-                    class="relative w-44 overflow-hidden rounded-md border border-darkborderc bg-textcolor2 shadow-lg transition-[height] duration-200 focus-visible:ring-2 focus-visible:ring-primary"
+                    class="relative w-44 overflow-hidden rounded-md border border-darkborderc bg-textcolor2 shadow-lg transition-[height,border-color] duration-200 hover:border-primary"
                     class:h-56={!!activePersona?.largePortrait}
                     class:h-44={!activePersona?.largePortrait}
                     aria-label={language.select}

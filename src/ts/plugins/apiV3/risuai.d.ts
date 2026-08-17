@@ -100,6 +100,25 @@
 // ============================================================================
 
 /**
+ * Inlay asset shape returned by `risuai.readInlay`.
+ * `data` is a base64 data URI (for example, `data:image/png;base64,iVBORw0...`).
+ */
+interface InlayAssetForPlugin {
+    /** Base64 data URI */
+    data: string;
+    /** File extension without a leading dot */
+    ext: string;
+    /** Original asset filename */
+    name: string;
+    /** Asset category */
+    type: 'image' | 'video' | 'audio' | 'signature';
+    /** Pixel height for images and videos */
+    height?: number;
+    /** Pixel width for images and videos */
+    width?: number;
+}
+
+/**
  * MCP tool definition
  */
 interface MCPToolDef {
@@ -1909,6 +1928,26 @@ interface RisuaiPluginAPI {
     readImage(path?: string): Promise<any>;
 
     /**
+     * Reads a user-attached inlay asset by UUID. Raw chat messages refer to
+     * these assets with a `{{inlayed::<uuid>}}` placeholder.
+     *
+     * @param id - Inlay UUID
+     * @returns The serialized asset, or `null` when it does not exist
+     *
+     * @example
+     * ```typescript
+     * const match = rawMessageData.match(/\{\{inlayed::([a-f0-9-]+)\}\}/i);
+     * if (match) {
+     *     const inlay = await risuai.readInlay(match[1]);
+     *     // inlay.data === "data:image/png;base64,iVBORw0..."
+     *     // inlay.ext === "png"
+     *     // inlay.type === "image"
+     * }
+     * ```
+     */
+    readInlay(id: string): Promise<InlayAssetForPlugin | null>;
+
+    /**
      * Saves an asset
      * @param data - Asset data
      * @returns Saved asset path
@@ -1987,11 +2026,10 @@ interface RisuaiPluginAPI {
     // ========== Model Requesters ==========
 
     /**
-     * Runs a request through a specified LLM model with given messages and options.
+     * Runs a request through the active chat's bound model preset.
      * @param options - Options for the LLM request
      * @param options.messages - Array of chat messages to send to the model
-     * @param options.staticModel - Optional static model name to use (e.g., 'gpt-4')
-     * @param options.mode - Request mode
+     * @param options.mode - Binding slot to use (main, sub, or auxiliary)
      * @param options.allowPlugins - If true, allow the call to resolve to a
      *   plugin-provided model (`pluginmodel:::*`). Default is false: plugin
      *   models are blocked to guard against accidental IPC loops between
@@ -2003,7 +2041,6 @@ interface RisuaiPluginAPI {
      */
     runLLMModel(options: {
         messages: any[];
-        staticModel?: string;
         mode: string;
         allowPlugins?: boolean;
     }): Promise<any>;

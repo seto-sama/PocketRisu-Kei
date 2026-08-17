@@ -16,6 +16,7 @@
     //   above/below positioning.
     import { ChevronDownIcon, CheckIcon } from "@lucide/svelte";
     import { isTouchDevice } from "src/ts/stores.svelte";
+    import Portal from "./Portal.svelte";
 
     interface Props {
         value: string | number;
@@ -41,6 +42,7 @@
     let highlightedIndex = $state(-1);
     let triggerEl: HTMLDivElement | undefined = $state();
     let dropdownEl: HTMLDivElement | undefined = $state();
+    let positionFrame: number | null = null;
     const selectId = `sh-select-${++selectIdCounter}`;
     const listboxId = `${selectId}-listbox`;
     const getOptionId = (index: number) => `${selectId}-option-${index}`;
@@ -107,6 +109,14 @@
         }
     }
 
+    function schedulePositionDropdown() {
+        if (positionFrame !== null) return;
+        positionFrame = requestAnimationFrame(() => {
+            positionFrame = null;
+            positionDropdown();
+        });
+    }
+
     function handleKeydown(e: KeyboardEvent) {
         if (!open) {
             if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
@@ -152,7 +162,17 @@
     $effect(() => {
         if (open) {
             document.addEventListener('click', handleClickOutside, true);
-            return () => document.removeEventListener('click', handleClickOutside, true);
+            window.addEventListener('resize', schedulePositionDropdown);
+            window.addEventListener('scroll', schedulePositionDropdown, true);
+            return () => {
+                document.removeEventListener('click', handleClickOutside, true);
+                window.removeEventListener('resize', schedulePositionDropdown);
+                window.removeEventListener('scroll', schedulePositionDropdown, true);
+                if (positionFrame !== null) {
+                    cancelAnimationFrame(positionFrame);
+                    positionFrame = null;
+                }
+            };
         }
     });
 
@@ -197,8 +217,8 @@
 <!-- Native select: always rendered for OptionInput children -->
 <!-- Touch: visible via transparent overlay / Mouse: screen-reader only -->
 {#if $isTouchDevice}
-    <div class="relative {className}">
-        <div class="flex {heightClasses[size]} items-center justify-between gap-2 rounded-md border border-darkborderc
+    <div class="relative rounded-md border border-darkborderc {className}">
+        <div class="flex {heightClasses[size]} items-center justify-between gap-2 rounded-md
                     bg-transparent {sizeClasses[size]} text-textcolor select-none pointer-events-none">
             <span class="flex flex-1 text-left truncate">{selectedLabel || ' '}</span>
             <ChevronDownIcon class="size-4 shrink-0 text-textcolor2" />
@@ -228,9 +248,8 @@
         aria-activedescendant={activeDescendant}
         class="flex {heightClasses[size]} items-center justify-between gap-2 rounded-md border border-darkborderc
                bg-transparent {sizeClasses[size]} text-textcolor select-none
-               transition-colors cursor-pointer
-               hover:bg-selected/30
-               focus-visible:border-borderc focus-visible:ring-3 focus-visible:ring-borderc/50
+               transition-colors cursor-pointer risu-interactive-surface
+               focus-visible:border-borderc outline-none
                {className}"
         tabindex={0}
         onclick={() => open ? closeDropdown() : openDropdown()}
@@ -241,6 +260,7 @@
     </div>
 
     {#if open}
+        <Portal>
         <div
             id={listboxId}
             bind:this={dropdownEl}
@@ -256,18 +276,19 @@
                     aria-selected={opt.value === String(value)}
                     class="relative flex w-full items-center gap-2 rounded-md {itemSizeClasses[size]}
                            text-textcolor cursor-pointer select-none text-left whitespace-nowrap
-                           {i === highlightedIndex ? 'bg-selected' : 'hover:bg-selected/50'}"
+                           {i === highlightedIndex ? 'bg-selected' : 'risu-interactive-surface-strong'}"
                     onmouseenter={() => highlightedIndex = i}
                     onclick={() => selectOption(opt.value)}
                 >
                     {opt.label}
                     {#if opt.value === String(value)}
                         <span class="pointer-events-none absolute right-2 flex size-4 items-center justify-center">
-                            <CheckIcon class="size-4 text-borderc" />
+                            <CheckIcon class="size-4 text-primary" />
                         </span>
                     {/if}
                 </button>
             {/each}
         </div>
+        </Portal>
     {/if}
 {/if}

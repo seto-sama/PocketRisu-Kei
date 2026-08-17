@@ -24,6 +24,7 @@
     import PromptBind from "./PromptBind.svelte";
     import ModelBind from "./ModelBind.svelte";
     import { changeChatTo, createChatCopyName, requestImmediateSave } from "src/ts/globalApi.svelte";
+    import { folderColorOptions, getFolderColorStyle } from "./folderColors";
 
     interface Props {
         chara: character;
@@ -98,8 +99,9 @@
         >
             <!-- chat folder -->
             {#each chara.chatFolders as folder, i (folder.id)}
+            {@const folderColorStyle = getFolderColorStyle(folder.color)}
             <div data-sortable-key={folder.id} data-risu-chat-folder-id={folder.id}
-                class="flex flex-col mb-2 border-solid border-1 border-darkborderc cursor-pointer rounded-md">
+                class="flex flex-col mb-2 border-solid border-1 cursor-pointer rounded-md {folderColorStyle.border}">
                 <!-- folder header -->
                 <button 
                     onclick={() => {
@@ -108,14 +110,7 @@
                             $ReloadGUIPointer += 1
                         }
                     }}
-                    class="chat-folder-header flex min-w-0 items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
-                    class:bg-red-900={folder.color === 'red'}
-                    class:bg-yellow-900={folder.color === 'yellow'}
-                    class:bg-green-900={folder.color === 'green'}
-                    class:bg-blue-900={folder.color === 'blue'}
-                    class:bg-indigo-900={folder.color === 'indigo'}
-                    class:bg-purple-900={folder.color === 'purple'}
-                    class:bg-pink-900={folder.color === 'pink'}
+                    class="chat-folder-header flex min-w-0 items-center text-textcolor border-0 p-2 cursor-pointer rounded-md {folderColorStyle.fill}"
                 >
                     {#if editMode}
                         <div class="min-w-0 grow">
@@ -129,7 +124,7 @@
                             if(e.key === 'Enter'){
                                 e.currentTarget.click()
                             }
-                        }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
+                        }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
                             e.stopPropagation()
                             const remoteVisibilityLabel = folder.localOnly
                                 ? language.showFolderOnRemoteAccess
@@ -137,9 +132,13 @@
                             const sel = parseInt(await alertSelect([language.changeFolderColor, remoteVisibilityLabel, language.cancel]))
                             switch (sel) {
                                 case 0:
-                                    const colors = ["red","green","blue","yellow","indigo","purple","pink","default"]
-                                    const sel = parseInt(await alertSelect(colors))
-                                    folder.color = colors[sel]
+                                    const colorSelection = parseInt(await alertSelect(
+                                        folderColorOptions.map(({ label }) => label)
+                                    ))
+                                    const selectedColor = folderColorOptions[colorSelection]?.value
+                                    if (selectedColor) {
+                                        folder.color = selectedColor
+                                    }
                                     break
                                 case 1:
                                     folder.localOnly = !folder.localOnly
@@ -152,7 +151,7 @@
                             if(e.key === 'Enter'){
                                 e.currentTarget.click()
                             }
-                        }} class="text-textcolor2 hover:text-red-400 cursor-pointer" onclick={async (e) => {
+                        }} class="text-textcolor2 risu-interactive-danger cursor-pointer" onclick={async (e) => {
                             e.stopPropagation()
                             const d = await alertConfirm(`${language.removeConfirm}${folder.name}`)
                             if (d) {
@@ -203,7 +202,7 @@
                                 if(e.key === 'Enter'){
                                     e.currentTarget.click()
                                 }
-                            }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
+                            }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
                                 e.stopPropagation()
                                 const confirmed = await alertConfirm(`${language.copyChatConfirm}${chat.name}`)
                                 if(!confirmed) return
@@ -230,7 +229,7 @@
                                 if(e.key === 'Enter'){
                                     e.currentTarget.click()
                                 }
-                            }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
+                            }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
                                 e.stopPropagation()
                                 exportChat(chara.chats.indexOf(chat))
                             }}>
@@ -240,7 +239,7 @@
                                 if(e.key === 'Enter'){
                                     e.currentTarget.click()
                                 }
-                            }} class="text-textcolor2 hover:text-red-400 cursor-pointer" onclick={async (e) => {
+                            }} class="text-textcolor2 risu-interactive-danger cursor-pointer" onclick={async (e) => {
                                 e.stopPropagation()
                                 if(chara.chats.length === 1){
                                     notifyError(language.errors.onlyOneChat)
@@ -296,7 +295,7 @@
                         if(e.key === 'Enter'){
                             e.currentTarget.click()
                         }
-                    }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
+                    }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
                         e.stopPropagation()
                         const confirmed = await alertConfirm(`${language.copyChatConfirm}${chat.name}`)
                         if(!confirmed) return
@@ -322,7 +321,7 @@
                         if(e.key === 'Enter'){
                             e.currentTarget.click()
                         }
-                    }} class="text-textcolor2 hover:text-primary cursor-pointer" onclick={async (e) => {
+                    }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
                         e.stopPropagation()
                         exportChat(i)
                     }}>
@@ -332,7 +331,7 @@
                         if(e.key === 'Enter'){
                             e.currentTarget.click()
                         }
-                    }} class="text-textcolor2 hover:text-red-400 cursor-pointer" onclick={async (e) => {
+                    }} class="text-textcolor2 risu-interactive-danger cursor-pointer" onclick={async (e) => {
                         e.stopPropagation()
                         if(chara.chats.length === 1){
                             notifyError(language.errors.onlyOneChat)
@@ -405,7 +404,7 @@
             </IconButton>
         </IconButtonGroup>
 
-        {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground' && !$chatDeselected}
+        {#if !$chatDeselected}
             {#if DBState.db.showModelInSidebar}
                 <ModelBind />
             {/if}

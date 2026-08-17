@@ -2,6 +2,7 @@
     import { XIcon } from "@lucide/svelte";
     import { language } from "../../lang";
     import { DBState } from 'src/ts/stores.svelte';
+    import Portal from "../UI/GUI/Portal.svelte";
 
     interface Props {
         close?: () => void;
@@ -10,12 +11,13 @@
     let { close = () => {} }: Props = $props();
 </script>
 
-<div class="absolute w-full h-full z-40 bg-black/50 flex justify-center items-center">
+<Portal>
+<div class="risu-modal-backdrop z-40 flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-96 max-h-full overflow-y-auto">
         <div class="flex items-center text-textcolor mb-4">
             <h2 class="mt-0 mb-0 font-bold">{language.longTermMemory} {language.presets}</h2>
             <div class="grow flex justify-end">
-                <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer items-center" onclick={close}>
+                <button class="text-textcolor2 risu-interactive-accent mr-2 cursor-pointer items-center" onclick={close}>
                     <XIcon size={20}/>
                 </button>
             </div>
@@ -32,6 +34,7 @@
         {/each}
     </div>
 </div>
+</Portal>
 
 <style>
     .break-any{

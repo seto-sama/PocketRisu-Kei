@@ -219,7 +219,7 @@
                     </div>
                     <button
                         type="button"
-                        class="relative flex size-6 shrink-0 items-center justify-center text-textcolor2 transition-colors after:absolute after:-inset-1 hover:text-draculared"
+                        class="relative flex size-6 shrink-0 items-center justify-center text-textcolor2 transition-colors after:absolute after:-inset-1 risu-interactive-danger"
                         aria-label={language.remove}
                         title={language.remove}
                         onclick={async () => {

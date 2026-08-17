@@ -160,7 +160,7 @@
     }
 
     async function runWalCleanup() {
-        const ok = await alertConfirm(language.storageWalCleanupConfirm)
+        const ok = await alertConfirm(language.storageWalCleanupConfirm(stats.files.wal))
         if (!ok) return
         walCleanupOpen = true
         try {
@@ -315,13 +315,18 @@
         // tiny marker, so the chart counts the chunk table's physical size here
         // and excludes database.bin / dbbackup from kv accounting.
         const chunkedDbBytes = stats.chunks?.bytes ?? 0
+        // Old chunk versions are intentionally left behind until Optimize runs.
+        // They are not part of the live database or a retained snapshot, so show
+        // them as reclaimable space instead of inflating "database.bin (live)".
+        const orphanChunkBytes = stats.chunks?.orphanBytes ?? 0
+        const retainedChunkBytes = Math.max(0, chunkedDbBytes - orphanChunkBytes)
         // A small DB (≤ chunk threshold) stays a raw kv value rather than chunks,
         // so count it here — otherwise the database row reads 0 and its bytes get
         // mislabeled as "uncategorized". Keyed on whether the *live* blob is
         // chunked (not whether any chunks exist — snapshots may be chunked while a
         // shrunken live DB is raw).
         const rawDbBlob = stats.chunks?.liveChunked ? 0 : get('database/database.bin')
-        const dbRowSize = chunkedDbBytes + rawDbBlob
+        const dbRowSize = retainedChunkBytes + rawDbBlob
         // Known kv prefixes I track explicitly — kv-side only. If anything
         // else lives in kv (test keys, migration leftovers), it shows up
         // under "uncategorized" so the bar always sums correctly.
@@ -329,11 +334,13 @@
             get('assets/') + inlayKvTotal + get('remotes/') + get('coldstorage/')
             + get('cache/hypa-vector/') + get('cache/llm-translate/') + rawDbBlob
         const uncategorizedKv = Math.max(0, stats.kvTotalBytes - knownKv)
+        const otherData = uncategorizedKv + stats.files.wal + stats.files.shm
         // SQLite overhead splits into "structural" (always present — indexes,
         // page headers, alignment) and "reclaimable" (the freelist, removable
         // by VACUUM). Subtract the chunk table too — it lives in the file but
         // not in kvTotalBytes, otherwise it would inflate "overhead".
         const reclaimable = stats.sqlite.reclaimable
+        const totalReclaimable = reclaimable + orphanChunkBytes
         const structuralOverhead = Math.max(0, stats.files.db - stats.kvTotalBytes - chunkedDbBytes - reclaimable)
         const rows: DiskRow[] = [
             { id: 'kv-database',     label: language.storageRowKvDatabase,     desc: language.storageRowKvDatabaseDesc,     size: dbRowSize,                     color: 'bg-rose-500' },
@@ -343,11 +350,9 @@
             { id: 'llm-translation',  label: language.storageRowLlmTranslationCache, desc: language.storageRowLlmTranslationCacheDesc, size: get('cache/llm-translate/'), color: 'bg-indigo-500' },
             { id: 'kv-remotes',      label: language.storageRowKvRemotes,      desc: language.storageRowKvRemotesDesc,      size: get('remotes/'),               color: 'bg-cyan-500' },
             { id: 'kv-cold',         label: language.storageRowKvColdStorage,  desc: language.storageRowKvColdStorageDesc,  size: get('coldstorage/'),           color: 'bg-stone-500' },
-            { id: 'kv-uncat',        label: language.storageRowKvUncategorized, desc: language.storageRowKvUncategorizedDesc, size: uncategorizedKv,             color: 'bg-stone-600' },
+            { id: 'kv-uncat',        label: language.storageRowKvUncategorized, desc: language.storageRowKvUncategorizedDesc, size: otherData,                   color: 'bg-stone-600' },
             { id: 'overhead',        label: language.storageRowSqliteOverhead, desc: language.storageRowSqliteOverheadDesc, size: structuralOverhead,            color: 'bg-zinc-500' },
-            { id: 'reclaimable',     label: language.storageRowReclaimablePages, desc: language.storageRowReclaimablePagesDesc, size: reclaimable,               color: 'bg-yellow-500' },
-            { id: 'wal',             label: language.storageRowWal,            desc: language.storageRowWalDesc,            size: stats.files.wal,               color: 'bg-sky-500' },
-            { id: 'shm',             label: language.storageRowShm,            desc: language.storageRowShmDesc,            size: stats.files.shm,               color: 'bg-lime-500' },
+            { id: 'reclaimable',     label: language.storageRowReclaimablePages, desc: language.storageRowReclaimablePagesDesc, size: totalReclaimable,          color: 'bg-warning' },
             // File backups are only on the same disk as save/ when sameAsSaveDir
             // is true. If user pointed backupsDir at a different mount, those
             // bytes don't belong in this chart's geometry — they're shown in
@@ -416,8 +421,13 @@
     const modSlice = $derived(modules?.modules.slice(0, modShown) ?? [])
     const modRemaining = $derived((modules?.modules.length ?? 0) - modShown)
 
-    // Used vs reclaimable inside risuai.db, for the cleanup section bar.
-    const overheadUsed = $derived(stats ? Math.max(0, stats.files.db - stats.sqlite.reclaimable) : 0)
+    // Used vs reclaimable inside risuai.db, for the cleanup section bar. This
+    // includes both SQLite freelist pages and unreferenced content chunks; the
+    // Optimize endpoint reclaims both in the same operation.
+    const totalReclaimable = $derived(
+        stats ? stats.sqlite.reclaimable + (stats.chunks?.orphanBytes ?? 0) : 0,
+    )
+    const overheadUsed = $derived(stats ? Math.max(0, stats.files.db - totalReclaimable) : 0)
 
     // ⓘ button: opens a small markdown modal. Works on touch (where hover
     // tooltips are unreachable) and via keyboard.
@@ -501,7 +511,7 @@
                             <button
                                 {...props}
                                 type="button"
-                                class="text-textcolor2 hover:text-primary cursor-pointer shrink-0 leading-none"
+                                class="text-textcolor2 risu-interactive-accent cursor-pointer shrink-0 leading-none"
                                 aria-label={row.label}
                                 onclick={() => openRowDetails(row.label, row.desc, row.size)}
                             >
@@ -541,56 +551,7 @@
         </div>
     </SettingLayout>
 
-    <!-- ② Manual WAL cleanup ────────────────────────────────────────────── -->
-    <SettingLayout variant="panel">
-        <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
-            <div class="flex items-center gap-2 text-textcolor">
-                <HardDriveIcon size={16} />
-                <span class="font-medium">{language.storageWalCleanup}</span>
-            </div>
-            <span class="text-textcolor2 text-sm tabular-nums">
-                {language.storageWalCleanupHeader(stats.files.wal)}
-            </span>
-        </div>
-        <p class="text-textcolor2 text-sm leading-relaxed mb-2">{language.storageWalCleanupWhat}</p>
-        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageWalCleanupWhen}</p>
-        <div class="flex justify-end">
-            <ShButton variant="outline" onclick={runWalCleanup} disabled={walCleanupOpen}>
-                <HardDriveIcon />
-                {language.storageWalCleanup_btn}
-            </ShButton>
-        </div>
-    </SettingLayout>
-
-    <!-- ③ HypaMemory vector cache cleanup ──────────────────────────────── -->
-    <SettingLayout variant="panel">
-        <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
-            <div class="flex items-center gap-2 text-textcolor">
-                <SparklesIcon size={16} />
-                <span class="font-medium">{language.storageHypaCleanup}</span>
-            </div>
-            <span class="text-textcolor2 text-sm tabular-nums">
-                {language.storageHypaCleanupHeader(
-                    stats.prefixes['cache/hypa-vector/']?.totalSize ?? 0,
-                    stats.prefixes['cache/hypa-vector/']?.count ?? 0,
-                )}
-            </span>
-        </div>
-        <p class="text-textcolor2 text-sm leading-relaxed mb-2">{language.storageHypaCleanupWhat}</p>
-        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageHypaCleanupWhen}</p>
-        <div class="flex justify-end">
-            <ShButton
-                variant="outline"
-                onclick={runHypaCleanup}
-                disabled={hypaCleanupOpen || (stats.prefixes['cache/hypa-vector/']?.count ?? 0) === 0}
-            >
-                <SparklesIcon />
-                {language.storageHypaCleanup_btn}
-            </ShButton>
-        </div>
-    </SettingLayout>
-
-    <!-- ④ SQLite overhead cleanup ──────────────────────────────────────── -->
+    <!-- ② Database cleanup -->
     <SettingLayout variant="panel">
         <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
             <div class="flex items-center gap-2 text-textcolor">
@@ -598,7 +559,7 @@
                 <span class="font-medium">{language.storageCleanup}</span>
             </div>
             <span class="text-textcolor2 text-sm tabular-nums">
-                {language.storageOptimizeHeader(stats.files.db, stats.sqlite.reclaimable)}
+                {language.storageOptimizeHeader(stats.files.db, totalReclaimable)}
             </span>
         </div>
 
@@ -613,28 +574,59 @@
             </ShTooltip>
             <ShTooltip>
                 {#snippet trigger(props)}
-                    <div {...props} class="bg-warning cursor-help" style:width={pctOf(stats.sqlite.reclaimable, stats.files.db).toFixed(3) + '%'}></div>
+                    <div {...props} class="bg-warning cursor-help" style:width={pctOf(totalReclaimable, stats.files.db).toFixed(3) + '%'}></div>
                 {/snippet}
                 <div class="font-medium">{language.storageOptimizeBarReclaimable}</div>
-                <div class="text-textcolor2 tabular-nums">{fmtBytes(stats.sqlite.reclaimable)}</div>
+                <div class="text-textcolor2 tabular-nums">{fmtBytes(totalReclaimable)}</div>
             </ShTooltip>
         </div>
         <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-textcolor2 text-xs mb-3 tabular-nums">
             <span><span class="inline-block size-2 bg-primary rounded-sm align-middle mr-1"></span>{language.storageOptimizeBarUsed} {fmtBytes(overheadUsed)}</span>
-            <span><span class="inline-block size-2 bg-warning rounded-sm align-middle mr-1"></span>{language.storageOptimizeBarReclaimable} {fmtBytes(stats.sqlite.reclaimable)}</span>
+            <span><span class="inline-block size-2 bg-warning rounded-sm align-middle mr-1"></span>{language.storageOptimizeBarReclaimable} {fmtBytes(totalReclaimable)}</span>
         </div>
 
         <p class="text-textcolor2 text-sm leading-relaxed mb-2">{language.storageOptimizeWhat}</p>
-        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageOptimizeWhen}</p>
-        <div class="flex justify-end">
-            <ShButton variant="primary" onclick={runOptimize} disabled={(stats.sqlite.reclaimable + (stats.chunks?.orphanBytes ?? 0)) < 50 * 1024 * 1024}>
+        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageWalCleanupWhat}</p>
+        <div class="flex justify-end gap-2">
+            <ShButton variant="outline" onclick={runWalCleanup} disabled={walCleanupOpen}>
+                <HardDriveIcon />
+                {language.storageWalCleanup_btn}
+            </ShButton>
+            <ShButton variant="primary" onclick={runOptimize} disabled={totalReclaimable < 50 * 1024 * 1024}>
                 <SparklesIcon />
                 {language.storageOptimize}
             </ShButton>
         </div>
     </SettingLayout>
 
-    <!-- ⑤ Per-character ─────────────────────────────────────────────────── -->
+    <!-- ③ HypaMemory vector cache cleanup -->
+    <SettingLayout variant="panel">
+        <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
+            <div class="flex items-center gap-2 text-textcolor">
+                <SparklesIcon size={16} />
+                <span class="font-medium">{language.storageHypaCleanup}</span>
+            </div>
+            <span class="text-textcolor2 text-sm tabular-nums">
+                {language.storageHypaCleanupHeader(
+                    stats.prefixes['cache/hypa-vector/']?.totalSize ?? 0,
+                    stats.prefixes['cache/hypa-vector/']?.count ?? 0,
+                )}
+            </span>
+        </div>
+        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageHypaCleanupWhat}</p>
+        <div class="flex justify-end">
+            <ShButton
+                variant="outline"
+                onclick={runHypaCleanup}
+                disabled={hypaCleanupOpen || (stats.prefixes['cache/hypa-vector/']?.count ?? 0) === 0}
+            >
+                <SparklesIcon />
+                {language.storageHypaCleanup_btn}
+            </ShButton>
+        </div>
+    </SettingLayout>
+
+    <!-- ④ Per-character -->
     <SettingLayout variant="panel">
         <div class="flex items-center justify-between gap-2 mb-3">
             <div class="flex items-center gap-2 text-textcolor">
@@ -712,7 +704,7 @@
         {/if}
     </SettingLayout>
 
-    <!-- ⑥ Per-module ────────────────────────────────────────────────────── -->
+    <!-- ⑤ Per-module -->
     <SettingLayout variant="panel">
         <div class="flex items-center justify-between gap-2 mb-3">
             <div class="flex items-center gap-2 text-textcolor">
@@ -771,7 +763,7 @@
         {/if}
     </SettingLayout>
 
-    <!-- ⑦ Debug ─────────────────────────────────────────────────────────── -->
+    <!-- ⑥ Debug -->
     <ShAccordion name={language.storageDebug} variant="card">
         <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-textcolor2 text-sm font-mono">
             <div>journal_mode</div><div class="text-textcolor">{stats.sqlite.journalMode}</div>

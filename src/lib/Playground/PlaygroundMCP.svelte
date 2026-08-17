@@ -1,6 +1,6 @@
 <script lang="ts">
   import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
-    import Button from "../UI/GUI/Button.svelte";
+    import ShButton from "../UI/GUI/ShButton.svelte";
     import { type MCPToolWithURL, callMCPTool, getMCPMeta, getMCPTools, initializeMCPs } from "src/ts/process/mcp/mcp";
     import { alertMd } from "src/ts/alert";
 
@@ -31,13 +31,13 @@
         <pre class="overflow-x-auto w-full">{JSON.stringify(tool.inputSchema, null, 2)}</pre>
       </div>
       <TextAreaInput bind:value={toolInputs[tool.name]} placeholder="Input for this tool" />
-      <Button onclick={async () => {
+      <ShButton onclick={async () => {
         const x = await callMCPTool(tool.name, JSON.parse(toolInputs[tool.name]));
         alertMd(`Tool ${tool.name} executed\n\nResponse:\n\`\`\`json\n${JSON.stringify(x, null, 2)}\n\`\`\``);
-      }}>Execute {tool.name}</Button>
+      }}>Execute {tool.name}</ShButton>
     </div>
   {/each}
 </div>
 
 
-<Button onclick={refresh}>Refresh</Button>
+<ShButton onclick={refresh}>Refresh</ShButton>

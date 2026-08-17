@@ -1,4 +1,15 @@
-import type { LLMParameter } from '../process/request/shared'
+export type LLMParameter =
+    | 'temperature'
+    | 'top_k'
+    | 'repetition_penalty'
+    | 'min_p'
+    | 'top_a'
+    | 'top_p'
+    | 'frequency_penalty'
+    | 'presence_penalty'
+    | 'reasoning_effort'
+    | 'thinking_tokens'
+    | 'verbosity'
 
 export const LLMFlags = {
     hasImageInput: 0,

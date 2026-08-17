@@ -1,29 +1,58 @@
-import { getDatabase } from 'src/ts/storage/database.svelte'
 import { v4 as uuidv4 } from 'uuid'
 import type { RequestDataArgumentExtended } from './request'
+import type { OpenAIChat } from '../index.svelte'
 import {
     getRevenantOperationJobType,
-    type RevenantGenerationContext,
+    type RevenantGenerationRequest,
+    type RevenantProviderJobSpec,
     type ModelModeExtended,
-} from '../revenantGeneration/types'
+} from '../revenant'
 import {
-    applyAdditionalParameters,
-    setObjectValue,
-} from 'src/ts/preset/runtime/additionalParameters'
+    getLocalRevenantWorkflow,
+    getRevenantWorkflowStepKey,
+} from '../revenant/workflow'
 
-export type { ModelModeExtended } from '../revenantGeneration/types'
-export {
-    applyAdditionalParameters,
-    setObjectValue,
-} from 'src/ts/preset/runtime/additionalParameters'
+export type { ModelModeExtended } from '../revenant'
 
-export function buildGenerationContext(
+/**
+ * A chat message is request-worthy when it carries model-visible text or
+ * non-text payload. Metadata alone (role, name, cache flags, etc.) does not
+ * make an otherwise empty message meaningful.
+ */
+export function hasMessagePayload(message: OpenAIChat): boolean {
+    if (message.content.trim().length > 0) return true
+    if ((message.multimodals?.length ?? 0) > 0) return true
+    return message.thoughts?.some((thought) => thought.trim().length > 0) ?? false
+}
+
+export function removeEmptyChatMessages(messages: OpenAIChat[]): OpenAIChat[] {
+    return messages.filter(hasMessagePayload)
+}
+
+export function ensureRequestGenerationId(
+    arg: Pick<RequestDataArgumentExtended, 'chatId' | 'revenantRequestId'>,
+): string {
+    return arg.chatId ?? (arg.revenantRequestId ??= `aux-${uuidv4()}`)
+}
+
+export function getRequestStatusNavigationId(
+    arg: RequestDataArgumentExtended,
+): string | undefined {
+    if (arg.chatId) return arg.chatId
+    const operation = arg.revenantOperationContext
+    if (operation?.kind === 'translation' && operation.target?.messageChatId) {
+        return operation.target.messageChatId
+    }
+    return arg.revenantRoomId
+}
+
+export function buildGenerationRequest(
     arg: RequestDataArgumentExtended,
     usageIdentity?: Pick<
-        RevenantGenerationContext,
+        RevenantProviderJobSpec,
         'usageProviderId' | 'usageModelId' | 'usageServiceTier'
     >,
-): RevenantGenerationContext | undefined {
+): RevenantGenerationRequest | undefined {
     const mode = arg.mode
     if (!mode) return undefined
     // Lua LLM()/simpleLLM() intentionally use the main model but do not create
@@ -40,67 +69,53 @@ export function buildGenerationContext(
     // stable id for the lifetime of this provider attempt. Auxiliary operation
     // metadata routes their result to a separate recovery queue, never to the
     // assistant-message recovery path.
-    const chatId = arg.chatId ?? (arg.revenantRequestId ??= `aux-${uuidv4()}`)
+    const chatId = ensureRequestGenerationId(arg)
 
     const activeChat = arg.currentChar?.chats?.[arg.currentChar.chatPage]
+    const characterId = arg.currentChar?.chaId
+    const roomId = arg.revenantRoomId ?? activeChat?.id
+    if (roomId && !arg.revenantRoomId) arg.revenantRoomId = roomId
+    const workflow = getLocalRevenantWorkflow(characterId, roomId)
+    const clientAction = arg.revenantClientAction
     return {
-        chatId,
-        jobType,
-        characterId: arg.currentChar?.chaId,
-        roomId: activeChat?.id,
-        isContinuation: arg.continue === true,
-        continuationPrefix: arg.continue
-            ? activeChat?.message?.at(-1)?.data
-            : undefined,
-        operationContext: arg.revenantOperationContext,
-        ...usageIdentity,
-        onJobCreated: arg.onRevenantJobCreated,
+        job: {
+            chatId,
+            jobType,
+            adapterKind: arg.revenantAdapterKind,
+            streaming: arg.revenantStreaming,
+            characterId,
+            roomId,
+            isContinuation: arg.continue === true,
+            continuationPrefix: arg.continue
+                ? arg.revenantContinuationPrefix
+                    ?? activeChat?.message?.at(-1)?.data
+                : undefined,
+            operationContext: arg.revenantOperationContext,
+            dispatchPolicy: arg.revenantDispatchPolicy,
+            ...usageIdentity,
+        },
+        workflow: clientAction ? {
+            workflowId: clientAction.workflowId,
+            stepKey: clientAction.jobStepKey
+                ?? `client-action:${clientAction.actionId}`.slice(0, 128),
+            executionId: clientAction.executionId,
+            clientAction: {
+                parentStepKey: clientAction.parentStepKey,
+                actionId: clientAction.actionId,
+            },
+        } : workflow ? {
+            workflowId: workflow.workflowId,
+            stepKey: getRevenantWorkflowStepKey(jobType, arg.revenantOperationContext, chatId),
+            executionId: arg.revenantStepExecutionId ??= uuidv4(),
+            dependency: arg.revenantWorkflowDependency,
+        } : undefined,
+        lifecycle: {
+            onJobCreated: arg.onRevenantJobCreated,
+            onJobRegistrationUnavailable: arg.onRevenantJobRegistrationUnavailable,
+            onProviderStarted: arg.onRevenantProviderStarted,
+            onTerminal: arg.onRevenantTerminal,
+        },
     }
-}
-
-export type LLMParameter =
-    | 'temperature'
-    | 'top_k'
-    | 'repetition_penalty'
-    | 'min_p'
-    | 'top_a'
-    | 'top_p'
-    | 'frequency_penalty'
-    | 'presence_penalty'
-    | 'reasoning_effort'
-    | 'thinking_tokens'
-    | 'verbosity'
-
-export function getAdditionalParameters(aiModel?: string): [string, string][] {
-    const db = getDatabase()
-
-    if (!aiModel) {
-        return []
-    }
-
-    if (aiModel === 'reverse_proxy') {
-        return [...(db.additionalParams ?? [])]
-    }
-
-    if (!aiModel.startsWith('xcustom:::')) {
-        return []
-    }
-
-    const found = db.customModels.find((model) => model.id === aiModel)
-    const params = found?.params
-    if (!params) {
-        return []
-    }
-
-    const additionalParams: [string, string][] = []
-    for (const line of params.split('\n')) {
-        const split = line.split('=')
-        if (split.length >= 2) {
-            additionalParams.push([split[0], split.slice(1).join('=')])
-        }
-    }
-
-    return additionalParams
 }
 
 // Drain a streaming response to its final text. Every chunk on the
@@ -126,203 +141,4 @@ export async function collectStreamingText(stream: ReadableStream<{ [key: string
     }
 
     return lastChunk
-}
-
-export function applyParameters(
-    data: Record<string, any>,
-    parameters: LLMParameter[],
-    rename: Partial<Record<LLMParameter, string>>,
-    modelMode: ModelModeExtended,
-    arg: {
-        ignoreTopKIfZero?: boolean
-        modelId:string
-    },
-): Record<string, any> {
-    const db = getDatabase()
-
-    function getEffort(effort: number) {
-        switch (effort) {
-            case -1: {
-                return 'minimal'
-            }
-            case 0: {
-                return 'low'
-            }
-            case 1: {
-                return 'medium'
-            }
-            case 2: {
-                return 'high'
-            }
-            default: {
-                return 'medium'
-            }
-        }
-    }
-
-    function getVerbosity(verbosity: number) {
-        switch (verbosity) {
-            case 0: {
-                return 'low'
-            }
-            case 1: {
-                return 'medium'
-            }
-            case 2: {
-                return 'high'
-            }
-            default: {
-                return 'medium'
-            }
-        }
-    }
-
-    if (db.seperateParametersEnabled && (modelMode !== 'model' || db.seperateParametersByModel)) {
-        let sepParams = db.seperateParameters[modelMode]
-        if (db.seperateParametersByModel){
-            sepParams = db.seperateParameters.overrides[arg.modelId]
-
-            if(!sepParams){
-                throw new Error(`No seperate parameters found for model ${arg.modelId} in model mode ${modelMode}. Please set parameters for this model`)
-            }
-        }
-        if (modelMode === 'submodel') {
-            sepParams = db.seperateParameters['otherAx']
-        }
-
-        for (const parameter of parameters) {
-            let value: number | string = 0
-            if (parameter === 'top_k' && arg.ignoreTopKIfZero && sepParams[parameter] === 0) {
-                continue
-            }
-
-            switch (parameter) {
-                case 'temperature': {
-                    value =
-                        sepParams.temperature === -1000
-                            ? -1000
-                            : sepParams.temperature / 100
-                    break
-                }
-                case 'top_k': {
-                    value = sepParams.top_k
-                    break
-                }
-                case 'repetition_penalty': {
-                    value = sepParams.repetition_penalty
-                    break
-                }
-                case 'min_p': {
-                    value = sepParams.min_p
-                    break
-                }
-                case 'top_a': {
-                    value = sepParams.top_a
-                    break
-                }
-                case 'top_p': {
-                    value = sepParams.top_p
-                    break
-                }
-                case 'thinking_tokens': {
-                    value = sepParams.thinking_tokens
-                    break
-                }
-                case 'frequency_penalty': {
-                    value =
-                        sepParams.frequency_penalty === -1000
-                            ? -1000
-                            : sepParams.frequency_penalty / 100
-                    break
-                }
-                case 'presence_penalty': {
-                    value =
-                        sepParams.presence_penalty === -1000
-                            ? -1000
-                            : sepParams.presence_penalty / 100
-                    break
-                }
-                case 'reasoning_effort': {
-                    value = getEffort(sepParams.reasoning_effort)
-                    break
-                }
-                case 'verbosity': {
-                    value = getVerbosity(sepParams.verbosity)
-                    break
-                }
-            }
-
-            if (
-                value === -1000 ||
-                value === undefined ||
-                value === null ||
-                (typeof value === 'number' && isNaN(value))
-            ) {
-                continue
-            }
-
-            data = setObjectValue(data, rename[parameter] ?? parameter, value)
-        }
-        return data
-    }
-
-    for (const parameter of parameters) {
-        let value: number | string = 0
-        if (parameter === 'top_k' && arg.ignoreTopKIfZero && db.top_k === 0) {
-            continue
-        }
-        switch (parameter) {
-            case 'temperature': {
-                value = db.temperature === -1000 ? -1000 : db.temperature / 100
-                break
-            }
-            case 'top_k': {
-                value = db.top_k
-                break
-            }
-            case 'repetition_penalty': {
-                value = db.repetition_penalty
-                break
-            }
-            case 'min_p': {
-                value = db.min_p
-                break
-            }
-            case 'top_a': {
-                value = db.top_a
-                break
-            }
-            case 'top_p': {
-                value = db.top_p
-                break
-            }
-            case 'reasoning_effort': {
-                value = getEffort(db.reasoningEffort)
-                break
-            }
-            case 'verbosity': {
-                value = getVerbosity(db.verbosity)
-                break
-            }
-            case 'frequency_penalty': {
-                value = db.frequencyPenalty === -1000 ? -1000 : db.frequencyPenalty / 100
-                break
-            }
-            case 'presence_penalty': {
-                value = db.PresensePenalty === -1000 ? -1000 : db.PresensePenalty / 100
-                break
-            }
-            case 'thinking_tokens': {
-                value = db.thinkingTokens
-                break
-            }
-        }
-
-        if (value === -1000) {
-            continue
-        }
-
-        data = setObjectValue(data, rename[parameter] ?? parameter, value)
-    }
-    return data
 }

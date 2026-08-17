@@ -9,6 +9,7 @@
     import TextInput from "../UI/GUI/TextInput.svelte";
     import { v4 as uuidv4 } from "uuid";
     import ShSortableList from "../UI/GUI/ShSortableList.svelte";
+    import Portal from "../UI/GUI/Portal.svelte";
 
     let editMode = $state(false)
 
@@ -51,12 +52,13 @@
     }
 </script>
 
-<div class="absolute w-full h-full z-40 bg-black/50 flex justify-center items-center">
+<Portal>
+<div class="risu-modal-backdrop z-40 flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-124 max-h-full overflow-y-auto">
         <div class="flex items-center text-textcolor mb-4">
             <h2 class="mt-0 mb-0">{language.modelPresets}</h2>
             <div class="grow flex justify-end">
-                <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer items-center" onclick={close}>
+                <button class="text-textcolor2 risu-interactive-accent mr-2 cursor-pointer items-center" onclick={close}>
                     <XIcon size={20}/>
                 </button>
             </div>
@@ -114,7 +116,7 @@
                     {/if}
                 {/if}
                 <div class="no-sort grow flex justify-end">
-                    <div class="text-textcolor2 hover:text-primary cursor-pointer mr-2" role="button" tabindex="0" onclick={(e) => {
+                    <div class="text-textcolor2 risu-interactive-accent cursor-pointer mr-2" role="button" tabindex="0" onclick={(e) => {
                         e.stopPropagation()
                         duplicatePreset(i)
                     }} onkeydown={(e) => {
@@ -124,7 +126,7 @@
                     }}>
                         <CopyIcon size={18}/>
                     </div>
-                    <div class="text-textcolor2 hover:text-red-400 cursor-pointer" role="button" tabindex="0" onclick={(e) => {
+                    <div class="text-textcolor2 risu-interactive-danger cursor-pointer" role="button" tabindex="0" onclick={(e) => {
                         e.stopPropagation()
                         deletePreset(i)
                     }} onkeydown={(e) => {
@@ -141,7 +143,7 @@
 
         <div class="flex mt-2 items-center">
             <!-- "+ 새로 만들기" — P2에서 registry profile browser 모달로 교체 -->
-            <button class="text-textcolor2 hover:text-primary cursor-pointer" onclick={() => {
+            <button class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={() => {
                 editMode = !editMode
             }} aria-label="Toggle edit mode">
                 <PencilIcon size={18}/>
@@ -149,13 +151,14 @@
         </div>
     </div>
 </div>
+</Portal>
 
 <style>
     .break-any{
         word-break: normal;
         overflow-wrap: anywhere;
     }
-    .draggable-preset:hover {
+    .draggable-preset:is(:hover, :focus-visible) {
         cursor: grab;
     }
     .draggable-preset:active {

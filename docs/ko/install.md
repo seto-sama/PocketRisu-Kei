@@ -74,10 +74,11 @@ GUI 없는 Linux/macOS 서버에서 최신 버전을 한 번에 받아 실행합
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
+RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+VERSION=${RELEASE_TAG#*v}
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-cd PocketRisu-${VERSION}-linux-x64
+cd PocketRisu-v${VERSION}-linux-x64
 ./start.sh
 ```
 
@@ -86,11 +87,12 @@ cd PocketRisu-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
+RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+VERSION=${RELEASE_TAG#*v}
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-xattr -cr PocketRisu-${VERSION}-macos-arm64
-cd PocketRisu-${VERSION}-macos-arm64
+xattr -cr PocketRisu-v${VERSION}-macos-arm64
+cd PocketRisu-v${VERSION}-macos-arm64
 ./start.sh
 ```
 
@@ -214,6 +216,16 @@ pnpm build
 # 서버 재시작
 pnpm runserver
 ```
+
+### 로컬 폰트
+
+폰트 파일은 저장소에 포함하지 않습니다. 사용 권한이 있는 폰트를 직접 포함하려면:
+
+1. `.woff2`, `.woff`, `.ttf`, `.otf` 파일을 `public/assets/fonts/`에 넣습니다.
+2. `pnpm build`를 다시 실행합니다.
+3. 폰트 설정에서 **Custom**을 선택하고 입력 추천 목록에서 감지된 family를 선택합니다. Weight variable 폰트라면 `SUIT Variable 700`처럼 뒤에 숫자 weight를 붙입니다.
+
+Weight variable 폰트는 원본 family 이름과 파일에 포함된 weight 범위를 그대로 사용하므로 `SUIT Variable 475` 같은 중간값도 사용할 수 있습니다. Static 폰트라면 `Regular`, `Thin` 등의 접미사를 포함한 원본 family 이름을 선택합니다. `public/assets/fonts/` 아래의 폰트 파일은 Git에서 무시되며 해당 빌드 환경에만 남습니다.
 
 
 ---

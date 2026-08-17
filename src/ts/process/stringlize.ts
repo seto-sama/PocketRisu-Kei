@@ -35,7 +35,7 @@ function appendWhitespace(prefix:string, seperator:string=" ") {
     }
     return prefix
 }
-export function stringlizeChatOba(formated:OpenAIChat[], characterName:string, suggesting:boolean, continued:boolean){
+export function stringlizeChatOba(formated:OpenAIChat[], characterName:string, continued:boolean){
     const db = getDatabase()
     let resultString:string[] = []
     let { systemPrefix, userPrefix, assistantPrefix, seperator } = db.ooba.formating;
@@ -52,12 +52,12 @@ export function stringlizeChatOba(formated:OpenAIChat[], characterName:string, s
         let prefix = ""
         let name = form.name
         if(form.role === 'user'){
-            prefix = appendWhitespace(suggesting ? assistantPrefix : userPrefix, seperator)
+            prefix = appendWhitespace(userPrefix, seperator)
             name ??= `${getUserName()}`
             name += ': '
         }
         else if(form.role === 'assistant'){
-            prefix = appendWhitespace(suggesting ? userPrefix : assistantPrefix, seperator)
+            prefix = appendWhitespace(assistantPrefix, seperator)
             name ??= `${characterName}`
             name += ': '
         }
@@ -75,18 +75,10 @@ export function stringlizeChatOba(formated:OpenAIChat[], characterName:string, s
     }
     if(!continued){
         if(db.ooba.formating.useName){
-            if (suggesting){
-                resultString.push(appendWhitespace(assistantPrefix, seperator) + `${getUserName()}:\n` + db.autoSuggestPrefix)
-            } else {
-                resultString.push(assistantPrefix + `${characterName}:`)
-            }
+            resultString.push(assistantPrefix + `${characterName}:`)
         }
         else{
-            if (suggesting){
-                resultString.push(appendWhitespace(assistantPrefix, seperator) + `\n` + db.autoSuggestPrefix)
-            } else {
-                resultString.push(assistantPrefix)
-            }
+            resultString.push(assistantPrefix)
         }
     }
     console.log(resultString)
@@ -97,7 +89,7 @@ const userStrings = ["user", "human", "input", "inst", "instruction"]
 function toTitleCase(s:string){
     return s[0].toUpperCase() + s.slice(1).toLowerCase()
 }
-export function getStopStrings(suggesting:boolean=false){
+export function getStopStrings(){
     const db = getDatabase()
     let { userPrefix, seperator } = db.ooba.formating;
     if(!seperator){
@@ -112,9 +104,6 @@ export function getStopStrings(suggesting:boolean=false){
         userPrefix,
         `${username}:`,
     ]
-    if(suggesting){
-        stopStrings.push("\n\n")
-    }
     for (const user of userStrings){
         for (const u of [
             user.toLowerCase(),

@@ -2,10 +2,11 @@ import { get } from 'svelte/store';
 import { checkNullish, decryptBuffer, encryptBuffer, selectSingleFile } from '../util';
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
+import { initializeCharacterRuntimeState } from './persistenceShape';
 import type { RisuPlugin } from '../plugins/plugins.svelte';
 import type {triggerscript as triggerscriptMain} from '../process/triggers';
 import { downloadFile, saveAsset as saveImageGlobal } from '../globalApi.svelte';
-import { defaultAutoSuggestPrompt, defaultJailbreak, defaultMainPrompt } from './defaultPrompts';
+import { defaultJailbreak, defaultMainPrompt } from './defaultPrompts';
 import { notifySuccess } from '../alert';
 import type { NAISettings } from '../process/models/nai';
 import { prebuiltNAIpresets, prebuiltPresets } from '../process/templates/templates';
@@ -21,6 +22,7 @@ import type { ApiKeyPoolEntry, ModelBindingFields, ModelBindingSet, ModelPreset,
 import { emptyModelBinding } from '../preset/types';
 import { defaultHotkeys, type Hotkey } from '../defaulthotkeys';
 import { normalizeTextTheme } from '../gui/textTheme';
+import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/textOutline';
 
 //APP_VERSION_POINT is to locate the app version in the database file for version bumping
 export let appVer = "2026.2.291" //<APP_VERSION_POINT>
@@ -34,6 +36,10 @@ export const nodeOnlyVer: string = typeof __APP_VERSION__ !== 'undefined' ? __AP
 export function normalizeTheme(theme: string | undefined | null): string {
     if (theme === undefined || theme === null || theme === 'custom') return ''
     return theme
+}
+
+export function supportsCustomChatBackdrop(theme: string | undefined | null): boolean {
+    return theme === 'waifu' || theme === 'mobilechat' || theme === 'cardboard'
 }
 
 function normalizePromptRole(role: unknown): 'user'|'bot'|'system'|null {
@@ -92,25 +98,6 @@ function normalizePromptTemplate(template: PromptItem[]|null|undefined): PromptI
 }
 
 export function setDatabase(data:Database){
-    // Remove retired prompt preprocessing and preset-chain settings from
-    // databases created by older versions. They are intentionally not migrated:
-    // the prompt pipeline no longer reads or applies these values.
-    const legacyPromptData = data as Database & {
-        additionalPrompt?: unknown
-        descriptionPrefix?: unknown
-        presetChain?: unknown
-        promptPreprocess?: unknown
-    }
-    delete legacyPromptData.additionalPrompt
-    delete legacyPromptData.descriptionPrefix
-    delete legacyPromptData.presetChain
-    delete legacyPromptData.promptPreprocess
-    if(Array.isArray(data.botPresets)){
-        for(const preset of data.botPresets){
-            delete (preset as botPreset & { promptPreprocess?: unknown }).promptPreprocess
-        }
-    }
-
     if(Array.isArray(data.promptTemplate)){
         data.promptTemplate = normalizePromptTemplate(data.promptTemplate)
     }
@@ -146,9 +133,6 @@ export function setDatabase(data:Database){
     }
     if(checkNullish(data.PresensePenalty)){
         data.PresensePenalty = 70
-    }
-    if(checkNullish(data.aiModel)){
-        data.aiModel = 'gemini-3-flash-preview'
     }
     if(checkNullish(data.jailbreakToggle)){
         data.jailbreakToggle = false
@@ -199,6 +183,7 @@ export function setDatabase(data:Database){
     if(checkNullish(data.customBackground)){
         data.customBackground = ''
     }
+    data.textScreenColor ??= DEFAULT_TEXT_SCREEN_COLOR
     data.globalCustomCSS ??= ''
     if(checkNullish(data.textgenWebUIStreamURL)){
         data.textgenWebUIStreamURL = 'wss://localhost/api/'
@@ -239,9 +224,6 @@ export function setDatabase(data:Database){
     data.theme = normalizeTheme(data.theme)
     if(data.nodeOnlyStandardChatWidth !== 'standard' && data.nodeOnlyStandardChatWidth !== 'wide' && data.nodeOnlyStandardChatWidth !== 'full'){
         data.nodeOnlyStandardChatWidth = 'standard'
-    }
-    if(checkNullish(data.subModel)){
-        data.subModel = 'gemini-3-flash-preview'
     }
     if(checkNullish(data.waifuWidth)){
         data.waifuWidth = 100
@@ -332,9 +314,6 @@ export function setDatabase(data:Database){
     }
     if(checkNullish(data.voicevoxUrl)){
         data.voicevoxUrl = ''
-    }
-    if(checkNullish(data.showMemoryLimit)){
-        data.showMemoryLimit = false
     }
     if(checkNullish(data.showFirstMessagePages)){
         data.showFirstMessagePages = false
@@ -476,10 +455,7 @@ export function setDatabase(data:Database){
     data.sendWithEnter ??= true
     data.sendKeyPC ??= 'enter'
     data.sendKeyMobile ??= 'ctrl-enter'
-    data.autoSuggestPrompt ??= defaultAutoSuggestPrompt
-    data.autoSuggestPrefix ??= ""
     data.OAIPrediction ??= ''
-    data.autoSuggestClean ??= true
     data.imageCompression ??= true
     data.inlayImageLossless ??= false
     data.inlayImagePriority ??= true
@@ -542,7 +518,6 @@ export function setDatabase(data:Database){
     data.NAIsettings.mirostat_lr ??= 1
     data.customProxyRequestModel ??= ''
     data.generationSeed ??= -1
-    data.gptVisionQuality ??= 'low'
     data.huggingfaceKey ??= ''
     data.fishSpeechKey ??= ''
     data.presetRegex ??= []
@@ -573,20 +548,17 @@ export function setDatabase(data:Database){
     data.promptSettings.maxThoughtTagDepth ??= -1
     data.openrouterFallback ??= true
     data.openrouterMiddleOut ??= false
-    data.memoryLimitThickness ??= 1
     data.modules ??= []
     data.moduleFolders ??= []
     data.enabledModules ??= []
     data.personaEnabledModules ??= {}
     data.additionalParams ??= []
-    data.heightMode ??= 'normal'
     data.antiClaudeOverload ??= false
     data.ollamaURL ??= ''
     data.ollamaModel ??= ''
     data.repetition_penalty ??= 1
     data.min_p ??= 0
     data.top_a ??= 0
-    data.customTokenizer ??= 'tik'
     data.instructChatTemplate ??= "chatml"
     // Migration: convert old string type into new provider object
     if (typeof data.openrouterProvider === 'string') {
@@ -699,15 +671,10 @@ export function setDatabase(data:Database){
         }))
     }
     data.hypaV3PresetFolders ??= []
-    if (data.botPresets) {
-        for (const preset of data.botPresets) {
-        }
-    }
     data.hypaV3PresetId ??= 0
     normalizeTranslatorPresetState(data)
     data.showDeprecatedTriggerV2 ??= false
     data.returnCSSError ??= true
-    data.realmDirectOpen ??= false
     data.checkCorruption ??= false
     data.toggleConfirmRecommendedPreset ??= false
     data.useExperimentalGoogleTranslator ??= false
@@ -753,7 +720,6 @@ export function setDatabase(data:Database){
         translate: data.fallbackModels.translate.filter((v) => v !== ''),
         otherAx: data.fallbackModels.otherAx.filter((v) => v !== '')
     }
-    data.customModels ??= []
     data.authRefreshes ??= []
     data.rememberToolUsage ??= true
     data.simplifiedToolUse ??= false
@@ -762,8 +728,8 @@ export function setDatabase(data:Database){
     data.showModelInSidebar ??= true
     data.showPresetInSidebar ??= true
     data.showPersonaInSidebar ??= true
+    data.moduleModelBindings ??= {}
     data.showModuleSidebar ??= true
-    data.nodeOnlyModelModeLock ??= 'none'
     data.disableMobileDragDrop ??= false
     data.disableMobileBackNavigation ??= false
     data.disableToggleBinding ??= false
@@ -816,6 +782,9 @@ export function setDatabase(data:Database){
 }
 
 export function setDatabaseLite(data:Database){
+    for (const character of data.characters ?? []) {
+        initializeCharacterRuntimeState(character)
+    }
     DBState.db = data
 }
 
@@ -873,23 +842,11 @@ export function setCurrentChat(chat:Chat){
     setCurrentCharacter(char)
 }
 
-/**
- * Model-mode fields seeded into a freshly created (empty) chat so the
- * "default model mode for new chats" preference (useModelPresetByDefault)
- * applies AT BIRTH — a snapshot, not a runtime fallback. A runtime fallback
- * would retroactively flip every existing chat that never chose a mode, and
- * couple un-opened chats live to db.defaultModelBinding. Snapshotting here keeps
- * each chat independent. Returns {} when the default is legacy (leave the field
- * absent → classic), so existing chats are unaffected. Spread into new Chat
- * literals. Do NOT call for hydration placeholders or chats being restored with
- * their own mode.
- */
-export function newChatModelDefaults(): Partial<Pick<Chat, 'useModelPreset' | 'modelBinding'>> {
+/** Seed the global default model-preset binding into a freshly created chat. */
+export function newChatModelDefaults(): Pick<Chat, 'modelBinding'> {
     const db = getDatabase()
-    if (!db.useModelPresetByDefault) return {}
     const def = db.defaultModelBinding
     return {
-        useModelPreset: true,
         modelBinding: def ? structuredClone($state.snapshot(def)) : emptyModelBinding(),
     }
 }
@@ -1057,7 +1014,6 @@ export interface Database{
     frequencyPenalty: number
     PresensePenalty: number
     formatingOrder: FormatingOrderItem[]
-    aiModel: string
     jailbreakToggle:boolean
     loreBookDepth: number
     loreBookToken: number,
@@ -1099,7 +1055,6 @@ export interface Database{
     iconsize:number
     theme: string
     nodeOnlyStandardChatWidth: 'standard' | 'wide' | 'full'
-    subModel:string
     emotionPrompt: string,
     formatversion:number
     waifuWidth:number
@@ -1153,15 +1108,13 @@ export interface Database{
     allowV2Plugin:boolean
     elevenLabKey:string
     voicevoxUrl:string
-    showMemoryLimit:boolean
     roundIcons:boolean
     useStreaming:boolean
     voyageApiKey:string
     supaMemoryKey:string
     textScreenColor?:string
     textBorder?:boolean
-    textScreenRounded?:boolean
-    textScreenBorder?:string
+    textBorderColor?:string
     characterOrder:(string|folder)[]
     hordeConfig:hordeConfig,
     novelai:{
@@ -1183,10 +1136,6 @@ export interface Database{
     enableBlockPartialEdit: boolean
     enableDragPartialEdit: boolean
     koboldURL:string
-    useAutoSuggestions:boolean
-    autoSuggestPrompt:string
-    autoSuggestPrefix:string
-    autoSuggestClean:boolean
     claudeAPIKey:string,
     useChatCopy:boolean,
     novellistAPI:string,
@@ -1255,7 +1204,6 @@ export interface Database{
     localStopStrings?:string[]
     customProxyRequestModel:string
     generationSeed:number
-    gptVisionQuality:string
     reverseProxyOobaMode:boolean
     reverseProxyOobaArgs: OobaChatCompletionRequestParams
     huggingfaceKey:string
@@ -1282,7 +1230,6 @@ export interface Database{
     top_a:number
     claudeAws:boolean
     lastPatchNoteCheckVersion?:string,
-    memoryLimitThickness?:number
     modules: RisuModule[]
     /** User-defined groups for organizing modules. */
     moduleFolders?: PromptPresetFolder[]
@@ -1291,11 +1238,9 @@ export interface Database{
     sideMenuRerollButton?:boolean
     requestInfoInsideChat?:boolean
     additionalParams:[string, string][]
-    heightMode:string
     antiClaudeOverload:boolean
     ollamaURL:string
     ollamaModel:string
-    customTokenizer:string
     instructChatTemplate:string
     JinjaTemplate:string
     openrouterProvider: {
@@ -1393,7 +1338,6 @@ export interface Database{
     hypaV3Presets: HypaV3Preset[]
     hypaV3PresetId: number
     hypaV3PresetFolders?: PromptPresetFolder[]
-    realmDirectOpen:boolean
     OaiCompAPIKeys: {[key:string]:string}
     inlayErrorResponse:boolean
     reasoningEffort:number
@@ -1444,29 +1388,18 @@ export interface Database{
     }
     doNotChangeFallbackModels: boolean
     fallbackWhenBlankResponse: boolean
-    customModels: {
-        id: string
-        internalId: string
-        url: string
-        format: LLMFormat
-        tokenizer: LLMTokenizer
-        key: string
-        name: string
-        params: string
-        flags: LLMFlags[]
-    }[]
     modelPresets: ModelPreset[]
     /** User-defined groups for organizing model presets. */
     modelPresetFolders?: PromptPresetFolder[]
-    // P4 dual-regime global default binding (plan v6 §7). Copied into new chats
-    // (seeding); useModelPresetByDefault seeds the new-chat regime toggle.
-    useModelPresetByDefault?: boolean
+    // Global default binding copied into new chats. Existing chats without a
+    // binding resolve against it at runtime.
     defaultModelBinding?: ModelBindingSet
-    // Global model-mode lock. 'legacy'/'preset' force every chat into that
-    // regime (the per-chat dropdown is hidden); 'none' lets each chat decide,
-    // falling back to useModelPresetByDefault for chats that never chose. Read
-    // by resolveChatModelBinding (the runtime regime chokepoint).
-    nodeOnlyModelModeLock?: 'legacy' | 'preset' | 'none'
+    /**
+     * Per-module override from module id to a local ModelPreset id. Kept
+     * outside RisuModule so exported modules never carry environment-local
+     * preset references. Dangling ids are retained for automatic reconnect.
+     */
+    moduleModelBindings?: Record<string, string>
     modelPresetMigrationVersion?: number
     modelPresetMigrationAppliedAt?: number
     modelPresetMigrationReport?: ModelPresetMigrationSummary
@@ -1475,27 +1408,21 @@ export interface Database{
     // Small reactivity/revalidation timestamp only. The models.dev catalog is
     // stored separately in persistent KV and never embedded in this DB.
     modelProfileRegistryLastFetched?: number
-    /** @deprecated Removed with the models.dev runtime catalog migration. */
-    modelRegistrySeen?: Record<string, number>
     // Catalog display level: retired profiles can be hidden from the browser.
     // Display-only — profiles are still downloaded.
     modelProfileVisibilityLevel?: 'all' | 'hideDeprecated'
-    // models.dev provider-group IDs hidden from the official profile browser.
-    // Echo and transient Plugin profiles intentionally ignore this filter.
+    // models.dev provider-group IDs shown in the official profile browser.
+    // This allowlist makes providers introduced by a later catalog default off.
+    modelProfileVisibleProviderIds?: string[]
+    // Legacy inverse representation, removed after catalog hydration.
     modelProfileHiddenProviderIds?: string[]
     // Distinguishes the curated first-run allowlist from an intentional
-    // user-selected empty hidden list ("show all").
+    // user-selected empty visible list ("hide all").
     modelProfileProviderFilterInitialized?: boolean
-    /** @deprecated The only built-in model is Echo; models come from models.dev. */
-    modelPresetLocalRegistryOnly?: boolean
     modelPresetDefaultMaxContext?: number
     modelPresetDefaultMaxResponse?: number
     modelPresetPromptPresetFirst?: boolean
     modelPresetPromptParamsFirst?: boolean
-    /** @deprecated Official model discovery now always uses models.dev. */
-    useCustomModelRegistry?: boolean
-    /** @deprecated Official model discovery now always uses models.dev. */
-    modelProfileRegistryBaseUrl?: string
     igpPrompt:string
     authRefreshes:{
         url:string
@@ -1550,6 +1477,7 @@ export interface Database{
     }
     settingsCloseButtonSize:number
     promptDiffPrefs:PromptDiffPrefs
+    legacyMediaFindings?: boolean
     hideAllImages?: boolean
     hideMessagePageCount?: boolean
     autoScrollToNewMessage?: boolean
@@ -1635,16 +1563,12 @@ export interface character{
     chats:Chat[]
     chatFolders: ChatFolder[]
     chatPage: number
-    viewScreen: 'emotion'|'none'|'imggen',
+    viewScreen: 'emotion'|'none',
     bias: [string, number][]
     emotionImages: [string, string][]
     globalLore: loreBook[]
     chaId: string
-    sdData: [string, string][]
     newGenData?: {
-        prompt: string,
-        negative: string,
-        instructions: string,
         emotionInstructions: string,
     }
     customscript: customscript[]
@@ -1776,6 +1700,7 @@ export interface character{
     prebuiltAssetStyle?:string
     prebuiltAssetExclude?:string[]
     modules?:string[]
+    moduleNamespace?:string
     coldstorage?:string
     coldStoragedChats?:string[]
     customModuleToggle?:string
@@ -1828,8 +1753,6 @@ export interface botPreset{
     frequencyPenalty: number
     PresensePenalty: number
     formatingOrder: FormatingOrderItem[]
-    aiModel?: string
-    subModel?:string
     currentPluginProvider?:string
     textgenWebUIStreamURL?:string
     textgenWebUIBlockingURL?:string
@@ -1843,9 +1766,6 @@ export interface botPreset{
     ainconfig: AINsettings
     koboldURL?: string
     NAISettings?: NAISettings
-    autoSuggestPrompt?: string
-    autoSuggestPrefix?: string
-    autoSuggestClean?: boolean
     promptTemplate?:PromptItem[]
     NAIadventure?: boolean
     NAIappendName?: boolean
@@ -1957,10 +1877,8 @@ export interface themePreset{
     sideBarSize: number
     assetWidth: number
     animationSpeed: number
-    memoryLimitThickness?: number
     settingsCloseButtonSize: number
     // Others tab (submenu 2)
-    showMemoryLimit: boolean
     showFirstMessagePages: boolean
     hideRealm: boolean
     hideAllImages?: boolean
@@ -1970,8 +1888,7 @@ export interface themePreset{
     roundIcons: boolean
     textScreenColor?: string
     textBorder?: boolean
-    textScreenRounded?: boolean
-    textScreenBorder?: string
+    textBorderColor?: string
     showSavingIcon: boolean
     showPromptComparison: boolean
     useChatCopy: boolean
@@ -2139,8 +2056,6 @@ export interface Chat{
     note:string
     name:string
     localLore: loreBook[]
-    sdData?:string
-    suggestMessages?:string[]
     isStreaming?:boolean
     scriptstate?:{[key:string]:string|number|boolean}
     modules?:string[]
@@ -2160,10 +2075,6 @@ export interface Chat{
     bookmarkNames?: { [chatId: string]: string };
     supaMemory?: boolean
     savedToggleValues?: Record<string, string>
-    // P4 dual-regime: per-chat model preset binding (plan v6 §7). useModelPreset
-    // is the regime toggle; modelBinding (the bundle) persists across toggling so
-    // it is restored on re-enable. Off (or absent) => classic global model path.
-    useModelPreset?: boolean
     modelBinding?: ModelBindingSet
     /** Per-chat opt-in: when this chat's MAIN request goes through a ModelPreset,
      * override the preset's sampling parameters with the active prompt preset's
@@ -2193,6 +2104,7 @@ export interface ChatFolder{
 export interface Message{
     role: 'user'|'char'
     data: string
+    kind?: 'imageGeneration'
     saying?: string
     chatId?:string
     time?: number
@@ -2206,12 +2118,26 @@ export interface Message{
     recoveryDisplayData?:string
     swipes?: string[]
     swipeId?: number
+    /** Diagnostic context for each regenerated response in `swipes`.
+     * Kept parallel to the string array so existing card/save formats remain
+     * backwards compatible while request logs and prompt metadata can follow
+     * the currently selected swipe. */
+    swipeMetadata?: MessageSwipeMetadata[]
+}
+
+export interface MessageSwipeMetadata{
+    chatId?: string
+    time?: number
+    generationInfo?: MessageGenerationInfo
+    promptInfo?: MessagePresetInfo
 }
 
 export interface MessageGenerationInfo{
     model?: string
     generationId?: string
     inputTokens?: number
+    /** Configured maximum response tokens; retained under the legacy field
+     * name for save compatibility. This is not actual generated usage. */
     outputTokens?: number
     maxContext?: number
     stageTiming?: {
@@ -2347,8 +2273,6 @@ export const presetTemplate:botPreset = {
     frequencyPenalty: 70,
     PresensePenalty: 70,
     formatingOrder: ['main', 'description', 'personaPrompt','chats','lastChat', 'jailbreak', 'lorebook', 'globalNote', 'authorNote'],
-    aiModel: "gemini-3-flash-preview",
-    subModel: "gemini-3-flash-preview",
     currentPluginProvider: "",
     textgenWebUIStreamURL: '',
     textgenWebUIBlockingURL: '',
@@ -2395,9 +2319,7 @@ export const themePresetTemplate: themePreset = {
     sideBarSize: 0,
     assetWidth: -1,
     animationSpeed: 0.4,
-    memoryLimitThickness: 1,
     settingsCloseButtonSize: 24,
-    showMemoryLimit: false,
     showFirstMessagePages: false,
     hideRealm: false,
     hideAllImages: false,
@@ -2405,10 +2327,9 @@ export const themePresetTemplate: themePreset = {
     showFolderName: false,
     customBackground: '',
     roundIcons: false,
-    textScreenColor: null,
+    textScreenColor: DEFAULT_TEXT_SCREEN_COLOR,
     textBorder: false,
-    textScreenRounded: false,
-    textScreenBorder: null,
+    textBorderColor: DEFAULT_TEXT_BORDER_COLOR,
     showSavingIcon: false,
     showPromptComparison: false,
     useChatCopy: false,
@@ -2423,20 +2344,6 @@ export const themePresetTemplate: themePreset = {
     betaMobileGUI: false,
     menuSideBar: false,
     useChatSticker: false,
-}
-
-const defaultSdData:[string,string][] = [
-    ["always", "solo, 1girl"],
-    ['negative', ''],
-    ["|character\'s appearance", ''],
-    ['current situation', ''],
-    ['$character\'s pose', ''],
-    ['$character\'s emotion', ''],
-    ['current location', ''],
-]
-
-export const defaultSdDataFunc = () =>{
-    return safeStructuredClone(defaultSdData)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2514,7 +2421,11 @@ export function saveCurrentPreset(){
     if(db.botPresetsId === -1){
         return
     }
+    const currentPreset = pres[db.botPresetsId]
     const savedPreset:botPreset =  {
+        // Preserve fields unknown to this version so imported presets can be
+        // round-tripped by both database backups and individual preset exports.
+        ...currentPreset,
         id: pres[db.botPresetsId]?.id || uuidv4(),
         name: pres[db.botPresetsId].name,
         folderId: pres[db.botPresetsId]?.folderId,
@@ -2529,8 +2440,6 @@ export function saveCurrentPreset(){
         frequencyPenalty: db.frequencyPenalty,
         PresensePenalty: db.PresensePenalty,
         formatingOrder: db.formatingOrder,
-        aiModel: db.aiModel,
-        subModel: db.subModel,
         currentPluginProvider: db.currentPluginProvider,
         textgenWebUIStreamURL: db.textgenWebUIStreamURL,
         textgenWebUIBlockingURL: db.textgenWebUIBlockingURL,
@@ -2547,7 +2456,6 @@ export function saveCurrentPreset(){
         NAIadventure: db.NAIadventure ?? false,
         NAIappendName: db.NAIappendName ?? false,
         localStopStrings: db.localStopStrings,
-        autoSuggestPrompt: db.autoSuggestPrompt,
         customProxyRequestModel: db.customProxyRequestModel,
         reverseProxyOobaArgs: safeStructuredClone(db.reverseProxyOobaArgs) ?? null,
         top_p: db.top_p ?? 1,
@@ -2643,8 +2551,6 @@ export function setPreset(db:Database, newPres: botPreset){
     db.frequencyPenalty = newPres.frequencyPenalty ?? db.frequencyPenalty
     db.PresensePenalty = newPres.PresensePenalty ?? db.PresensePenalty
     db.formatingOrder = newPres.formatingOrder ?? db.formatingOrder
-    db.aiModel = newPres.aiModel ?? db.aiModel
-    db.subModel = newPres.subModel ?? db.subModel
     db.currentPluginProvider = newPres.currentPluginProvider ?? db.currentPluginProvider
     db.textgenWebUIStreamURL = newPres.textgenWebUIStreamURL ?? db.textgenWebUIStreamURL
     db.textgenWebUIBlockingURL = newPres.textgenWebUIBlockingURL ?? db.textgenWebUIBlockingURL
@@ -2657,9 +2563,6 @@ export function setPreset(db:Database, newPres: botPreset){
     db.openrouterRequestModel = newPres.openrouterRequestModel ?? db.openrouterRequestModel
     db.proxyRequestModel = newPres.proxyRequestModel ?? db.proxyRequestModel
     db.NAIsettings = newPres.NAISettings ?? db.NAIsettings
-    db.autoSuggestPrompt = newPres.autoSuggestPrompt ?? db.autoSuggestPrompt
-    db.autoSuggestPrefix = newPres.autoSuggestPrefix ?? db.autoSuggestPrefix
-    db.autoSuggestClean = newPres.autoSuggestClean ?? db.autoSuggestClean
     db.promptTemplate = normalizePromptTemplate(newPres.promptTemplate)
     db.NAIadventure = newPres.NAIadventure
     db.NAIappendName = newPres.NAIappendName
@@ -2758,9 +2661,7 @@ export function saveCurrentThemePreset(){
         sideBarSize: db.sideBarSize,
         assetWidth: db.assetWidth,
         animationSpeed: db.animationSpeed,
-        memoryLimitThickness: db.memoryLimitThickness,
         settingsCloseButtonSize: db.settingsCloseButtonSize,
-        showMemoryLimit: db.showMemoryLimit,
         showFirstMessagePages: db.showFirstMessagePages,
         hideRealm: db.hideRealm,
         hideAllImages: db.hideAllImages,
@@ -2770,8 +2671,7 @@ export function saveCurrentThemePreset(){
         roundIcons: db.roundIcons,
         textScreenColor: db.textScreenColor,
         textBorder: db.textBorder,
-        textScreenRounded: db.textScreenRounded,
-        textScreenBorder: db.textScreenBorder,
+        textBorderColor: db.textBorderColor,
         showSavingIcon: db.showSavingIcon,
         showPromptComparison: db.showPromptComparison,
         useChatCopy: db.useChatCopy,
@@ -2827,9 +2727,7 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.sideBarSize = p.sideBarSize ?? db.sideBarSize
     db.assetWidth = p.assetWidth ?? db.assetWidth
     db.animationSpeed = p.animationSpeed ?? db.animationSpeed
-    db.memoryLimitThickness = p.memoryLimitThickness ?? db.memoryLimitThickness
     db.settingsCloseButtonSize = p.settingsCloseButtonSize ?? db.settingsCloseButtonSize
-    db.showMemoryLimit = p.showMemoryLimit ?? db.showMemoryLimit
     db.showFirstMessagePages = p.showFirstMessagePages ?? db.showFirstMessagePages
     db.hideMessagePageCount = p.hideMessagePageCount ?? db.hideMessagePageCount
     db.hideRealm = p.hideRealm ?? db.hideRealm
@@ -2837,10 +2735,9 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.showFolderName = p.showFolderName ?? db.showFolderName
     db.customBackground = p.customBackground ?? db.customBackground
     db.roundIcons = p.roundIcons ?? db.roundIcons
-    db.textScreenColor = p.textScreenColor
+    db.textScreenColor = p.textScreenColor ?? DEFAULT_TEXT_SCREEN_COLOR
     db.textBorder = p.textBorder
-    db.textScreenRounded = p.textScreenRounded
-    db.textScreenBorder = p.textScreenBorder
+    db.textBorderColor = p.textBorderColor ?? DEFAULT_TEXT_BORDER_COLOR
     db.showSavingIcon = p.showSavingIcon ?? db.showSavingIcon
     db.showPromptComparison = p.showPromptComparison ?? db.showPromptComparison
     db.useChatCopy = p.useChatCopy ?? db.useChatCopy

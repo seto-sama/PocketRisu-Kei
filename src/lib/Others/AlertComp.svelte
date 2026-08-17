@@ -8,19 +8,15 @@
     import { ChevronRightIcon, User } from '@lucide/svelte';
     import { hubURL, isCharacterHasAssets } from 'src/ts/characterCards';
     import TextInput from '../UI/GUI/TextInput.svelte';
-    import { aiLawApplies, openURL, getFetchLogs, downloadFile } from 'src/ts/globalApi.svelte';
-    import Button from '../UI/GUI/Button.svelte';
+    import { openURL, downloadFile } from 'src/ts/globalApi.svelte';
+    import ShButton from '../UI/GUI/ShButton.svelte';
     import ShDialog from '../UI/GUI/ShDialog.svelte';
     import ShAlertDialog from '../UI/GUI/ShAlertDialog.svelte';
     import ShLoadingDialog from '../UI/GUI/ShLoadingDialog.svelte';
-    import ShButton from '../UI/GUI/ShButton.svelte';
     import { XIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, PencilIcon, TrashIcon, EllipsisVerticalIcon, RefreshCwIcon, PlusIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
-    import hljs from 'highlight.js/lib/core';
-    import json from 'highlight.js/lib/languages/json';
     import SelectInput from "../UI/GUI/SelectInput.svelte";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
     import { language } from 'src/lang';
-    import { getFetchData } from 'src/ts/globalApi.svelte';
     import { alertStore, selectedCharID, togglePresetsOpenStore } from "src/ts/stores.svelte";
     import ShSwitch from "../UI/GUI/ShSwitch.svelte";
     import ShDropdownMenu from '../UI/GUI/ShDropdownMenu.svelte';
@@ -29,7 +25,6 @@
     import ShDropdownMenuItem from '../UI/GUI/ShDropdownMenuItem.svelte';
     import ShDropdownMenuSeparator from '../UI/GUI/ShDropdownMenuSeparator.svelte';
     import { nodeOnlyVer } from "src/ts/storage/database.svelte";
-    import { tokenize } from "src/ts/tokenizer";
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme";
@@ -41,8 +36,8 @@
     import { selectSingleFile } from "src/ts/util";
     import { translateStackTrace } from "../../ts/sourcemap";
     import { getDetailedOSLabel, getFallbackOSLabel, getRisuEnvironmentLabel } from "src/ts/platform";
-    import { formatRequestBody, formatResponseBody, getResponseBodyDetails } from "src/ts/requestLogFormat";
     import { PRODUCT_NAME } from "src/ts/branding";
+    import RequestDiagnosticsModal from "./RequestDiagnosticsModal.svelte";
 
     let showDetails = $state(false);
     let translatedStackTrace = $state('');
@@ -78,14 +73,11 @@
     let cardExportType = $state('realm')
     let cardExportType2 = $state('')
     let cardLicense = $state('')
-    let generationInfoMenuIndex = $state(0)
     let branchHover:null|{
         x:number,
         y:number,
         content:string,
     } = $state(null)
-    let expandedLogs: Set<number> = $state(new Set())
-    let allExpanded = $state(false)
     let copiedKey: string | null = $state(null)
     let togglePresetShowAll = $state(false)
     let suppressInputFocusRestore = false
@@ -99,17 +91,14 @@
         alertStore.set({ type: 'none', msg: input })
     }
 
-    // Register JSON language for syntax highlighting
-    if (!hljs.getLanguage('json')) {
-        hljs.registerLanguage('json', json)
-    }
-
-    function highlightJson(code: string): string {
-        try {
-            return hljs.highlight(code, { language: 'json' }).value
-        } catch {
-            return code.replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        }
+    function cancelCardExport() {
+        alertStore.set({
+            type: 'none',
+            msg: JSON.stringify({
+                type: 'cancel',
+                type2: cardExportType2,
+            }),
+        })
     }
 
     async function copyToClipboard(text: string, key: string) {
@@ -149,10 +138,6 @@
             cardExportType = ''
             cardExportType2 = ''
             cardLicense = ''
-        }
-        if($alertStore.type !== 'requestlogs'){
-            expandedLogs = new Set()
-            allExpanded = false
         }
     });
 
@@ -205,21 +190,29 @@
     }
 }}></svelte:window>
 
-{#if $alertStore.type !== 'none' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'branches' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'requestlogs' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress' && $alertStore.type !== 'confirmMulti' && $alertStore.type !== 'addchar'}
-    <div class="absolute w-full h-full z-50 bg-black/50 flex justify-center items-center">
+<RequestDiagnosticsModal
+    open={$alertStore.type === 'requestdata'}
+    info={$alertGenerationInfoStore}
+    onOpenChange={(open) => {
+        if (!open && $alertStore.type === 'requestdata') {
+            alertStore.set({ type: 'none', msg: '' })
+        }
+    }}
+/>
+
+{#if $alertStore.type !== 'none' && $alertStore.type !== 'requestdata' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'branches' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress' && $alertStore.type !== 'confirmMulti' && $alertStore.type !== 'addchar'}
+    <div class="risu-modal-backdrop z-50 flex justify-center items-center">
         <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
             {#if $alertStore.type === 'selectChar'}
                 <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">Select</h2>
             {/if}
-            {#if $alertStore.type !== 'requestdata'}
-                <span class="text-gray-300 whitespace-pre-wrap">{$alertStore.msg}</span>
-                {#if $alertStore.submsg}
-                    <span class="text-gray-500 text-sm">{$alertStore.submsg}</span>
-                {/if}
+            <span class="text-gray-300 whitespace-pre-wrap">{$alertStore.msg}</span>
+            {#if $alertStore.submsg}
+                <span class="text-gray-500 text-sm">{$alertStore.submsg}</span>
             {/if}
 
             {#if $alertStore.type === 'login'}
-                <div class="fixed top-0 left-0 bg-black/50 w-full h-full flex justify-center items-center">
+                <div class="risu-modal-backdrop z-50 flex justify-center items-center">
                     <iframe src={hubURL + '/hub/login'} title="login" class="w-full h-full">
                     </iframe>
                 </div>
@@ -248,179 +241,13 @@
                         {/if}
                     {/each}
                 </div>
-            {:else if $alertStore.type === 'requestdata'}
-                {#if aiLawApplies()}
-                <div>
-                    {language.generatedByAIDisclaimer}
-                </div>
-                {/if}
-                <div class="flex flex-wrap gap-2">
-                    <Button selected={generationInfoMenuIndex === 0} size="sm" onclick={() => {generationInfoMenuIndex = 0}}>
-                        {language.tokens}
-                    </Button>
-                    <Button selected={generationInfoMenuIndex === 1} size="sm" onclick={() => {generationInfoMenuIndex = 1}}>
-                        {language.metaData}
-                    </Button>
-                    <Button selected={generationInfoMenuIndex === 2} size="sm" onclick={() => {generationInfoMenuIndex = 2}}>
-                        {language.log}
-                    </Button>
-                    <Button selected={generationInfoMenuIndex === 3} size="sm" onclick={() => {generationInfoMenuIndex = 3}}>
-                        {language.prompt}
-                    </Button>
-                    <button class="ml-auto" onclick={() => {
-                        alertStore.set({
-                            type: 'none',
-                            msg: ''
-                        })
-                    }}>✖</button>
-                </div>
-                {#if generationInfoMenuIndex === 0}
-                    <div class="mt-4 flex justify-center w-full">
-                        <div class="w-32 h-32 border-darkborderc border-4 rounded-lg" style:background={
-                            `linear-gradient(0deg,
-                            rgb(59,130,246) 0%,
-                            rgb(59,130,246) ${($alertGenerationInfoStore.genInfo.inputTokens / $alertGenerationInfoStore.genInfo.maxContext) * 100}%,
-                            rgb(34 197 94) ${($alertGenerationInfoStore.genInfo.inputTokens / $alertGenerationInfoStore.genInfo.maxContext) * 100}%,
-                            rgb(34 197 94) ${(($alertGenerationInfoStore.genInfo.outputTokens + $alertGenerationInfoStore.genInfo.inputTokens) / $alertGenerationInfoStore.genInfo.maxContext) * 100}%,
-                            rgb(156 163 175) ${(($alertGenerationInfoStore.genInfo.outputTokens + $alertGenerationInfoStore.genInfo.inputTokens) / $alertGenerationInfoStore.genInfo.maxContext) * 100}%,
-                            rgb(156 163 175) 100%)`
-                        }>
-
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-y-2 gap-x-4 mt-4">
-                        <span class="text-blue-500">{language.inputTokens}</span>
-                        <span class="text-blue-500 justify-self-end">{$alertGenerationInfoStore.genInfo.inputTokens ?? '?'} {language.tokens}</span>
-                        <span class="text-green-500">{language.outputTokens}</span>
-                        <span class="text-green-500 justify-self-end">{$alertGenerationInfoStore.genInfo.outputTokens ?? '?'} {language.tokens}</span>
-                        <span class="text-gray-400">{language.maxContextSize}</span>
-                        <span class="text-gray-400 justify-self-end">{$alertGenerationInfoStore.genInfo.maxContext ?? '?'} {language.tokens}</span>
-                    </div>
-                    <span class="text-textcolor2 text-sm">{language.tokenWarning}</span>
-                {/if}
-                {#if generationInfoMenuIndex === 1}
-                <div class="grid grid-cols-2 gap-y-2 gap-x-4 mt-4">
-                    <span class="text-blue-500">Index</span>
-                    <span class="text-blue-500 justify-self-end">{$alertGenerationInfoStore.idx}</span>
-                    <span class="text-amber-500">Model</span>
-                    <span class="text-amber-500 justify-self-end">{$alertGenerationInfoStore.genInfo.model}</span>
-                    <span class="text-green-500">ID</span>
-                    <span class="text-green-500 justify-self-end">{DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].chatId ?? "None"}</span>
-                    <span class="text-red-500">GenID</span>
-                    <span class="text-red-500 justify-self-end">{$alertGenerationInfoStore.genInfo.generationId}</span>
-                    <span class="text-cyan-500">Saying</span>
-                    <span class="text-cyan-500 justify-self-end">{DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].saying}</span>
-                    <span class="text-purple-500">Size</span>
-                    <span class="text-purple-500 justify-self-end">{JSON.stringify(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx]).length} Bytes</span>
-                    <span class="text-yellow-500">Time</span>
-                    <span class="text-yellow-500 justify-self-end">{(new Date(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].time ?? 0)).toLocaleString()}</span>
-                    {#if $alertGenerationInfoStore.genInfo.stageTiming}
-                        {@const stage1 = parseFloat(((($alertGenerationInfoStore.genInfo.stageTiming.stage1 ?? 0) / 1000).toFixed(1)))}
-                        {@const stage2 = parseFloat(((($alertGenerationInfoStore.genInfo.stageTiming.stage2 ?? 0) / 1000).toFixed(1)))}
-                        {@const stage3 = parseFloat(((($alertGenerationInfoStore.genInfo.stageTiming.stage3 ?? 0) / 1000).toFixed(1)))}
-                        {@const stage4 = parseFloat(((($alertGenerationInfoStore.genInfo.stageTiming.stage4 ?? 0) / 1000).toFixed(1)))}
-                        {@const totalRounded = (stage1 + stage2 + stage3 + stage4).toFixed(1)}
-                        <span class="text-gray-400">Timing</span>
-                        <span class="text-gray-400 justify-self-end">
-                            <span style="color: #60a5fa;">{stage1}</span> + 
-                            <span style="color: #db2777;">{stage2}</span> + 
-                            <span style="color: #34d399;">{stage3}</span> + 
-                            <span style="color: #8b5cf6;">{stage4}</span> = 
-                            <span class="text-white font-bold">{totalRounded}s</span>
-                        </span>
-                    {/if}
-
-                    <span class="text-green-500">Tokens</span>
-                    {#await tokenize(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].data)}
-                        <span class="text-green-500 justify-self-end">Loading</span>
-                    {:then tokens} 
-                        <span class="text-green-500 justify-self-end">{tokens}</span>
-                    {/await}
-                </div>
-                {/if}
-                {#if generationInfoMenuIndex === 2}
-                    {#await getFetchData($alertStore.msg) then data} 
-                        {#if !data}
-                            <span class="text-gray-300 text-lg mt-2">{language.errors.requestLogRemoved}</span>
-                            <span class="text-gray-500">{language.errors.requestLogRemovedDesc}</span>
-                        {:else}
-                            {@const responseDetails = getResponseBodyDetails(data)}
-                            <h1 class="text-2xl font-bold my-4">URL</h1>
-                            <code class="text-gray-300 border border-darkborderc p-2 rounded-md whitespace-pre-wrap">{data.url}</code>
-                            <h1 class="text-2xl font-bold my-4">Request Body</h1>
-                            <code class="text-gray-300 border border-darkborderc p-2 rounded-md whitespace-pre-wrap">{formatRequestBody(data.body)}</code>
-                            <h1 class="text-2xl font-bold my-4">Response</h1>
-                            {#if responseDetails}
-                                <div class="space-y-2">
-                                    {#each responseDetails.groups as group (group.event)}
-                                        <details class="text-gray-300 border border-darkborderc rounded-md">
-                                            <summary class="cursor-pointer select-none p-2">
-                                                {group.summary}
-                                            </summary>
-                                            <code class="block border-t border-darkborderc p-2 whitespace-pre-wrap max-h-64 overflow-auto">{group.readable}</code>
-                                            <details class="border-t border-darkborderc">
-                                                <summary class="cursor-pointer select-none p-2 text-gray-500">Raw</summary>
-                                                <code class="block border-t border-darkborderc p-2 whitespace-pre-wrap max-h-64 overflow-auto">{group.raw}</code>
-                                            </details>
-                                        </details>
-                                    {/each}
-                                </div>
-                                {#if responseDetails.remainder}
-                                    <code class="block mt-2 text-gray-300 border border-darkborderc p-2 rounded-md whitespace-pre-wrap">{responseDetails.remainder}</code>
-                                    <details class="mt-2 text-gray-500 border border-darkborderc rounded-md">
-                                        <summary class="cursor-pointer select-none p-2">Raw remaining events</summary>
-                                        <code class="block border-t border-darkborderc p-2 whitespace-pre-wrap max-h-64 overflow-auto">{responseDetails.rawRemainder}</code>
-                                    </details>
-                                {/if}
-                            {:else}
-                                <code class="text-gray-300 border border-darkborderc p-2 rounded-md whitespace-pre-wrap">{formatResponseBody(data)}</code>
-                            {/if}
-                        {/if}
-                    {/await}
-                {/if}
-                {#if generationInfoMenuIndex === 3}
-                    {#if Object.keys(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].promptInfo || {}).length === 0}
-                        <div class="text-gray-300 text-lg mt-2">{language.promptInfoEmptyMessage}</div>
-                    {:else}
-                        <div class="grid grid-cols-2 gap-y-2 gap-x-4 mt-4">
-                            <span class="text-blue-500">Preset Name</span>
-                            <span class="text-blue-500 justify-self-end">{DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].promptInfo.promptName}</span>
-                            <span class="text-purple-500">Toggles</span>
-                            <div class="col-span-2 max-h-32 overflow-y-auto border border-stone-500 rounded-sm p-2 bg-gray-900">
-                                {#if DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].promptInfo.promptToggles.length === 0}
-                                    <div class="text-gray-500 italic text-center py-4">{language.promptInfoEmptyToggle}</div>
-                                {:else}
-                                    <div class="grid grid-cols-2 gap-y-2 gap-x-4">
-                                        {#each DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].promptInfo.promptToggles as toggle}
-                                        <span class="text-gray-200 truncate">{toggle.key}</span>
-                                        <span class="text-gray-200 justify-self-end truncate">{toggle.value}</span>
-                                        {/each}
-                                    </div>
-                                {/if}
-                            </div>
-                            <span class="text-red-500">Prompt Text</span>
-                            <div class="col-span-2 max-h-80 overflow-y-auto border border-stone-500 rounded-sm p-4 bg-gray-900">
-                                {#if !DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].promptInfo.promptText}
-                                    <div class="text-gray-500 italic text-center py-4">{language.promptInfoEmptyText}</div>
-                                {:else}
-                                    {#each DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[$alertGenerationInfoStore.idx].promptInfo.promptText as block}
-                                        <div class="mb-2">
-                                            <div class="font-bold text-gray-600">{block.role}</div>
-                                            <pre class="whitespace-pre-wrap text-sm bg-stone-900 p-2 rounded-sm border border-stone-500">{block.content}</pre>
-                                        </div>
-                                    {/each}
-                                {/if}
-                            </div>
-                        </div>
-                    {/if}
-                {/if}
             {/if}
         </div>
     </div>
 
 {:else if $alertStore.type === 'cardexport'}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div  class="fixed top-0 left-0 h-full w-full bg-black/50 flex flex-col z-50 items-center justify-center" role="button" tabindex="0" onclick={close}>
+    <div class="risu-modal-backdrop flex flex-col z-50 items-center justify-center" role="button" tabindex="0" onclick={cancelCardExport}>
         <div class="bg-darkbg rounded-md p-4 max-w-full flex flex-col w-2xl" role="button" tabindex="0" onclick={(e) => {
             e.stopPropagation()
         }}>
@@ -428,15 +255,7 @@
                 <span>
                     {language.shareExport}
                 </span>
-                <IconButton size="lg" className="float-right" onclick={() => {
-                    alertStore.set({
-                        type: 'none',
-                        msg: JSON.stringify({
-                            type: 'cancel',
-                            type2: cardExportType2
-                        })
-                    })
-                }}>
+                <IconButton size="lg" className="float-right" onclick={cancelCardExport}>
                     <XIcon />
                 </IconButton>
             </h1>
@@ -447,31 +266,31 @@
                 {:else if $alertStore.submsg === 'preset'}
                     <span class="text-textcolor2 text-sm">{language.risupresetDesc}</span>
                     {#if cardExportType2 === 'preset' && (DBState.db.botPresets[DBState.db.botPresetsId].image || DBState.db.botPresets[DBState.db.botPresetsId].regex?.length > 0)}
-                        <span class="text-red-500 text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
+                        <span class="text-draculared text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
                     {/if}
                 {:else}
                     <span class="text-textcolor2 text-sm">{language.ccv3Desc}</span>
                     {#if cardExportType2 !== 'charx' && cardExportType2 !== 'charxJpeg' && isCharacterHasAssets(DBState.db.characters[$selectedCharID])}
-                        <span class="text-red-500 text-sm">{language.notCharxWarn}</span>
+                        <span class="text-draculared text-sm">{language.notCharxWarn}</span>
                     {/if}
                 {/if}
             {:else if cardExportType === 'json'}
                 <span class="text-textcolor2 text-sm">{language.jsonDesc}</span>
             {:else if cardExportType === 'ccv2'}
                 <span class="text-textcolor2 text-sm">{language.ccv2Desc}</span>
-                <span class="text-red-500 text-sm">{language.v2Warning}</span>
+                <span class="text-draculared text-sm">{language.v2Warning}</span>
             {/if}
             <div class="flex items-center flex-wrap mt-2">
                 {#if $alertStore.submsg === 'preset'}
-                    <button class="bg-bgcolor px-2 py-4 rounded-lg flex-1" class:ring-1={cardExportType === ''} onclick={() => {cardExportType = ''}}>Risupreset</button>
+                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>Risupreset</ShButton>
                 {:else if $alertStore.submsg === 'module'}
-                    <button class="bg-bgcolor px-2 py-4 rounded-lg flex-1" class:ring-1={cardExportType === ''} onclick={() => {cardExportType = ''}}>RisuM</button>
+                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>RisuM</ShButton>
                 {:else}
-                    <button class="bg-bgcolor px-2 py-4 rounded-lg flex-1" class:ring-1={cardExportType === ''} onclick={() => {
+                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === ''} onclick={() => {
                         cardExportType = ''
                         cardExportType2 = 'charxJpeg'
-                    }}>Character Card V3</button>
-                    <button class="bg-bgcolor px-2 py-4 rounded-lg ml-2 flex-1" class:ring-1={cardExportType === 'ccv2'} onclick={() => {cardExportType = 'ccv2'}}>Character Card V2</button>
+                    }}>Character Card V3</ShButton>
+                    <ShButton variant={cardExportType === 'ccv2' ? 'primary' : 'outline'} className="ml-2 h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === 'ccv2' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === 'ccv2'} onclick={() => {cardExportType = 'ccv2'}}>Character Card V2</ShButton>
                 {/if}
             </div>
             {#if $alertStore.submsg === '' && cardExportType === ''}
@@ -490,7 +309,7 @@
                     <ShSwitch className="shrink-0" bind:checked={DBState.db.imageCompression} />
                 </div>
             {/if}
-            <Button className="mt-4" onclick={() => {
+            <ShButton className="mt-4" onclick={() => {
                 alertStore.set({
                     type: 'none',
                     msg: JSON.stringify({
@@ -498,7 +317,7 @@
                         type2: cardExportType2
                     })
                 })
-            }}>{language.export}</Button>
+            }}>{language.export}</ShButton>
         </div>
     </div>
 
@@ -513,14 +332,14 @@
     <!-- Log Generator by dootaang, GPL3 -->
     <!-- Svelte, Typescript version by Kwaroran -->
     
-    <div class="absolute w-full h-full z-50 bg-black/50 flex justify-center items-center">
+    <div class="risu-modal-backdrop z-50 flex justify-center items-center">
         <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
             <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">{language.preview}</h2>
 
         </div>
     </div>
 {:else if $alertStore.type === 'branches'}
-    <div class="absolute w-full h-full z-50 bg-black/80 flex justify-center items-center overflow-x-auto overflow-y-auto">
+    <div class="risu-modal-backdrop z-50 flex justify-center items-center overflow-x-auto overflow-y-auto">
         {#if branchHover !== null}
             <div class="z-30 whitespace-pre-wrap p-4 text-textcolor bg-darkbg border-darkborderc border rounded-md absolute" style="top: {branchHover.y * 80 + 24}px; left: {(branchHover.x + 1) * 80 + 24}px">
                 {branchHover.content}
@@ -591,175 +410,6 @@
             {/if}
         {/each}
     </div>
-{:else if $alertStore.type === 'requestlogs'}
-    {@const logs = getFetchLogs()}
-    <div class="fixed inset-0 z-50 bg-black/80 flex justify-center items-start overflow-y-auto p-4">
-        <div class="bg-darkbg rounded-lg w-full max-w-4xl my-4 flex flex-col max-h-[90vh]">
-            <div class="flex items-center justify-between p-4 border-b border-darkborderc sticky top-0 bg-darkbg z-10">
-                <h1 class="text-xl font-bold text-textcolor">{language.ShowLog}</h1>
-                <div class="flex items-center gap-2">
-                    <Button size="sm" onclick={() => {
-                        if(allExpanded) {
-                            expandedLogs = new Set()
-                        } else {
-                            expandedLogs = new Set(logs.map((_, i) => i))
-                        }
-                        allExpanded = !allExpanded
-                    }}>
-                        {allExpanded ? language.collapseAll : language.expandAll}
-                    </Button>
-                    <IconButton size="lg" onclick={() => {
-                        alertStore.set({ type: 'none', msg: '' })
-                    }}>
-                        <XIcon />
-                    </IconButton>
-                </div>
-            </div>
-            <div class="flex-1 overflow-y-auto p-4">
-                {#if logs.length === 0}
-                    <div class="text-textcolor2 text-center py-8">{language.noRequestLogs}</div>
-                {:else}
-                    <div class="flex flex-col gap-2">
-                        {#each logs as log, i}
-                            {@const isExpanded = expandedLogs.has(i)}
-                            {@const requestBody = formatRequestBody(log.body)}
-                            {@const responseBody = formatResponseBody(log)}
-                            {@const responseDetails = getResponseBodyDetails(log)}
-                            <div class="border border-darkborderc rounded-lg overflow-hidden">
-                                <button
-                                    class="w-full flex items-center justify-between p-3 hover:bg-bgcolor/50 transition-colors"
-                                    onclick={() => {
-                                        const newSet = new Set(expandedLogs)
-                                        if(isExpanded) {
-                                            newSet.delete(i)
-                                        } else {
-                                            newSet.add(i)
-                                        }
-                                        expandedLogs = newSet
-                                    }}
-                                >
-                                    <div class="flex items-center gap-3 min-w-0 flex-1">
-                                        <span class="px-2 py-1 rounded text-xs font-bold font-mono {log.success ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}">
-                                            {log.status ?? (log.success ? 'OK' : 'ERR')}
-                                        </span>
-                                        <span class="text-textcolor text-sm truncate flex-1 text-left font-mono" title={log.url}>
-                                            {log.url}
-                                        </span>
-                                        <span class="text-textcolor text-xs whitespace-nowrap opacity-70">{log.date}</span>
-                                    </div>
-                                    <div class="ml-2 text-textcolor">
-                                        {#if isExpanded}
-                                            <ChevronUpIcon size={20} />
-                                        {:else}
-                                            <ChevronDownIcon size={20} />
-                                        {/if}
-                                    </div>
-                                </button>
-                                {#if isExpanded}
-                                    <div class="border-t border-darkborderc p-4 bg-bgcolor/30">
-                                        <div class="space-y-4">
-                                            <div>
-                                                <div class="flex items-center justify-between mb-2">
-                                                    <span class="text-textcolor text-sm font-semibold">URL</span>
-                                                    <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-url` ? 'text-green-500' : 'text-textcolor2 hover:text-textcolor'}"
-                                                        onclick={(e) => { e.stopPropagation(); copyToClipboard(log.url, `${i}-url`) }}
-                                                        title="Copy"
-                                                    >
-                                                        {#if copiedKey === `${i}-url`}
-                                                            <CheckIcon size={12} />
-                                                        {:else}
-                                                            <CopyIcon size={12} />
-                                                        {/if}
-                                                    </button>
-                                                </div>
-                                                <pre class="request-log-code hljs text-sm">{log.url}</pre>
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center justify-between mb-2">
-                                                    <span class="text-textcolor text-sm font-semibold">Request Body</span>
-                                                    <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-body` ? 'text-green-500' : 'text-textcolor2 hover:text-textcolor'}"
-                                                        onclick={(e) => { e.stopPropagation(); copyToClipboard(log.body, `${i}-body`) }}
-                                                        title="Copy"
-                                                    >
-                                                        {#if copiedKey === `${i}-body`}
-                                                            <CheckIcon size={12} />
-                                                        {:else}
-                                                            <CopyIcon size={12} />
-                                                        {/if}
-                                                    </button>
-                                                </div>
-                                                <pre class="request-log-code hljs">{@html highlightJson(requestBody)}</pre>
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center justify-between mb-2">
-                                                    <span class="text-textcolor text-sm font-semibold">Request Header</span>
-                                                    <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-header` ? 'text-green-500' : 'text-textcolor2 hover:text-textcolor'}"
-                                                        onclick={(e) => { e.stopPropagation(); copyToClipboard(log.header, `${i}-header`) }}
-                                                        title="Copy"
-                                                    >
-                                                        {#if copiedKey === `${i}-header`}
-                                                            <CheckIcon size={12} />
-                                                        {:else}
-                                                            <CopyIcon size={12} />
-                                                        {/if}
-                                                    </button>
-                                                </div>
-                                                <pre class="request-log-code hljs max-h-32">{@html highlightJson(log.header)}</pre>
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center justify-between mb-2">
-                                                    <span class="text-textcolor text-sm font-semibold">Response</span>
-                                                    <button
-                                                        class="p-1 rounded hover:bg-bgcolor transition-colors {copiedKey === `${i}-response` ? 'text-green-500' : 'text-textcolor2 hover:text-textcolor'}"
-                                                        onclick={(e) => { e.stopPropagation(); copyToClipboard(responseBody, `${i}-response`) }}
-                                                        title="Copy"
-                                                    >
-                                                        {#if copiedKey === `${i}-response`}
-                                                            <CheckIcon size={12} />
-                                                        {:else}
-                                                            <CopyIcon size={12} />
-                                                        {/if}
-                                                    </button>
-                                                </div>
-                                                {#if responseDetails}
-                                                    <div class="space-y-2">
-                                                        {#each responseDetails.groups as group (group.event)}
-                                                            <details class="border border-darkborderc rounded-md text-textcolor2">
-                                                                <summary class="cursor-pointer select-none p-2 font-mono text-sm">
-                                                                    {group.summary}
-                                                                </summary>
-                                                                <pre class="request-log-code hljs max-h-64 border-t border-darkborderc rounded-none">{group.readable}</pre>
-                                                                <details class="border-t border-darkborderc">
-                                                                    <summary class="cursor-pointer select-none p-2 font-mono text-sm">Raw</summary>
-                                                                    <pre class="request-log-code hljs max-h-64 border-t border-darkborderc rounded-none">{@html highlightJson(group.raw)}</pre>
-                                                                </details>
-                                                            </details>
-                                                        {/each}
-                                                    </div>
-                                                    {#if responseDetails.remainder}
-                                                        <pre class="request-log-code hljs max-h-64 mt-2">{responseDetails.remainder}</pre>
-                                                        <details class="mt-2 border border-darkborderc rounded-md text-textcolor2">
-                                                            <summary class="cursor-pointer select-none p-2 font-mono text-sm">Raw remaining events</summary>
-                                                            <pre class="request-log-code hljs max-h-64 border-t border-darkborderc rounded-none">{@html highlightJson(responseDetails.rawRemainder)}</pre>
-                                                        </details>
-                                                    {/if}
-                                                {:else}
-                                                    <pre class="request-log-code hljs max-h-64">{@html highlightJson(responseBody)}</pre>
-                                                {/if}
-                                            </div>
-                                        </div>
-                                    </div>
-                                {/if}
-                            </div>
-                        {/each}
-                    </div>
-                {/if}
-            </div>
-        </div>
-    </div>
 {/if}
 
 <ShDialog
@@ -792,7 +442,7 @@
             class="add-character-option"
             onclick={() => alertStore.set({ type: 'none', msg: 'importCharacter' })}
         >
-            <span>{language.importCharacter}</span>
+            <span>{language.importCharacterAndPackage}</span>
             <ChevronRightIcon size={18} />
         </button>
 
@@ -801,14 +451,6 @@
             onclick={() => alertStore.set({ type: 'none', msg: 'createfromScratch' })}
         >
             <span>{language.createfromScratch}</span>
-            <ChevronRightIcon size={18} />
-        </button>
-
-        <button
-            class="add-character-option"
-            onclick={() => alertStore.set({ type: 'none', msg: 'importPackage' })}
-        >
-            <span>{language.characterPackageImport}</span>
             <ChevronRightIcon size={18} />
         </button>
 
@@ -836,14 +478,14 @@
 
         {#if $alertStore.stackTrace}
             <div class="mt-2">
-                <Button styled="outlined" size="sm" onclick={() => showDetails = !showDetails}>
+                <ShButton variant="outline" size="sm" onclick={() => showDetails = !showDetails}>
                     {showDetails ? language.hideErrorDetails : language.showErrorDetails}
                     {#if showDetails}
                         <XIcon class="inline ml-2" />
                     {:else}
                         <ChevronRightIcon class="inline ml-2" />
                     {/if}
-                </Button>
+                </ShButton>
                 {#if showDetails}
                     <div class="stack-trace-wrap">
                         <button
@@ -974,7 +616,12 @@
 <ShDialog
     open={$alertStore.type === 'select'}
     closable={false}
-    closeOnOutsideClick={false}
+    closeOnOutsideClick={$alertStore.closeOnOutsideClick ?? true}
+    onOpenChange={(v) => {
+        if (!v && $alertStore.type === 'select') {
+            alertStore.set({ type: 'none', msg: '-1' })
+        }
+    }}
 >
     {#if $alertStore.type === 'select'}
         {@const hasDisplay = $alertStore.msg.startsWith('__DISPLAY__')}
@@ -1142,7 +789,7 @@
                     <div class="flex flex-col gap-1">
                         {#each filteredPresets as {preset, index: i}}
                             <div class="flex items-center border border-darkborderc rounded-md hover:ring-1 hover:ring-borderc/50 transition-shadow">
-                                <button class="flex-1 min-w-0 p-2 text-left cursor-pointer text-textcolor truncate hover:bg-selected/30 rounded-l-md transition-colors" onclick={async () => {
+                                <button class="flex-1 min-w-0 p-2 text-left cursor-pointer text-textcolor truncate risu-interactive-surface rounded-l-md transition-colors" onclick={async () => {
                                     const name = preset.name
                                     const isMismatch = preset.promptPresetName !== currentPromptPresetName
                                     const msg = isMismatch ? language.togglePresetMismatchConfirm : language.togglePresetApplyConfirm
@@ -1347,13 +994,8 @@
             color 150ms ease;
     }
 
-    .add-character-option:hover {
+    .add-character-option:is(:hover, :focus-visible) {
         background-color: color-mix(in srgb, var(--risu-theme-selected) 30%, transparent);
-    }
-
-    .add-character-option:focus-visible {
-        outline: 2px solid color-mix(in srgb, var(--risu-theme-borderc) 65%, transparent);
-        outline-offset: 1px;
     }
 
     .add-character-option :global(svg) {
@@ -1403,23 +1045,9 @@
         transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
     }
 
-    .stack-trace-copy:hover {
+    .stack-trace-copy:is(:hover, :focus-visible) {
         background-color: var(--risu-theme-bgcolor);
         color: var(--risu-theme-textcolor);
     }
 
-    .request-log-code {
-        background-color: #1a1a2e;
-        color: #e0e0e0;
-        border: 1px solid var(--risu-theme-darkborderc);
-        border-radius: 0.375rem;
-        padding: 0.75rem;
-        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-        font-size: 0.75rem;
-        line-height: 1.5;
-        white-space: pre-wrap;
-        word-break: break-all;
-        max-height: 12rem;
-        overflow: auto;
-    }
 </style>

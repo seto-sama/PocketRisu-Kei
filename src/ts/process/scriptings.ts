@@ -7,7 +7,7 @@ import { get } from "svelte/store";
 import { ReloadChatPointer, ReloadGUIPointer, selectedCharID } from "../stores.svelte";
 import { alertSelect, alertError, alertInput, alertNormal, alertConfirm } from "../alert";
 import { HypaProcesser } from "./memory/hypamemory";
-import { generateAIImage } from "./stableDiff";
+import { generateAIImageInlay } from "./stableDiff";
 import { writeInlayImage, getInlayAsset } from "./files/inlays";
 import type { OpenAIChat, MultiModal } from "./index.svelte";
 import { requestChatData, type StreamResponseChunk } from "./request/request";
@@ -24,9 +24,8 @@ import {
     findRecoverableAuxiliaryGeneration,
     listRecoverableAuxiliaryGenerations,
     resolveRecoverableAuxiliaryGenerations,
-    updateRecoverableAuxiliaryGenerationResult,
-} from "./revenantGeneration/auxiliary";
-import type { RecoverableAuxiliaryJob } from "./revenantGeneration/types";
+    updateRecoverableAuxiliaryGenerationProjection,
+} from "./revenant/auxiliary";
 import { loadLoreBookV3Prompt } from './lorebook.svelte';
 import { getPersonaPrompt, getUserName, getUserIcon } from '../util';
 import { saveChatToServer } from '../storage/chatStorage';
@@ -34,8 +33,25 @@ import {
     createRevenantOperation,
     isRevenantJobActive,
     isRevenantLuaLlmOperation,
+    type RecoverableAuxiliaryJob,
     type RevenantLuaLlmOperation,
-} from './revenantGeneration/types';
+} from './revenant';
+import { wrapRevenantLua } from './revenant/postprocess';
+import {
+    invokeLuaMode,
+    registerLuaCoreApis,
+    registerLuaEffectApis,
+    type LuaCoreAdapter,
+    type LuaEffectAdapter,
+    type LuaEffectApiName,
+    luaMayListenForEditMode,
+} from './luaCore';
+import {
+    extractLuaLlmInlays,
+    luaLlmResult,
+    normalizeLuaLlmPrompt,
+    parseLuaLlmOptions,
+} from './luaLlmCore';
 let luaFactory:LuaFactory
 let ScriptingSafeIds = new Set<string>()
 let ScriptingEditDisplayIds = new Set<string>()
@@ -47,9 +63,14 @@ interface BasicScriptingEngineState {
     code?: string;
     mutex: Mutex;
     chat?: Chat;
+    character?: character|simpleCharacterArgument;
     setVar?: (key:string, value:string) => void,
     getVar?: (key:string) => string,
     revenantLuaExecution?: RevenantLuaExecutionContext,
+    luaCoreAdapter?: LuaCoreAdapter,
+    luaEffectAdapter?: LuaEffectAdapter,
+    luaEffectHandlers?: Partial<Record<LuaEffectApiName, (...args: any[]) => unknown>>,
+    moduleId?: string,
 }
 
 interface LuaScriptingEngineState extends BasicScriptingEngineState {
@@ -75,6 +96,7 @@ type RevenantLuaExecutionContext = {
     mode: string;
     code: string;
     lowLevelAccess: boolean;
+    moduleId?: string;
     anchorMessageId: string;
     callIndex: number;
     completedJobIds: Set<string>;
@@ -96,6 +118,7 @@ export async function runScripted(code:string, arg:{
     meta?: object,
     mode?: string,
     type?: 'lua'|'py'
+    moduleId?: string
     revenantReplayJobIds?: string[]
 }){
     const type: 'lua'|'py' = arg.type ?? 'lua'
@@ -124,12 +147,13 @@ export async function runScripted(code:string, arg:{
             ))
         const codeHash = await hasher(new TextEncoder().encode(code))
         revenantLuaExecution = {
-            executionKey: `${char.chaId}:${chat.id}:${mode}:${anchorMessageId}:${codeHash}`,
+            executionKey: `${char.chaId}:${chat.id}:${mode}:${arg.moduleId ?? ''}:${anchorMessageId}:${codeHash}`,
             characterId: char.chaId,
             roomId: chat.id,
             mode,
             code,
             lowLevelAccess,
+            moduleId: arg.moduleId,
             anchorMessageId,
             callIndex: 0,
             completedJobIds: new Set(arg.revenantReplayJobIds ?? []),
@@ -142,10 +166,33 @@ export async function runScripted(code:string, arg:{
     let ScriptingEngineState = await getOrCreateEngineState(mode, type);
     
     return await ScriptingEngineState.mutex.runExclusive(async () => {
+        ScriptingEngineState.moduleId = arg.moduleId
         ScriptingEngineState.chat = chat
+        ScriptingEngineState.character = char
         ScriptingEngineState.setVar = setVar
         ScriptingEngineState.getVar = getVar
         ScriptingEngineState.revenantLuaExecution = revenantLuaExecution
+        ScriptingEngineState.luaCoreAdapter = {
+            canSetVariable: accessKey => (
+                ScriptingSafeIds.has(accessKey) || ScriptingEditDisplayIds.has(accessKey)
+            ),
+            canMutate: accessKey => ScriptingSafeIds.has(accessKey),
+            getChat: () => ScriptingEngineState.chat!,
+            getCharacter: () => {
+                const db = getDatabase()
+                return db.characters[get(selectedCharID)] ?? (char as character)
+            },
+            getVar: key => ScriptingEngineState.getVar?.(key) ?? 'null',
+            setVar: (key, value) => ScriptingEngineState.setVar?.(key, value),
+            getGlobalVar: getGlobalChatVar,
+            stop: () => { stopSending = true },
+            render: value => risuChatParser(value, { chara: getCurrentCharacter() }),
+        }
+        ScriptingEngineState.luaEffectAdapter = {
+            canUseSafeApi: accessKey => ScriptingSafeIds.has(accessKey),
+            canUseLowLevelApi: accessKey => ScriptingLowLevelIds.has(accessKey),
+            invoke: (name, args) => ScriptingEngineState.luaEffectHandlers?.[name]?.(...args),
+        }
         if (code !== ScriptingEngineState.code) {
             let declareAPI:(name: string, func:Function) => void
 
@@ -167,139 +214,40 @@ export async function runScripted(code:string, arg:{
                     ScriptingEngineState.pyodide?.declareAPI(name, func as any)
                 }
             }
-            declareAPI('getChatVar', (id:string,key:string) => {
-                return ScriptingEngineState.getVar(key)
-            })
-            declareAPI('setChatVar', (id:string,key:string, value:string) => {
-                if(!ScriptingSafeIds.has(id) && !ScriptingEditDisplayIds.has(id)){
-                    return
-                }
-                ScriptingEngineState.setVar(key, value)
-            })
-            declareAPI('getGlobalVar', (id:string, key:string) => {
-                return getGlobalChatVar(key)
-            })
-            declareAPI('stopChat', (id:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                stopSending = true
-            })
-            declareAPI('alertError', (id:string, value:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
+            registerLuaCoreApis(
+                declareAPI as (name: string, handler: (...args: any[]) => unknown) => void,
+                () => ScriptingEngineState.luaCoreAdapter!,
+            )
+            const effectHandlers: Partial<Record<LuaEffectApiName, (...args: any[]) => unknown>> = {}
+            const addEffect = (name: LuaEffectApiName, handler: (...args: any[]) => unknown) => {
+                effectHandlers[name] = handler
+            }
+            ScriptingEngineState.luaEffectHandlers = effectHandlers
+            registerLuaEffectApis(
+                declareAPI as (name: string, handler: (...args: any[]) => unknown) => void,
+                () => ScriptingEngineState.luaEffectAdapter!,
+            )
+            addEffect('alertError', (id:string, value:string) => {
                 alertError(value)
             })
-            declareAPI('alertNormal', (id:string, value:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
+            addEffect('alertNormal', (id:string, value:string) => {
                 alertNormal(value)
             })
-            declareAPI('alertInput', (id:string, value:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
+            addEffect('alertInput', (id:string, value:string) => {
                 return alertInput(value)
             })
-            declareAPI('alertSelect', (id:string, value:string[]) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
+            addEffect('alertSelect', (id:string, value:string[]) => {
                 return alertSelect(value)
             })
-            declareAPI('alertConfirm', (id:string, value:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
+            addEffect('alertConfirm', (id:string, value:string) => {
                 return alertConfirm(value).then(res => res ? true : false)
             })
 
-            declareAPI('getChatMain', (id:string, index:number) => {
-                const chat = ScriptingEngineState.chat.message.at(index)
-                if(!chat){
-                    return JSON.stringify(null)
-                }
-                const data = {
-                    role: chat.role,
-                    data: chat.data,
-                    time: chat.time ?? 0
-                }
-                return JSON.stringify(data)
-            })
-
-            declareAPI('setChat', (id:string, index:number, value:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                const message = ScriptingEngineState.chat.message?.at(index)
-                if(message){
-                    message.data = value ?? ''
-                }
-            })
-            declareAPI('setChatRole', (id:string, index:number, value:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                const message = ScriptingEngineState.chat.message?.at(index)
-                if(message){
-                    message.role = value === 'user' ? 'user' : 'char'
-                }
-            })
-            declareAPI('cutChat', (id:string, start:number, end:number) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                ScriptingEngineState.chat.message = ScriptingEngineState.chat.message.slice(start,end)
-            })
-            declareAPI('removeChat', (id:string, index:number) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                ScriptingEngineState.chat.message.splice(index, 1)
-            })
-            declareAPI('addChat', (id:string, role:string, value:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                let roleData:'user'|'char' = role === 'user' ? 'user' : 'char'
-                ScriptingEngineState.chat.message.push({role: roleData, data: value ?? ''})
-            })
-            declareAPI('insertChat', (id:string, index:number, role:string, value:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                let roleData:'user'|'char' = role === 'user' ? 'user' : 'char'
-                ScriptingEngineState.chat.message.splice(index, 0, {role: roleData, data: value ?? ''})
-            })
-
-            declareAPI('getTokens', async (id:string, value:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
+            addEffect('getTokens', async (id:string, value:string) => {
                 return await tokenize(value)
             })
 
-            declareAPI('getChatLength', (id:string) => {
-                return ScriptingEngineState.chat.message.length
-            })
-
-            declareAPI('getFullChatMain', (id:string) => {
-                const data = JSON.stringify(ScriptingEngineState.chat.message.map((v) => {
-                    return {
-                        role: v.role,
-                        data: v.data,
-                        time: v.time ?? 0
-                    }
-                }))
-                return data
-            })
-
-            declareAPI('sleep', (id:string, time:number) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
+            addEffect('sleep', (id:string, time:number) => {
                 return new Promise((resolve) => {
                     setTimeout(() => {
                         resolve(true)
@@ -307,39 +255,15 @@ export async function runScripted(code:string, arg:{
                 })
             })
 
-            declareAPI('cbs', (value) => {
-                return risuChatParser(value, { chara: getCurrentCharacter() })
-            })
-            
-            declareAPI('setFullChatMain', (id:string, value:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                const realValue = JSON.parse(value)
-
-                ScriptingEngineState.chat.message = realValue.map((v) => {
-                    return {
-                        role: v.role,
-                        data: v.data
-                    }
-                })
-            })
-
-            declareAPI('logMain', (value:string) => {
+            addEffect('logMain', (value:string) => {
                 console.log(JSON.parse(value))
             })
 
-            declareAPI('reloadDisplay', (id:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
+            addEffect('reloadDisplay', (id:string) => {
                 ReloadGUIPointer.set(get(ReloadGUIPointer) + 1)
             })
 
-            declareAPI('reloadChat', (id: string, index: number) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
+            addEffect('reloadChat', (id: string, index: number) => {
                 ReloadChatPointer.update((v) => {
                     v[index] = (v[index] ?? 0) + 1
                     return v
@@ -347,20 +271,13 @@ export async function runScripted(code:string, arg:{
             })
 
             //Low Level Access
-            declareAPI('similarity', async (id:string, source:string, value:string[]) => {
-                if(!ScriptingLowLevelIds.has(id)){
-                    return
-                }
+            addEffect('similarity', async (id:string, source:string, value:string[]) => {
                 const processer = new HypaProcesser()
                 await processer.addText(value)
                 return await processer.similaritySearch(source)
             })
 
-            declareAPI('request', async (id:string, url:string) => {
-                if(!ScriptingLowLevelIds.has(id)){
-                    return
-                }
-
+            addEffect('request', async (id:string, url:string) => {
                 if(lastRequestResetTime + 60000 < Date.now()){
                     lastRequestsCount = 0
                     lastRequestResetTime = Date.now()
@@ -425,21 +342,19 @@ export async function runScripted(code:string, arg:{
                 }
             })
 
-            declareAPI('generateImage', async (id:string, value:string, negValue:string = '') => {
-                if(!ScriptingLowLevelIds.has(id)){
-                    return
-                }
-                const gen = await generateAIImage(value, char as character, negValue, 'inlay')
-                if(!gen){
+            addEffect('generateImage', async (id:string, value:string, negValue:string = '') => {
+                const inlay = await generateAIImageInlay(
+                    value,
+                    ScriptingEngineState.character as character,
+                    negValue,
+                )
+                if(!inlay){
                     return 'Error: Image generation failed'
                 }
-                const imgHTML = new Image()
-                imgHTML.src = gen
-                const inlay = await writeInlayImage(imgHTML)
-                return `{{inlay::${inlay}}}`
+                return inlay
             })
 
-            declareAPI('getCharacterImageMain', async (id:string) => {
+            addEffect('getCharacterImageMain', async (id:string) => {
                 try {
                     const db = getDatabase()
                     const selectedChar = get(selectedCharID)
@@ -473,7 +388,7 @@ export async function runScripted(code:string, arg:{
                 }
             })
 
-            declareAPI('getPersonaImageMain', async (id:string) => {
+            addEffect('getPersonaImageMain', async (id:string) => {
                 try {
                     const icon = getUserIcon()
 
@@ -501,21 +416,9 @@ export async function runScripted(code:string, arg:{
                 }
             })
 
-            declareAPI('hash', async (id:string, value:string) => {
+            addEffect('hash', async (id:string, value:string) => {
                 return await hasher(new TextEncoder().encode(value))
             })
-
-            const parseLuaOptions = (optionsStr?: string) => {
-                if (!optionsStr) {
-                    return {};
-                }
-                try {
-                    const parsed = JSON.parse(optionsStr);
-                    return parsed && typeof parsed === 'object' ? parsed : {};
-                } catch {
-                    return {};
-                }
-            };
 
             const collectLuaStreamText = async (stream: ReadableStream<StreamResponseChunk>) => {
                 const reader = stream.getReader();
@@ -549,9 +452,10 @@ export async function runScripted(code:string, arg:{
                 ));
                 const replayKey = `${execution.executionKey}:${callIndex}:${requestHash}`;
                 const existing = await getLuaReplayJob(replayKey);
-                if (existing?.status === 'generated' && existing.rawContent.length > 0) {
+                const projectedContent = existing?.projection?.content ?? '';
+                if (existing?.status === 'generated' && projectedContent.length > 0) {
                     execution.completedJobIds.add(existing.jobId);
-                    return { replay: existing.rawContent };
+                    return { replay: projectedContent };
                 }
                 if (existing) {
                     // Interrupted/failed work cannot provide a reliable return
@@ -569,6 +473,7 @@ export async function runScripted(code:string, arg:{
                         mode: execution.mode,
                         code: execution.code,
                         lowLevelAccess: execution.lowLevelAccess,
+                        moduleId: execution.moduleId,
                         anchorMessageId: execution.anchorMessageId,
                         callIndex,
                     }),
@@ -586,146 +491,102 @@ export async function runScripted(code:string, arg:{
                     && candidate.operationContext.operationId === operationContext.operationId);
                 if (!job) return false;
                 if (isRevenantJobActive(job.status)) return false;
-                await updateRecoverableAuxiliaryGenerationResult(job.jobId, result);
+                await updateRecoverableAuxiliaryGenerationProjection(job.jobId, result);
                 ScriptingEngineState.revenantLuaExecution?.completedJobIds.add(job.jobId);
                 return true;
             };
 
-            declareAPI('LLMMain', async (id:string, promptStr:string, useMultimodal: boolean = false, optionsStr?: string) => {
-                let prompt:{
-                    role: string,
-                    content: string
-                }[] = JSON.parse(promptStr)
-                if(!ScriptingLowLevelIds.has(id)){
-                    return
-                }
-                let promptbody:OpenAIChat[] = prompt.map((dict) => {
-                    let role:'system'|'user'|'assistant' = 'assistant'
-                    switch(dict['role']){
-                        case 'system':
-                        case 'sys':
-                            role = 'system'
-                            break
-                        case 'user':
-                            role = 'user'
-                            break
-                        case 'assistant':
-                        case 'bot':
-                        case 'char':{
-                            role = 'assistant'
-                            break
-                        }
-                    }
-
-                    return {
-                        content: dict['content'] ?? '',
-                        role: role,
-                    }
-                })
-
-                if(useMultimodal) {
-                    for(const msg of promptbody) {
-                        const inlays:string[] = []
-                        msg.content = msg.content.replace(/{{(inlay|inlayed|inlayeddata)::(.+?)}}/g, (
-                            match: string,
-                            p1: string,
-                            p2: string
-                        ) => {
-                            if(msg.role === 'assistant') {
-                                if(p2 && p1 === 'inlayeddata') {
-                                    inlays.push(p2)
-                                }
-                            }
-                            else {
-                                if(p2) {
-                                    inlays.push(p2)
-                                }
-                            }
-                            return ''
+            const runLuaLlm = async (
+                modelMode: 'model' | 'otherAx',
+                promptStr: string,
+                useMultimodal = false,
+                optionsStr?: string,
+            ): Promise<string> => {
+                const promptbody: OpenAIChat[] = normalizeLuaLlmPrompt(promptStr).map(message => ({ ...message }))
+                if(useMultimodal){
+                    for(const message of promptbody){
+                        const normalized = extractLuaLlmInlays({
+                            role: message.role === 'system' || message.role === 'user'
+                                ? message.role
+                                : 'assistant',
+                            content: String(message.content ?? ''),
                         })
-                        
+                        message.content = normalized.content
                         const multimodals: MultiModal[] = []
-                        for(const inlay of inlays) {
-                            const inlayData = await getInlayAsset(inlay)
+                        for(const inlayId of normalized.inlayIds){
+                            const inlayData = await getInlayAsset(inlayId)
                             multimodals.push({
                                 type: inlayData?.type,
                                 base64: inlayData?.data,
                                 width: inlayData?.width,
-                                height: inlayData?.height
+                                height: inlayData?.height,
                             })
                         }
-
-                        msg.multimodals = multimodals.length > 0 ? multimodals : undefined
+                        message.multimodals = multimodals.length > 0 ? multimodals : undefined
                     }
                 }
 
                 const revenantCall = await prepareRevenantLuaCall(
-                    'model',
+                    modelMode,
                     `${promptStr}\n${useMultimodal}\n${optionsStr ?? ''}`,
                 )
-                if (revenantCall.replay !== undefined) {
-                    return JSON.stringify({ success: true, result: revenantCall.replay })
+                if(revenantCall.replay !== undefined){
+                    return JSON.stringify(luaLlmResult(true, revenantCall.replay))
                 }
-                const options = parseLuaOptions(optionsStr) as { streaming?: boolean }
+                const options = parseLuaLlmOptions(optionsStr)
                 const result = await requestChatData({
                     formated: promptbody,
                     bias: {},
-                    currentChar: char.type === 'character' ? char : undefined,
+                    currentChar: ScriptingEngineState.character?.type === 'character'
+                        ? ScriptingEngineState.character
+                        : undefined,
                     useStreaming: options.streaming === true,
                     forceStreaming: options.streaming === true,
                     noMultiGen: true,
                     revenantOperationContext: revenantCall.operationContext,
-                }, 'model')
+                    moduleId: ScriptingEngineState.moduleId,
+                }, modelMode)
 
                 if(result.type === 'fail'){
-                    const completed = await completeRevenantLuaCall(revenantCall.operationContext, 'Error: ' + result.result)
-                    if (!completed && revenantCall.operationContext) {
+                    const failure = luaLlmResult(false, result.result, true)
+                    const completed = await completeRevenantLuaCall(
+                        revenantCall.operationContext,
+                        failure.result,
+                    )
+                    if(!completed && revenantCall.operationContext){
                         throw new Error('Revenant Lua generation detached; awaiting automatic recovery')
                     }
-                    return JSON.stringify({
-                        success: false,
-                        result: 'Error: ' + result.result
-                    })
+                    return JSON.stringify(failure)
                 }
-
                 if(result.type === 'streaming'){
                     try {
                         const text = await collectLuaStreamText(result.result)
                         await completeRevenantLuaCall(revenantCall.operationContext, text)
-                        return JSON.stringify({
-                            success: true,
-                            result: text
-                        })
-                    } catch (error) {
-                        if (revenantCall.operationContext) throw error
-                        return JSON.stringify({
-                            success: false,
-                            result: 'Error: ' + error
-                        })
+                        return JSON.stringify(luaLlmResult(true, text))
+                    }
+                    catch(error){
+                        if(revenantCall.operationContext) throw error
+                        return JSON.stringify(luaLlmResult(false, error, true))
                     }
                 }
-
                 if(result.type === 'multiline'){
-                    return JSON.stringify({
-                        success: false,
-                        result: result.result
-                    })
+                    return JSON.stringify(luaLlmResult(false, result.result))
                 }
-
                 await completeRevenantLuaCall(revenantCall.operationContext, result.result)
-                return JSON.stringify({
-                    success: true,
-                    result: result.result
-                })
-            })
+                return JSON.stringify(luaLlmResult(true, result.result))
+            }
 
-            declareAPI('simpleLLM', async (id:string, prompt:string) => {
-                if(!ScriptingLowLevelIds.has(id)){
-                    return
-                }
+            addEffect('LLMMain', async (
+                _id: string,
+                promptStr: string,
+                useMultimodal = false,
+                optionsStr?: string,
+            ) => await runLuaLlm('model', promptStr, useMultimodal, optionsStr))
+
+            addEffect('simpleLLM', async (_id:string, prompt:string) => {
                 const revenantCall = await prepareRevenantLuaCall('model', prompt)
                 if (revenantCall.replay !== undefined) {
-                    return { success: true, result: revenantCall.replay }
+                    return luaLlmResult(true, revenantCall.replay)
                 }
                 const result = await requestChatData({
                     formated: [{
@@ -733,107 +594,37 @@ export async function runScripted(code:string, arg:{
                         content: prompt
                     }],
                     bias: {},
-                    currentChar: char.type === 'character' ? char : undefined,
+                    currentChar: ScriptingEngineState.character?.type === 'character'
+                        ? ScriptingEngineState.character
+                        : undefined,
                     useStreaming: false,
                     noMultiGen: true,
                     revenantOperationContext: revenantCall.operationContext,
+                    moduleId: ScriptingEngineState.moduleId,
                 }, 'model')
 
                 if(result.type === 'fail'){
-                    const completed = await completeRevenantLuaCall(revenantCall.operationContext, 'Error: ' + result.result)
+                    const failure = luaLlmResult(false, result.result, true)
+                    const completed = await completeRevenantLuaCall(revenantCall.operationContext, failure.result)
                     if (!completed && revenantCall.operationContext) {
                         throw new Error('Revenant Lua generation detached; awaiting automatic recovery')
                     }
-                    return {
-                        success: false,
-                        result: 'Error: ' + result.result
-                    }
+                    return failure
                 }
 
                 if(result.type === 'streaming' || result.type === 'multiline'){
-                    return {
-                        success: false,
-                        result: result.result
-                    }
+                    return luaLlmResult(false, result.result)
                 }
 
                 await completeRevenantLuaCall(revenantCall.operationContext, result.result)
-                return {
-                    success: true,
-                    result: result.result
-                }
+                return luaLlmResult(true, result.result)
             })
             
-            declareAPI('getName', (id:string) => {
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                const char = db.characters[selectedChar]
-                return char.name
-            })
-
-            declareAPI('setName', (id:string, name:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                if(typeof name !== 'string'){
-                    throw('Invalid data type')
-                }
-                db.characters[selectedChar].name = name
-            })
-
-            declareAPI('getDescription', (id:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                const char = db.characters[selectedChar]
-                return char.desc
-            })
-
-            declareAPI('setDescription', (id:string, desc:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                const char =db.characters[selectedChar]
-                if(typeof data !== 'string'){
-                    throw('Invalid data type')
-                }
-                char.desc = desc
-                db.characters[selectedChar] = char
-            })
-
-            declareAPI('getCharacterFirstMessage', (id:string) => {
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                const char = db.characters[selectedChar]
-                return char.firstMessage
-            })
-
-            declareAPI('setCharacterFirstMessage', (id:string, data:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                const char = db.characters[selectedChar]
-                if(typeof data !== 'string'){
-                    return false
-                }
-                char.firstMessage = data
-                db.characters[selectedChar] = char
-                return true
-            })
-
-            declareAPI('getPersonaName', (id:string) => {
+            addEffect('getPersonaName', (id:string) => {
                 return getUserName()
             })
 
-            declareAPI('getPersonaDescription', (id:string) => {
+            addEffect('getPersonaDescription', (id:string) => {
                 const db = getDatabase()
                 const selectedChar = get(selectedCharID)
                 const char = db.characters[selectedChar]
@@ -841,35 +632,7 @@ export async function runScripted(code:string, arg:{
                 return risuChatParser(getPersonaPrompt(), { chara: char })
             })
 
-            declareAPI('getAuthorsNote', (id:string) => {
-                return ScriptingEngineState.chat?.note ?? ''
-            })
-
-            declareAPI('getBackgroundEmbedding', (id:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                const char = db.characters[selectedChar]
-                return char.backgroundHTML
-            })
-
-            declareAPI('setBackgroundEmbedding', (id:string, data:string) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-                const db = getDatabase()
-                const selectedChar = get(selectedCharID)
-                if(typeof data !== 'string'){
-                    return false
-                }
-                db.characters[selectedChar].backgroundHTML = data
-                return true
-            })
-
-            // Lore books
-            declareAPI('getLoreBooksMain', (id:string, search:string) => {
+            addEffect('getLoreBooksMain', (id:string, search:string) => {
                 const db = getDatabase()
                 const selectedChar = db.characters[get(selectedCharID)]
                 if (selectedChar.type !== 'character') {
@@ -902,12 +665,9 @@ export async function runScripted(code:string, arg:{
                 regex?: boolean
             }
 
-            declareAPI('upsertLocalLoreBook', (id:string, name:string, content:string, options:upsertLoreBookOptions) => {
-                if(!ScriptingSafeIds.has(id)){
-                    return
-                }
-
-                if (char.type !== 'character') {
+            addEffect('upsertLocalLoreBook', (id:string, name:string, content:string, options:upsertLoreBookOptions) => {
+                const activeCharacter = ScriptingEngineState.character
+                if (activeCharacter?.type !== 'character') {
                     return
                 }
 
@@ -919,7 +679,7 @@ export async function runScripted(code:string, arg:{
                     secondKey = '',
                 } = options
 
-                const currentChat = char.chats[char.chatPage]
+                const currentChat = activeCharacter.chats[activeCharacter.chatPage]
 
                 const newLocalLoreBooks = currentChat.localLore.filter((book) => book.comment !== name)
                 newLocalLoreBooks.push({
@@ -936,11 +696,7 @@ export async function runScripted(code:string, arg:{
                 currentChat.localLore = newLocalLoreBooks
             })
 
-            declareAPI('loadLoreBooksMain', async (id:string, reserve:number) => {
-                if(!ScriptingLowLevelIds.has(id)){
-                    return
-                }
-
+            addEffect('loadLoreBooksMain', async (id:string, reserve:number) => {
                 const db = getDatabase()
 
                 const selectedChar = db.characters[get(selectedCharID)]
@@ -979,214 +735,16 @@ export async function runScripted(code:string, arg:{
                 return JSON.stringify(loreBooks)
             })
 
-            declareAPI('axLLMMain', async (id:string, promptStr:string, useMultimodal: boolean = false, optionsStr?: string) => {
-                let prompt:{
-                    role: string,
-                    content: string
-                }[] = JSON.parse(promptStr)
-                if(!ScriptingLowLevelIds.has(id)){
-                    return
-                }
-                let promptbody:OpenAIChat[] = prompt.map((dict) => {
-                    let role:'system'|'user'|'assistant' = 'assistant'
-                    switch(dict['role']){
-                        case 'system':
-                        case 'sys':
-                            role = 'system'
-                            break
-                        case 'user':
-                            role = 'user'
-                            break
-                        case 'assistant':
-                        case 'bot':
-                        case 'char':{
-                            role = 'assistant'
-                            break
-                        }
-                    }
-
-                    return {
-                        content: dict['content'] ?? '',
-                        role: role,
-                    }
-                })
-
-                if(useMultimodal) {
-                    for(const msg of promptbody) {
-                        const inlays:string[] = []
-                        msg.content = msg.content.replace(/{{(inlay|inlayed|inlayeddata)::(.+?)}}/g, (
-                            match: string,
-                            p1: string,
-                            p2: string
-                        ) => {
-                            if(msg.role === 'assistant') {
-                                if(p2 && p1 === 'inlayeddata') {
-                                    inlays.push(p2)
-                                }
-                            }
-                            else {
-                                if(p2) {
-                                    inlays.push(p2)
-                                }
-                            }
-                            return ''
-                        })
-                        
-                        const multimodals: MultiModal[] = []
-                        for(const inlay of inlays) {
-                            const inlayData = await getInlayAsset(inlay)
-                            multimodals.push({
-                                type: inlayData?.type,
-                                base64: inlayData?.data,
-                                width: inlayData?.width,
-                                height: inlayData?.height
-                            })
-                        }
-
-                        msg.multimodals = multimodals.length > 0 ? multimodals : undefined
-                    }
-                }
-
-                const revenantCall = await prepareRevenantLuaCall(
-                    'otherAx',
-                    `${promptStr}\n${useMultimodal}\n${optionsStr ?? ''}`,
-                )
-                if (revenantCall.replay !== undefined) {
-                    return JSON.stringify({ success: true, result: revenantCall.replay })
-                }
-                const options = parseLuaOptions(optionsStr) as { streaming?: boolean }
-                const result = await requestChatData({
-                    formated: promptbody,
-                    bias: {},
-                    currentChar: char.type === 'character' ? char : undefined,
-                    useStreaming: options.streaming === true,
-                    forceStreaming: options.streaming === true,
-                    noMultiGen: true,
-                    revenantOperationContext: revenantCall.operationContext,
-                }, 'otherAx')
-
-                if(result.type === 'fail'){
-                    const completed = await completeRevenantLuaCall(revenantCall.operationContext, 'Error: ' + result.result)
-                    if (!completed && revenantCall.operationContext) {
-                        throw new Error('Revenant Lua generation detached; awaiting automatic recovery')
-                    }
-                    return JSON.stringify({
-                        success: false,
-                        result: 'Error: ' + result.result
-                    })
-                }
-
-                if(result.type === 'streaming'){
-                    try {
-                        const text = await collectLuaStreamText(result.result)
-                        await completeRevenantLuaCall(revenantCall.operationContext, text)
-                        return JSON.stringify({
-                            success: true,
-                            result: text
-                        })
-                    } catch (error) {
-                        if (revenantCall.operationContext) throw error
-                        return JSON.stringify({
-                            success: false,
-                            result: 'Error: ' + error
-                        })
-                    }
-                }
-
-                if(result.type === 'multiline'){
-                    return JSON.stringify({
-                        success: false,
-                        result: result.result
-                    })
-                }
-
-                await completeRevenantLuaCall(revenantCall.operationContext, result.result)
-                return JSON.stringify({
-                    success: true,
-                    result: result.result
-                })
-            })
-
-            declareAPI('getCharacterLastMessage', (id: string) => {
-                const chat = ScriptingEngineState.chat
-                if (!chat) {
-                    return ''
-                }
-
-                const db = getDatabase()
-                const selchar = db.characters[get(selectedCharID)]
-
-                let pointer = chat.message.length - 1
-                while (pointer >= 0) {
-                    if (chat.message[pointer].role === 'char') {
-                        const messageData = chat.message[pointer].data
-                        return messageData
-                    }
-                    pointer--
-                }
-
-                return selchar.firstMessage
-            })
-
-            declareAPI('getUserLastMessage', (id: string) => {
-                const chat = ScriptingEngineState.chat
-                if (!chat) {
-                    return ''
-                }
-
-                let pointer = chat.message.length - 1
-                while (pointer >= 0) {
-                    if (chat.message[pointer].role === 'user') {
-                        const messageData = chat.message[pointer].data
-                        return messageData
-                    }
-                    pointer--
-                }
-
-                return ''
-            })
-
-            declareAPI('getCharacterLastMessage', (id: string) => {
-                const chat = ScriptingEngineState.chat
-                if (!chat) {
-                    return ''
-                }
-
-                const db = getDatabase()
-                const selchar = db.characters[get(selectedCharID)]
-
-                let pointer = chat.message.length - 1
-                while (pointer >= 0) {
-                    if (chat.message[pointer].role === 'char') {
-                        const messageData = chat.message[pointer].data
-                        return messageData
-                    }
-                    pointer--
-                }
-
-                return selchar.firstMessage
-            })
-
-            declareAPI('getUserLastMessage', (id: string) => {
-                const chat = ScriptingEngineState.chat
-                if (!chat) {
-                    return ''
-                }
-
-                let pointer = chat.message.length - 1
-                while (pointer >= 0) {
-                    if (chat.message[pointer].role === 'user') {
-                        const messageData = chat.message[pointer].data
-                        return messageData
-                    }
-                    pointer--
-                }
-                return ''
-            })
+            addEffect('axLLMMain', async (
+                _id: string,
+                promptStr: string,
+                useMultimodal = false,
+                optionsStr?: string,
+            ) => await runLuaLlm('otherAx', promptStr, useMultimodal, optionsStr))
 
             console.log('Running Lua code:', code)
             if(ScriptingEngineState.type === 'lua'){
-                await ScriptingEngineState.engine?.doString(luaCodeWrapper(code))
+                await ScriptingEngineState.engine?.doString(wrapRevenantLua(code))
             }
             if(ScriptingEngineState.type === 'py'){
                 await ScriptingEngineState.pyodide?.init(code)
@@ -1208,54 +766,8 @@ export async function runScripted(code:string, arg:{
         if(ScriptingEngineState.type === 'lua'){
             const luaEngine = ScriptingEngineState.engine
             try {
-                switch(mode){
-                    case 'input':{
-                        const func = luaEngine.global.get('onInput')
-                        if(func){
-                            res = await func(accessKey)
-                        }
-                        break
-                    }
-                    case 'output':{
-                        const func = luaEngine.global.get('onOutput')
-                        if(func){
-                            res = await func(accessKey)
-                        }
-                        break
-                    }
-                    case 'start':{
-                        const func = luaEngine.global.get('onStart')
-                        if(func){
-                            res = await func(accessKey)
-                        }
-                        break
-                    }
-                    case 'onButtonClick':{
-                        const func = luaEngine.global.get('onButtonClick')
-                        if(func){
-                            res = await func(accessKey, data)
-                        }
-                        break
-                    }
-                    case 'editRequest':
-                    case 'editDisplay':
-                    case 'editInput':
-                    case 'editOutput':{
-                        const func = luaEngine.global.get('callListenMain')
-                        if(func){
-                            res = await func(mode, accessKey, JSON.stringify(data), JSON.stringify(meta))
-                            res = JSON.parse(res)
-                        }
-                        break
-                    }
-                    default:{
-                        const func = luaEngine.global.get(mode)
-                        if(func){
-                            res = await func(accessKey)
-                        }
-                        break
-                    }
-                }   
+                const invoked = await invokeLuaMode(luaEngine.global, mode, accessKey, data, meta)
+                res = invoked.result
                 if(res === false){
                     stopSending = true
                 }
@@ -1298,6 +810,7 @@ export async function runScripted(code:string, arg:{
         }
         ScriptingSafeIds.delete(accessKey)
         ScriptingLowLevelIds.delete(accessKey)
+        ScriptingEditDisplayIds.delete(accessKey)
         chat = ScriptingEngineState.chat
 
         const completedLuaJobIds = ScriptingEngineState.revenantLuaExecution?.completedJobIds
@@ -1381,6 +894,7 @@ export async function recoverRevenantLuaJobsForChat(
                 char,
                 chat,
                 lowLevelAccess: context.lowLevelAccess,
+                moduleId: context.moduleId,
                 mode: context.mode,
                 revenantReplayJobIds: jobIds,
             })
@@ -1465,159 +979,6 @@ async function getOrCreateEngineState(
     return creationPromise;
 }
 
-function luaCodeWrapper(code:string){
-    return `
-json = require 'json'
-
-function getChat(id, index)
-    return json.decode(getChatMain(id, index))
-end
-
-function getFullChat(id)
-    return json.decode(getFullChatMain(id))
-end
-
-function setFullChat(id, value)
-    setFullChatMain(id, json.encode(value))
-end
-
-function log(value)
-    logMain(json.encode(value))
-end
-
-function getLoreBooks(id, search)
-    return json.decode(getLoreBooksMain(id, search))
-end
-
-
-function loadLoreBooks(id)
-    return json.decode(loadLoreBooksMain(id):await())
-end
-
-function LLM(id, prompt, useMultimodal, options)
-    useMultimodal = useMultimodal or false
-    options = options or {}
-    return json.decode(LLMMain(id, json.encode(prompt), useMultimodal, json.encode(options)):await())
-end
-
-function axLLM(id, prompt, useMultimodal, options)
-    useMultimodal = useMultimodal or false
-    options = options or {}
-    return json.decode(axLLMMain(id, json.encode(prompt), useMultimodal, json.encode(options)):await())
-end
-
-function getCharacterImage(id)
-    return getCharacterImageMain(id):await()
-end
-
-function getPersonaImage(id)
-    return getPersonaImageMain(id):await()
-end
-
-local editRequestFuncs = {}
-local editDisplayFuncs = {}
-local editInputFuncs = {}
-local editOutputFuncs = {}
-
-function listenEdit(type, func)
-    if type == 'editRequest' then
-        editRequestFuncs[#editRequestFuncs + 1] = func
-        return
-    end
-
-    if type == 'editDisplay' then
-        editDisplayFuncs[#editDisplayFuncs + 1] = func
-        return
-    end
-
-    if type == 'editInput' then
-        editInputFuncs[#editInputFuncs + 1] = func
-        return
-    end
-
-    if type == 'editOutput' then
-        editOutputFuncs[#editOutputFuncs + 1] = func
-        return
-    end
-
-    throw('Invalid type')
-end
-
-function getState(id, name)
-    local escapedName = "__"..name
-    return json.decode(getChatVar(id, escapedName))
-end
-
-function setState(id, name, value)
-    local escapedName = "__"..name
-    setChatVar(id, escapedName, json.encode(value))
-end
-
-function async(callback)
-    return function(...)
-        local co = coroutine.create(callback)
-        local safe, result = coroutine.resume(co, ...)
-
-        return Promise.create(function(resolve, reject)
-            local checkresult
-            local step = function()
-                if coroutine.status(co) == "dead" then
-                    local send = safe and resolve or reject
-                    return send(result)
-                end
-
-                safe, result = coroutine.resume(co)
-                checkresult()
-            end
-
-            checkresult = function()
-                if safe and result == Promise.resolve(result) then
-                    result:finally(step)
-                else
-                    step()
-                end
-            end
-
-            checkresult()
-        end)
-    end
-end
-
-callListenMain = async(function(type, id, value, meta)
-    local realValue = json.decode(value)
-    local realMeta = json.decode(meta)
-
-    if type == 'editRequest' then
-        for _, func in ipairs(editRequestFuncs) do
-            realValue = func(id, realValue, realMeta)
-        end
-    end
-
-    if type == 'editDisplay' then
-        for _, func in ipairs(editDisplayFuncs) do
-            realValue = func(id, realValue, realMeta)
-        end
-    end
-
-    if type == 'editInput' then
-        for _, func in ipairs(editInputFuncs) do
-            realValue = func(id, realValue, realMeta)
-        end
-    end
-
-    if type == 'editOutput' then
-        for _, func in ipairs(editOutputFuncs) do
-            realValue = func(id, realValue, realMeta)
-        end
-    end
-
-    return json.encode(realValue)
-end)
-
-${code}
-`
-}
-
 export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:character|simpleCharacterArgument, mode:string, content:T, meta?:object):Promise<T>{
     switch(mode){
         case 'editinput':
@@ -1643,6 +1004,8 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
     
         for(let trigger of triggers){
             if(trigger?.effect?.[0]?.type === 'triggerlua'){
+                const code = trigger.effect[0].code
+                if (!luaMayListenForEditMode(code, mode)) continue
                 const runResult = await runScripted(trigger.effect[0].code, {
                     char: char,
                     lowLevelAccess: false,
@@ -1661,6 +1024,27 @@ export async function runLuaEditTrigger<T extends string|OpenAIChat[]>(char:char
     }
 }
 
+export function hasLuaEditListener(
+    char: character|simpleCharacterArgument,
+    mode: 'editinput'|'editoutput'|'editdisplay'|'editRequest',
+): boolean {
+    const runtimeMode = mode === 'editinput' ? 'editInput'
+        : mode === 'editoutput' ? 'editOutput'
+            : mode === 'editdisplay' ? 'editDisplay'
+                : mode
+    return char.triggerscript
+        .concat(getModuleTriggers())
+        .some(trigger => {
+            const effect = trigger?.effect?.[0]
+            if (effect?.type !== 'triggerlua') return false
+            return luaMayListenForEditMode(effect.code, runtimeMode)
+        })
+}
+
+export function hasLuaEditRequestListener(char: character|simpleCharacterArgument): boolean {
+    return hasLuaEditListener(char, 'editRequest')
+}
+
 export async function runLuaButtonTrigger(char:character|simpleCharacterArgument, data:string):Promise<any>{
     let runResult
     try {
@@ -1675,7 +1059,8 @@ export async function runLuaButtonTrigger(char:character|simpleCharacterArgument
                     char: char,
                     lowLevelAccess: trigger.lowLevelAccess,
                     mode: 'onButtonClick',
-                    data: data
+                    data,
+                    moduleId: trigger.moduleId,
                 })
             }
         }

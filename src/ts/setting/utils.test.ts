@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type { LLMModel } from '../model/types';
 import { DBState } from '../stores.svelte';
 import type { SettingContext, SettingItem } from './types';
 import { getSettingValue, setSettingValue } from './utils';
@@ -8,8 +7,6 @@ function createContext(target?: object): SettingContext {
     return {
         db: DBState.db,
         target,
-        modelInfo: {} as LLMModel,
-        subModelInfo: {} as LLMModel,
     };
 }
 

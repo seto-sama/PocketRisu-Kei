@@ -25,19 +25,42 @@ export const DEFAULT_VISIBLE_PROVIDER_IDS: ReadonlySet<string> = new Set([
 ])
 
 /**
- * Before the user saves a provider-filter choice, treat the catalog as an
- * allowlist so newly-added models.dev providers also start hidden. Once the
- * filter is initialized, an empty stored list deliberately means "show all".
+ * Resolve the persisted provider allowlist. Legacy databases stored the inverse
+ * (hidden IDs), so use the current catalog to migrate that choice once.
  */
+export function resolveProviderFilterVisibleIds(
+    providerIds: Iterable<string>,
+    storedVisibleProviderIds: readonly string[] | undefined,
+    initialized: boolean,
+    legacyHiddenProviderIds?: readonly string[],
+): Set<string> {
+    if (storedVisibleProviderIds) return new Set(storedVisibleProviderIds)
+
+    const currentProviderIds = [...providerIds]
+    if (initialized) {
+        const hidden = new Set(legacyHiddenProviderIds ?? [])
+        return new Set(currentProviderIds.filter(providerId => !hidden.has(providerId)))
+    }
+    return new Set(
+        currentProviderIds.filter(providerId => DEFAULT_VISIBLE_PROVIDER_IDS.has(providerId)),
+    )
+}
+
+/** Compatibility helper for consumers that filter by a hidden-ID set. */
 export function resolveProviderFilterHiddenIds(
     providerIds: Iterable<string>,
-    storedHiddenProviderIds: readonly string[] | undefined,
+    storedVisibleProviderIds: readonly string[] | undefined,
     initialized: boolean,
+    legacyHiddenProviderIds?: readonly string[],
 ): Set<string> {
-    if (initialized) return new Set(storedHiddenProviderIds ?? [])
-    return new Set(
-        [...providerIds].filter(providerId => !DEFAULT_VISIBLE_PROVIDER_IDS.has(providerId)),
+    const currentProviderIds = [...new Set(providerIds)]
+    const visible = resolveProviderFilterVisibleIds(
+        currentProviderIds,
+        storedVisibleProviderIds,
+        initialized,
+        legacyHiddenProviderIds,
     )
+    return new Set(currentProviderIds.filter(providerId => !visible.has(providerId)))
 }
 
 export function getProfileProviderGroup(

@@ -11,6 +11,8 @@
     import BackgroundDom from "./BackgroundDom.svelte";
     import SideBarArrow from "../UI/GUI/SideBarArrow.svelte";
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
+    import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR, getTextOutlineStyle } from 'src/ts/gui/textOutline';
+    import { supportsCustomChatBackdrop } from 'src/ts/storage/database.svelte';
     let openChatList = $state(false)
     let openModuleList = $state(false)
 
@@ -22,14 +24,23 @@
     })
 
     const wallPaper = `background: url(${defaultWallpaper})`
-    const externalStyles = 
-            ("background: " + (DBState.db.textScreenColor ? (DBState.db.textScreenColor + '80') : "rgba(0,0,0,0.8)") + ';\n')
-        +   (DBState.db.textBorder ? "text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;" : '')
-        +   (DBState.db.textScreenRounded ? "border-radius: 2rem; padding: 1rem;" : '')
-        +   (DBState.db.textScreenBorder ? `border: 0.3rem solid ${DBState.db.textScreenBorder};` : '')
+    const textOutlineStyle = $derived(DBState.db.textBorder
+        ? getTextOutlineStyle(DBState.db.textBorderColor ?? DEFAULT_TEXT_BORDER_COLOR)
+        : '')
+    const externalStyles = $derived(
+            `background: ${(DBState.db.textScreenColor ?? DEFAULT_TEXT_SCREEN_COLOR)}80;\n`
+        +   textOutlineStyle)
+    const usesCustomChatBackdrop = $derived(supportsCustomChatBackdrop(DBState.db.theme))
     let bgImg= $state('')
     let lastBg = $state('')
+    const defaultLayoutBackground = $derived(usesCustomChatBackdrop ? bgImg : '')
+    const defaultLayoutStyle = $derived(usesCustomChatBackdrop ? externalStyles : textOutlineStyle)
     $effect.pre(() => {
+        if(!usesCustomChatBackdrop){
+            bgImg = ''
+            lastBg = ''
+            return
+        }
         (async () =>{
             if(DBState.db.customBackground !== lastBg){
                 lastBg = DBState.db.customBackground
@@ -76,13 +87,13 @@
     <div class="grow h-full min-w-0 relative justify-center flex">
         <SideBarArrow />
         <BackgroundDom />
-        <div style={bgImg} class="h-full w-full" class:max-w-6xl={DBState.db.classicMaxWidth}>
+        <div style={defaultLayoutBackground} class="h-full w-full" class:max-w-6xl={DBState.db.classicMaxWidth}>
             {#if $selectedCharID >= 0}
                 {#if DBState.db.characters[$selectedCharID].viewScreen !== 'none' && (!(DBState.db.characters[$selectedCharID] as import('src/ts/storage/database.svelte').character).inlayViewScreen)}
                     <ResizeBox />
                 {/if}
             {/if}
-            <DefaultChatScreen customStyle={bgImg.length > 2 ? `${externalStyles}`: ''} bind:openChatList bind:openModuleList/>
+            <DefaultChatScreen customStyle={defaultLayoutStyle} bind:openChatList bind:openModuleList/>
         </div>
     </div>
 {/if}

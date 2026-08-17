@@ -124,6 +124,28 @@ describe('syncRemoteRegistry', () => {
         await syncRemoteRegistry(true)
         expect(state.fetchCount).toBe(2)
     })
+
+    it('migrates the legacy hidden filter and leaves later providers off', async () => {
+        mockDb.db = {
+            modelProfileHiddenProviderIds: [],
+            modelProfileProviderFilterInitialized: true,
+        }
+        await syncRemoteRegistry()
+
+        expect(mockDb.db.modelProfileVisibleProviderIds).toEqual(['demo'])
+        expect(mockDb.db.modelProfileHiddenProviderIds).toBeUndefined()
+
+        const updated = catalog() as any
+        updated.newcomer = {
+            ...updated.demo,
+            id: 'newcomer',
+            name: 'Newcomer',
+        }
+        state.body = JSON.stringify(updated)
+        await syncRemoteRegistry(true)
+
+        expect(mockDb.db.modelProfileVisibleProviderIds).toEqual(['demo'])
+    })
 })
 
 describe('registry identifiers and refresh gate', () => {

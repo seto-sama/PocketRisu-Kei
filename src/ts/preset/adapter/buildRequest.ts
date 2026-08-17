@@ -73,7 +73,7 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
         Object.assign(headers, ctx.preset.customHeaders)
     }
     applyCustomRequestValues(ctx.preset, body, headers)
-    // Freeform "additional parameters" textarea (legacy customModels syntax).
+    // Freeform "additional parameters" textarea.
     // Routes `header::` prefix to headers, everything else to body. Sits
     // AFTER customBody so user-typed overrides have the final say, but
     // BEFORE applyAuth so auth headers cannot be hijacked.
@@ -140,6 +140,7 @@ function resolveEndpointUrl(
     if (snapshot.endpoint.kind === 'cloudflare-ai') {
         return buildCloudflareAiEndpointUrl(
             pickCustomString(snapshot, userValues, CLOUDFLARE_CUSTOM_PATH_ACCOUNT_ID),
+            snapshot.endpoint.path,
         )
     }
     if (snapshot.endpoint.kind === 'amazon-bedrock') {

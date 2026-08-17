@@ -1,5 +1,5 @@
 import { get, writable } from "svelte/store";
-import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, setCurrentChat, type Message, normalizeChat } from "../storage/database.svelte";
+import { type character, type MessageGenerationInfo, type Chat, type MessagePresetInfo, type Message, normalizeChat } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
 import { CharEmotion, selectedCharID } from "../stores.svelte";
 import { ChatTokenizer, tokenize, tokenizeNum } from "../tokenizer";
@@ -9,38 +9,81 @@ import { parseChatML } from "../parser/chatML";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
 import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserName, parseToggleSyntax, prebuiltAssetCommand } from "../util";
 import { requestChatData } from "./request/request";
-import { stableDiff } from "./stableDiff";
 import { processScript, processScriptFull, risuChatParser } from "./scripts";
 import { exampleMessage } from "./exampleMessages";
 import { sayTTS } from "./tts";
 import { v4 } from "uuid";
-import { runTrigger } from "./triggers";
+import { runTrigger, type additonalSysPrompt } from "./triggers";
 import { HypaProcesser } from "./memory/hypamemory";
 import { additionalInformations } from "./embedding/addinfo";
 import { getInlayAsset } from "./files/inlays";
-import { getGenerationModelString } from "./models/modelString";
+import { getGenerationModelString, getModelPresetMetadata } from "./models/modelString";
 import { runInlayScreen } from "./inlayScreen";
 import { runImageEmbedding } from "./transformers";
-import { runLuaEditTrigger } from "./scriptings";
-import { getModelInfo, LLMFlags } from "../model/modellist";
-import { resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
-import { type RevenantRerollSnapshot } from "./revenantGeneration/types";
+import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
+import { applyPromptPresetParams, resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
+import { hasMessagePayload } from "./request/shared";
+import { type RevenantChatWorkflowContext, type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant";
 import {
     cancelRevenantGeneration,
     checkpointRevenantGeneration,
-    finalizeRevenantGeneration,
     registerRevenantGenerationMetadata,
+    setRevenantGenerationLocallyObserved,
     updateRevenantGenerationMetadata,
-} from "./revenantGeneration/client";
+} from "./revenant/transport";
 import {
     configureRevenantGenerationChatRecovery,
-} from "./revenantGeneration/chatRecovery.svelte";
-import { hypaMemoryV3 } from "./memory/hypav3";
-import { getModuleAssets, getModuleToggles } from "./modules";
+} from "./revenant/recovery";
+import {
+    beginRevenantWorkflow,
+    cancelRevenantWorkflow,
+    completeChatGenerationPreModelPlan,
+    coordinateRevenantGeneration,
+    createChatGenerationWorkflowPlan,
+    createRevenantWorkflowUpdateWaiter,
+    getRevenantWorkflow,
+    RevenantWorkflowBusyError,
+    serviceRevenantClientActions,
+    type RevenantGenerationLifecycle,
+    type RevenantWorkflowResumeContext,
+    waitForRevenantHypaExecution,
+} from "./revenant/workflow";
+import {
+    createChatGenerationSession,
+    type ChatGenerationSession,
+} from './revenant/chatGeneration';
+import {
+    finishRevenantJobRequestStatus,
+    registerRevenantRequestStatus,
+} from './revenant/jobStatus';
+import { hypaMemoryV3, type SerializableHypaV3Data } from "./memory/hypav3";
+import { getModuleAssets, getModuleRegexScripts, getModules, getModuleToggles, getModuleTriggers } from "./modules";
 import { readImage } from "../globalApi.svelte";
-import { saveChatToServer } from "../storage/chatStorage";
+import {
+    createChatCommitSnapshot,
+    fetchChatFromServer,
+    getChatServerEtag,
+    saveChatToServer,
+    setChatServerEtag,
+} from "../storage/chatStorage";
+import {
+    acknowledgeChatCommit,
+    awaitChatGenerationCanonical,
+    beginChatGenerationProjection,
+    endChatGenerationProjection,
+    markChatSyncApplied,
+    resolveChatGenerationCanonical,
+    type ChatCommitSnapshot,
+} from '../storage/chatWorkingCopy';
+import { compileModelPreset, type CompiledModelPreset } from "../preset/runtime/compilePreset";
+import {
+    applyCancelledGenerationProjection,
+    ensureGenerationMessageTarget,
+    setGenerationMessageContent,
+    setGenerationMessageInfo,
+} from './revenant/recovery';
 
-export { recoverRevenantGenerationsForChat } from "./revenantGeneration/chatRecovery.svelte";
+export { recoverRevenantGenerationsForChat } from "./revenant/recovery";
 
 export interface OpenAIChat{
     role: 'system'|'user'|'assistant'|'function'
@@ -76,6 +119,47 @@ export let requestTokenParts:{[key:string]:requestTokenPart[]} = {}
 export let previewFormated:OpenAIChat[] = []
 export let previewBody:string = ''
 
+function isAdditionalSysPrompt(value:unknown):value is additonalSysPrompt{
+    if(!value || typeof value !== 'object' || Array.isArray(value)) return false
+    const candidate = value as Partial<additonalSysPrompt>
+    return typeof candidate.start === 'string'
+        && typeof candidate.historyend === 'string'
+        && typeof candidate.promptend === 'string'
+}
+
+function isOpenAIChatCheckpoint(value:unknown):value is OpenAIChat{
+    if(!value || typeof value !== 'object' || Array.isArray(value)) return false
+    const candidate = value as Partial<OpenAIChat>
+    return ['system', 'user', 'assistant', 'function'].includes(candidate.role ?? '')
+        && typeof candidate.content === 'string'
+}
+
+function restoreHypaChatCheckpoint(
+    value:unknown,
+    inputChats:OpenAIChat[],
+):OpenAIChat[]|undefined{
+    if(!Array.isArray(value)) return undefined
+    const restored:OpenAIChat[] = []
+    for(const entry of value){
+        if(!entry || typeof entry !== 'object' || Array.isArray(entry)) return undefined
+        const checkpoint = entry as { inputIndex?:unknown, inputMemo?:unknown, chat?:unknown }
+        if(Number.isInteger(checkpoint.inputIndex)){
+            const chat = inputChats[checkpoint.inputIndex as number]
+            if(!chat) return undefined
+            if(
+                checkpoint.inputMemo !== undefined
+                && checkpoint.inputMemo !== chat.memo
+            ) return undefined
+            restored.push(chat)
+        }
+        else if(isOpenAIChatCheckpoint(checkpoint.chat)){
+            restored.push(safeStructuredClone(checkpoint.chat))
+        }
+        else return undefined
+    }
+    return restored
+}
+
 export async function sendChat(chatProcessIndex = -1,arg:{
     chatAdditonalTokens?:number,
     signal?:AbortSignal,
@@ -83,6 +167,21 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     preview?:boolean
     previewPrompt?:boolean
     rerollSnapshot?: RevenantRerollSnapshot
+    /** Chat state to commit before generation, before any prompt-only mutation. */
+    durableInputCommit?: ChatCommitSnapshot
+    /** Stable id of a generation projection installed before prompt work. */
+    messageChatId?: string
+    detachSignal?: AbortSignal
+    onDetached?: () => void
+    onWorkflowStarted?: (workflowId: string) => void
+    generationTarget?: {
+        characterId: string
+        roomId: string
+    }
+    revenantResume?: {
+        workflow: RevenantWorkflow
+        context: RevenantWorkflowResumeContext
+    }
 } = {}):Promise<boolean> {
 
     chatProcessStage.set(0)
@@ -94,6 +193,27 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let selectedChat = -1
     let currentChar:character
     let generationInfo:MessageGenerationInfo|undefined = undefined
+    const resumeWorkflow = arg.revenantResume?.workflow
+    const isContinuation = arg.revenantResume?.context.continue ?? arg.continue === true
+    const rerollSnapshot = arg.revenantResume?.context.rerollSnapshot ?? arg.rerollSnapshot
+    let workflowSession: ChatGenerationSession
+    let revenantMainDependency:RevenantWorkflowDependency|undefined
+    let revenantMainBackend:'http'|'plugin'|'echo'|undefined
+    let revenantMainJobCreated = (resumeWorkflow?.steps
+        .find(step => step.key === 'model.main')?.executions.length ?? 0) > 0
+    let revenantMainJobId:string|undefined
+    let revenantMainRegistrationError:unknown
+    let generationDetached = false
+
+    function finishGenerationDetachment(){
+        if(generationDetached) return
+        generationDetached = true
+        if(revenantMainJobId){
+            setRevenantGenerationLocallyObserved(revenantMainJobId, false)
+        }
+        doingChat.set(false)
+        arg.onDetached?.()
+    }
 
     const stageTimings = {
         stage1Start: 0,
@@ -199,57 +319,319 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
+    async function setWorkflowStep(
+        stepKey:string,
+        status:RevenantWorkflowStepStatus,
+        metadata?:Record<string, unknown>,
+    ){
+        await workflowSession.setStep(stepKey, status, metadata)
+    }
+
+    async function finishWorkflow(status:'completed'|'cancelled'|'failed'){
+        await workflowSession.finish(status)
+    }
+
+    async function waitForServerWorkflow(workflowId:string):Promise<boolean>{
+        while(true){
+            const observerSignal = arg.detachSignal
+                ? AbortSignal.any([abortSignal, arg.detachSignal])
+                : abortSignal
+            const updateWaiter = createRevenantWorkflowUpdateWaiter(
+                workflowId,
+                observerSignal,
+            )
+            if(arg.detachSignal?.aborted){
+                updateWaiter.cancel()
+                finishGenerationDetachment()
+                return false
+            }
+            if(abortSignal.aborted){
+                updateWaiter.cancel()
+                awaitChatGenerationCanonical(nowChatroom.chaId, outgoingChat.id)
+                await cancelRevenantWorkflow(workflowId).catch(() => {})
+                workflowSession.clear()
+                finishStreamingDisplay()
+                doingChat.set(false)
+                return false
+            }
+            try{
+                const workflow = await getRevenantWorkflow(workflowId)
+                if(workflow.status === 'completed'){
+                    updateWaiter.cancel()
+                    // Workflow step metadata is a pre-merge projection. Install
+                    // only the canonical body exposed by the chat storage API.
+                    awaitChatGenerationCanonical(nowChatroom.chaId, outgoingChat.id)
+                    const runtimeCharacter = DBState.db.characters.find(character =>
+                        character?.chaId === nowChatroom.chaId)
+                    const runtimeChatIndex = runtimeCharacter?.chats.findIndex(chat =>
+                        chat?.id === outgoingChat.id) ?? -1
+                    const localChat = runtimeCharacter?.chats[runtimeChatIndex]
+                    const canonicalChat = runtimeChatIndex >= 0
+                        ? await fetchChatFromServer(
+                            nowChatroom.chaId,
+                            runtimeChatIndex,
+                            outgoingChat.id,
+                        )
+                        : null
+                    if(runtimeCharacter && localChat && canonicalChat){
+                        const appliedChat = normalizeChat(resolveChatGenerationCanonical(
+                            nowChatroom.chaId,
+                            localChat,
+                            canonicalChat,
+                            getChatServerEtag(nowChatroom.chaId, outgoingChat.id),
+                        ))
+                        runtimeCharacter.chats[runtimeChatIndex] = appliedChat
+                        markChatSyncApplied(appliedChat)
+                        runtimeCharacter.reloadKeys += 1
+                    } else {
+                        endChatGenerationProjection(nowChatroom.chaId, outgoingChat.id)
+                    }
+                    const resend = workflow.steps
+                        .find(step => step.key === 'postprocess')
+                        ?.metadata?.foregroundEffects
+                    const shouldResend = Array.isArray(resend)
+                        && resend.some(effect => effect && typeof effect === 'object'
+                            && (effect as { kind?: unknown }).kind === 'chat.resend')
+                    workflowSession.clear()
+                    finishStreamingDisplay()
+                    doingChat.set(false)
+                    if(shouldResend){
+                        return await sendChat(chatProcessIndex, {
+                            signal: abortSignal,
+                            detachSignal: arg.detachSignal,
+                            onDetached: arg.onDetached,
+                            onWorkflowStarted: arg.onWorkflowStarted,
+                            generationTarget: arg.generationTarget,
+                        })
+                    }
+                    return true
+                }
+                if(workflow.status === 'cancelled' || workflow.status === 'failed'){
+                    updateWaiter.cancel()
+                    const failedStep = workflow.steps.find(step => step.status === 'failed')
+                    const error = failedStep?.metadata?.error
+                    if(workflow.status === 'failed' && typeof error === 'string') throwError(error)
+                    // A server-side postprocess/materialization failure can
+                    // arrive after the provider stream already updated the
+                    // placeholder. Commit that visible projection (or restore
+                    // the pre-reroll snapshot when it is still empty) before
+                    // sync cleanup tears down the workflow state.
+                    preserveFailedGenerationMessage()
+                    awaitChatGenerationCanonical(nowChatroom.chaId, outgoingChat.id)
+                    workflowSession.clear()
+                    finishStreamingDisplay()
+                    doingChat.set(false)
+                    return false
+                }
+                if(workflow.steps.some(step => step.status === 'waiting_client')){
+                    await serviceRevenantClientActions(workflow, currentChar, abortSignal)
+                }
+            }
+            catch(error){
+                if(abortSignal.aborted) continue
+                console.warn('[Revenant] Failed to observe server workflow:', error)
+            }
+            await updateWaiter.promise
+        }
+    }
+
+    function wasWorkflowStepCompleted(stepKey:string):boolean{
+        const status = resumeWorkflow?.steps.find(step => step.key === stepKey)?.status
+        return status === 'completed' || status === 'skipped'
+    }
+
     let isDoing = get(doingChat)
 
-    if(isDoing){
+    // `doingChat` is a legacy process-wide activity signal. A UI submission
+    // with an explicit room target is instead guarded by that room's local
+    // foreground/workflow ownership and by the server's one-main-workflow-per-
+    // room constraint. Applying this global lock to it prevents unrelated
+    // rooms from starting their own main generation.
+    if(isDoing && !arg.generationTarget){
         if(chatProcessIndex === -1){
             return false
         }
     }
     doingChat.set(true)
 
-    DBState.db.statics.messages += 1
-    selectedChar = get(selectedCharID)
+    selectedChar = arg.generationTarget
+        ? DBState.db.characters.findIndex(character =>
+            character?.chaId === arg.generationTarget?.characterId)
+        : get(selectedCharID)
     const nowChatroom = DBState.db.characters[selectedChar]
-    nowChatroom.lastInteraction = Date.now()
-    selectedChat = nowChatroom.chatPage
+    if(!nowChatroom){
+        alertError('The generation character is no longer available.')
+        doingChat.set(false)
+        return false
+    }
+    selectedChat = arg.generationTarget
+        ? nowChatroom.chats.findIndex(chat =>
+            chat?.id === arg.generationTarget?.roomId)
+        : nowChatroom.chatPage
+    const targetChat = nowChatroom.chats[selectedChat]
+    if(!targetChat){
+        alertError('The generation chat is no longer available.')
+        doingChat.set(false)
+        return false
+    }
     // Block send if chat is still a placeholder (hydration not complete)
-    if (nowChatroom.chats[nowChatroom.chatPage]?._placeholder) {
+    if (targetChat._placeholder) {
         alertError('Chat is still loading. Please wait a moment.')
         doingChat.set(false)
         return false
     }
-    nowChatroom.chats[nowChatroom.chatPage].message = nowChatroom.chats[nowChatroom.chatPage].message.map((v) => {
+    targetChat.message = targetChat.message.map((v) => {
         v.chatId = v.chatId ?? v4()
         return v
     })
 
+    const messageChatId = arg.revenantResume?.context.messageChatId
+        ?? arg.messageChatId
+        ?? v4()
     const outgoingChat = nowChatroom.chats[selectedChat]
-    const outgoingMessage = outgoingChat.message[outgoingChat.message.length - 1]
-    if (outgoingMessage?.role === 'user') {
-        if (!outgoingChat.id) {
-            alertError('Cannot save the message because the chat has no id.')
-            doingChat.set(false)
-            return false
-        }
-        try {
-            // Persist and broadcast the user's turn before generation marks
-            // this chat as streaming. Streaming chats are intentionally
-            // skipped by the normal reactive save loop.
-            await saveChatToServer(
-                nowChatroom.chaId,
-                selectedChat,
-                outgoingChat.id,
-                outgoingChat,
+    workflowSession = createChatGenerationSession(
+        { characterId: nowChatroom.chaId, roomId: outgoingChat.id },
+        resumeWorkflow?.workflowId,
+    )
+    const durableInputCommit = arg.durableInputCommit ?? createChatCommitSnapshot(
+        nowChatroom.chaId,
+        normalizeChat(safeStructuredClone(outgoingChat)),
+    )
+    const durableInputChat = normalizeChat(safeStructuredClone(durableInputCommit.chat))
+    if (durableInputChat.id !== outgoingChat.id) {
+        alertError('Generation input does not belong to the target chat.')
+        doingChat.set(false)
+        return false
+    }
+    const continuationFallback = isContinuation
+        ? outgoingChat.message.slice().reverse().find(message => message?.role === 'char')?.data ?? ''
+        : ''
+    function preserveFailedGenerationMessage(content?: string){
+        const character = DBState.db.characters.find(item =>
+            item?.chaId === nowChatroom.chaId) ?? nowChatroom
+        const chat = character.chats.find(item =>
+            item?.id === outgoingChat.id)
+        if(!chat) return
+        const generatedTarget = chat.message.find(message =>
+            message?.chatId === messageChatId)
+        const continuationTarget = isContinuation
+            ? chat.message.slice().reverse().find(message => message?.role === 'char')
+            : undefined
+        const rerollTarget = rerollSnapshot
+            ? chat.message.find(message =>
+                message?.chatId === rerollSnapshot.targetMessage.chatId)
+                ?? chat.message[rerollSnapshot.targetIndex]
+            : undefined
+        const targetMessage = generatedTarget ?? continuationTarget ?? rerollTarget
+        const preservedContent = isContinuation && content === ''
+            ? continuationFallback
+            : content ?? generatedTarget?.data ?? ''
+        applyCancelledGenerationProjection(chat, {
+            messageChatId,
+            content: preservedContent,
+            isContinuation,
+            targetMessage,
+            rerollSnapshot,
+        })
+        character.reloadKeys += 1
+    }
+    function ensureLiveGenerationTarget(){
+        const character = DBState.db.characters.find(item =>
+            item?.chaId === nowChatroom.chaId)
+        const chat = character?.chats.find(item =>
+            item?.id === outgoingChat.id)
+        if(!character || !chat) return undefined
+        const target = ensureGenerationMessageTarget(chat, {
+            messageChatId,
+            characterId: nowChatroom.chaId,
+            isContinuation,
+            generationInfo,
+            promptInfo,
+            rerollSnapshot,
+        })
+        return { character, chat, ...target }
+    }
+    if (resumeWorkflow && rerollSnapshot) {
+        const targetIndex = rerollSnapshot.targetIndex
+        const targetChatId = rerollSnapshot.targetMessage.chatId
+        const currentTarget = outgoingChat.message[targetIndex]
+        if (
+            Number.isInteger(targetIndex)
+            && targetIndex >= 0
+            && currentTarget
+            && (
+                currentTarget.chatId === messageChatId
+                || !targetChatId
+                || currentTarget.chatId === targetChatId
             )
-        } catch (error) {
-            console.error('[Chat] Failed to persist outgoing message before generation:', error)
-            alertError(error)
+        ) {
+            // Reroll removes the previous assistant turn and trailing comments
+            // before prompt construction. Recreate that transient input shape
+            // when the persisted chat still contains the old branch.
+            outgoingChat.message = outgoingChat.message.slice(0, targetIndex)
+        }
+    }
+    else if (resumeWorkflow && !isContinuation) {
+        // A page can disappear in the tiny interval after adding the assistant
+        // placeholder but before the server accepts the main job. It is output
+        // state, not prompt input, so remove it before rebuilding the request.
+        outgoingChat.message = outgoingChat.message.filter(message =>
+            message?.chatId !== messageChatId)
+    }
+    const outgoingMessage = outgoingChat.message[outgoingChat.message.length - 1]
+    if(
+        resumeWorkflow
+        && (resumeWorkflow.characterId !== nowChatroom.chaId || resumeWorkflow.roomId !== outgoingChat.id)
+    ){
+        alertError('The recoverable generation workflow does not belong to the active chat.')
+        doingChat.set(false)
+        return false
+    }
+    const resumeHypaStep = resumeWorkflow?.steps.find(step => step.key === 'memory.hypav3')
+    const hypaEnabled = resumeWorkflow
+        ? !!resumeHypaStep && resumeHypaStep.status !== 'skipped'
+        : !!((outgoingChat.supaMemory ?? nowChatroom.supaMemory) && DBState.db.hypaV3)
+    const claimBinding = resolveChatModelBinding(outgoingChat, 'model')
+    const generationModelMetadata = getModelPresetMetadata(
+        claimBinding.kind === 'modelPreset' ? claimBinding.preset : undefined,
+    )
+    const usesOpenAIStyleTokenAccounting = generationModelMetadata.format === 'openai-compatible'
+        || generationModelMetadata.format === 'openai-responses'
+    const mergesAdjacentSystemPrompts = usesOpenAIStyleTokenAccounting
+        || generationModelMetadata.format === 'anthropic-messages'
+        || generationModelMetadata.format === 'amazon-bedrock'
+    let compiledMainPreset:CompiledModelPreset|undefined
+    if(!resumeWorkflow && !arg.preview && !arg.previewPrompt && claimBinding.kind === 'modelPreset'){
+        try{
+            const effectiveMainPreset = applyPromptPresetParams(
+                claimBinding.preset,
+                outgoingChat,
+                'model',
+            )
+            compiledMainPreset = compileModelPreset(effectiveMainPreset, {
+                jsonSchemaRequested: DBState.db.jsonSchemaEnabled,
+            })
+            revenantMainBackend = compiledMainPreset.backend
+        }
+        catch(error){
+            const message = error instanceof Error ? error.message : String(error)
+            alertError(message)
             doingChat.set(false)
             return false
         }
     }
-    
+    else if (resumeWorkflow && claimBinding.kind === 'modelPreset') {
+        try {
+            revenantMainBackend = compileModelPreset(claimBinding.preset, {
+                jsonSchemaRequested: DBState.db.jsonSchemaEnabled,
+            }).backend
+        }
+        catch {
+            // The ordinary request path reports the actionable preset compile
+            // error. Backend knowledge is only needed to wait for a lazy HTTP
+            // stream to reach durable registration.
+        }
+    }
     let promptInfo: MessagePresetInfo = {}
     let initialPresetNameForPromptInfo = null
     let initialPromptTogglesForPromptInfo: {
@@ -277,7 +659,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     let caculatedChatTokens = 0
-    if(DBState.db.aiModel.startsWith('gpt')){
+    if(usesOpenAIStyleTokenAccounting){
         caculatedChatTokens += 5
     }
     else{
@@ -285,6 +667,10 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     currentChar = nowChatroom
+    const hasEditRequestLua = hasLuaEditRequestListener(currentChar)
+    const deferredHypaMemoryPrompt = workflowSession.workflowId && !hasEditRequestLua
+        ? `__RISU_REVENANT_HYPA_${v4()}__`
+        : undefined
 
     let chatAdditonalTokens = arg.chatAdditonalTokens ?? caculatedChatTokens
     let currentChat = runCurrentChatFunction(nowChatroom.chats[selectedChat])
@@ -295,13 +681,13 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         : undefined
     const tokenizer = new ChatTokenizer(
         chatAdditonalTokens,
-        DBState.db.aiModel.startsWith('gpt') ? 'noName' : 'name',
+        usesOpenAIStyleTokenAccounting ? 'noName' : 'name',
         presetTokenizer,
     )
     let maxContextTokens = DBState.db.maxContext
-    // Output-token reservation for the context budget. Defaults to the legacy
-    // global db.maxResponse (the "[채팅 봇]" max response size), overridden below
-    // when this chat is bound to a ModelPreset.
+    // Maximum response size sent to the provider. This is deliberately kept
+    // separate from maxContextTokens: the latter is the configured input
+    // (prompt) budget, as described by the settings UI.
     let maxResponseTokens = DBState.db.maxResponse
     // When this chat is bound to a ModelPreset, use the preset's own input
     // budget (preset.maxContext, default 65000) instead of the global
@@ -318,11 +704,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 ? DBState.db.maxContext
                 : (set && set > 0 ? set : defaultBudget)
             maxContextTokens = ctxWindow ? Math.min(budget, ctxWindow) : budget
-            // Reserve output tokens from the preset's own max-output setting
-            // rather than db.maxResponse — the legacy global value can be a
-            // stray figure (e.g. 65535 carried over from an imported prompt
-            // preset) that would eat the whole context window and make even the
-            // first message fail with a false "too much token" error.
+            // Resolve the provider's response limit independently from the
+            // prompt budget. The legacy global value can be a stray figure, so
+            // model presets still use their own max-output setting when set.
             if (!DBState.db.modelPresetPromptPresetFirst) {
                 const presetOut = resolvePresetMaxOutputTokens(mainBinding.preset, DBState.db.modelPresetDefaultMaxResponse)
                 if (presetOut !== undefined) {
@@ -556,12 +940,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 content: currentChar.newGenData.emotionInstructions.replaceAll('{{slot}}', currentChar.emotionImages.map((v) => v[0]).join(', '))
             })
         }
-        if(currentChar.viewScreen === 'imggen'){
-            unformated.postEverything.push({
-                role: 'system',
-                content: currentChar.newGenData.instructions
-            })
-        }
     }
 
     const postEverythingLorebooks = lorepmt.actives.filter(v => {
@@ -596,7 +974,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     //await tokenize currernt
-    let currentTokens = maxResponseTokens
+    let currentTokens = 0
     let supaMemoryCardUsed = false
     
     //for unexpected error
@@ -852,7 +1230,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     let chats:OpenAIChat[] = examples
 
-    if(!DBState.db.aiModel.startsWith('novelai') && !DBState.db?.promptSettings?.trimStartNewChat){
+    if(!DBState.db?.promptSettings?.trimStartNewChat){
         chats.push({
             role: 'system',
             content: '[Start a new chat]',
@@ -867,6 +1245,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         msReseted = false
         for(let i=currentChat.message.length -1;i>=0;i--){
             const d = currentChat.message[i]
+            if(d.kind === 'imageGeneration'){
+                continue
+            }
+            if(d.isRecovering === true){
+                continue
+            }
             if(d.disabled === true){
                 continue
             }
@@ -901,16 +1285,51 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     
     console.log('Prepared messages for token calculation:', ms)
 
-    const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat})
-    if(triggerResult){
-        currentChat = triggerResult.chat
-        setCurrentChat(currentChat)
-        ms = makeMs(currentChat)
-        currentTokens += triggerResult.tokens
-        if(triggerResult.stopSending){
-            doingChat.set(false)
-            return false
+    const storedTriggerMetadata = resumeWorkflow?.steps
+        .find(step => step.key === 'trigger.start')?.metadata
+    const storedAdditionalPrompt = storedTriggerMetadata?.additionalSysPrompt
+    let triggerAdditionalSysPrompt:additonalSysPrompt|undefined =
+        isAdditionalSysPrompt(storedAdditionalPrompt)
+            ? storedAdditionalPrompt
+            : undefined
+    if(!wasWorkflowStepCompleted('trigger.start')){
+        await setWorkflowStep('trigger.start', 'running')
+        const triggerResult = await runTrigger(currentChar, 'start', {chat: currentChat})
+        if(triggerResult){
+            currentChat = triggerResult.chat
+            // Generation owns the room captured at submission time. The user
+            // may switch rooms while this trigger is awaiting; setCurrentChat
+            // would then overwrite the newly selected room and make navigation
+            // appear to snap back to the generating chat.
+            DBState.db.characters[selectedChar].chats[selectedChat] = normalizeChat(currentChat)
+            ms = makeMs(currentChat)
+            currentTokens += triggerResult.tokens
+            triggerAdditionalSysPrompt = triggerResult.additonalSysPrompt
+            if(workflowSession.workflowId){
+                await saveChatToServer(
+                    nowChatroom.chaId,
+                    selectedChat,
+                    outgoingChat.id,
+                    currentChat,
+                )
+            }
+            if(triggerResult.stopSending){
+                await setWorkflowStep('trigger.start', 'completed', {
+                    additionalSysPrompt: triggerAdditionalSysPrompt,
+                    tokens: triggerResult.tokens,
+                })
+                await finishWorkflow('cancelled')
+                doingChat.set(false)
+                return false
+            }
         }
+        await setWorkflowStep('trigger.start', 'completed', {
+            additionalSysPrompt: triggerAdditionalSysPrompt,
+            tokens: triggerResult?.tokens ?? 0,
+        })
+    }
+    else if(typeof storedTriggerMetadata?.tokens === 'number'){
+        currentTokens += storedTriggerMetadata.tokens
     }
 
     let index = 0
@@ -956,13 +1375,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
 
         let multimodal:MultiModal[] = []
-        const modelinfo = getModelInfo(DBState.db.aiModel)
         if(inlays.length > 0){
             for(const inlay of inlays){
                 const inlayName = inlay.replace('{{inlayed::', '').replace('{{inlay::', '').replace('}}', '').replace('{{inlayeddata::', '')
                 const inlayData = await getInlayAsset(inlayName)
                 if(inlayData?.type === 'image'){
-                    if(modelinfo.flags.includes(LLMFlags.hasImageInput)){
+                    if(generationModelMetadata.vision){
                         multimodal.push({
                             type: 'image',
                             base64: inlayData.data,
@@ -1067,38 +1485,114 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         currentTokens += await tokenizer.tokenizeChat(chat)
     }
     
-    if((currentChat.supaMemory ?? nowChatroom.supaMemory) && DBState.db.hypaV3){
-        stageTimings.stage1Duration = Date.now() - stageTimings.stage1Start
-        chatProcessStage.set(2)
-        stageTimings.stage2Start = Date.now()
-        console.log("Current chat's hypaV3 Data: ", currentChat.hypaV3Data)
-        const sp = await hypaMemoryV3(chats, currentTokens, maxContextTokens, currentChat, nowChatroom, tokenizer)
-        if(sp.error){
-            // Save new summary
-            if (sp.memory) {
-                currentChat.hypaV3Data = sp.memory
+    if(hypaEnabled){
+        const hypaStep = resumeHypaStep
+        const checkpointSequence = hypaStep?.metadata?.chatSequence
+        const checkpointTokens = hypaStep?.metadata?.currentTokens
+        const restoredCheckpointChats = hypaStep?.status === 'completed'
+            ? restoreHypaChatCheckpoint(checkpointSequence, chats)
+            : undefined
+        const hasHypaCheckpoint = hypaStep?.status === 'completed'
+            && restoredCheckpointChats !== undefined
+            && typeof checkpointTokens === 'number'
+            && Number.isFinite(checkpointTokens)
+        if(hasHypaCheckpoint){
+            chats = restoredCheckpointChats
+            currentTokens = checkpointTokens
+            const checkpointMemory = hypaStep?.metadata?.hypaMemory
+            if (
+                checkpointMemory
+                && typeof checkpointMemory === 'object'
+                && Array.isArray((checkpointMemory as { summaries?: unknown }).summaries)
+            ) {
+                currentChat.hypaV3Data = safeStructuredClone(
+                    checkpointMemory as unknown as SerializableHypaV3Data,
+                )
                 DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
             }
-            console.log(sp)
-            throwError(sp.error)
-            return false
         }
-        chats = sp.chats
-        currentTokens = sp.currentTokens
-        currentChat.hypaV3Data = sp.memory ?? currentChat.hypaV3Data
-        DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
+        else{
+            await setWorkflowStep('memory.hypav3', 'running')
+            stageTimings.stage1Duration = Date.now() - stageTimings.stage1Start
+            chatProcessStage.set(2)
+            stageTimings.stage2Start = Date.now()
+            console.log("Current chat's hypaV3 Data: ", currentChat.hypaV3Data)
+            const hypaInputChats = chats
+            const sp = await hypaMemoryV3(
+                hypaInputChats,
+                currentTokens,
+                maxContextTokens,
+                currentChat,
+                nowChatroom,
+                tokenizer,
+                {
+                    workflowId: workflowSession.workflowId,
+                    signal: abortSignal,
+                    deferredMemoryPrompt: deferredHypaMemoryPrompt,
+                    onRemoteSelectionRequiresClient: hasEditRequestLua
+                        ? async () => {
+                            await setWorkflowStep('prompt.build', 'waiting_client', {
+                                checkpoint: 'editRequest.lua',
+                                reason: 'lua_edit_request',
+                            })
+                        }
+                        : undefined,
+                    onClientEmbeddingRequired: async embeddingModel => {
+                        await setWorkflowStep('memory.hypav3', 'waiting_client', {
+                            checkpoint: 'embedding.local',
+                            embeddingModel,
+                            reason: 'browser_local_embedding',
+                        })
+                    },
+                },
+            )
+            if(sp.error){
+                // Save new summary
+                if (sp.memory) {
+                    currentChat.hypaV3Data = sp.memory
+                    DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
+                }
+                console.log(sp)
+                throwError(sp.error)
+                await setWorkflowStep('memory.hypav3', 'failed')
+                await finishWorkflow('failed')
+                return false
+            }
+            chats = sp.chats
+            currentTokens = sp.currentTokens
+            if(sp.deferredRemoteSelection && deferredHypaMemoryPrompt){
+                revenantMainDependency = {
+                    kind: 'hypav3-selection',
+                    placeholder: deferredHypaMemoryPrompt,
+                }
+            }
+            currentChat.hypaV3Data = sp.memory ?? currentChat.hypaV3Data
+            DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
 
-        currentChat = DBState.db.characters[selectedChar].chats[selectedChat];
-        console.log("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
-        stageTimings.stage2Duration = Date.now() - stageTimings.stage2Start
-        chatProcessStage.set(1)
+            currentChat = DBState.db.characters[selectedChar].chats[selectedChat];
+            console.log("[Expected to be updated] chat's HypaV3Data: ", currentChat.hypaV3Data)
+            stageTimings.stage2Duration = Date.now() - stageTimings.stage2Start
+            if(!sp.deferredRemoteSelection) chatProcessStage.set(1)
+            if(!sp.deferredRemoteSelection){
+                await setWorkflowStep('memory.hypav3', 'completed', {
+                    chatSequence: chats.map(chat => {
+                        const inputIndex = hypaInputChats.findIndex(input =>
+                            input === chat || (!!chat.memo && input.memo === chat.memo))
+                        return inputIndex >= 0
+                            ? { inputIndex, inputMemo: chat.memo }
+                            : { chat: safeStructuredClone(chat) }
+                    }),
+                    currentTokens,
+                })
+            }
+        }
     }
     else{
         stageTimings.stage1Duration = Date.now() - stageTimings.stage1Start
         while(currentTokens > maxContextTokens){
             if(chats.length <= 1){
                 throwError(language.errors.toomuchtoken + "\n\nRequired Tokens: " + currentTokens)
-
+                await finishWorkflow('failed')
                 return false
             }
 
@@ -1135,9 +1629,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             v.content = `<Previous Conversation>${v.content}</Previous Conversation>`
         }
         return v
-    }).filter((v) => {
-        return v.content.trim() !== '' || (v.multimodals && v.multimodals.length > 0)
-    })
+    }).filter(hasMessagePayload)
 
     for(const depthPrompt of depthPrompts){
         const chat:OpenAIChat = {
@@ -1148,23 +1640,23 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         unformated.chats.splice(depth,0,chat)
     }
 
-    if(triggerResult){
-        if(triggerResult.additonalSysPrompt.promptend){
+    if(triggerAdditionalSysPrompt){
+        if(triggerAdditionalSysPrompt.promptend){
             unformated.postEverything.push({
                 role: 'system',
-                content: triggerResult.additonalSysPrompt.promptend
+                content: triggerAdditionalSysPrompt.promptend
             })
         }
-        if(triggerResult.additonalSysPrompt.historyend){
+        if(triggerAdditionalSysPrompt.historyend){
             unformated.lastChat.push({
                 role: 'system',
-                content: triggerResult.additonalSysPrompt.historyend
+                content: triggerAdditionalSysPrompt.historyend
             })
         }
-        if(triggerResult.additonalSysPrompt.start){
+        if(triggerAdditionalSysPrompt.start){
             unformated.lastChat.unshift({
                 role: 'system',
-                content: triggerResult.additonalSysPrompt.start
+                content: triggerAdditionalSysPrompt.start
             })
         }
     }
@@ -1179,7 +1671,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     //continue chat model
-    if(arg.continue && (DBState.db.aiModel.startsWith('claude') || DBState.db.aiModel.startsWith('gpt') || DBState.db.aiModel.startsWith('openrouter') || DBState.db.aiModel.startsWith('reverse_proxy'))){
+    if(isContinuation && mergesAdjacentSystemPrompts){
         unformated.postEverything.push({
             role: 'system',
             content: '[Continue the last response]'
@@ -1188,10 +1680,13 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     function pushPrompts(cha:OpenAIChat[]){
         for(const chat of cha){
-            if(!chat.content.trim() && !(chat.multimodals && chat.multimodals.length > 0)){
+            // Drop payload-less turns before system merging and cache-depth
+            // accounting; the shared request boundary repeats this after all
+            // prompt/trigger transforms as a final safety net.
+            if(!hasMessagePayload(chat)){
                 continue
             }
-            if(!(DBState.db.aiModel.startsWith('gpt') || DBState.db.aiModel.startsWith('claude') || DBState.db.aiModel === 'openrouter' || DBState.db.aiModel === 'reverse_proxy')){
+            if(!mergesAdjacentSystemPrompts){
                 formated.push(chat)
                 continue
             }
@@ -1469,6 +1964,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         while(inputTokens > maxContextTokens){
             if(pointer >= formated.length){
                 throwError(language.errors.toomuchtoken + "\n\nAt token rechecking. Required Tokens: " + inputTokens)
+                await finishWorkflow('failed')
                 return false
             }
             if(formated[pointer].removable){
@@ -1477,24 +1973,18 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
             pointer++
         }
-        formated = formated.filter((v) => {
-            return v.content !== ''  || (v.multimodals && v.multimodals.length > 0)
-        })
+        formated = formated.filter(hasMessagePayload)
     }
 
-    //estimate tokens
-    let outputTokens = maxResponseTokens
-    if(inputTokens + outputTokens > maxContextTokens){
-        outputTokens = maxContextTokens - inputTokens
-    }
-    const messageChatId = v4()
     const generationModel = getGenerationModelString()
 
     generationInfo = {
         model: generationModel,
         generationId: messageChatId,
         inputTokens: inputTokens,
-        outputTokens: outputTokens,
+        // Historical field name: this stores the configured response limit,
+        // not actual generated tokens.
+        outputTokens: maxResponseTokens,
         maxContext: maxContextTokens,
         stageTiming: {
             stage1: stageTimings.stage1Duration,
@@ -1504,61 +1994,157 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
     }
 
-    chatProcessStage.set(3)
+    if(!revenantMainDependency) chatProcessStage.set(3)
     stageTimings.stage3Start = Date.now()
     if(arg.preview){
         previewFormated = formated
         return true
     }
 
+    await setWorkflowStep('prompt.build', 'completed')
+
+    if (
+        !resumeWorkflow
+        && !arg.previewPrompt
+        && compiledMainPreset
+    ) {
+        try {
+            if(!outgoingChat.id){
+                throw new Error('Cannot start generation because the chat has no id.')
+            }
+            const snapshotAuxProvider = (mode:'submodel'|'emotion'|'otherAx') => {
+                const binding = resolveChatModelBinding(currentChat, mode)
+                if(binding.kind !== 'modelPreset') return undefined
+                const compiled = compileModelPreset(binding.preset, {
+                    jsonSchemaRequested: false,
+                })
+                return {
+                    backend: compiled.backend,
+                    modelPreset: safeStructuredClone(compiled.sourcePreset),
+                }
+            }
+            const resumeContext:RevenantWorkflowResumeContext = {
+                version: 1,
+                chatProcessIndex,
+                messageChatId,
+                continue: isContinuation,
+                rerollSnapshot,
+            }
+            const postprocessChat = safeStructuredClone(currentChat)
+            ensureGenerationMessageTarget(postprocessChat, {
+                messageChatId,
+                characterId: currentChar.chaId,
+                isContinuation,
+                generationInfo,
+                promptInfo,
+                rerollSnapshot,
+            })
+            const postprocessCharacter = safeStructuredClone(nowChatroom)
+            postprocessCharacter.chats = [safeStructuredClone(postprocessChat)]
+            postprocessCharacter.chatPage = 0
+            const workflowContext:RevenantChatWorkflowContext = {
+                schemaVersion: 1,
+                kind: 'chat-generation',
+                inputCommit: {
+                    schemaVersion: 1,
+                    chat: safeStructuredClone(durableInputChat),
+                    expectedEtag: durableInputCommit.expectedEtag,
+                },
+                resume: {
+                    schemaVersion: 1,
+                    chatProcessIndex,
+                    messageChatId,
+                    isContinuation,
+                    rerollSnapshot,
+                },
+                postprocess: {
+                    schemaVersion: 1,
+                    messageChatId,
+                    isContinuation,
+                    rerollSnapshot,
+                    providerBackend: compiledMainPreset.backend,
+                    modelPreset: safeStructuredClone(compiledMainPreset.sourcePreset),
+                    auxProviders: {
+                        submodel: snapshotAuxProvider('submodel'),
+                        emotion: snapshotAuxProvider('emotion'),
+                        otherAx: snapshotAuxProvider('otherAx'),
+                    },
+                    character: postprocessCharacter,
+                    chat: postprocessChat,
+                    database: {
+                        presetRegex: safeStructuredClone(DBState.db.presetRegex ?? []),
+                        templateDefaultVariables: DBState.db.templateDefaultVariables ?? '',
+                        globalChatVariables: safeStructuredClone(DBState.db.globalChatVariables ?? {}),
+                        username: DBState.db.username ?? 'User',
+                        userIcon: DBState.db.userIcon ?? '',
+                        personaPrompt: DBState.db.personaPrompt ?? '',
+                        selectedPersona: DBState.db.selectedPersona ?? 0,
+                        personas: safeStructuredClone(DBState.db.personas ?? []),
+                        dynamicAssets: DBState.db.dynamicAssets ?? false,
+                        dynamicAssetsEditDisplay: DBState.db.dynamicAssetsEditDisplay ?? false,
+                        igpPrompt: DBState.db.igpPrompt ?? '',
+                        notification: DBState.db.notification ?? false,
+                        ttsEnabled: DBState.db.ttsEnabled ?? false,
+                        ttsAutoSpeech: DBState.db.ttsAutoSpeech ?? false,
+                        emotionProcesser: DBState.db.emotionProcesser ?? 'submodel',
+                        emotionPrompt2: DBState.db.emotionPrompt2 ?? '',
+                    },
+                    modules: safeStructuredClone(getModules()),
+                    moduleRegexScripts: safeStructuredClone(getModuleRegexScripts()),
+                    moduleTriggers: safeStructuredClone(getModuleTriggers()),
+                },
+            }
+            const plan = completeChatGenerationPreModelPlan(createChatGenerationWorkflowPlan({
+                resumeContext,
+                hypaEnabled,
+                igpEnabled: !!(DBState.db.igpPrompt ?? '').trim(),
+                // Main provider dispatch remains on the page that built the
+                // prompt. Plugin transports register their durable nativeFetch
+                // job through the same ordinary request path as HTTP adapters.
+                pluginProvider: false,
+            }))
+            beginChatGenerationProjection(nowChatroom.chaId, durableInputChat, {
+                messageChatId,
+                isContinuation,
+                rerollSnapshot,
+            })
+            const workflow = await beginRevenantWorkflow({
+                characterId: nowChatroom.chaId,
+                roomId: outgoingChat.id,
+                context: workflowContext,
+                plan,
+            })
+            workflowSession.adopt(workflow.workflowId)
+            arg.onWorkflowStarted?.(workflow.workflowId)
+            const committedInputEtag = workflow.steps
+                .find(step => step.key === 'input.commit' && step.status === 'completed')
+                ?.metadata?.etag
+            if (typeof committedInputEtag === 'string') {
+                setChatServerEtag(nowChatroom.chaId, outgoingChat.id, committedInputEtag)
+                acknowledgeChatCommit(durableInputCommit, committedInputEtag)
+            }
+        }
+        catch(error){
+            endChatGenerationProjection(nowChatroom.chaId, outgoingChat.id)
+            const message = error instanceof RevenantWorkflowBusyError
+                ? 'This room already has a generation waiting to finish or recover.'
+                : error instanceof Error ? error.message : String(error)
+            alertError(message)
+            doingChat.set(false)
+            return false
+        }
+    }
+
     if (!arg.previewPrompt) {
         const generationChat = DBState.db.characters[selectedChar].chats[selectedChat]
-        let placeholder: Message
-
-        if (arg.continue) {
-            const continuationTarget = generationChat.message
-                .slice()
-                .reverse()
-                .find(message => message?.role === 'char')
-            if (!continuationTarget) {
-                throw new Error('Cannot continue generation without an assistant message')
-            }
-            placeholder = continuationTarget
-            Object.assign(placeholder, {
-                chatId: messageChatId,
-                generationInfo,
-                promptInfo,
-            })
-        } else if (arg.rerollSnapshot) {
-            const target = arg.rerollSnapshot.targetMessage
-            const previousSwipes = Array.isArray(target.swipes)
-                ? [...target.swipes]
-                : [target.data]
-            placeholder = {
-                ...safeStructuredClone(target),
-                role: 'char',
-                data: '',
-                saying: currentChar.chaId,
-                time: Date.now(),
-                chatId: messageChatId,
-                generationInfo,
-                promptInfo,
-                swipes: [...previousSwipes, ''],
-                swipeId: previousSwipes.length,
-            }
-            generationChat.message.push(placeholder)
-        } else {
-            placeholder = {
-                role: 'char',
-                data: '',
-                saying: currentChar.chaId,
-                time: Date.now(),
-                generationInfo,
-                promptInfo,
-                chatId: messageChatId,
-            }
-            generationChat.message.push(placeholder)
-        }
+        ensureGenerationMessageTarget(generationChat, {
+            messageChatId,
+            characterId: currentChar.chaId,
+            isContinuation,
+            generationInfo,
+            promptInfo,
+            rerollSnapshot,
+        })
 
         generationChat.isStreaming = true
         currentChar.reloadKeys += 1
@@ -1567,23 +2153,135 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     registerRevenantGenerationMetadata(messageChatId, {
         generationInfo,
         promptInfo,
-        rerollSnapshot: arg.rerollSnapshot,
+        rerollSnapshot,
     })
 
-    const req = await requestChatData({
-        formated: formated,
-        biasString: biases,
-        currentChar: currentChar,
-        useStreaming: true,
-        isGroupChat: false,
-        bias: {},
-        continue: arg.continue,
-        chatId: messageChatId,
-        imageResponse: DBState.db.outputImageModal,
-        previewBody: arg.previewPrompt,
-        escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
-        rememberToolUsage: DBState.db.rememberToolUsage,
-    }, 'model', abortSignal)
+    const requestMainGeneration = (lifecycle: RevenantGenerationLifecycle = {}) =>
+        requestChatData({
+            formated: formated,
+            biasString: biases,
+            currentChar: currentChar,
+            useStreaming: true,
+            isGroupChat: false,
+            bias: {},
+            continue: isContinuation,
+            chatId: messageChatId,
+            imageResponse: DBState.db.outputImageModal,
+            previewBody: arg.previewPrompt,
+            escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
+            rememberToolUsage: DBState.db.rememberToolUsage,
+            revenantWorkflowDependency: revenantMainDependency,
+            revenantRoomId: outgoingChat.id,
+            revenantContinuationPrefix: continuationFallback,
+            onRevenantJobCreated: jobId => {
+                revenantMainJobCreated = true
+                revenantMainJobId = jobId
+                registerRevenantRequestStatus({
+                    jobId,
+                    statusId: messageChatId,
+                    workflowId: workflowSession.workflowId,
+                    roomId: outgoingChat.id,
+                    kind: 'main',
+                    label: generationInfo?.model,
+                    startedAt: Date.now(),
+                })
+                lifecycle.onJobCreated?.(jobId)
+            },
+            onRevenantJobRegistrationUnavailable: error => {
+                revenantMainRegistrationError = error
+                lifecycle.onJobRegistrationUnavailable?.(error)
+            },
+            onRevenantProviderStarted: lifecycle.onProviderStarted,
+            onRevenantTerminal: terminal => {
+                if (revenantMainJobId) {
+                    finishRevenantJobRequestStatus(
+                        revenantMainJobId,
+                        terminal,
+                        messageChatId,
+                    )
+                }
+                lifecycle.onTerminal?.(terminal)
+            },
+        }, 'model', abortSignal)
+    let req:Awaited<ReturnType<typeof requestMainGeneration>>
+    try {
+        req = await (async () => {
+            if(!workflowSession.workflowId) return requestMainGeneration()
+            const mainGeneration = coordinateRevenantGeneration(
+                requestMainGeneration,
+                {
+                    // HTTP adapters return a ReadableStream before their lazy async
+                    // generator reaches fetchNative. Keep registration open for
+                    // that known transport. Plugin providers must register before
+                    // returning so a stream-only provider still fails promptly.
+                    resultKeepsRegistrationOpen: result =>
+                        result.type === 'streaming' && revenantMainBackend === 'http',
+                    onProviderStarted: revenantMainDependency
+                        ? () => chatProcessStage.set(3)
+                        : undefined,
+                },
+            )
+            // The result promise is already running. Waiting on registration first
+            // makes the client/server ownership boundary explicit: once a job id
+            // exists, the server can finish Hypa and dispatch main independently.
+            await mainGeneration.registered
+            return mainGeneration.result
+        })()
+    }
+    catch(error) {
+        const message = error instanceof Error ? error.message : String(error)
+        throwError(message)
+        preserveFailedGenerationMessage('')
+        finishStreamingDisplay()
+        await setWorkflowStep('model.main', 'failed')
+        await finishWorkflow('failed')
+        doingChat.set(false)
+        return false
+    }
+
+    // Read through a function so TypeScript does not treat AbortSignal.aborted
+    // as permanently false across the async Hypa wait below.
+    const generationWasAborted = () => abortSignal.aborted
+    if(generationWasAborted()){
+        finishStreamingDisplay()
+        preserveFailedGenerationMessage()
+        await finishWorkflow('cancelled')
+        return false
+    }
+    if(req.type === 'fail'){
+        finishStreamingDisplay()
+        throwError(req.result)
+        preserveFailedGenerationMessage('')
+        await setWorkflowStep('model.main', 'failed')
+        await finishWorkflow('failed')
+        return false
+    }
+
+    if(workflowSession.workflowId && !revenantMainJobCreated){
+        const message = revenantMainRegistrationError instanceof Error
+            ? revenantMainRegistrationError.message
+            : 'The configured chat provider completed without dispatching a durable model request. The provider must use the shared LLM transport; plugin providers must issue the model request through nativeFetch or risuFetch.'
+        finishStreamingDisplay()
+        throwError(message)
+        preserveFailedGenerationMessage('')
+        await setWorkflowStep('model.main', 'failed')
+        await finishWorkflow('failed')
+        return false
+    }
+
+    if(arg.detachSignal?.aborted && req.type !== 'streaming'){
+        finishGenerationDetachment()
+        return false
+    }
+
+    if(revenantMainDependency && workflowSession.workflowId){
+        const remoteSelection = await waitForRevenantHypaExecution<{
+            memory: SerializableHypaV3Data
+        }>(workflowSession.workflowId, abortSignal)
+        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]
+        currentChat.hypaV3Data = safeStructuredClone(remoteSelection.memory)
+        DBState.db.characters[selectedChar].chats[selectedChat].hypaV3Data = currentChat.hypaV3Data
+    }
 
     console.log(req)
     if(req.model){
@@ -1594,7 +2292,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         await updateRevenantGenerationMetadata(messageChatId, {
             generationInfo,
             promptInfo,
-            rerollSnapshot: arg.rerollSnapshot,
+            rerollSnapshot,
         })
     } catch (error) {
         console.error('[GenerationJob] Failed to update generation metadata:', error)
@@ -1609,42 +2307,58 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let rawResult = ''
     let emoChanged = false
     let resendChat = false
-    
+
+    async function finishSuccessfulWorkflow():Promise<true>{
+        return true
+    }
+
     if(abortSignal.aborted === true){
         finishStreamingDisplay()
+        preserveFailedGenerationMessage()
+        await finishWorkflow('cancelled')
         return false
     }
-    if(req.type === 'fail'){
-        throwError(req.result)
-        finishStreamingDisplay()
-        return false
-    }
-    else if(req.type === 'streaming'){
+    if(req.type === 'streaming'){
         const reader = req.result.getReader()
-        const generationChat = DBState.db.characters[selectedChar].chats[selectedChat]
-        const msgIndex = generationChat.message.findIndex(message => message?.chatId === messageChatId)
-        if (msgIndex < 0) {
+        const initialTarget = ensureLiveGenerationTarget()
+        if (!initialTarget) {
             void reader.cancel().catch(() => {})
-            throw new Error('Persisted generation placeholder is missing')
+            throw new Error('Generation chat is no longer available')
         }
         let prefix = ''
-        if(arg.continue){
-            prefix = generationChat.message[msgIndex].data
+        if(isContinuation){
+            prefix = initialTarget.message.data
         }
-        generationChat.isStreaming = true
-        DBState.db.characters[selectedChar].reloadKeys += 1
+        initialTarget.chat.isStreaming = true
+        initialTarget.character.reloadKeys += 1
         let lastResponseChunk:{[key:string]:string} = {}
         let streamAborted:boolean = abortSignal.aborted
+        let streamDetached:boolean = arg.detachSignal?.aborted === true
+        let streamFailure:unknown
         const abortReader = () => {
             streamAborted = true
-            void cancelRevenantGeneration(messageChatId).catch(error => {
-                console.error('[GenerationJob] Failed to cancel server generation:', error)
-            })
+            // Workflow-owned streams are cancelled once, after the final
+            // partial checkpoint below. Standalone jobs retain their direct
+            // job cancellation path.
+            if(!workflowSession.workflowId){
+                void cancelRevenantGeneration(messageChatId).catch(error => {
+                    console.error('[GenerationJob] Failed to cancel server generation:', error)
+                })
+            }
+            void reader.cancel().catch(() => {})
+        }
+        const detachReader = () => {
+            streamDetached = true
+            if(revenantMainJobId){
+                setRevenantGenerationLocallyObserved(revenantMainJobId, false)
+            }
             void reader.cancel().catch(() => {})
         }
         abortSignal.addEventListener('abort', abortReader, { once: true })
+        arg.detachSignal?.addEventListener('abort', detachReader, { once: true })
+        if(streamDetached) detachReader()
         try {
-            while(streamAborted === false){
+            while(streamAborted === false && streamDetached === false){
                 let readed: ReadableStreamReadResult<{ [key: string]: string }>
                 try {
                     readed = await reader.read()
@@ -1654,7 +2368,8 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                         streamAborted = true
                         break
                     }
-                    throw error
+                    streamFailure = error
+                    break
                 }
                 if(readed.value){
                     lastResponseChunk = readed.value
@@ -1667,10 +2382,28 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     void checkpointRevenantGeneration(messageChatId, rawResult).catch(error => {
                         console.error('[GenerationJob] Failed to checkpoint parsed response:', error)
                     })
-                    let result2 = await processScriptFull(nowChatroom, reformatContent(prefix + result), 'editoutput', msgIndex)
-                    DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = result2.data
-                    emoChanged = result2.emoChanged
-                    DBState.db.characters[selectedChar].reloadKeys += 1
+                    const liveTarget = ensureLiveGenerationTarget()
+                    if(!liveTarget){
+                        streamFailure = new Error('Generation chat is no longer available')
+                        break
+                    }
+                    if(workflowSession.workflowId){
+                        setGenerationMessageContent(
+                            liveTarget.message,
+                            reformatContent(prefix + result),
+                        )
+                    }
+                    else{
+                        const result2 = await processScriptFull(liveTarget.character, reformatContent(prefix + result), 'editoutput', liveTarget.index)
+                        const refreshedTarget = ensureLiveGenerationTarget()
+                        if(!refreshedTarget){
+                            streamFailure = new Error('Generation chat is no longer available')
+                            break
+                        }
+                        setGenerationMessageContent(refreshedTarget.message, result2.data)
+                        emoChanged = result2.emoChanged
+                    }
+                    liveTarget.character.reloadKeys += 1
                 }
                 if(readed.done){
                     break
@@ -1679,43 +2412,105 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         }
         finally {
             if (result) {
-                try {
-                    await checkpointRevenantGeneration(messageChatId, rawResult || prefix + result, true)
-                } catch (error) {
-                    console.error('[GenerationJob] Failed to flush parsed response:', error)
+                const checkpoint = checkpointRevenantGeneration(
+                    messageChatId,
+                    rawResult || prefix + result,
+                    true,
+                )
+                if(streamDetached){
+                    void checkpoint.catch(error => {
+                        console.error('[GenerationJob] Failed to flush detached response:', error)
+                    })
+                }
+                else{
+                    try {
+                        await checkpoint
+                    } catch (error) {
+                        console.error('[GenerationJob] Failed to flush parsed response:', error)
+                    }
                 }
             }
             abortSignal.removeEventListener('abort', abortReader)
-            finishStreamingDisplay()
+            arg.detachSignal?.removeEventListener('abort', detachReader)
+            if(!streamDetached) finishStreamingDisplay()
             void reader.cancel().catch(() => {})
         }
 
+        if(streamDetached){
+            finishGenerationDetachment()
+            return false
+        }
         if(streamAborted || abortSignal.aborted){
+            preserveFailedGenerationMessage(rawResult || undefined)
+            await finishWorkflow('cancelled')
+            return false
+        }
+        if(streamFailure){
+            const message = streamFailure instanceof Error
+                ? streamFailure.message
+                : String(streamFailure)
+            throwError(message)
+            preserveFailedGenerationMessage(rawResult || '')
+            await setWorkflowStep('model.main', 'failed')
+            await finishWorkflow('failed')
             return false
         }
 
-        DBState.db.characters[selectedChar].chats[selectedChat] = runCurrentChatFunction(DBState.db.characters[selectedChar].chats[selectedChat])
-        currentChat = DBState.db.characters[selectedChar].chats[selectedChat]        
+        if(workflowSession.workflowId){
+            return await waitForServerWorkflow(workflowSession.workflowId)
+        }
+
+        const completedTarget = ensureLiveGenerationTarget()
+        if(!completedTarget){
+            throw new Error('Generation chat is no longer available')
+        }
+        currentChat = runCurrentChatFunction(completedTarget.chat)
+        const completedChatIndex = completedTarget.character.chats.findIndex(chat =>
+            chat?.id === outgoingChat.id)
+        completedTarget.character.chats[completedChatIndex] = currentChat
+        await setWorkflowStep('trigger.output', 'running')
         const triggerResult = await runTrigger(currentChar, 'output', {chat:currentChat})
         if(triggerResult && triggerResult.chat){
             currentChat = normalizeChat(triggerResult.chat)
+            const liveCharacter = DBState.db.characters.find(character =>
+                character?.chaId === nowChatroom.chaId)
+            const liveChatIndex = liveCharacter?.chats.findIndex(chat =>
+                chat?.id === outgoingChat.id) ?? -1
+            if(liveCharacter && liveChatIndex >= 0){
+                liveCharacter.chats[liveChatIndex] = currentChat
+            }
         }
         if(triggerResult && triggerResult.sendAIprompt){
             resendChat = true
         }
-        const inlayr = runInlayScreen(currentChar, currentChat.message[msgIndex].data)
-        currentChat.message[msgIndex].data = inlayr.text
-        DBState.db.characters[selectedChar].chats[selectedChat] = currentChat
+        const inlayTarget = ensureLiveGenerationTarget()
+        if(!inlayTarget){
+            throw new Error('Generation chat is no longer available')
+        }
+        const inlayr = runInlayScreen(currentChar, inlayTarget.message.data)
+        inlayTarget.message.data = inlayr.text
         if(inlayr.promise){
             const t = await inlayr.promise
-            currentChat.message[msgIndex].data = t
-            DBState.db.characters[selectedChar].chats[selectedChat] = currentChat
+            const refreshedInlayTarget = ensureLiveGenerationTarget()
+            if(!refreshedInlayTarget){
+                throw new Error('Generation chat is no longer available')
+            }
+            refreshedInlayTarget.message.data = t
         }
         if(DBState.db.ttsEnabled && DBState.db.ttsAutoSpeech){
             await sayTTS(currentChar, result)
         }
     }
     else{
+        if(workflowSession.workflowId){
+            rawResult = req.type === 'success'
+                ? req.result
+                : req.type === 'multiline'
+                    ? req.result.map(message => message[1]).join('\n')
+                    : ''
+            result = rawResult
+            return await waitForServerWorkflow(workflowSession.workflowId)
+        }
         const msgs = (req.type === 'success') ? [['char',req.result]] as const 
                     : (req.type === 'multiline') ? req.result
                     : []
@@ -1724,50 +2519,58 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             let msg = msgs[i]
             let mess = msg[1]
             if (i === 0) rawResult = mess
-            const generationChat = DBState.db.characters[selectedChar].chats[selectedChat]
             let msgIndex = i === 0
-                ? generationChat.message.findIndex(message => message?.chatId === messageChatId)
-                : generationChat.message.length
+                ? ensureLiveGenerationTarget()?.index ?? -1
+                : DBState.db.characters[selectedChar].chats[selectedChat].message.length
             if (i === 0 && msgIndex < 0) {
                 throw new Error('Persisted generation placeholder is missing')
             }
             let result2 = await processScriptFull(nowChatroom, reformatContent(mess), 'editoutput', msgIndex)
-            if(i === 0 && arg.continue){
-                let beforeChat = DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex]
+            if(i === 0 && isContinuation){
+                let beforeChat = ensureLiveGenerationTarget()?.message
+                if(!beforeChat) throw new Error('Generation continuation target is missing')
                 result2 = await processScriptFull(nowChatroom, reformatContent(beforeChat.data + mess), 'editoutput', msgIndex)
             }
             result = result2.data
             const inlayResult = runInlayScreen(currentChar, result)
             result = inlayResult.text
             emoChanged = result2.emoChanged
-            if(i === 0 && arg.continue){
-                DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex] = {
-                    role: 'char',
-                    data: result,
+            if(i === 0 && isContinuation){
+                const committedTarget = ensureLiveGenerationTarget()
+                if(!committedTarget) throw new Error('Generation continuation target is missing')
+                Object.assign(committedTarget.message, {
+                    role: 'char' as const,
                     saying: currentChar.chaId,
                     time: Date.now(),
                     generationInfo,
                     promptInfo,
                     chatId: messageChatId,
-                }       
+                })
+                setGenerationMessageContent(committedTarget.message, result)
                 if(inlayResult.promise){
                     const p = await inlayResult.promise
-                    DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = p
+                    const refreshedTarget = ensureLiveGenerationTarget()
+                    if(!refreshedTarget) throw new Error('Generation continuation target is missing')
+                    setGenerationMessageContent(refreshedTarget.message, p)
                 }
             }
             else if(i===0){
-                DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex] = {
+                const committedTarget = ensureLiveGenerationTarget()
+                if(!committedTarget) throw new Error('Generation target is missing')
+                Object.assign(committedTarget.message, {
                     role: msg[0],
-                    data: result,
                     saying: currentChar.chaId,
                     time: Date.now(),
                     generationInfo,
                     promptInfo,
                     chatId: messageChatId,
-                }
+                })
+                setGenerationMessageContent(committedTarget.message, result)
                 if(inlayResult.promise){
                     const p = await inlayResult.promise
-                    DBState.db.characters[selectedChar].chats[selectedChat].message[msgIndex].data = p
+                    const refreshedTarget = ensureLiveGenerationTarget()
+                    if(!refreshedTarget) throw new Error('Generation target is missing')
+                    setGenerationMessageContent(refreshedTarget.message, p)
                 }
                 mrerolls.push(result)
             }
@@ -1783,6 +2586,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         DBState.db.characters[selectedChar].chats[selectedChat] = runCurrentChatFunction(DBState.db.characters[selectedChar].chats[selectedChat])
         currentChat = DBState.db.characters[selectedChar].chats[selectedChat]        
 
+        await setWorkflowStep('trigger.output', 'running')
         const triggerResult = await runTrigger(currentChar, 'output', {chat:currentChat})
         if(triggerResult && triggerResult.chat){
             DBState.db.characters[selectedChar].chats[selectedChat] = normalizeChat(triggerResult.chat)
@@ -1791,49 +2595,31 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             resendChat = true
         }
     }
+    await setWorkflowStep('output.transform', 'completed')
+    await setWorkflowStep('trigger.output', 'completed')
     finishStreamingDisplay()
-
-    const generatedMessage = DBState.db.characters[selectedChar].chats[selectedChat].message
-        .slice()
-        .reverse()
-        .find(message => message?.chatId === messageChatId)
-        ?? (arg.continue
-            ? DBState.db.characters[selectedChar].chats[selectedChat].message
-                .slice()
-                .reverse()
-                .find(message => message?.role === 'char')
-            : undefined)
-    if (generatedMessage) {
-        if (arg.continue) generatedMessage.chatId = messageChatId
-        try {
-            const materialized = await finalizeRevenantGeneration(
-                messageChatId,
-                rawResult || result,
-                generatedMessage,
-                DBState.db.characters[selectedChar].chats[selectedChat],
-            )
-            if (materialized?.chat) {
-                DBState.db.characters[selectedChar].chats[selectedChat] = normalizeChat(materialized.chat)
-                currentChar.reloadKeys += 1
-            }
-        } catch (error) {
-            // revenant-generation.db still owns the raw response and leaves it pending
-            // for recovery. Do not discard the visible response merely because
-            // final compatible-save materialization failed.
-            console.error('[GenerationJob] Failed to finalize revenant generation:', error)
-        }
-    }
 
     const igp = risuChatParser(DBState.db.igpPrompt ?? "")
 
     if(igp){
+        await setWorkflowStep('igp', 'running')
         const igpFormated = parseChatML(igp)
         const rq = await requestChatData({
             formated: igpFormated,
-            bias: {}
+            bias: {},
+            currentChar,
+            useStreaming: false,
         },'emotion', abortSignal)
 
-        DBState.db.characters[selectedChar].chats[selectedChat].message[DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1].data += rq
+        if(rq.type === 'success'){
+            DBState.db.characters[selectedChar].chats[selectedChat].message[DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1].data += rq.result
+            await setWorkflowStep('igp', 'completed')
+        }
+        else{
+            const reason = rq.type === 'fail' ? rq.result : `unexpected_${rq.type}`
+            console.error('[GenerationWorkflow] IGP request failed:', reason)
+            await setWorkflowStep('igp', 'skipped', { reason })
+        }
     }
 
     stageTimings.stage3Duration = Date.now() - stageTimings.stage3Start
@@ -1843,6 +2629,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
     chatProcessStage.set(4)
     stageTimings.stage4Start = Date.now()
+    await setWorkflowStep('postprocess', 'running')
 
     if(resendChat){
         stageTimings.stage4Duration = Date.now() - stageTimings.stage4Start
@@ -1854,14 +2641,19 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             generationInfo.stageTiming.stage4 = stageTimings.stage4Duration
         }
         
-        const lastMessageIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1
-        if(lastMessageIndex >= 0 && DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo) {
-            DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo = generationInfo
+        const completedTarget = ensureLiveGenerationTarget()
+        if(completedTarget?.message.generationInfo) {
+            setGenerationMessageInfo(completedTarget.message, generationInfo)
         }
         
         doingChat.set(false)
+        await finishSuccessfulWorkflow()
         return await sendChat(chatProcessIndex, {
-            signal: abortSignal
+            signal: abortSignal,
+            detachSignal: arg.detachSignal,
+            onDetached: arg.onDetached,
+            onWorkflowStarted: arg.onWorkflowStarted,
+            generationTarget: arg.generationTarget,
         })
     }
 
@@ -1966,7 +2758,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
                 
 
-                return true
+                return await finishSuccessfulWorkflow()
             }
 
             function shuffleArray(array:string[]) {
@@ -2028,17 +2820,17 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
             if(rq.type === 'fail'){
                 if(abortSignal.aborted){
-                    return true
+                    return await finishSuccessfulWorkflow()
                 }
                 throwError(rq.result)
-                return true
+                return await finishSuccessfulWorkflow()
             }
             if(rq.type === 'streaming' || rq.type === 'multiline'){
                 if(abortSignal.aborted){
-                    return true
+                    return await finishSuccessfulWorkflow()
                 }
                 throwError('Unexpected response type')
-                return true
+                return await finishSuccessfulWorkflow()
             }
             else{
                 emotionList = currentEmotion.map((a) => {
@@ -2079,29 +2871,13 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     }
                 } catch (error) {
                     throwError(language.errors.httpError + `${error}`)
-                    return true
+                    return await finishSuccessfulWorkflow()
                 }
             }
             
-            return true
+            return await finishSuccessfulWorkflow()
 
 
-        }
-        else if(currentChar.viewScreen === 'imggen'){
-            const msgs = DBState.db.characters[selectedChar].chats[selectedChat].message
-            let msgStr = ''
-            for(let i = (msgs.length - 1);i>=0;i--){
-                if(msgs[i].role === 'char'){
-                    msgStr = `character: ${msgs[i].data.replace(/\n/g, ' ')} \n` + msgStr
-                }
-                else{
-                    msgStr = `user: ${msgs[i].data.replace(/\n/g, ' ')} \n` + msgStr
-                    break
-                }
-            }
-
-
-            await stableDiff(currentChar, msgStr)
         }
     }
 
@@ -2114,12 +2890,12 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         generationInfo.stageTiming.stage4 = stageTimings.stage4Duration
     }
     
-    const lastMessageIndex = DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1
-    if(lastMessageIndex >= 0 && DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo) {
-        DBState.db.characters[selectedChar].chats[selectedChat].message[lastMessageIndex].generationInfo = generationInfo
+    const completedTarget = ensureLiveGenerationTarget()
+    if(completedTarget?.message.generationInfo) {
+        setGenerationMessageInfo(completedTarget.message, generationInfo)
     }
 
-    return true
+    return await finishSuccessfulWorkflow()
 }
 
 function systemizeChat(chat:OpenAIChat[]){

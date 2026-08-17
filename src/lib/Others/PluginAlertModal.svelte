@@ -1,72 +1,74 @@
 <script lang="ts">
+    import { TriangleAlertIcon } from "@lucide/svelte";
     import { language } from "src/lang";
+    import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
+    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
     import { pluginAlertModalStore } from "src/ts/stores.svelte";
 
-    
-
-    const reasons:[string,string][] = $derived.by(() => {
-        let v = pluginAlertModalStore.errors.map(error => [
+    const reasons: [string, string][] = $derived.by(() => {
+        const mapped = pluginAlertModalStore.errors.map(error => [
             language.pluginRisksInuserFriendly[error.userAlertKey],
-            language.pluginRisksInuserFriendlyDesc[error.userAlertKey]
-        ] as [string,string])
+            language.pluginRisksInuserFriendlyDesc[error.userAlertKey],
+        ] as [string, string]);
 
+        return mapped.filter((item, index) =>
+            mapped.findIndex(candidate => candidate[0] === item[0]) === index
+        );
+    });
 
-        //find duplicates and remove them
-        v = v.filter(item => {
-            const key = item[0]
-            const index = v.findIndex(i => i[0] === key)
-            return index === v.indexOf(item)
-        })
-        return v
-    })
+    function rejectPlugin() {
+        pluginAlertModalStore.open = false;
+    }
+
+    function continueAnyway() {
+        pluginAlertModalStore.errors = [];
+        pluginAlertModalStore.open = false;
+    }
 </script>
 
 {#if pluginAlertModalStore.open}
-    <dialog open class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div class="bg-orange-800 rounded-lg shadow-xl max-w-md w-full p-6">
-            <h2 class="text-xl font-bold mb-4 text-textcolor">
-                {language.pluginRiskDetectedAlert}
-            </h2>
-            
-            <ul class="list-disc list-inside mb-4 space-y-2 text-gray-300">
+    <ShDialog
+        open={true}
+        onOpenChange={(open) => { if (!open) rejectPlugin(); }}
+        closable={false}
+        closeOnEscape={false}
+        closeOnOutsideClick={false}
+        tier="alert"
+        size="default"
+        footer={footerActions}
+    >
+        {#snippet title()}{language.pluginRiskDetectedTitle}{/snippet}
+
+        <ShAlert variant="destructive">
+            {#snippet icon()}<TriangleAlertIcon />{/snippet}
+            <p class="m-0">{language.pluginRiskDetectedAlert}</p>
+            <ul class="mt-3 flex list-none flex-col divide-y divide-draculared/30 border-t border-draculared/30 p-0 pt-1 text-sm">
                 {#each reasons as reason}
-                    <li>{reason[0]}</li>
-                    <ul>
-                        <li class="ml-4 text-sm italic">{reason[1]}</li>
-                    </ul>
+                    <li class="py-2.5 first:pt-1.5 last:pb-0">
+                        <div class="font-semibold">{reason[0]}</div>
+                        <div class="mt-0.5 opacity-80">{reason[1]}</div>
+                    </li>
                 {/each}
             </ul>
-            
-            <details class="mb-4 text-gray-200">
-                
-                <details class="mb-4 text-gray-200">
-                    <summary class="cursor-pointer text-gray-200 mb-2">
-                        Dev Info
-                    </summary>
+        </ShAlert>
 
-                    {#each pluginAlertModalStore.errors as error}
-                        <p class="text-gray-200">{error.message}</p>
-                    {/each}
-                    
-                </details>
-
-                <button 
-                    class="text-gray-200"
-                    onclick={() => {
-                        pluginAlertModalStore.open = false
-                        pluginAlertModalStore.errors = []
-                    }}
-                >
-                    {language.continueAnyway}
-                </button>
-            </details>
-            
-            <button 
-                class="w-full bg-gray-700 hover:bg-gray-600 text-gray-100 font-semibold py-2 px-4 rounded-sm transition-colors"
-                onclick={() => pluginAlertModalStore.open = false}
-            >
-                {language.doNotInstall}
-            </button>
-        </div>
-    </dialog>
+        <details class="rounded-md border border-darkborderc bg-bgcolor/30 px-3 py-2 text-sm text-textcolor2">
+            <summary class="cursor-pointer font-medium risu-interactive-foreground">Dev Info</summary>
+            <div class="mt-2 flex flex-col gap-2">
+                {#each pluginAlertModalStore.errors as error}
+                    <p class="m-0 wrap-break-word">{error.message}</p>
+                {/each}
+            </div>
+        </details>
+    </ShDialog>
 {/if}
+
+{#snippet footerActions()}
+    <ShButton variant="destructive" onclick={continueAnyway}>
+        {language.continueAnyway}
+    </ShButton>
+    <ShButton variant="primary" onclick={rejectPlugin}>
+        {language.doNotInstall}
+    </ShButton>
+{/snippet}

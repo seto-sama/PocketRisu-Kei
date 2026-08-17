@@ -9,7 +9,10 @@ import { changeFullscreen } from '../util';
 import { updateAnimationSpeed } from '../gui/animation';
 import { updateGuisize } from '../gui/guisize';
 import { updateTextThemeAndCSS } from '../gui/colorscheme';
+import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/textOutline';
 import { PRODUCT_BASE_NAME } from '../branding';
+import { localFontFamilies } from 'virtual:pocketrisu-local-font-families';
+import { supportsCustomChatBackdrop } from '../storage/database.svelte';
 
 export const displayThemeGeneralSettingsItems: SettingItem[] = [
     {
@@ -57,6 +60,55 @@ export const displayThemeGeneralSettingsItems: SettingItem[] = [
         keywords: ['chat', 'width', 'nodeonly', 'standard'],
     },
     {
+        id: 'display.waifuWidth',
+        type: 'slider',
+        labelKey: 'waifuWidth',
+        helpKey: 'waifuWidth',
+        bindKey: 'waifuWidth',
+        condition: (ctx) => ctx.db.theme === 'waifu',
+        options: {
+            min: 50,
+            max: 200,
+            customText: (value) => `${value}%`,
+        },
+        keywords: ['waifu', 'width'],
+    },
+    {
+        id: 'display.waifuWidth2',
+        type: 'slider',
+        labelKey: 'waifuWidth2',
+        helpKey: 'waifuWidth2',
+        bindKey: 'waifuWidth2',
+        condition: (ctx) => ctx.db.theme === 'waifu',
+        options: {
+            min: 20,
+            max: 150,
+            customText: (value) => `${value}%`,
+        },
+        keywords: ['waifu', 'width'],
+    },
+    {
+        id: 'display.customBackground',
+        type: 'custom',
+        componentId: 'CustomBackgroundToggle',
+        condition: (ctx) => supportsCustomChatBackdrop(ctx.db.theme),
+        keywords: ['custom', 'background'],
+    },
+    {
+        id: 'display.textScreenColor',
+        type: 'custom',
+        componentId: 'NullableTextColorToggle',
+        componentProps: {
+            field: 'textScreenColor',
+            labelKey: 'textBackgrounds',
+            defaultColor: DEFAULT_TEXT_SCREEN_COLOR,
+            helpKey: 'textScreenColor',
+            alwaysEnabled: true,
+        },
+        condition: (ctx) => supportsCustomChatBackdrop(ctx.db.theme),
+        keywords: ['text', 'background', 'color'],
+    },
+    {
         id: 'display.customCSS',
         type: 'textarea',
         labelKey: 'customCSS',
@@ -97,35 +149,10 @@ export const displayThemeGeneralSettingsItems: SettingItem[] = [
         bindKey: 'customFont',
         condition: (ctx) => ctx.db.font === 'custom',
         onChange: () => updateTextThemeAndCSS(),
+        options: {
+            suggestions: localFontFamilies.map(({ family }) => family),
+        },
         keywords: ['font', 'custom'],
-    },
-    {
-        id: 'display.waifuWidth',
-        type: 'slider',
-        labelKey: 'waifuWidth',
-        helpKey: 'waifuWidth',
-        bindKey: 'waifuWidth',
-        condition: (ctx) => ctx.db.theme === 'waifu',
-        options: {
-            min: 50,
-            max: 200,
-            customText: (value) => `${value}%`,
-        },
-        keywords: ['waifu', 'width'],
-    },
-    {
-        id: 'display.waifuWidth2',
-        type: 'slider',
-        labelKey: 'waifuWidth2',
-        helpKey: 'waifuWidth2',
-        bindKey: 'waifuWidth2',
-        condition: (ctx) => ctx.db.theme === 'waifu',
-        options: {
-            min: 20,
-            max: 150,
-            customText: (value) => `${value}%`,
-        },
-        keywords: ['waifu', 'width'],
     },
 ];
 
@@ -273,16 +300,6 @@ export const displaySizeSettingsItems: SettingItem[] = [
         keywords: ['animation', 'speed'],
     },
     {
-        id: 'display.memoryLimitThickness',
-        type: 'slider',
-        labelKey: 'memoryLimitThickness',
-        helpKey: 'memoryLimitThickness',
-        bindKey: 'memoryLimitThickness',
-        condition: (ctx) => ctx.db.showMemoryLimit,
-        options: { min: 1, max: 500, step: 1 },
-        keywords: ['memory', 'limit', 'thickness'],
-    },
-    {
         id: 'display.settingsCloseButtonSize',
         type: 'slider',
         labelKey: 'settingsCloseButtonSize',
@@ -295,7 +312,6 @@ export const displaySizeSettingsItems: SettingItem[] = [
 
 export const displayOtherHomeItems: SettingItem[] = [
     { id: 'display.hideRealm', type: 'check', labelKey: 'hideRealm', helpKey: 'hideRealm', bindKey: 'hideRealm', keywords: ['realm', 'hide'] },
-    { id: 'display.realmDirectOpen', type: 'check', labelKey: 'realmDirectOpen', helpKey: 'realmDirectOpen', bindKey: 'realmDirectOpen', keywords: ['realm', 'preview', 'direct', 'open'] },
     { id: 'display.showFolderName', type: 'check', labelKey: 'showFolderNameInIcon', helpKey: 'showFolderNameInIcon', bindKey: 'showFolderName', keywords: ['folder', 'name', 'icon'] },
     { id: 'display.roundIcons', type: 'check', labelKey: 'roundIcons', helpKey: 'roundIcons', bindKey: 'roundIcons', keywords: ['round', 'icons'] },
     { id: 'display.hideMessagePageCount', type: 'check', labelKey: 'hideMessagePageCount', helpKey: 'hideMessagePageCountDesc', bindKey: 'hideMessagePageCount', keywords: ['message', 'page', 'count', 'hide'] },
@@ -303,7 +319,19 @@ export const displayOtherHomeItems: SettingItem[] = [
 
 export const displayOtherChatItems: SettingItem[] = [
     { id: 'display.showRequestStatus', type: 'check', labelKey: 'showRequestStatus', helpKey: 'showRequestStatus', bindKey: 'showRequestStatus', keywords: ['request', 'status', 'toast', 'token', 'thinking'] },
-    { id: 'display.customBackground', type: 'custom', componentId: 'CustomBackgroundToggle', keywords: ['custom', 'background'] },
+    {
+        id: 'display.textBorder',
+        type: 'custom',
+        componentId: 'NullableTextColorToggle',
+        componentProps: {
+            field: 'textBorderColor',
+            toggleField: 'textBorder',
+            labelKey: 'textBorder',
+            defaultColor: DEFAULT_TEXT_BORDER_COLOR,
+            helpKey: 'textBorder',
+        },
+        keywords: ['text', 'outline', 'shadow', 'color'],
+    },
     { id: 'display.hideAllImages', type: 'check', labelKey: 'hideAllImages', helpKey: 'hideAllImagesDesc', bindKey: 'hideAllImages', keywords: ['images', 'hide'] },
     {
         id: 'display.assetMaxDifference',
@@ -319,37 +347,7 @@ export const displayOtherChatItems: SettingItem[] = [
     },
     { id: 'display.dynamicAssets', type: 'check', labelKey: 'dynamicAssets', helpKey: 'dynamicAssets', bindKey: 'dynamicAssets', keywords: ['dynamic', 'assets', 'matching'] },
     { id: 'display.useAdditionalAssetsPreview', type: 'check', labelKey: 'useAdditionalAssetsPreview', helpKey: 'useAdditionalAssetsPreview', bindKey: 'useAdditionalAssetsPreview', keywords: ['additional', 'assets', 'preview'] },
-    { id: 'display.showMemoryLimit', type: 'check', labelKey: 'showMemoryLimit', helpKey: 'showMemoryLimit', bindKey: 'showMemoryLimit', keywords: ['memory', 'limit'] },
     { id: 'display.showSavingIcon', type: 'check', labelKey: 'showSavingIcon', helpKey: 'showSavingIcon', bindKey: 'showSavingIcon', keywords: ['saving', 'icon'] },
-];
-
-export const displayOtherBubbleItems: SettingItem[] = [
-    {
-        id: 'display.textScreenColor',
-        type: 'custom',
-        componentId: 'NullableTextColorToggle',
-        componentProps: {
-            field: 'textScreenColor',
-            labelKey: 'textBackgrounds',
-            defaultColor: '#121212',
-            helpKey: 'textScreenColor',
-        },
-        keywords: ['text', 'background', 'color'],
-    },
-    {
-        id: 'display.textScreenBorder',
-        type: 'custom',
-        componentId: 'NullableTextColorToggle',
-        componentProps: {
-            field: 'textScreenBorder',
-            labelKey: 'textScreenBorder',
-            defaultColor: '#121212',
-            helpKey: 'textScreenBorder',
-        },
-        keywords: ['text', 'screen', 'border', 'color'],
-    },
-    { id: 'display.textScreenRounded', type: 'check', labelKey: 'textScreenRound', helpKey: 'textScreenRound', bindKey: 'textScreenRounded', keywords: ['text', 'round'] },
-    { id: 'display.textBorder', type: 'check', labelKey: 'textBorder', helpKey: 'textBorder', bindKey: 'textBorder', keywords: ['text', 'border'] },
 ];
 
 export const displayOtherQuoteItems: SettingItem[] = [
@@ -413,24 +411,6 @@ export const displayOtherQuoteItems: SettingItem[] = [
 ];
 
 export const displayOtherAdvancedItems: SettingItem[] = [
-    {
-        id: 'display.heightMode',
-        type: 'select',
-        labelKey: 'heightMode',
-        helpKey: 'heightMode',
-        bindKey: 'heightMode',
-        options: {
-            selectOptions: [
-                { value: 'normal', label: 'Normal' },
-                { value: 'percent', label: 'Percent' },
-                { value: 'vh', label: 'VH' },
-                { value: 'dvh', label: 'DVH' },
-                { value: 'svh', label: 'SVH' },
-                { value: 'lvh', label: 'LVH' },
-            ],
-        },
-        keywords: ['height', 'viewport', 'vh', 'dvh', 'svh', 'lvh'],
-    },
     { id: 'display.hideApiKey', type: 'check', labelKey: 'hideApiKeys', helpKey: 'hideApiKeys', bindKey: 'hideApiKey', keywords: ['api', 'key', 'hide'] },
     { id: 'display.showPromptComparison', type: 'check', labelKey: 'showPromptComparison', helpKey: 'showPromptComparison', bindKey: 'showPromptComparison', keywords: ['prompt', 'comparison'] },
     {
@@ -461,7 +441,6 @@ export const displaySettingsItems: SettingItem[] = [
     ...displaySizeSettingsItems,
     ...displayOtherHomeItems,
     ...displayOtherChatItems,
-    ...displayOtherBubbleItems,
     ...displayOtherQuoteItems,
     ...displayOtherAdvancedItems,
 ];

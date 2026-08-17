@@ -360,16 +360,16 @@
                         DBState.db.NAIImgConfig.image = saveId
                     }}>
                         {#if !DBState.db.NAIImgConfig.image || DBState.db.NAIImgConfig.image === ''}
-                            <div class="rounded-md h-20 w-20 shadow-lg bg-textcolor2 cursor-pointer hover:text-primary flex items-center justify-center">
+                            <div class="rounded-md h-20 w-20 shadow-lg bg-textcolor2 cursor-pointer risu-interactive-accent flex items-center justify-center">
                                 <span class="text-sm">{language.imageSettings.uploadImage}</span>
                             </div>
                         {:else}
                             {#await getCharImage(DBState.db.NAIImgConfig.image, 'plain')}
-                                <div class="rounded-md h-20 w-20 shadow-lg bg-textcolor2 cursor-pointer hover:text-primary flex items-center justify-center">
+                                <div class="rounded-md h-20 w-20 shadow-lg bg-textcolor2 cursor-pointer risu-interactive-accent flex items-center justify-center">
                                     <span class="text-sm">{language.imageSettings.uploadingImage}</span>
                                 </div>
                             {:then im}
-                                <img src={im} class="rounded-md h-40 shadow-lg bg-textcolor2 cursor-pointer hover:text-primary" alt={language.imageSettings.imagePreview}/>
+                                <img src={im} class="rounded-md h-40 shadow-lg bg-textcolor2 cursor-pointer risu-interactive-accent" alt={language.imageSettings.imagePreview}/>
                             {/await}
                         {/if}
                     </button>

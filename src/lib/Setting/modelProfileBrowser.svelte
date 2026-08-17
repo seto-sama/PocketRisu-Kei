@@ -1,5 +1,6 @@
 <script lang="ts">
     import { ChevronDownIcon, ChevronRightIcon, DownloadIcon, SearchIcon, TrashIcon, UploadIcon, XIcon } from "@lucide/svelte";
+    import Portal from "../UI/GUI/Portal.svelte";
     import { language } from "src/lang";
     import { DBState, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
     import { alertConfirm, alertError, notifySuccess } from "src/ts/alert";
@@ -40,6 +41,7 @@
         pluginPresetAbilityDefaults,
     } from "src/ts/preset/pluginModels";
     import TextInput from "../UI/GUI/TextInput.svelte";
+    import ShBadge from "../UI/GUI/ShBadge.svelte";
     import { v4 as uuidv4 } from "uuid";
     import { onMount } from "svelte";
 
@@ -120,8 +122,9 @@
         const providerGroups = listFilterableProviderGroups(activeRegistry, activeRegistryId);
         const hiddenProviderIds = resolveProviderFilterHiddenIds(
             providerGroups.map(provider => provider.id),
-            DBState.db.modelProfileHiddenProviderIds,
+            DBState.db.modelProfileVisibleProviderIds,
             DBState.db.modelProfileProviderFilterInitialized === true,
+            DBState.db.modelProfileHiddenProviderIds,
         );
         return [
             ...all.filter(e =>
@@ -308,20 +311,27 @@
     }
 </script>
 
-<div class="absolute w-full h-full z-40 bg-black/50 flex justify-center items-center">
+<Portal>
+<div class="risu-modal-backdrop z-40 flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-124 max-h-full overflow-hidden">
         <div class="flex items-center text-textcolor mb-4 shrink-0">
             <h2 class="mt-0 mb-0">{language.selectProfile}</h2>
             <div class="grow flex justify-end">
-                <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer items-center" onclick={close}>
+                <button class="text-textcolor2 risu-interactive-accent mr-2 cursor-pointer items-center" onclick={close}>
                     <XIcon size={20}/>
                 </button>
             </div>
         </div>
 
         <div class="shrink-0 flex w-full rounded-md border border-selected mb-3">
-            <button class="p-1.5 flex-1 text-sm" class:bg-selected={activeTab === 'official'} onclick={() => { activeTab = 'official' }}>{language.profileTabOfficial}</button>
-            <button class="p-1.5 flex-1 text-sm" class:bg-selected={activeTab === 'custom'} onclick={() => { activeTab = 'custom' }}>{language.profileTabCustom}</button>
+            <button
+                class="p-1.5 flex-1 text-sm transition-colors {activeTab === 'official' ? 'bg-selected text-textcolor' : 'text-textcolor2 risu-interactive-foreground'}"
+                onclick={() => { activeTab = 'official' }}
+            >{language.profileTabOfficial}</button>
+            <button
+                class="p-1.5 flex-1 text-sm transition-colors {activeTab === 'custom' ? 'bg-selected text-textcolor' : 'text-textcolor2 risu-interactive-foreground'}"
+                onclick={() => { activeTab = 'custom' }}
+            >{language.profileTabCustom}</button>
         </div>
 
         <div class="flex items-center gap-2 mb-3 shrink-0">
@@ -331,7 +341,7 @@
 
         {#if activeTab === 'custom'}
             <button
-                class="shrink-0 w-full flex items-center justify-center gap-2 mb-3 p-2 rounded-md border border-darkborderc bg-darkbutton hover:bg-selected text-sm"
+                class="shrink-0 w-full flex items-center justify-center gap-2 mb-3 p-2 rounded-md border border-darkborderc bg-darkbutton risu-interactive-surface-solid text-sm"
                 onclick={importProfile}
             >
                 <UploadIcon size={16} class="shrink-0" />
@@ -342,17 +352,17 @@
         {#snippet profileCard(entry: Entry)}
             {@const { profile, baseProvider } = entry}
             {@const localizedDesc = localizeDescription(profile)}
-            <div class="flex items-start text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors">
+            <div class="flex items-start text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors">
                 <button class="flex flex-col min-w-0 grow cursor-pointer text-left" onclick={() => selectProfile(entry)}>
                     <div class="flex items-center gap-2">
                         <span class="text-sm text-textcolor truncate">{localizeDisplayName(profile)}</span>
                         {#if profile.profileStatus !== 'current'}
-                            <span
-                                class="text-[10px] leading-none px-1.5 py-0.5 rounded shrink-0
-                                {profile.profileStatus === 'deprecated' ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/15 text-amber-500'}"
+                            <ShBadge
+                                variant={profile.profileStatus === 'deprecated' ? 'destructive' : 'attention'}
+                                size="xs"
                             >
                                 {profile.profileStatus === 'deprecated' ? language.profileStatusDeprecated : language.profileStatusOutdated}
-                            </span>
+                            </ShBadge>
                         {/if}
                         {#if baseProvider}
                             <span class="text-xs text-textcolor2 shrink-0">[{baseProvider.displayName}]</span>
@@ -372,11 +382,11 @@
                     {/if}
                 </button>
                 <div class="flex gap-2 shrink-0 ml-2">
-                    <button class="text-textcolor2 hover:text-primary cursor-pointer" title={language.profileExport} onclick={() => exportProfile(profile, baseProvider)}>
+                    <button class="text-textcolor2 risu-interactive-accent cursor-pointer" title={language.profileExport} onclick={() => exportProfile(profile, baseProvider)}>
                         <DownloadIcon size={18}/>
                     </button>
                     {#if activeTab === 'custom'}
-                        <button class="text-textcolor2 hover:text-red-400 cursor-pointer" title={language.profileDelete} onclick={() => deleteCustom(profile)}>
+                        <button class="text-textcolor2 risu-interactive-danger cursor-pointer" title={language.profileDelete} onclick={() => deleteCustom(profile)}>
                             <TrashIcon size={18}/>
                         </button>
                     {/if}
@@ -393,7 +403,7 @@
                 {#each groupedByProvider as group (group.id)}
                     <section class="flex flex-col gap-1 mt-2 first:mt-0">
                         <button
-                            class="flex items-center gap-1.5 px-1 py-1 text-textcolor2 hover:text-textcolor transition-colors cursor-pointer"
+                            class="flex items-center gap-1.5 px-1 py-1 text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
                             onclick={() => toggleProvider(group.id)}
                         >
                             {#if isProviderExpanded(group.id)}
@@ -415,6 +425,7 @@
         </div>
     </div>
 </div>
+</Portal>
 
 <style>
     .break-any{

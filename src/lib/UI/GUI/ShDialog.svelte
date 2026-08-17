@@ -23,7 +23,11 @@
         closable?: boolean;
         closeOnEscape?: boolean;
         closeOnOutsideClick?: boolean;
+        /** Intercepts user-initiated close actions (Escape, backdrop, close
+         * button) so callers can confirm before actually changing `open`. */
+        onRequestClose?: () => void;
         contentClass?: string;
+        bodyClass?: string;
         overlayClass?: string;
         onCloseAutoFocus?: (event: Event) => void;
         title?: Snippet;
@@ -46,7 +50,9 @@
         closable = true,
         closeOnEscape = false,
         closeOnOutsideClick = true,
+        onRequestClose,
         contentClass = '',
+        bodyClass = '',
         overlayClass = '',
         onCloseAutoFocus,
         title,
@@ -78,21 +84,43 @@
         'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95';
+
+    function handleInteractOutside(event: PointerEvent) {
+        const target = event.target
+        if (target instanceof Element && target.closest('[data-sonner-toaster]')) {
+            // Toasts live in their own portal. They are intentionally usable
+            // above dialogs and must not be treated as backdrop interaction.
+            event.preventDefault()
+            return
+        }
+        if (onRequestClose && closeOnOutsideClick) {
+            event.preventDefault()
+            onRequestClose()
+        }
+    }
+
+    function handleEscapeKeydown(event: KeyboardEvent) {
+        if (!onRequestClose || !closeOnEscape) return
+        event.preventDefault()
+        onRequestClose()
+    }
 </script>
 
 <Dialog.Root bind:open {onOpenChange}>
     <Dialog.Portal>
         <Dialog.Overlay
-            class={cn('fixed inset-0 bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0', tierClasses[tier], overlayClass)}
+            class={cn('risu-modal-backdrop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0', tierClasses[tier], overlayClass)}
         />
         <Dialog.Content
             class={cn(contentBase, tierClasses[tier], sizeClasses[size], contentClass)}
             escapeKeydownBehavior={closeOnEscape ? 'close' : 'ignore'}
             interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
+            onEscapeKeydown={handleEscapeKeydown}
+            onInteractOutside={handleInteractOutside}
             {onCloseAutoFocus}
         >
             {#if title || description || closable}
-                <div class="flex flex-col gap-1 pr-8 relative">
+                <div class={cn('flex flex-col gap-1 relative', closable && 'pr-8')}>
                     {#if title}
                         <Dialog.Title class="text-lg font-semibold text-textcolor leading-tight">
                             {@render title()}
@@ -104,12 +132,23 @@
                         </Dialog.Description>
                     {/if}
                     {#if closable}
-                        <Dialog.Close
-                            class="absolute right-0 top-0 text-textcolor2 hover:text-textcolor transition-colors rounded-sm focus-visible:ring-2 focus-visible:ring-borderc/50 outline-none cursor-pointer"
-                            aria-label="Close"
-                        >
-                            <XIcon size={18} />
-                        </Dialog.Close>
+                        {#if onRequestClose}
+                            <button
+                                type="button"
+                                class="absolute right-0 top-0 rounded-sm border border-transparent text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
+                                aria-label="Close"
+                                onclick={onRequestClose}
+                            >
+                                <XIcon size={18} />
+                            </button>
+                        {:else}
+                            <Dialog.Close
+                                class="absolute right-0 top-0 rounded-sm border border-transparent text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
+                                aria-label="Close"
+                            >
+                                <XIcon size={18} />
+                            </Dialog.Close>
+                        {/if}
                     {/if}
                 </div>
             {/if}
@@ -121,7 +160,7 @@
             {/if}
 
             {#if children}
-                <div class="text-textcolor wrap-break-word">
+                <div class={cn('text-textcolor wrap-break-word', bodyClass)}>
                     {@render children()}
                 </div>
             {/if}

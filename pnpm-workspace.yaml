@@ -11,3 +11,4 @@ allowBuilds:
   msgpackr-extract: true
   onnxruntime-node: true
   protobufjs: true
+  sharp: false

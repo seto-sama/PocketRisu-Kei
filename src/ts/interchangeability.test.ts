@@ -27,7 +27,9 @@ function makeChar() {
     c.firstMessage = 'Hello there!'
     c.alternateGreetings = ['Hi!', 'Hey!']
     c.creatorNotes = 'note text'
-    c.postHistoryInstructions = 'stay in character'
+    c.replaceGlobalNote = 'stay in character'
+    c.moduleNamespace = 'test.namespace'
+    c.hideChatIcon = true
     c.customscript = [{ comment: 'c1', in: 'a', out: 'b', type: 'editinput' }] as any
     c.globalLore = [{
         key: 'k', secondkey: '', insertorder: 1, comment: 'real lore',
@@ -46,11 +48,13 @@ describe('interchangeability: character <-> module round-trip', () => {
         expect(m.description).toBe('note text')
         expect(m.regex).toEqual(c.customscript)
         expect(m.lowLevelAccess).toBe(true)
-        // desc / first message / phi encoded as @@indicator lorebook entries
+        expect(m.namespace).toBe(c.moduleNamespace)
+        expect(m.hideIcon).toBe(true)
+        // Description, first message and global note are encoded as indicator entries.
         const contents = (m.lorebook ?? []).map((l) => l.content)
         expect(contents.some((x) => x.startsWith('@@indicator character_desc'))).toBe(true)
         expect(contents.some((x) => x.startsWith('@@indicator character_first_message'))).toBe(true)
-        expect(contents.some((x) => x.startsWith('@@indicator phi'))).toBe(true)
+        expect(contents.some((x) => x.startsWith('@@indicator replace_global_note'))).toBe(true)
         // the real (non-indicator) lore entry is preserved
         expect(contents.some((x) => x === 'lore body')).toBe(true)
     })
@@ -62,7 +66,9 @@ describe('interchangeability: character <-> module round-trip', () => {
         expect(back.desc).toBe(c.desc)
         expect(back.firstMessage).toBe(c.firstMessage)
         expect(back.alternateGreetings).toEqual(c.alternateGreetings)
-        expect(back.postHistoryInstructions).toBe(c.postHistoryInstructions)
+        expect(back.replaceGlobalNote).toBe(c.replaceGlobalNote)
+        expect(back.moduleNamespace).toBe(c.moduleNamespace)
+        expect(back.hideChatIcon).toBe(c.hideChatIcon)
         expect(back.customscript).toEqual(c.customscript)
         expect(back.lowLevelAccess).toBe(c.lowLevelAccess)
         expect(back.image).toBe(c.image) // module icon preserves character image (#21381972)
@@ -87,6 +93,17 @@ describe('interchangeability: character <-> module round-trip', () => {
         // the @@indicator consumption splices a clone, not the module's own lorebook
         expect(m.lorebook.length).toBe(loreLenBefore)
         expect(m.lorebook.filter((l) => l.content.startsWith('@@indicator')).length).toBe(indicatorsBefore)
+    })
+
+    it('reads the legacy phi marker into the live global note field', () => {
+        const m = convertCharacterToModule(makeChar())
+        const globalNote = m.lorebook.find((l) => l.content.startsWith('@@indicator replace_global_note'))
+        expect(globalNote).toBeDefined()
+        globalNote!.content = globalNote!.content.replace('replace_global_note', 'phi')
+
+        const back = convertModuleToCharacter(m)
+        expect(back.replaceGlobalNote).toBe('stay in character')
+        expect(back.postHistoryInstructions).toBe('')
     })
 })
 

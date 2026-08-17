@@ -280,8 +280,7 @@ export interface ModelPreset {
     orphanValues?: Record<string, unknown>
     customBody?: Record<string, unknown>
     customHeaders?: Record<string, string>
-    // Freeform "additional parameters" textarea. One line per entry.
-    // Same legacy syntax as customModels[].params, parsed via
+    // Freeform "additional parameters" textarea. One line per entry, parsed by
     // applyAdditionalParameters at wire time. Supports:
     //   key=value           — body[key] = value (auto type: string/num/bool/null)
     //   key=json::{...}     — body[key] = JSON.parse(...)
@@ -289,9 +288,8 @@ export interface ModelPreset {
     //   key={{none}}        — delete body[key] (or headers if header::)
     // Stored as raw text so the UI round-trips exactly what the user typed.
     additionalParamsText?: string
-    // Per-ModelPreset tokenizer override. When undefined, the tokenize call
-    // falls back to profile.recommendedTokenizer, then db.customTokenizer
-    // (legacy global), then a sane default based on the adapter kind.
+    // Per-ModelPreset tokenizer override. When undefined, tokenization falls
+    // back to profile.recommendedTokenizer, then the adapter's default.
     tokenizerOverride?: RegistryTokenizer
     // Per-ModelPreset streaming. Independent of the global db.useStreaming.
     // Default off (undefined/false). Forced off when the profile does not
@@ -389,10 +387,8 @@ export interface ModelBindingFields {
 
 /**
  * P4 dual-regime model binding (plan v6 §7, model-preset-p4-task). The full
- * per-chat model configuration as ONE bundle, mirroring the classic global
- * model config 1:1 — main↔db.aiModel, sub↔db.subModel,
- * separateAux↔db.seperateModelsForAxModels, aux↔db.seperateModels — but each
- * slot holds a ModelPreset id instead of a model-id string. Lives per-chat
+ * per-chat model configuration as one bundle. Each slot holds a ModelPreset id.
+ * It lives per-chat
  * (chat.modelBinding) with a global default (db.defaultModelBinding) copied
  * into new chats.
  *
@@ -449,10 +445,9 @@ export interface RegistryCache {
     }>
 }
 
-// v5 migration scope (plan v5): customModels-only. Everything else (provider
-// keys, reverse-proxy fields, native aiModel strings, botPreset overrides,
-// task bindings, bias, fallbacks) stays in the legacy DB untouched and is
-// surfaced via the "Legacy Info" UI. Summary/report types are sized to that.
+// Historical migration-report data is retained for imported database
+// compatibility even though current ModelPreset setup no longer runs that
+// migration flow.
 export interface ModelPresetMigrationSummary {
     version: number
     appliedAt: number

@@ -36,6 +36,10 @@ export const localModels = {
     ]
 }
 
+export function isBrowserLocalHypaModel(model: string): boolean {
+    return Object.prototype.hasOwnProperty.call(localModels.models, model)
+}
+
 // Shared embedding vector cache across all HypaProcesser instances
 export const hypaVectorCache = new Map<string, memoryVector>();
 export const hypaVectorCachePrefix = 'cache/hypa-vector/';
@@ -112,7 +116,7 @@ export class HypaProcesser{
             const results = await provider.embedDocumentGroups(groups)
             return results.map(group => group[0])
         }
-        if(Object.keys(localModels.models).includes(this.model)){
+        if(isBrowserLocalHypaModel(this.model)){
             const inputs:string[] = Array.isArray(input) ? input : [input]
             let results:Float32Array[] = await runEmbedding(inputs, localModels.models[this.model], localModels.gpuModels.includes(this.model) ? 'webgpu' : 'wasm')
             return results

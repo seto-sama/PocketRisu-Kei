@@ -6,6 +6,8 @@ import { notifyError } from "../alert";
 import { isLite } from "../lite";
 import { CustomCSSStore, SafeModeStore } from "../stores.svelte";
 import { normalizeTextTheme } from "./textTheme";
+import { localFontFamilies } from "virtual:pocketrisu-local-font-families";
+import { resolveLocalFontSelection } from "./fontSelection";
 
 export interface ColorScheme{
     bgcolor: string;
@@ -456,14 +458,22 @@ export function updateTextThemeAndCSS(){
     switch(db.font){
         case "default":{
             root.style.setProperty('--risu-font-family', 'Arial, sans-serif');
+            root.style.removeProperty('font-weight')
             break
         }
         case "timesnewroman":{
             root.style.setProperty('--risu-font-family', 'Times New Roman, serif');
+            root.style.removeProperty('font-weight')
             break
         }
         case "custom":{
-            root.style.setProperty('--risu-font-family', db.customFont);
+            const selection = resolveLocalFontSelection(db.customFont, localFontFamilies)
+            root.style.setProperty('--risu-font-family', selection.family);
+            if (selection.weight === null) {
+                root.style.removeProperty('font-weight')
+            } else {
+                root.style.setProperty('font-weight', String(selection.weight))
+            }
             break
         }
     }

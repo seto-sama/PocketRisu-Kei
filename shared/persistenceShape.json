@@ -1,0 +1,7 @@
+{
+  "runtimeOnlyCharacterFields": ["reloadKeys"],
+  "serverOwnedCharacterFields": ["lastInteraction"],
+  "serverOwnedRootFields": {
+    "statics": ["messages"]
+  }
+}

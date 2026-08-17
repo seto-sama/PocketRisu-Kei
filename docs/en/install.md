@@ -74,10 +74,11 @@ For Linux/macOS servers without a GUI, fetch and run the latest version in one c
 **Linux (x64):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
+RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+VERSION=${RELEASE_TAG#*v}
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-linux-x64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-cd PocketRisu-${VERSION}-linux-x64
+cd PocketRisu-v${VERSION}-linux-x64
 ./start.sh
 ```
 
@@ -86,11 +87,12 @@ cd PocketRisu-${VERSION}-linux-x64
 **macOS (Apple Silicon):**
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${VERSION}/PocketRisu-${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
+RELEASE_TAG=$(curl -s https://api.github.com/repos/seto-sama/PocketRisu-Kei/releases/latest | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+VERSION=${RELEASE_TAG#*v}
+curl -fsSL "https://github.com/seto-sama/PocketRisu-Kei/releases/download/${RELEASE_TAG}/PocketRisu-v${VERSION}-macos-arm64.tar.gz" -o pocketrisu.tar.gz
 tar -xzf pocketrisu.tar.gz && rm pocketrisu.tar.gz
-xattr -cr PocketRisu-${VERSION}-macos-arm64
-cd PocketRisu-${VERSION}-macos-arm64
+xattr -cr PocketRisu-v${VERSION}-macos-arm64
+cd PocketRisu-v${VERSION}-macos-arm64
 ./start.sh
 ```
 
@@ -214,6 +216,16 @@ pnpm build
 # Restart server
 pnpm runserver
 ```
+
+### Local Fonts
+
+Local font files are intentionally not included in the repository. To bundle fonts that you are licensed to use:
+
+1. Put `.woff2`, `.woff`, `.ttf`, or `.otf` files in `public/assets/fonts/`.
+2. Run `pnpm build` again.
+3. Select **Custom** in the font setting and choose a detected family from the input suggestions. For a weight-variable font, append a numeric weight such as `SUIT Variable 700`.
+
+Weight-variable fonts keep their original family name and use their embedded weight range, so intermediate values such as `SUIT Variable 475` are also supported. Static fonts also keep their original family name, including suffixes such as `Regular` or `Thin`, and do not use the numeric suffix syntax. Font files under `public/assets/fonts/` are ignored by Git and remain local to your build.
 
 
 ---

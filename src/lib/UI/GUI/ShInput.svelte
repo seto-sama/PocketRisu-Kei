@@ -28,10 +28,8 @@
     // pins the spec'd 40px. Same h-N + min-h-N pattern as the sidebar
     // buttons elsewhere in the codebase.
     const base =
-        'flex h-10 min-h-10 w-full min-w-0 rounded-md border border-darkborderc bg-transparent px-2.5 py-1 text-base ' +
-        'text-textcolor placeholder:text-textcolor2 ' +
-        'transition-colors outline-none ' +
-        'focus-visible:border-borderc ' +
+        'risu-field-border flex h-10 min-h-10 w-full min-w-0 rounded-md bg-transparent px-2.5 py-1 text-base ' +
+        'text-textcolor ' +
         'disabled:opacity-50 disabled:cursor-not-allowed ' +
         'file:inline-flex file:h-8 file:border-0 file:bg-transparent file:text-sm file:font-medium';
 </script>

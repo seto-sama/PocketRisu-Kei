@@ -179,7 +179,7 @@
                         type="button"
                         class={"w-full border-darkborderc py-2 text-sm transition-colors " +
                             (isTypeSelected(scriptType[0])
-                                ? "bg-selected hover:bg-selected"
+                                ? "bg-selected risu-interactive-surface-solid"
                                 : "bg-darkbg hover:bg-darkborderc/30")}
                         class:border-r-1={i % 2 === 0}
                         class:border-b-1={i < scriptTypes.length - 2}
@@ -219,7 +219,7 @@
                         type="button"
                         class={"w-full border-darkborderc py-2 text-sm transition-colors " +
                             (checkFlagContain(flag[1], value.flag)
-                                ? "bg-selected hover:bg-selected"
+                                ? "bg-selected risu-interactive-surface-solid"
                                 : "bg-darkbg hover:bg-darkborderc/30")}
                         class:border-r-1={i % 2 === 0}
                         class:border-b-1={i < flags.length - 2}

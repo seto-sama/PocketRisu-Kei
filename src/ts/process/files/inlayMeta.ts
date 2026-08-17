@@ -8,6 +8,10 @@ export type InlayAssetMeta = {
     updatedAt: number
     charId?: string
     chatId?: string
+    imageGeneration?: {
+        prompt: string
+        negativePrompt: string
+    }
 }
 
 class NodeInlayMetaStorage {
@@ -31,7 +35,8 @@ class NodeInlayMetaStorage {
             const updatedAt = typeof raw?.updatedAt === 'number' ? raw.updatedAt : createdAt
             const charId = typeof raw?.charId === 'string' ? raw.charId : undefined
             const chatId = typeof raw?.chatId === 'string' ? raw.chatId : undefined
-            return { createdAt, updatedAt, charId, chatId }
+            const imageGeneration = parseImageGenerationMeta(raw?.imageGeneration)
+            return { createdAt, updatedAt, charId, chatId, imageGeneration }
         } catch {
             return null
         }
@@ -50,7 +55,8 @@ class NodeInlayMetaStorage {
                     const updatedAt = typeof raw?.updatedAt === 'number' ? raw.updatedAt : createdAt
                     const charId = typeof raw?.charId === 'string' ? raw.charId : undefined
                     const chatId = typeof raw?.chatId === 'string' ? raw.chatId : undefined
-                    result[id] = { createdAt, updatedAt, charId, chatId }
+                    const imageGeneration = parseImageGenerationMeta(raw?.imageGeneration)
+                    result[id] = { createdAt, updatedAt, charId, chatId, imageGeneration }
                 } catch {
                     // skip corrupt meta entries
                 }
@@ -75,6 +81,13 @@ class NodeInlayMetaStorage {
         const metas = await this.getItems(ids)
         return Object.entries(metas)
     }
+}
+
+function parseImageGenerationMeta(value: unknown): InlayAssetMeta['imageGeneration'] {
+    if(!value || typeof value !== 'object') return undefined
+    const data = value as Record<string, unknown>
+    if(typeof data.prompt !== 'string' || typeof data.negativePrompt !== 'string') return undefined
+    return { prompt: data.prompt, negativePrompt: data.negativePrompt }
 }
 
 let _storage: NodeInlayMetaStorage | null = null
@@ -115,5 +128,6 @@ export function buildInlayMeta(existingMeta?: InlayAssetMeta | null): InlayAsset
         updatedAt: now,
         charId: (existingMeta?.charId && existingMeta.charId.length > 0) ? existingMeta.charId : currentCharId,
         chatId: (existingMeta?.chatId && existingMeta.chatId.length > 0) ? existingMeta.chatId : currentChatId,
+        imageGeneration: existingMeta?.imageGeneration,
     }
 }

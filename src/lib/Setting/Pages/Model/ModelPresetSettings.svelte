@@ -16,7 +16,7 @@
     import ApiKeyPoolManager from "./ApiKeyPoolManager.svelte";
     import ModelPresetOptions from "./ModelPresetOptions.svelte";
     import { language } from "src/lang";
-    import { DBState, openModelProfileBrowser, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
+    import { DBState, ModelPresetListTabIndex, openModelProfileBrowser, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
     import { alertConfirm, notifySuccess, notifyWarning } from "src/ts/alert";
     import { testModelPreset, type ModelPresetTestResult } from "src/ts/process/request/request";
     import {
@@ -46,8 +46,7 @@
     let testMessage = $state(language.modelPresetTestDefault);
     let testing = $state(false);
     let testResult = $state<ModelPresetTestResult | null>(null);
-    // Top-level page tabs (hidden while editing a preset): 0=presets, 1=keys, 2=settings.
-    let page = $state(0);
+    // Top-level page tabs are shared so settings search can open Options.
     let suppressPresetClick = $state(false);
     let refreshingAllPresets = $state(false);
 
@@ -587,12 +586,12 @@
                 { label: language.apiKeyManagerMenu, value: 1 },
                 { label: language.modelPresetTabOptions, value: 2 },
             ]}
-            bind:selected={page}
+            bind:selected={$ModelPresetListTabIndex}
         />
 
-        {#if page === 1}
+        {#if $ModelPresetListTabIndex === 1}
             <ApiKeyPoolManager />
-        {:else if page === 2}
+        {:else if $ModelPresetListTabIndex === 2}
             <ModelPresetOptions />
         {:else}
             <div class="flex gap-2 mb-4">
@@ -632,7 +631,7 @@
                     {#each DBState.db.modelPresets as preset, i (preset.id)}
                         <button
                             data-sortable-key={preset.id}
-                            class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors text-left"
+                            class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left"
                             onclick={() => {
                                 if (suppressPresetClick) return;
                                 editingId = preset.id;
@@ -642,7 +641,7 @@
                             <div class="flex flex-col min-w-0 grow">
                                 <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
                                     {#if getPresetUpdateStatus(preset) === 'updatable'}
-                                        <span class="w-2 h-2 rounded-full bg-amber-500 shrink-0" title={language.profileUpdateAvailable}></span>
+                                        <span class="w-2 h-2 rounded-full bg-highlight shrink-0" title={language.profileUpdateAvailable}></span>
                                     {/if}
                                     <span class="truncate">{preset.name}</span>
                                 </span>
@@ -651,7 +650,7 @@
                                 {/if}
                             </div>
                             <div class="no-sort flex gap-2 shrink-0 ml-2">
-                                <div class="text-textcolor2 hover:text-primary cursor-pointer" role="button" tabindex="0" onclick={(e) => {
+                                <div class="text-textcolor2 risu-interactive-accent cursor-pointer" role="button" tabindex="0" onclick={(e) => {
                                     e.stopPropagation()
                                     duplicate(i)
                                 }} onkeydown={(e) => {
@@ -661,7 +660,7 @@
                                 }} aria-label="duplicate">
                                     <CopyIcon size={18}/>
                                 </div>
-                                <div class="text-textcolor2 hover:text-draculared cursor-pointer" role="button" tabindex="0" onclick={(e) => {
+                                <div class="text-textcolor2 risu-interactive-danger cursor-pointer" role="button" tabindex="0" onclick={(e) => {
                                     e.stopPropagation()
                                     remove(i)
                                 }} onkeydown={(e) => {

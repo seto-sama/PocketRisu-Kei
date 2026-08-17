@@ -16,6 +16,12 @@ import {
 export const MODELS_DEV_REGISTRY_ID = 'models-dev'
 export const MODELS_DEV_API_URL = 'https://models.dev/api.json'
 
+interface WireRouteRecipe {
+    protocol: ProfileProtocol
+    path?: string
+    baseProviderId?: string
+}
+
 interface WireRecipe {
     protocol?: ProfileProtocol
     auth?: AuthKind
@@ -31,6 +37,7 @@ interface WireRecipe {
     modelProviderPackages?: string[]
     headers?: Record<string, string>
     sourceUrls?: string[]
+    authorRoutes?: Record<string, WireRouteRecipe>
 }
 
 interface RecipeFile {
@@ -308,7 +315,11 @@ function resolveRecipe(provider: ModelsDevProvider, model: ModelsDevModel): Effe
     ) {
         return undefined
     }
-    const fromProvider = providerRecipe ?? {}
+    const author = model.id.split('/', 1)[0]?.toLowerCase()
+    const authorRoute = author ? providerRecipe?.authorRoutes?.[author] : undefined
+    const fromProvider = providerRecipe
+        ? { ...providerRecipe, ...authorRoute }
+        : {}
     const merged: WireRecipe = allowedModelPackage
         ? { ...fromProvider, ...fromPackage }
         : { ...fromPackage, ...fromProvider }
@@ -335,7 +346,9 @@ function buildEndpoint(
     model: ModelsDevModel,
 ): ModelProfile['endpoint'] | undefined {
     if (recipe.protocol === 'vertex-gemini') return { kind: 'vertex-gemini' }
-    if (recipe.endpointKind === 'cloudflare-ai') return { kind: 'cloudflare-ai' }
+    if (recipe.endpointKind === 'cloudflare-ai') {
+        return { kind: 'cloudflare-ai', path: recipe.path }
+    }
     if (recipe.endpointKind === 'amazon-bedrock') return { kind: 'amazon-bedrock' }
     if (recipe.endpointKind === 'amazon-bedrock-mantle') {
         return {

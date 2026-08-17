@@ -63,6 +63,20 @@ describe('plugin model presets', () => {
             .toMatchObject({ widget: 'slider', visibility: 'basic', order: 1 })
     })
 
+    test('stores raw profile IDs and only escapes the plugin URI', () => {
+        const providerName = '[PM] gemini model'
+        const registry = buildPluginRegistry(listPluginModels([metadata(providerName)]), 'Plugin model')
+        const profiles = registry.registries[PLUGIN_REGISTRY_ID].profiles ?? {}
+        const profile = profiles[`plugin:${providerName}`]
+
+        expect(profile?.id).toBe(`plugin:${providerName}`)
+        expect(profile?.modelId).toBe(`pluginmodel:::${providerName}`)
+        expect(profile?.endpoint).toEqual({
+            kind: 'static',
+            url: 'plugin://%5BPM%5D%20gemini%20model',
+        })
+    })
+
     test('resolves saved values over profile defaults and derives model abilities', () => {
         const registry = buildPluginRegistry(listPluginModels([metadata('managed')]), 'Plugin model')
         const profile = Object.values(registry.registries[PLUGIN_REGISTRY_ID].profiles ?? {})[0]
@@ -80,7 +94,7 @@ describe('plugin model presets', () => {
         })
     })
 
-    test('shows a readable provider name instead of the encoded storage id', () => {
+    test('shows the original provider name instead of the profile ID', () => {
         const modelId = 'pluginmodel:::[PM] gemini-3.5-flash-lite (Vertex AI)'
         expect(pluginProfileDisplayId(modelId)).toBe(
             'Plugin / [PM] gemini-3.5-flash-lite (Vertex AI)',

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { DBState, modelProfileReplaceTarget, openModelProfileBrowser, settingsOpen, SettingsMenuIndex } from 'src/ts/stores.svelte';
+    import { DBState, modelProfileReplaceTarget, openModelProfileBrowser } from 'src/ts/stores.svelte';
     import { language } from "src/lang";
     import { alertConfirm, notifySuccess } from "src/ts/alert";
     import { PinIcon, PinOffIcon, TriangleAlert } from "@lucide/svelte";
@@ -9,6 +9,7 @@
     import PresetPickerActions from "./PresetPickerActions.svelte";
     import TextInput from "./GUI/TextInput.svelte";
     import { v4 as uuidv4 } from "uuid";
+    import { openSettings, SettingsRoute } from "src/ts/routing";
 
     interface Props {
         value?: string;
@@ -64,8 +65,7 @@
 
     function goToPresetSettings() {
         openOptions = false;
-        settingsOpen.set(true);
-        SettingsMenuIndex.set(16);
+        openSettings(SettingsRoute.ModelPreset);
     }
 
     function movePreset(sourceIndex: number, targetIndex: number) {
@@ -119,9 +119,9 @@
         bind:visibleItemIndexes
         bind:selectedFolder
         itemDragDataKey="presetIndex"
+        readOnly={showConfigure}
         close={() => { openOptions = false }}
         configure={showConfigure ? goToPresetSettings : undefined}
-        configureLabel={language.modelPresetConfigure}
         onFoldersChange={(next) => { DBState.db.modelPresetFolders = next }}
         onAssignItem={assignPresetToFolder}
         onDeleteFolder={(folderId) => {
@@ -148,7 +148,7 @@
         {#snippet listFooter()}
             {#if blankable}
                 <button
-                    class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-textcolor2 {!value ? '' : 'hover:bg-selected/30'}"
+                    class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-textcolor2 {!value ? '' : 'risu-interactive-surface'}"
                     class:bg-selected={!value}
                     onclick={() => pick('')}
                 >
@@ -156,10 +156,12 @@
                 </button>
             {/if}
         {/snippet}
-        <PresetPickerActions
-            onCreate={createPreset}
-            onRename={() => { editMode = !editMode }}
-        />
+        {#if !showConfigure}
+            <PresetPickerActions
+                onCreate={createPreset}
+                onRename={() => { editMode = !editMode }}
+            />
+        {/if}
     </PresetPickerLayout>
 {/if}
 
@@ -170,18 +172,19 @@
         activeName={label}
         onManage={() => { openOptions = true }}
         {disabled}
+        variant={(dangling || (warnIfEmpty && !value)) ? 'warning' : 'secondary'}
         className={bound ? 'border-selected text-textcolor'
-            : (dangling || (warnIfEmpty && !value)) ? 'border-amber-500 text-amber-500'
-            : 'text-textcolor2 opacity-75 hover:opacity-100'}
+            : (dangling || (warnIfEmpty && !value)) ? ''
+            : 'text-textcolor2 opacity-75 risu-interactive-reveal'}
     />
 {:else}
     <ShButton
-        variant="default"
+        variant={(dangling || (warnIfEmpty && !value)) ? 'warning' : 'default'}
         size="default"
         className={`w-full min-w-0 justify-start${disabled ? ' opacity-50 pointer-events-none' : ''} ${
             bound ? 'border-selected text-textcolor'
-            : (dangling || (warnIfEmpty && !value)) ? 'border-amber-500 text-amber-500'
-            : 'text-textcolor2 opacity-75 hover:opacity-100'
+            : (dangling || (warnIfEmpty && !value)) ? ''
+            : 'text-textcolor2 opacity-75 risu-interactive-reveal'
         }`}
         onclick={() => { if (!disabled) { openOptions = true } }}
     >

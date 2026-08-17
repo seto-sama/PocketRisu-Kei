@@ -106,6 +106,15 @@ const stmtKvSet    = db.prepare(`INSERT OR REPLACE INTO kv (key, value, updated_
 const stmtKvDel    = db.prepare(`DELETE FROM kv WHERE key = ?`);
 const stmtKvList   = db.prepare(`SELECT key FROM kv`);
 const stmtKvPrefix = db.prepare(`SELECT key FROM kv WHERE key LIKE ? ESCAPE '\\'`);
+const stmtKvCount = db.prepare(`SELECT COUNT(*) AS total FROM kv`);
+const stmtKvPrefixCount = db.prepare(`SELECT COUNT(*) AS total FROM kv WHERE key LIKE ? ESCAPE '\\'`);
+const stmtKvRecent = db.prepare(`SELECT key FROM kv ORDER BY updated_at DESC, rowid DESC LIMIT ? OFFSET ?`);
+const stmtKvPrefixRecent = db.prepare(`
+  SELECT key FROM kv
+  WHERE key LIKE ? ESCAPE '\\'
+  ORDER BY updated_at DESC, rowid DESC
+  LIMIT ? OFFSET ?
+`);
 const stmtKvPrefixSizes = db.prepare(`SELECT key, LENGTH(value) as size FROM kv WHERE key LIKE ? ESCAPE '\\'`);
 const stmtKvDelPrefix = db.prepare(`DELETE FROM kv WHERE key LIKE ? ESCAPE '\\'`);
 const stmtKvUpdatedAt = db.prepare(`SELECT updated_at FROM kv WHERE key = ?`);
@@ -153,12 +162,33 @@ function kvDelPrefix(prefix) {
     stmtKvDelPrefix.run(`${escaped}%`);
 }
 
-function kvList(prefix) {
+function kvList(prefix, options = {}) {
+    const limit = Number.isSafeInteger(options.limit) && options.limit > 0
+        ? Math.min(options.limit, 5000)
+        : null;
+    const offset = Number.isSafeInteger(options.offset) && options.offset > 0
+        ? options.offset
+        : 0;
+    if (options.order === 'updated-desc' && limit !== null) {
+        if (prefix) {
+            const escaped = prefix.replace(/[\\%_]/g, '\\$&');
+            return stmtKvPrefixRecent.all(`${escaped}%`, limit, offset).map(r => r.key);
+        }
+        return stmtKvRecent.all(limit, offset).map(r => r.key);
+    }
     if (prefix) {
         const escaped = prefix.replace(/[\\%_]/g, '\\$&');
         return stmtKvPrefix.all(`${escaped}%`).map(r => r.key);
     }
     return stmtKvList.all().map(r => r.key);
+}
+
+function kvCount(prefix) {
+    if (prefix) {
+        const escaped = prefix.replace(/[\\%_]/g, '\\$&');
+        return stmtKvPrefixCount.get(`${escaped}%`).total;
+    }
+    return stmtKvCount.get().total;
 }
 
 function kvListWithSizes(prefix) {
@@ -208,7 +238,7 @@ function clearEntities() {
 module.exports = {
     db,
     // KV
-    kvGet, kvSet, kvDel, kvList, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue,
+    kvGet, kvSet, kvDel, kvList, kvCount, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue,
     clearEntities,
     checkpointWal,
     gcChunks,

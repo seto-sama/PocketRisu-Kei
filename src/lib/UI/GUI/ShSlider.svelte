@@ -180,8 +180,7 @@
                     index={thumb.index}
                     class={
                         'block size-4 shrink-0 rounded-full border-2 border-primary bg-white shadow-sm ' +
-                        'transition-[box-shadow,transform] cursor-grab active:cursor-grabbing ' +
-                        'focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-borderc/50 ' +
+                        'transition-[box-shadow,transform] cursor-grab active:cursor-grabbing hover:scale-110 ' +
                         'disabled:pointer-events-none disabled:opacity-50'
                     }
                 />
@@ -204,11 +203,10 @@
             {disabled}
             placeholder={inputPlaceholder}
             class={cn(
-                'shrink-0 numinput rounded-md border border-darkborderc bg-transparent ' +
+                'risu-field-border shrink-0 numinput rounded-md bg-transparent ' +
                 'h-8 px-2 py-1 text-sm text-textcolor text-right ' +
-                'placeholder:text-textcolor2 placeholder:text-xs ' +
-                'focus:border-borderc focus:ring-2 focus:ring-borderc/50 focus:outline-hidden ' +
-                'disabled:opacity-50 disabled:cursor-not-allowed transition-colors',
+                'placeholder:text-xs ' +
+                'disabled:opacity-50 disabled:cursor-not-allowed',
                 inputWidth
             )}
         />

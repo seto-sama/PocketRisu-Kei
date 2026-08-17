@@ -5,7 +5,7 @@
     import { alertConfirm, alertMd, alertSelect, notifySuccess } from "src/ts/alert";
     import { TriangleAlert } from '@lucide/svelte';
 
-    import { DBState, hotReloading, popUpEditorStore } from "src/ts/stores.svelte";
+    import { DBState, hotReloading, showPopupEditor } from "src/ts/stores.svelte";
     import { checkPluginUpdate, importPlugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { resetPluginPermission } from "src/ts/plugins/apiV3/v3.svelte";
@@ -19,13 +19,10 @@
     import { hotReloadPluginFiles } from "src/ts/plugins/apiV3/developMode";
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
 
     let showParams = $state<string[]>([])
     let pluginSearch = $state('')
-    let isDraggingPlugin = $state(false)
-    let draggedPluginIndex = $state(-1)
-    let dragOverPluginIndex = $state(-1)
-    let suppressPluginClick = $state(false)
     let {
         embedded = false,
     }: {
@@ -59,85 +56,46 @@
 
     const visiblePlugins = $derived(filteredPlugins(DBState.db.plugins, pluginSearch))
 
-    function movePlugin(fromIndex: number, toIndex: number) {
+    function reorderPlugins(orderedKeys: string[]) {
         const plugins = DBState.db.plugins ?? []
-        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= plugins.length || toIndex > plugins.length) return
+        const visibleByKey = new Map(visiblePlugins.map(({ plugin, index }) => [pluginKey(plugin, index), plugin]))
+        const reorderedVisible = orderedKeys
+            .map((key) => visibleByKey.get(key))
+            .filter((plugin): plugin is RisuPlugin => !!plugin)
+        if (reorderedVisible.length !== orderedKeys.length) return
 
-        const next = [...plugins]
-        const [moved] = next.splice(fromIndex, 1)
-        if (!moved) return
-        const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
-        next.splice(adjustedToIndex, 0, moved)
-        DBState.db.plugins = next
-        loadPlugins()
+        const visibleKeys = new Set(orderedKeys)
+        let visibleIndex = 0
+        DBState.db.plugins = plugins.map((plugin, index) =>
+            visibleKeys.has(pluginKey(plugin, index))
+                ? reorderedVisible[visibleIndex++] ?? plugin
+                : plugin
+        )
+        void loadPlugins()
         void requestImmediateSave()
-    }
-
-    function startPluginDrag(index: number, e: DragEvent) {
-        e.stopPropagation()
-        const target = e.target as HTMLElement | null
-        if (target?.closest('[data-no-row-drag="true"]')) {
-            e.preventDefault()
-            return
-        }
-        isDraggingPlugin = true
-        draggedPluginIndex = index
-        dragOverPluginIndex = index
-        suppressPluginClick = true
-        e.dataTransfer?.setData('text/plain', 'plugin')
-        e.dataTransfer?.setData('pluginIndex', String(index))
-        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
-    }
-
-    function updatePluginDragTarget(index: number, e: DragEvent) {
-        e.preventDefault()
-        e.stopPropagation()
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-        dragOverPluginIndex = e.clientY < rect.top + rect.height / 2 ? index : index + 1
-    }
-
-    function dropPlugin(e: DragEvent) {
-        e.preventDefault()
-        e.stopPropagation()
-        const kind = e.dataTransfer?.getData('text/plain')
-        if (kind !== 'plugin') return
-        const sourceIndex = Number(e.dataTransfer?.getData('pluginIndex') || draggedPluginIndex)
-        movePlugin(sourceIndex, dragOverPluginIndex)
-        endPluginDrag()
-    }
-
-    function endPluginDrag() {
-        isDraggingPlugin = false
-        draggedPluginIndex = -1
-        dragOverPluginIndex = -1
-        setTimeout(() => {
-            suppressPluginClick = false
-        }, 0)
     }
 
     function openPluginScriptEditor(index: number, plugin: RisuPlugin) {
         const originalScript = plugin.script ?? ''
-        popUpEditorStore.value = originalScript
-        popUpEditorStore.mode = 'default'
-        popUpEditorStore.language = 'javascript'
-        popUpEditorStore.onSave = () => {
-            const nextScript = popUpEditorStore.value
-            if (nextScript === originalScript) return true
+        showPopupEditor({
+            value: originalScript,
+            title: pluginTitle(plugin),
+            onSave: (nextScript) => {
+                if (nextScript === originalScript) return true
 
-            const foundIndex = DBState.db.plugins?.findIndex((p) => p.name === plugin.name) ?? -1
-            const currentIndex = foundIndex >= 0 ? foundIndex : index
-            const currentPlugin = DBState.db.plugins?.[currentIndex]
-            if (!currentPlugin) return true
+                const foundIndex = DBState.db.plugins?.findIndex((p) => p.name === plugin.name) ?? -1
+                const currentIndex = foundIndex >= 0 ? foundIndex : index
+                const currentPlugin = DBState.db.plugins?.[currentIndex]
+                if (!currentPlugin) return true
 
-            currentPlugin.script = nextScript
-            DBState.db.plugins[currentIndex] = currentPlugin
-            loadPlugins()
-            void requestImmediateSave()
-            notifySuccess('Plugin updated.')
-            return true
-        }
-        popUpEditorStore.open = true
+                currentPlugin.script = nextScript
+                DBState.db.plugins[currentIndex] = currentPlugin
+                loadPlugins()
+                void requestImmediateSave()
+                notifySuccess('Plugin updated.')
+                return true
+            },
+        })
     }
 </script>
 
@@ -180,7 +138,10 @@
     {/snippet}
 </SettingLayout>
 
-<div class="w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto">
+<ShSortableList
+    className="w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto"
+    onReorder={reorderPlugins}
+>
     {#if !DBState.db.plugins || DBState.db.plugins?.length === 0}
         <div class="text-textcolor2 text-sm text-center py-8">{language.noPlugins}</div>
     {/if}
@@ -188,32 +149,13 @@
         <div class="text-textcolor2 text-sm text-center py-8">{language.noData}</div>
     {/if}
     {#each visiblePlugins as { plugin, index } (plugin.name)}
-        <div
-            class="h-1 rounded-full transition-colors"
-            class:bg-primary={isDraggingPlugin && dragOverPluginIndex === index}
-            class:bg-transparent={!isDraggingPlugin || dragOverPluginIndex !== index}
-            role="presentation"
-            ondragover={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-                dragOverPluginIndex = index
-            }}
-            ondrop={dropPlugin}
-        ></div>
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
-            class="flex items-center text-textcolor border border-darkborderc rounded-md p-3 hover:bg-selected/30 transition-colors text-left cursor-grab active:cursor-grabbing"
-            class:opacity-50={isDraggingPlugin && draggedPluginIndex === index}
+            data-sortable-key={pluginKey(plugin, index)}
+            class="mt-2 flex items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
             role="button"
             tabindex="0"
-            draggable="true"
-            ondragstart={(e) => startPluginDrag(index, e)}
-            ondragend={endPluginDrag}
-            ondragover={(e) => updatePluginDragTarget(index, e)}
-            ondrop={dropPlugin}
             onclick={() => {
-            if(suppressPluginClick) return
             const key = pluginKey(plugin, index)
             if(showParams.includes(key)){
                 showParams.splice(showParams.indexOf(key),1)
@@ -233,7 +175,7 @@
                     </span>
                 {/if}
             </div>
-            <IconButtonGroup size="default" className="shrink-0 ml-2" data-no-row-drag="true">
+            <IconButtonGroup size="default" className="no-sort shrink-0 ml-2">
             {#if plugin.version === 2 || plugin.version === "2.1"}
                 <IconButton className="text-yellow-400" onclick={(e) => {
                     e.stopPropagation()
@@ -250,7 +192,7 @@
                             href={link.link}
                             target="_blank"
                             rel="nofollow noopener noreferrer"
-                            class="inline-flex size-6 shrink-0 items-center justify-center text-textcolor2 hover:text-primary"
+                            class="inline-flex size-6 shrink-0 items-center justify-center text-textcolor2 risu-interactive-accent"
                             title={link.hoverText}
                             onclick={(e) => { e.stopPropagation() }}
                         >
@@ -461,22 +403,7 @@
             </div>
         {/if}
     {/each}
-    {#if DBState.db.plugins && DBState.db.plugins.length > 0}
-        <div
-            class="h-1 rounded-full transition-colors"
-            class:bg-primary={isDraggingPlugin && dragOverPluginIndex === DBState.db.plugins.length}
-            class:bg-transparent={!isDraggingPlugin || dragOverPluginIndex !== DBState.db.plugins.length}
-            role="presentation"
-            ondragover={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-                dragOverPluginIndex = DBState.db.plugins.length
-            }}
-            ondrop={dropPlugin}
-        ></div>
-    {/if}
-</div>
+</ShSortableList>
 
 <span class="block text-draculared text-xs mt-4">{language.pluginWarn}</span>
 {/snippet}

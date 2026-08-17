@@ -6,6 +6,7 @@ const fs = require('fs');
 const { maskSensitive } = require('./logs.cjs');
 
 const MAX_FIELD_BYTES = 4 * 1024 * 1024;
+const REQUEST_LOG_LIST_LIMIT = 100;
 
 const saveDir = path.join(process.cwd(), 'save');
 if (!fs.existsSync(saveDir)) {
@@ -66,6 +67,42 @@ const stmtQuery = db.prepare(`
         timestamp,
         date,
         url,
+        success,
+        response_type AS responseType,
+        chat_id AS chatId,
+        status,
+        client_id AS clientId,
+        platform
+    FROM request_logs
+    ORDER BY timestamp DESC, rowid DESC
+    LIMIT ?
+`);
+const stmtQueryBefore = db.prepare(`
+    SELECT
+        current.id,
+        current.timestamp,
+        current.date,
+        current.url,
+        current.success,
+        current.response_type AS responseType,
+        current.chat_id AS chatId,
+        current.status,
+        current.client_id AS clientId,
+        current.platform
+    FROM request_logs AS current
+    JOIN request_logs AS boundary ON boundary.id = ?
+    WHERE current.timestamp < boundary.timestamp
+        OR (current.timestamp = boundary.timestamp AND current.rowid < boundary.rowid)
+    ORDER BY current.timestamp DESC, current.rowid DESC
+    LIMIT ?
+`);
+const stmtCount = db.prepare(`SELECT COUNT(*) AS total FROM request_logs`);
+const stmtQueryById = db.prepare(`
+    SELECT
+        id,
+        timestamp,
+        date,
+        url,
         body,
         header,
         response,
@@ -76,7 +113,7 @@ const stmtQuery = db.prepare(`
         client_id AS clientId,
         platform
     FROM request_logs
-    ORDER BY timestamp DESC, rowid DESC
+    WHERE id = ?
 `);
 const stmtQueryByChatId = db.prepare(`
     SELECT
@@ -162,8 +199,25 @@ function mapRequestLog(row) {
     };
 }
 
-function queryRequestLogs() {
-    return stmtQuery.all().map(mapRequestLog);
+function queryRequestLogs(options = {}) {
+    if (typeof options === 'number') options = { limit: options };
+    const safeLimit = Math.min(
+        Math.max(Number(options.limit) || REQUEST_LOG_LIST_LIMIT, 1),
+        REQUEST_LOG_LIST_LIMIT,
+    );
+    const rows = options.beforeId
+        ? stmtQueryBefore.all(String(options.beforeId).slice(0, 128), safeLimit)
+        : stmtQuery.all(safeLimit);
+    return rows.map(mapRequestLog);
+}
+
+function countRequestLogs() {
+    return stmtCount.get().total;
+}
+
+function queryRequestLogById(id) {
+    if (!id) return null;
+    return mapRequestLog(stmtQueryById.get(String(id).slice(0, 128)));
 }
 
 function queryRequestLogByChatId(chatId) {
@@ -175,7 +229,14 @@ function installRequestLogRoutes(app, { checkAuth, requireSyncClientId }) {
     app.get('/api/request-logs', async (req, res, next) => {
         if (!await checkAuth(req, res)) return;
         try {
-            res.send({ success: true, content: queryRequestLogs() });
+            res.send({
+                success: true,
+                content: queryRequestLogs({
+                    limit: req.query.limit,
+                    beforeId: req.query.before_id,
+                }),
+                total: countRequestLogs(),
+            });
         } catch (error) {
             next(error);
         }
@@ -188,6 +249,17 @@ function installRequestLogRoutes(app, { checkAuth, requireSyncClientId }) {
                 success: true,
                 content: queryRequestLogByChatId(req.params.chatId),
             });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    app.get('/api/request-logs/:id', async (req, res, next) => {
+        if (!await checkAuth(req, res)) return;
+        try {
+            const log = queryRequestLogById(req.params.id);
+            if (!log) return res.status(404).send({ error: 'request log not found' });
+            res.send({ success: true, content: log });
         } catch (error) {
             next(error);
         }
@@ -218,7 +290,9 @@ function installRequestLogRoutes(app, { checkAuth, requireSyncClientId }) {
 module.exports = {
     addRequestLog,
     queryRequestLogs,
+    queryRequestLogById,
     queryRequestLogByChatId,
+    countRequestLogs,
     clearRequestLogs,
     deleteRequestLog,
     updateRequestLogResponseById,

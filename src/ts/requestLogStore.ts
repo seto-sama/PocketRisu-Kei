@@ -1,10 +1,7 @@
 import { getSyncClientId } from './storage/nodeStorage'
 
-export interface FetchLog {
+export interface FetchLogSummary {
     id: string
-    body: string
-    header: string
-    response: string
     success: boolean,
     date: string
     timestamp: number
@@ -14,6 +11,17 @@ export interface FetchLog {
     status?: number
     clientId?: string
     platform?: string
+}
+
+export interface FetchLog extends FetchLogSummary {
+    body: string
+    header: string
+    response: string
+}
+
+export interface FetchLogPage {
+    content: FetchLogSummary[]
+    total: number
 }
 
 const CLIENT_ID_KEY = 'risu-client-id'
@@ -68,15 +76,38 @@ export function formatFetchLogValue(value: any): string {
 
 type CreateAuth = () => Promise<string | undefined>
 
-export async function getServerFetchLogs(createAuth: CreateAuth): Promise<FetchLog[]> {
+export async function getServerFetchLogs(
+    createAuth: CreateAuth,
+    options: { limit?: number; beforeId?: string } = {},
+): Promise<FetchLogPage> {
     const auth = await createAuth()
-    if (!auth) return []
-    const res = await fetch('/api/request-logs', {
+    if (!auth) return { content: [], total: 0 }
+    const params = new URLSearchParams()
+    if (options.limit) params.set('limit', String(options.limit))
+    if (options.beforeId) params.set('before_id', options.beforeId)
+    const res = await fetch(`/api/request-logs?${params.toString()}`, {
         headers: { 'risu-auth': auth },
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const json = await res.json()
-    return (json.content ?? []) as FetchLog[]
+    return {
+        content: (json.content ?? []) as FetchLogSummary[],
+        total: Number(json.total) || 0,
+    }
+}
+
+export async function getServerFetchLogById(
+    id: string,
+    createAuth: CreateAuth,
+): Promise<FetchLog> {
+    const auth = await createAuth()
+    if (!auth) throw new Error('Node auth unavailable')
+    const res = await fetch(`/api/request-logs/${encodeURIComponent(id)}`, {
+        headers: { 'risu-auth': auth },
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const json = await res.json()
+    return json.content as FetchLog
 }
 
 export async function getServerFetchLogByChatId(

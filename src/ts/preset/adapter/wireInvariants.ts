@@ -1,6 +1,7 @@
 import type { ModelPreset } from '../types'
 import { getPresetModelIdValue } from '../runtime/effectiveConfig'
 import { ModelPresetAdapterError } from './error'
+import { normalizeCloudflareAiModelId } from './cloudflareEndpoint'
 
 /**
  * Resolves the wire model id for an adapter directly from the preset's user
@@ -17,7 +18,11 @@ export function resolveWireModelId(
 ): string {
     const vendorName = options.vendorName ?? 'Adapter'
     const modelId = getPresetModelIdValue(preset)
-    if (typeof modelId === 'string' && modelId.length > 0) return modelId
+    if (typeof modelId === 'string' && modelId.length > 0) {
+        return preset.profileSnapshot.endpoint.kind === 'cloudflare-ai'
+            ? normalizeCloudflareAiModelId(modelId)
+            : modelId
+    }
     throw new ModelPresetAdapterError(
         'invalid-request',
         preset.profileSnapshot.schema.some(

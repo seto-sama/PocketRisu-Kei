@@ -1,0 +1,485 @@
+'use strict';
+
+const path = require('path');
+const crypto = require('crypto');
+const { executeRevenantLua } = require('./luaExecutor.cjs');
+const { resolveReplayAction } = require('./replayAction.cjs');
+
+require('sucrase/register/ts');
+const { renderRevenantTemplate } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'postprocess', 'headlessParser.ts',
+));
+const { createTriggerV2Core } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerV2Core.ts',
+));
+const { evaluateTriggerConditions } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerConditionCore.ts',
+));
+const {
+    buildTriggerAction,
+    canExecuteTriggerAction,
+    normalizeTriggerActionResult,
+} = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerActionCore.ts',
+));
+
+function triggerVar(chat, recipe, key) {
+    const current = chat.scriptstate?.[`$${key}`];
+    if (current !== undefined && current !== null) return String(current);
+    const defaults = `${recipe.character.defaultVariables || ''}\n${recipe.database.templateDefaultVariables || ''}`;
+    for (const line of defaults.split('\n')) {
+        const separator = line.indexOf('=');
+        if (separator >= 0 && line.slice(0, separator).trim() === key) {
+            return line.slice(separator + 1).trim();
+        }
+    }
+    return 'null';
+}
+
+function setTriggerVar(chat, key, value) {
+    chat.scriptstate ||= {};
+    chat.scriptstate[`$${key}`] = String(value);
+}
+
+function passesConditions(trigger, recipe, chat) {
+    return evaluateTriggerConditions({
+        conditions: trigger.conditions || [],
+        getVar: key => triggerVar(chat, recipe, key),
+        render: value => renderRevenantTemplate(String(value ?? ''), recipe, chat).text,
+        messages: chat.message,
+    });
+}
+
+function deterministicInteger(seed, min, max) {
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return 0;
+    const low = Math.min(Math.trunc(min), Math.trunc(max));
+    const high = Math.max(Math.trunc(min), Math.trunc(max));
+    const value = crypto.createHash('sha256').update(seed).digest().readUInt32BE(0);
+    return low + (value % (high - low + 1));
+}
+
+async function executeRevenantOutputTriggers(options) {
+    const { recipe, responses = {} } = options;
+    const actionPrefix = options.actionPrefix || 'trigger';
+    const recursionDepth = Number(options.recursionDepth) || 0;
+    let chat = structuredClone(options.chat || recipe.chat);
+    const character = structuredClone(recipe.character || {});
+    const database = structuredClone(recipe.database || {});
+    const foregroundEffects = [];
+    const errors = [];
+    const mutations = {};
+    let resend = false;
+    const triggers = [
+        ...(recipe.character.triggerscript || []).map(trigger => ({
+            ...trigger,
+            lowLevelAccess: recipe.character.lowLevelAccess === true,
+        })),
+        ...(recipe.moduleTriggers || []),
+    ];
+
+    const waitFor = (actionId, kind, payload) => {
+        return resolveReplayAction(responses, actionId, kind, payload);
+    };
+    const outcome = (status, action) => ({
+        status,
+        ...(action ? { action } : {}),
+        chat,
+        resend,
+        foregroundEffects,
+        errors,
+        ...(Object.keys(mutations).length > 0 ? { mutations } : {}),
+    });
+    const providerFor = mode => recipe.auxProviders?.[mode] || {
+        backend: recipe.providerBackend,
+        modelPreset: recipe.modelPreset,
+    };
+
+    for (const [triggerIndex, trigger] of triggers.entries()) {
+        const lua = trigger.effect?.[0]?.type === 'triggerlua';
+        if (!lua && options.manualName) {
+            if (trigger.type !== 'manual' || trigger.comment !== options.manualName) continue;
+        }
+        else if (!lua && trigger.type !== 'output') continue;
+        if (!passesConditions(trigger, { ...recipe, character, database }, chat)) continue;
+        const effects = trigger.effect || [];
+        const localScopes = {};
+        const effectVisits = {};
+        let currentIndent = 0;
+        const getLocalVar = key => {
+            for (let indent = currentIndent; indent >= 0; indent--) {
+                if (localScopes[indent]?.[key] !== undefined) return localScopes[indent][key];
+            }
+            return undefined;
+        };
+        const getVar = key => getLocalVar(key) ?? triggerVar(chat, { ...recipe, character, database }, key);
+        const setVar = (key, value) => {
+            for (let indent = currentIndent; indent >= 0; indent--) {
+                if (localScopes[indent]?.[key] !== undefined) {
+                    localScopes[indent][key] = String(value ?? 'null');
+                    return;
+                }
+            }
+            setTriggerVar(chat, key, value);
+        };
+        const declareLocal = (key, value, indent) => {
+            localScopes[indent] ||= {};
+            localScopes[indent][key] = String(value ?? 'null');
+        };
+        const clearLocals = indent => {
+            for (const key of Object.keys(localScopes)) {
+                if (Number(key) >= indent) delete localScopes[key];
+            }
+        };
+        const render = (value) => renderRevenantTemplate(
+            String(value ?? ''), { ...recipe, character, database }, chat,
+        ).text;
+        const read = (effect, field = 'value', typeField = `${field}Type`) => {
+            const rendered = render(effect[field]);
+            return effect[typeField] === 'var' ? getVar(rendered) : rendered;
+        };
+        const outputVar = effect => render(effect.outputVar ?? effect.inputVar ?? '');
+        const coreChat = {};
+        Object.defineProperties(coreChat, {
+            id: { get: () => chat.id },
+            fmIndex: { get: () => chat.fmIndex },
+            note: { get: () => chat.note, set: value => { chat.note = value; } },
+            message: { get: () => chat.message, set: value => { chat.message = value; } },
+        });
+        const v2Core = createTriggerV2Core({
+            effects,
+            render,
+            getVar,
+            setVar,
+            declareLocal,
+            clearLocals,
+            chat: coreChat,
+            character,
+            database,
+            globalVar: key => database.globalChatVariables?.[key] ?? 'null',
+            randomInteger: (minimum, maximum, effectIndex, visit) => deterministicInteger([
+                recipe.messageChatId || chat.id || '', triggerIndex, effectIndex,
+                visit, minimum, maximum,
+            ].join(':'), minimum, maximum),
+        });
+
+        for (let effectIndex = 0; effectIndex < effects.length; effectIndex++) {
+            const effect = effects[effectIndex];
+            currentIndent = Number.isInteger(effect?.indent) && effect.indent >= 0 ? effect.indent : 0;
+            effectVisits[effectIndex] = (effectVisits[effectIndex] || 0) + 1;
+            const effectActionPrefix = `${actionPrefix}.${triggerIndex}.${effectIndex}`
+                + (effectVisits[effectIndex] === 1 ? '' : `.visit-${effectVisits[effectIndex]}`);
+            if (effectVisits[effectIndex] > 10_000) {
+                throw new Error(`Trigger loop limit exceeded at effect ${effectIndex}`);
+            }
+            try {
+                const coreStep = v2Core.step(effectIndex);
+                if (coreStep.handled) {
+                    effectIndex = coreStep.nextIndex;
+                    if (coreStep.mutations?.character) {
+                        mutations.character = {
+                            ...(mutations.character || {}), ...coreStep.mutations.character,
+                        };
+                    }
+                    if (coreStep.mutations?.database) {
+                        mutations.database = {
+                            ...(mutations.database || {}), ...coreStep.mutations.database,
+                        };
+                    }
+                    if (coreStep.stop) break;
+                    continue;
+                }
+                const triggerAction = buildTriggerAction(effect, {
+                    read: v2Core.read,
+                    render,
+                    outputVar: v2Core.outputVar,
+                });
+                if (triggerAction) {
+                    if (!canExecuteTriggerAction(triggerAction, trigger.lowLevelAccess === true)) continue;
+                    const payload = triggerAction.payload;
+                    let actionValue;
+                    switch (triggerAction.kind) {
+                        case 'log':
+                            foregroundEffects.push({ kind: 'log', value: payload.value });
+                            break;
+                        case 'ui.alert':
+                            foregroundEffects.push({
+                                kind: 'alert', level: payload.level || 'normal', message: String(payload.message ?? ''),
+                            });
+                            break;
+                        case 'ui.reload-display':
+                            foregroundEffects.push({ kind: 'reload.display' });
+                            break;
+                        case 'ui.reload-chat':
+                            foregroundEffects.push({ kind: 'reload.chat', index: Number(payload.index) || 0 });
+                            break;
+                        case 'prompt.append':
+                        case 'prompt.stop':
+                            // Prompt construction is already terminal on the server.
+                            break;
+                        case 'chat.resend':
+                            resend = true;
+                            break;
+                        case 'utility.wait':
+                            await new Promise(resolve => setTimeout(resolve, Number(payload.durationMs) || 0));
+                            break;
+                        case 'trigger.run': {
+                            if (recursionDepth >= 10 && !trigger.lowLevelAccess) break;
+                            const nested = await executeRevenantOutputTriggers({
+                                recipe: { ...recipe, character, database },
+                                chat,
+                                text: options.text,
+                                responses,
+                                manualName: String(payload.target ?? ''),
+                                recursionDepth: recursionDepth + 1,
+                                actionPrefix: `${effectActionPrefix}.manual`,
+                            });
+                            chat = nested.chat;
+                            resend ||= nested.resend === true;
+                            foregroundEffects.push(...(nested.foregroundEffects || []));
+                            errors.push(...(nested.errors || []));
+                            if (nested.mutations?.character) {
+                                mutations.character = { ...(mutations.character || {}), ...nested.mutations.character };
+                                Object.assign(character, structuredClone(nested.mutations.character));
+                            }
+                            if (nested.mutations?.database) {
+                                mutations.database = { ...(mutations.database || {}), ...nested.mutations.database };
+                                Object.assign(database, structuredClone(nested.mutations.database));
+                            }
+                            if (nested.status === 'waiting_client') return outcome('waiting_client', nested.action);
+                            break;
+                        }
+                        default: {
+                            const replayKind = triggerAction.kind;
+                            let replayPayload = payload;
+                            if (replayKind === 'provider.llm') {
+                                const provider = providerFor(payload.mode === 'submodel' ? 'submodel' : 'model');
+                                replayPayload = {
+                                    backend: provider.backend,
+                                    modelPreset: provider.modelPreset,
+                                    prompt: payload.prompt,
+                                    mode: payload.mode,
+                                    options: { streaming: payload.streaming === true },
+                                };
+                            }
+                            const pending = waitFor(
+                                `${effectActionPrefix}.${replayKind}`,
+                                replayKind,
+                                replayPayload,
+                            );
+                            if (!pending.available) return outcome('waiting_client', pending.action);
+                            actionValue = pending.value;
+                        }
+                    }
+                    if (triggerAction.outputVar) {
+                        setVar(
+                            triggerAction.outputVar,
+                            normalizeTriggerActionResult(triggerAction, actionValue),
+                        );
+                    }
+                    continue;
+                }
+                // Revenant effect adapter: only delegated or legacy effects reach
+                // this switch; pure v2 execution stays in triggerV2Core.ts.
+                switch (effect.type) {
+                    case 'triggercode':
+                        // JavaScript triggercode is intentionally not executed on the server.
+                        break;
+                    case 'triggerlua': {
+                        const result = await executeRevenantLua({
+                            code: effect.code,
+                            mode: 'output',
+                            data: options.text,
+                            recipe,
+                            chat,
+                            responses,
+                            lowLevelAccess: trigger.lowLevelAccess === true,
+                            actionNamespace: effectActionPrefix,
+                        });
+                        foregroundEffects.push(...result.foregroundEffects);
+                        if (result.mutations?.character) {
+                            mutations.character = {
+                                ...(mutations.character || {}), ...result.mutations.character,
+                            };
+                            Object.assign(character, structuredClone(result.mutations.character));
+                        }
+                        if (result.mutations?.database) {
+                            mutations.database = {
+                                ...(mutations.database || {}), ...result.mutations.database,
+                            };
+                            Object.assign(database, structuredClone(result.mutations.database));
+                        }
+                        if (result.status === 'waiting_client') return outcome('waiting_client', result.action);
+                        chat = result.chat;
+                        break;
+                    }
+                    case 'setvar': {
+                        const key = render(effect.var);
+                        const value = render(effect.value);
+                        const parsedPrevious = Number(getVar(key));
+                        const previous = Number.isNaN(parsedPrevious) ? 0 : parsedPrevious;
+                        const operand = Number(value);
+                        const result = effect.operator === '+=' ? previous + operand
+                            : effect.operator === '-=' ? previous - operand
+                                : effect.operator === '*=' ? previous * operand
+                                    : effect.operator === '/=' ? previous / operand
+                                        : value;
+                        setVar(key, result);
+                        break;
+                    }
+                    case 'cutchat': {
+                        const start = Number(render(effect.start));
+                        const end = Number(render(effect.end));
+                        chat.message = chat.message.slice(start, end);
+                        break;
+                    }
+                    case 'modifychat': {
+                        const index = Number(render(effect.index));
+                        if (chat.message[index]) chat.message[index].data = render(effect.value);
+                        break;
+                    }
+                    case 'impersonate':
+                        chat.message.push({ role: effect.role === 'user' ? 'user' : 'char', data: render(effect.value) });
+                        break;
+                    case 'sendAIprompt':
+                        if (trigger.lowLevelAccess) resend = true;
+                        break;
+                    case 'extractRegex': {
+                        if (!trigger.lowLevelAccess) break;
+                        const source = render(effect.value);
+                        const match = new RegExp(effect.regex, effect.flags).exec(source);
+                        if (match) setVar(effect.inputVar, effect.result.replace(/\$([0-9]+)/g, (_whole, index) => match[Number(index)] || ''));
+                        break;
+                    }
+                    case 'showAlert': {
+                        if (!trigger.lowLevelAccess) break;
+                        const message = render(effect.value);
+                        if (effect.alertType === 'normal' || effect.alertType === 'error') {
+                            foregroundEffects.push({ kind: 'alert', level: effect.alertType, message });
+                            break;
+                        }
+                        const kind = `ui.${effect.alertType}`;
+                        const pending = waitFor(`${effectActionPrefix}.${kind}`, kind, {
+                            message,
+                            options: effect.alertType === 'select' ? message.split('§') : undefined,
+                        });
+                        if (!pending.available) return outcome('waiting_client', pending.action);
+                        setVar(effect.inputVar, pending.value);
+                        break;
+                    }
+                    case 'runLLM':
+                    case 'runAxLLM': {
+                        if (!trigger.lowLevelAccess) break;
+                        const prompt = render(effect.value);
+                        const kind = effect.type === 'runLLM' ? 'provider.llm' : 'provider.axllm';
+                        const provider = effect.type === 'runAxLLM'
+                            ? providerFor('otherAx')
+                            : providerFor('model');
+                        const pending = waitFor(`${effectActionPrefix}.${kind}`, kind, {
+                            backend: provider.backend,
+                            modelPreset: provider.modelPreset,
+                            prompt,
+                        });
+                        if (!pending.available) return outcome('waiting_client', pending.action);
+                        setVar(effect.inputVar, pending.value?.result ?? pending.value);
+                        break;
+                    }
+                    case 'runImgGen': {
+                        if (!trigger.lowLevelAccess) break;
+                        const pending = waitFor(`${effectActionPrefix}.image.generate`, 'image.generate', {
+                            prompt: render(effect.value),
+                            negativePrompt: render(effect.negValue),
+                        });
+                        if (!pending.available) return outcome('waiting_client', pending.action);
+                        setVar(effect.inputVar, pending.value);
+                        break;
+                    }
+                    case 'checkSimilarity': {
+                        if (!trigger.lowLevelAccess) break;
+                        const pending = waitFor(
+                            `${effectActionPrefix}.utility.similarity`,
+                            'utility.similarity',
+                            {
+                                source: render(effect.source),
+                                values: render(effect.value).split('§'),
+                            },
+                        );
+                        if (!pending.available) return outcome('waiting_client', pending.action);
+                        setVar(effect.inputVar, pending.value);
+                        break;
+                    }
+                    case 'command': {
+                        const pending = waitFor(`${effectActionPrefix}.ui.command`, 'ui.command', { command: render(effect.value) });
+                        if (!pending.available) return outcome('waiting_client', pending.action);
+                        break;
+                    }
+                    case 'runtrigger': {
+                        if (recursionDepth >= 10 && !trigger.lowLevelAccess) break;
+                        const target = render(effect.value);
+                        const nested = await executeRevenantOutputTriggers({
+                            recipe: { ...recipe, character, database },
+                            chat,
+                            text: options.text,
+                            responses,
+                            manualName: target,
+                            recursionDepth: recursionDepth + 1,
+                            actionPrefix: `${effectActionPrefix}.manual`,
+                        });
+                        chat = nested.chat;
+                        resend ||= nested.resend === true;
+                        foregroundEffects.push(...(nested.foregroundEffects || []));
+                        errors.push(...(nested.errors || []));
+                        if (nested.mutations?.character) {
+                            mutations.character = {
+                                ...(mutations.character || {}),
+                                ...nested.mutations.character,
+                            };
+                            Object.assign(character, structuredClone(nested.mutations.character));
+                        }
+                        if (nested.mutations?.database) {
+                            mutations.database = {
+                                ...(mutations.database || {}),
+                                ...nested.mutations.database,
+                            };
+                            Object.assign(database, structuredClone(nested.mutations.database));
+                        }
+                        if (nested.status === 'waiting_client') {
+                            return outcome('waiting_client', nested.action);
+                        }
+                        break;
+                    }
+                    case 'systemprompt':
+                        // These only affect prompt construction and have no effect
+                        // after a terminal model response has been produced.
+                        break;
+                    case 'v2GetDisplayState':
+                    case 'v2SetDisplayState':
+                    case 'v2GetRequestState':
+                    case 'v2SetRequestState':
+                    case 'v2GetRequestStateRole':
+                    case 'v2SetRequestStateRole':
+                    case 'v2GetRequestStateLength':
+                        // The browser executor stops a trigger when a mode-specific
+                        // state operation is encountered in the wrong mode.
+                        effectIndex = effects.length;
+                        break;
+                    case 'stop':
+                        // stop only suppresses prompt dispatch. At output time the
+                        // model response is already terminal, so later effects run.
+                        break;
+                    default:
+                        // Pure v2 operations are progressively handled by the shared
+                        // headless executor; browser-only effects are surfaced rather
+                        // than silently mutating canonical state differently.
+                        errors.push(`Unsupported server output trigger effect: ${effect.type}`);
+                }
+            }
+            catch (error) {
+                errors.push(error instanceof Error ? error.message : String(error));
+            }
+        }
+    }
+
+    return outcome('completed');
+}
+
+module.exports = { executeRevenantOutputTriggers, passesConditions };

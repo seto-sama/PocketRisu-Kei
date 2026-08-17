@@ -13,13 +13,15 @@
     import { v4 } from "uuid";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
+    import Portal from "../UI/GUI/Portal.svelte";
 
     let editMode = $state(false)
     /** @type {{close?: any}} */
     let { close = () => {} } = $props();
 </script>
 
-<div class="absolute w-full h-full z-40 bg-black/50 flex justify-center items-center">
+<Portal>
+<div class="risu-modal-backdrop z-40 flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-72 max-h-full overflow-y-auto">
         <div class="flex items-center text-textcolor mb-4">
             <h2 class="mt-0 mb-0">{language.chatList}</h2>
@@ -40,7 +42,7 @@
                     <span>{chat.name}</span>
                 {/if}
                 <div class="grow flex justify-end">
-                    <div class="text-textcolor2 hover:text-primary mr-2 cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
+                    <div class="text-textcolor2 risu-interactive-accent mr-2 cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
                         e.stopPropagation()
                         exportChat(i)
                     }} onkeydown={() => {
@@ -48,7 +50,7 @@
                     }}>
                         <DownloadIcon size={18}/>
                     </div>
-                    <div class="text-textcolor2 hover:text-red-400 cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
+                    <div class="text-textcolor2 risu-interactive-danger cursor-pointer" role="button" tabindex="0" onclick={async (e) => {
                         e.stopPropagation()
                         if(DBState.db.characters[$selectedCharID].chats.length === 1){
                             notifyError(language.errors.onlyOneChat)
@@ -99,6 +101,7 @@
         </IconButtonGroup>
     </div>
 </div>
+</Portal>
 
 <style>
     .break-any{
