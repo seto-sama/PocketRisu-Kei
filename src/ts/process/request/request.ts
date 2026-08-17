@@ -40,11 +40,14 @@ import {
     type LLMExecutionPolicy,
 } from "src/ts/network/transportTypes";
 import {
-    startStatus, appendText, endStatus, setStatusTokenCounter, addBadge,
+    startStatus, appendText, endStatus, hasRequestStatus, markPhase, setStatusTokenCounter, addBadge,
     type RequestKind,
 } from "src/ts/status/requestStatus";
 import type { RevenantOperationContext, RevenantProviderJobSpec } from "../revenant";
-import { bindRevenantTerminalOutcome } from "../revenant/jobStatus";
+import {
+    appendRevenantJobRequestText,
+    bindRevenantTerminalOutcome,
+} from "../revenant/jobStatus";
 import {
     auxiliaryResultJobIdsToConsume,
     consumeOnStreamCompletion,
@@ -992,10 +995,12 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     // boundary independently so the chat workflow can wait for a late job id,
     // while preparation failures still release that wait with the real error.
     let registrationSettled = false
+    let statusJobId:string|undefined
     const callerOnJobCreated = arg.onRevenantJobCreated
     const callerOnRegistrationUnavailable = arg.onRevenantJobRegistrationUnavailable
     arg.onRevenantJobCreated = jobId => {
         registrationSettled = true
+        statusJobId = jobId
         callerOnJobCreated?.(jobId)
     }
     arg.onRevenantJobRegistrationUnavailable = error => {
@@ -1230,14 +1235,21 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                 now: startedAt,
                 abortSignal: abortSignal ?? undefined,
             }))
+            const startObservedRequestStatus = (startedAt: number) => {
+                if (statusJobId && hasRequestStatus(genId)) {
+                    safeStatus(() => markPhase(genId, 'connecting', startedAt))
+                    return
+                }
+                startRequestStatus(startedAt)
+            }
             if (arg.revenantDispatchPolicy || arg.revenantWorkflowDependency) {
                 arg.onRevenantProviderStarted = combineProviderStartedHandlers(
                     arg.onRevenantProviderStarted,
-                    startRequestStatus,
+                    startObservedRequestStatus,
                 )
             }
             else {
-                startRequestStatus(Date.now())
+                startObservedRequestStatus(Date.now())
             }
         }
         if(useStreaming){
@@ -1260,8 +1272,22 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                         // when chunks resume — no local phase tracking needed here.
                         onDelta: reportStatus ? (delta) => safeStatus(() => {
                             const now = Date.now()
-                            if (delta.reasoningDelta) appendText(genId, { thinking: delta.reasoningDelta }, now)
-                            if (delta.textDelta) appendText(genId, { response: delta.textDelta }, now)
+                            if (delta.reasoningDelta && !(statusJobId
+                                && appendRevenantJobRequestText(
+                                    statusJobId,
+                                    { thinking: delta.reasoningDelta },
+                                    now,
+                                ))) {
+                                appendText(genId, { thinking: delta.reasoningDelta }, now)
+                            }
+                            if (delta.textDelta && !(statusJobId
+                                && appendRevenantJobRequestText(
+                                    statusJobId,
+                                    { response: delta.textDelta },
+                                    now,
+                                ))) {
+                                appendText(genId, { response: delta.textDelta }, now)
+                            }
                         }) : undefined,
                         onFinish: (outcome, lastUsage) => {
                             if (outcome === 'done') {

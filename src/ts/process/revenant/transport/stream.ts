@@ -10,6 +10,9 @@ import {
 import { decodeRevenantGenerationJournal } from './journalDecoder'
 import { openRevenantJournalSocket } from './journalSocket'
 import type {
+    AdapterUsage,
+} from '../../../preset/adapter/types'
+import type {
     RecoverableAuxiliaryJob,
     RecoverableGenerationJob,
     RevenantGenerationRequest,
@@ -34,15 +37,28 @@ export function subscribeRecoverableGeneration(
     job: RecoverableGenerationJob,
     handlers: {
         onContent: (content: string) => void
-        onDone: () => void
+        onProgress?: (progress: { thinking: string, response: string, usage?: AdapterUsage }) => void
+        onDone: (terminal?: RevenantGenerationTerminal, usage?: AdapterUsage) => void
         onError?: (error: unknown) => void
     },
 ): () => void {
     const controller = new AbortController()
-    void openRecoverableJournalStream(job, controller.signal)
-        .then(stream => decodeRevenantGenerationJournal(job, stream, handlers.onContent))
+    let terminal: RevenantGenerationTerminal | undefined
+    let usage: AdapterUsage | undefined
+    void openRecoverableJournalStream(job, controller.signal, value => {
+        terminal = value
+    })
+        .then(stream => decodeRevenantGenerationJournal(
+            job,
+            stream,
+            handlers.onContent,
+            progress => {
+                if (progress.usage) usage = progress.usage
+                handlers.onProgress?.(progress)
+            },
+        ))
         .then(() => {
-            if (!controller.signal.aborted) handlers.onDone()
+            if (!controller.signal.aborted) handlers.onDone(terminal, usage)
         })
         .catch(error => {
             if (!controller.signal.aborted) handlers.onError?.(error)
@@ -72,6 +88,7 @@ export async function readRecoverableGenerationContent(
 async function openRecoverableJournalStream(
     job: RecoverableJournalJob,
     signal?: AbortSignal,
+    onTerminal?: (terminal: RevenantGenerationTerminal) => void,
 ): Promise<ReadableStream<Uint8Array>> {
     const auth = await createRevenantGenerationAuth()
     return openRevenantJournalSocket({
@@ -79,6 +96,7 @@ async function openRecoverableJournalStream(
         auth,
         signal,
         recovery: true,
+        onDone: onTerminal,
         onHeaders(status, headers) {
             job.responseStatus = status
             job.responseHeaders = headers

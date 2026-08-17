@@ -10,7 +10,7 @@ import {
     awaitChatGenerationCanonical,
     beginChatGenerationProjection,
 } from '../../../storage/chatWorkingCopy'
-import { abortStatusesForChat, endStatus, hasRequestStatus, requestStatusIdForJob, startStatus, type RequestKind } from '../../../status/requestStatus'
+import { endStatus, hasRequestStatus, requestStatusIdForJob, type RequestKind } from '../../../status/requestStatus'
 import { recoverHypaV3SummaryJobs } from '../../memory/hypav3'
 import { recoverRevenantLuaJobsForChat } from '../../scriptings'
 import {
@@ -40,6 +40,12 @@ import {
     type RevenantWorkflowResumeContext,
     updateRevenantWorkflowStep,
 } from '../workflow/workflow'
+import {
+    finishRevenantChatRequestStatuses,
+    finishRevenantJobRequestStatus,
+    observeRevenantJobRequestText,
+    registerRevenantRequestStatus,
+} from '../jobStatus'
 import { applyCancelledGenerationProjection } from './chatCancellation'
 import { serviceRevenantClientActions } from '../workflow/clientActions.svelte'
 import {
@@ -129,11 +135,14 @@ export function configureRevenantGenerationChatRecovery(
 export function clearRevenantRecoveryForChat(
     character: character,
     chat: Chat,
-    options: { preserveProjection?: boolean, cancelled?: boolean } = {},
+    options: { preserveProjection?: boolean, cancelled?: boolean, failed?: boolean } = {},
 ): void {
     awaitChatGenerationCanonical(character.chaId, chat.id)
     let changed = false
-    if (options.cancelled) abortStatusesForChat(chat.id)
+    finishRevenantChatRequestStatuses(
+        chat.id,
+        options.cancelled ? 'aborted' : options.failed ? 'failed' : 'done',
+    )
     for (const [jobId, subscription] of recoveryStreamSubscriptions) {
         if (
             subscription.characterId !== character.chaId
@@ -198,19 +207,19 @@ function startRecoveryStatus(
     chatId: string,
     startedAt = Date.now(),
     statusId = jobId,
+    label = '',
+    workflowId?: string,
 ): void {
     if (notifiedRecoveryJobs.has(jobId)) return
     notifiedRecoveryJobs.add(jobId)
-    // Recovery has a server job id in addition to the originating message's
-    // generation id. Reuse a live original status instead of creating a
-    // second toast for the same response.
-    if (hasRequestStatus(statusId)) return
-    startStatus(statusId, {
+    registerRevenantRequestStatus({
+        jobId,
+        statusId,
+        workflowId,
+        roomId: chatId,
         kind,
-        label: '',
-        chatId,
-        phase: 'connecting',
-        now: startedAt,
+        label,
+        startedAt,
     })
 }
 
@@ -232,19 +241,23 @@ export function updateRevenantAuxiliaryRecoveryStatus(
             chatId,
             job.dispatchedAt ?? Date.now(),
             statusId,
+            '',
+            job.workflowId,
         )
     }
     else if (action === 'done') {
-        endStatus(statusId, 'done', { now: job.completedAt ?? Date.now() })
+        finishRevenantJobRequestStatus(job.jobId, { status: 'generated' }, statusId)
     }
     else if (action === 'aborted') {
-        endStatus(statusId, 'aborted', { now: job.completedAt ?? Date.now() })
+        finishRevenantJobRequestStatus(job.jobId, { status: 'cancelled' }, statusId)
     }
     else {
-        endStatus(statusId, 'failed', {
-            now: job.completedAt ?? Date.now(),
-            error: job.error,
-        })
+        finishRevenantJobRequestStatus(job.jobId, {
+            status: job.status === 'interrupted' || job.status === 'failed_partial'
+                ? job.status
+                : 'failed',
+            finishReason: job.error,
+        }, statusId)
     }
 }
 
@@ -255,7 +268,15 @@ function updateMainRecoveryStatus(job: RecoverableGenerationJob, chatId: string)
         notifiedRecoveryJobs.has(job.jobId) || hasRequestStatus(statusId),
     )
     if (action === 'start') {
-        startRecoveryStatus(job.jobId, 'main', chatId, job.createdAt, statusId)
+        startRecoveryStatus(
+            job.jobId,
+            'main',
+            chatId,
+            job.createdAt,
+            statusId,
+            job.generationInfo?.model ?? '',
+            job.workflowId,
+        )
         return
     }
     // Do not resurrect a toast for a request which already completed before
@@ -264,16 +285,18 @@ function updateMainRecoveryStatus(job: RecoverableGenerationJob, chatId: string)
     // independently of slower Lua/postprocess work.
     if (action === 'none') return
     if (action === 'done') {
-        endStatus(statusId, 'done', { now: job.completedAt ?? Date.now() })
+        finishRevenantJobRequestStatus(job.jobId, { status: 'generated' }, statusId)
     }
     else if (action === 'aborted') {
-        endStatus(statusId, 'aborted', { now: job.completedAt ?? Date.now() })
+        finishRevenantJobRequestStatus(job.jobId, { status: 'cancelled' }, statusId)
     }
     else {
-        endStatus(statusId, 'failed', {
-            now: job.completedAt ?? Date.now(),
-            error: job.finishReason,
-        })
+        finishRevenantJobRequestStatus(job.jobId, {
+            status: job.status === 'interrupted' || job.status === 'failed_partial'
+                ? job.status
+                : 'failed',
+            finishReason: job.finishReason,
+        }, statusId)
     }
 }
 
@@ -452,13 +475,16 @@ export async function recoverRevenantGenerationsForChat(
                 ? await getRevenantWorkflow(detachedSubscription.workflowId).catch(() => undefined)
                 : undefined
             const cancelled = terminalWorkflow?.status === 'cancelled'
+            const messageWasMaterialized = activeWorkflow?.steps.some(step =>
+                step.key === 'message.materialize' && step.status === 'completed') === true
+            const failed = terminalWorkflow?.status === 'failed'
+                || (!!activeWorkflow && !messageWasMaterialized)
             clearRevenantRecoveryForChat(character, chat, {
                 preserveProjection: cancelled,
                 cancelled,
+                failed,
             })
             if (activeWorkflow) {
-                const messageWasMaterialized = activeWorkflow.steps.some(step =>
-                    step.key === 'message.materialize' && step.status === 'completed')
                 if (messageWasMaterialized) {
                     await updateRevenantWorkflowStep(activeWorkflow.workflowId, 'igp', 'skipped')
                     await updateRevenantWorkflowStep(activeWorkflow.workflowId, 'postprocess', 'skipped')
@@ -610,7 +636,11 @@ export async function recoverRevenantGenerationsForChat(
             }
             if (isActiveGeneration) {
                 if (!recoveryStreamSubscriptions.has(job.jobId)) {
+                    const statusId = requestStatusIdForJob(job)
                     const unsubscribe = subscribeRecoverableGeneration(job, {
+                        onProgress: progress => {
+                            observeRevenantJobRequestText(job.jobId, progress)
+                        },
                         onContent: content => {
                             const displayContent = job.isContinuation
                                 && job.continuationPrefix
@@ -643,7 +673,15 @@ export async function recoverRevenantGenerationsForChat(
                             // invisible until the completed chat is materialized.
                             invalidateRecoveredMessage(liveCharacter, liveMessageIndex)
                         },
-                        onDone: () => {
+                        onDone: (terminal, usage) => {
+                            finishRevenantJobRequestStatus(
+                                job.jobId,
+                                terminal ?? { status: 'generated' },
+                                statusId,
+                                usage?.completionTokens !== undefined
+                                    ? { responseTokens: usage.completionTokens }
+                                    : undefined,
+                            )
                             // Keep the subscription context until the database
                             // refresh classifies the workflow as completed or
                             // cancelled. Cancellation needs it to commit the

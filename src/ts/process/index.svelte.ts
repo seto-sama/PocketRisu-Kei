@@ -53,6 +53,10 @@ import {
     createChatGenerationSession,
     type ChatGenerationSession,
 } from './revenant/chatGeneration';
+import {
+    finishRevenantJobRequestStatus,
+    registerRevenantRequestStatus,
+} from './revenant/jobStatus';
 import { hypaMemoryV3, type SerializableHypaV3Data } from "./memory/hypav3";
 import { getModuleAssets, getModuleRegexScripts, getModules, getModuleToggles, getModuleTriggers } from "./modules";
 import { readImage } from "../globalApi.svelte";
@@ -2176,6 +2180,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             onRevenantJobCreated: jobId => {
                 revenantMainJobCreated = true
                 revenantMainJobId = jobId
+                registerRevenantRequestStatus({
+                    jobId,
+                    statusId: messageChatId,
+                    workflowId: workflowSession.workflowId,
+                    roomId: outgoingChat.id,
+                    kind: 'main',
+                    label: generationInfo?.model,
+                    startedAt: Date.now(),
+                })
                 lifecycle.onJobCreated?.(jobId)
             },
             onRevenantJobRegistrationUnavailable: error => {
@@ -2183,7 +2196,16 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 lifecycle.onJobRegistrationUnavailable?.(error)
             },
             onRevenantProviderStarted: lifecycle.onProviderStarted,
-            onRevenantTerminal: lifecycle.onTerminal,
+            onRevenantTerminal: terminal => {
+                if (revenantMainJobId) {
+                    finishRevenantJobRequestStatus(
+                        revenantMainJobId,
+                        terminal,
+                        messageChatId,
+                    )
+                }
+                lifecycle.onTerminal?.(terminal)
+            },
         }, 'model', abortSignal)
     let req:Awaited<ReturnType<typeof requestMainGeneration>>
     try {

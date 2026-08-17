@@ -1,6 +1,7 @@
 import { awaitChatGenerationCanonical } from './storage/chatWorkingCopy'
 import { forageStorage } from './storage/autoStorage'
 import { getSyncClientId } from './storage/nodeStorage'
+import { finishRevenantWorkflowRequestStatuses } from './process/revenant/jobStatus'
 import {
     emitRevenantWorkflowSyncReady,
     emitRevenantWorkflowUpdate,
@@ -117,6 +118,13 @@ function handleWorkflowUpdate(message: SyncMessage) {
         // The matching targeted invalidation is sent only after canonical
         // materialization; this merely arms the ownership handoff.
         awaitChatGenerationCanonical(message.characterId, message.roomId)
+        finishRevenantWorkflowRequestStatuses({
+            workflowId: message.workflowId,
+            roomId: message.roomId,
+            outcome: message.status === 'completed'
+                ? 'done'
+                : message.status === 'cancelled' ? 'aborted' : 'failed',
+        })
     }
     emitRevenantWorkflowUpdate({
         workflowId: message.workflowId,
