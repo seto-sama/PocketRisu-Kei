@@ -7,7 +7,7 @@ import { get } from "svelte/store";
 import { ReloadChatPointer, ReloadGUIPointer, selectedCharID } from "../stores.svelte";
 import { alertSelect, alertError, alertInput, alertNormal, alertConfirm } from "../alert";
 import { HypaProcesser } from "./memory/hypamemory";
-import { generateAIImage } from "./stableDiff";
+import { generateAIImageInlay } from "./stableDiff";
 import { writeInlayImage, getInlayAsset } from "./files/inlays";
 import type { OpenAIChat, MultiModal } from "./index.svelte";
 import { requestChatData, type StreamResponseChunk } from "./request/request";
@@ -338,19 +338,15 @@ export async function runScripted(code:string, arg:{
             })
 
             addEffect('generateImage', async (id:string, value:string, negValue:string = '') => {
-                const gen = await generateAIImage(
+                const inlay = await generateAIImageInlay(
                     value,
                     ScriptingEngineState.character as character,
                     negValue,
-                    'inlay',
                 )
-                if(!gen){
+                if(!inlay){
                     return 'Error: Image generation failed'
                 }
-                const imgHTML = new Image()
-                imgHTML.src = gen
-                const inlay = await writeInlayImage(imgHTML)
-                return `{{inlay::${inlay}}}`
+                return inlay
             })
 
             addEffect('getCharacterImageMain', async (id:string) => {

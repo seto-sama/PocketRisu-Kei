@@ -12,8 +12,7 @@ import type { OpenAIChat } from "./index.svelte";
 import { HypaProcesser } from "./memory/hypamemory";
 import { requestChatData } from "./request/request";
 import { collectStreamingText } from "./request/shared";
-import { generateAIImage } from "./stableDiff";
-import { writeInlayImage } from "./files/inlays";
+import { generateAIImageInlay } from "./stableDiff";
 import { runScripted } from "./scriptings";
 import { createTriggerV2Core, type TriggerV2Effect } from "./triggerV2Core";
 import { evaluateTriggerConditions, type TriggerConditionLike } from "./triggerConditionCore";
@@ -1356,14 +1355,12 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     }
                     case 'utility.tokenize': actionResult = await tokenize(String(payload.text ?? '')); break
                     case 'image.generate': {
-                        const generated = await generateAIImage(
+                        const generated = await generateAIImageInlay(
                             String(payload.prompt ?? ''), char,
-                            String(payload.negativePrompt ?? ''), 'inlay',
+                            String(payload.negativePrompt ?? ''),
                         )
                         if(generated){
-                            const image = new Image()
-                            image.src = generated
-                            actionResult = `{{inlay::${await writeInlayImage(image)}}}`
+                            actionResult = generated
                         }
                         break
                     }
@@ -1595,16 +1592,12 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
 
                     const effectValue = risuChatParser(effect.value,{chara:char})
                     const negValue = risuChatParser(effect.negValue,{chara:char})
-                    const gen = await generateAIImage(effectValue, char, negValue, 'inlay')
-                    if(!gen){
+                    const inlay = await generateAIImageInlay(effectValue, char, negValue)
+                    if(!inlay){
                         setVar(effect.inputVar, 'Error: Image generation failed')
                         break
                     }
-                    const imgHTML = new Image()
-                    imgHTML.src = gen
-                    const inlay = await writeInlayImage(imgHTML)
-                    const res = `{{inlay::${inlay}}}`
-                    setVar(effect.inputVar, res)
+                    setVar(effect.inputVar, inlay)
                     break
                 }
 

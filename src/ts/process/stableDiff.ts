@@ -947,9 +947,11 @@ export async function generateAIImageInlay(
     })
     image.src = generated
     const inlayId = await Promise.race([inlayPromise, loadError])
+    const targetCharacterId = target?.characterId ?? currentChar.chaId
+    const targetChatId = target?.chatId ?? currentChar.chats?.[currentChar.chatPage]?.id
     await setInlayMetaFields(inlayId, {
-        charId: target?.characterId,
-        chatId: target?.chatId,
+        charId: targetCharacterId,
+        chatId: targetChatId,
         imageGeneration: { prompt, negativePrompt },
     })
     return `{{inlayed::${inlayId}}}`
