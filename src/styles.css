@@ -37,6 +37,14 @@
   --color-highlight: var(--risu-theme-highlight);
   --color-accent: var(--risu-theme-accent);
 
+  /* Syntax roles deliberately reuse theme hues without assigning status
+     meanings such as success/warning to code tokens. */
+  --color-syntax-comment: var(--risu-theme-textcolor2);
+  --color-syntax-type: var(--risu-theme-primary);
+  --color-syntax-keyword: var(--risu-theme-accent);
+  --color-syntax-variable: var(--risu-theme-highlight);
+  --color-syntax-literal: var(--risu-theme-scoped);
+
   --color-primary-50: var(--risu-theme-primary-50);
   --color-primary-100: var(--risu-theme-primary-100);
   --color-primary-200: var(--risu-theme-primary-200);

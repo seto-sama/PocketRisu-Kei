@@ -33,7 +33,7 @@
 
 <div class="w-full flex flex-col pt-2 mt-2 border-t border-t-selected first:pt-0 first:mt-0 first:border-0" data-risu-idx2={idx}>
     <div class="flex items-center transition-colors w-full ">
-        <button class="endflex valuer border-borderc" onclick={() => {
+        <button class="endflex valuer border-borderc risu-interactive-accent" onclick={() => {
             open = !open
             if(open){
                 onOpen()
@@ -44,7 +44,7 @@
         }}>
             <span>{value.comment.length === 0 ? 'Unnamed Trigger' : value.comment}</span>
         </button>
-        <button class="valuer" onclick={async () => {
+        <button class="valuer risu-interactive-danger" onclick={async () => {
             const d = await alertConfirm(language.removeConfirm + value.comment)
             if(d){
                 if(!open){
@@ -484,7 +484,6 @@
 
 <style>
     .valuer:is(:hover, :focus-visible){
-        color: rgba(16, 185, 129, 1);
         cursor: pointer;
     }
 
