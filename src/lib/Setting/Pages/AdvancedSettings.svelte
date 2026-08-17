@@ -5,8 +5,7 @@
     import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import { language } from "src/lang";
-
-    let submenu = $state(0);
+    import { AdvancedSubmenuIndex } from "src/ts/stores.svelte";
 
     const requestItemIds = new Set([
         'adv.retries',
@@ -63,10 +62,10 @@
         { label: language.advancedRequestTab, value: 0 },
         { label: language.others, value: 1 },
     ]}
-    bind:selected={submenu}
+    bind:selected={$AdvancedSubmenuIndex}
 />
 
-{#if submenu === 0}
+{#if $AdvancedSubmenuIndex === 0}
     <SettingLayout variant="section" title={language.loreBook} first>
         <SettingRenderer items={lorebookSettingsItems} layout="row" />
     </SettingLayout>

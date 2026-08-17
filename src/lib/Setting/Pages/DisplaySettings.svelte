@@ -5,7 +5,7 @@
     import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import SettingRenderer from "../SettingRenderer.svelte";
-    import { DBState, openThemePresetList } from "src/ts/stores.svelte";
+    import { DBState, DisplaySubmenuIndex, openThemePresetList } from "src/ts/stores.svelte";
     import NotificationSoundSettings from "./NotificationSoundSettings.svelte";
     import {
         displayOtherHomeItems,
@@ -17,7 +17,6 @@
         displayThemePaletteSettingsItems,
     } from "src/ts/setting/displaySettingsData.svelte";
 
-    let submenu = $state(0);
 </script>
 
 <SettingPage title={language.soundAndDisplay}>
@@ -33,24 +32,24 @@
         { label: language.others, value: 2 },
         { label: language.soundAndNotification, value: 3 },
     ]}
-    bind:selected={submenu}
+    bind:selected={$DisplaySubmenuIndex}
 />
 
-{#if submenu === 0}
+{#if $DisplaySubmenuIndex === 0}
     <SettingLayout variant="section" title={language.normal} first>
         <SettingRenderer items={displayThemeGeneralSettingsItems} layout="row" />
     </SettingLayout>
     <SettingLayout variant="section" title={language.colorScheme}>
         <SettingRenderer items={displayThemePaletteSettingsItems} layout="row" />
     </SettingLayout>
-{:else if submenu === 1}
+{:else if $DisplaySubmenuIndex === 1}
     <SettingRenderer items={displaySizeSettingsItems} layout="row" />
-{:else if submenu === 2}
+{:else if $DisplaySubmenuIndex === 2}
     <SettingLayout variant="section" title={language.sectionHomeList} first><SettingRenderer items={displayOtherHomeItems} layout="row" /></SettingLayout>
     <SettingLayout variant="section" title={language.sectionChatView}><SettingRenderer items={displayOtherChatItems} layout="row" /></SettingLayout>
     <SettingLayout variant="section" title={language.sectionQuotes}><SettingRenderer items={displayOtherQuoteItems} layout="row" /></SettingLayout>
     <SettingLayout variant="section" title={language.sectionAdvanced}><SettingRenderer items={displayOtherAdvancedItems} layout="row" /></SettingLayout>
-{:else if submenu === 3}
+{:else if $DisplaySubmenuIndex === 3}
     <NotificationSoundSettings embedded />
 {/if}
 </SettingPage>

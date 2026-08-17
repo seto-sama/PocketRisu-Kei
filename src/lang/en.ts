@@ -2031,6 +2031,9 @@ export const languageEnglish = {
     nanoGPTManualInput: "Manual Input",
     nanoGPTManualModelSelect: "Manual Model Select",
     // Remote Access (Cloudflare Quick Tunnel)
+    searchSettingsPlaceholder: "Search settings...",
+    searchSettingsNoResults: "No matching settings found",
+    searchSettingsHint: "Search by setting name or keyword",
     connectionManagement: "Connection Management",
     deviceList: "Devices",
     deviceListEmpty: "No devices are currently connected.",

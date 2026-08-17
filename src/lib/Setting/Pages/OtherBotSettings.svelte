@@ -2,15 +2,13 @@
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
     import { language } from "src/lang";
-    import { DBState, selectedCharID } from "src/ts/stores.svelte";
+    import { DBState, OtherBotsSubmenuIndex, selectedCharID } from "src/ts/stores.svelte";
     import { untrack } from "svelte";
     import { tokenizePreset } from "src/ts/process/prompt";
     import { getCharToken } from "src/ts/tokenizer";
     import HypaMemorySettings from "./HypaMemorySettings.svelte";
     import TTSSettings from "./TTSSettings.svelte";
     import ImageSettings from "./ImageSettings.svelte";
-
-    let submenu = $state(0);
 
     $effect(() => {
         const settings = DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings;
@@ -58,13 +56,13 @@
         { label: language.longTermMemory, value: 0 },
         { label: 'TTS', value: 1 },
         { label: language.image, value: 2 },
-    ]} bind:selected={submenu} />
+    ]} bind:selected={$OtherBotsSubmenuIndex} />
 
-    {#if submenu === 0}
+    {#if $OtherBotsSubmenuIndex === 0}
         <HypaMemorySettings maxMemoryRatio={getMaxMemoryRatio()} />
-    {:else if submenu === 1}
+    {:else if $OtherBotsSubmenuIndex === 1}
         <TTSSettings />
-    {:else if submenu === 2}
+    {:else if $OtherBotsSubmenuIndex === 2}
         <ImageSettings />
     {/if}
 </SettingPage>

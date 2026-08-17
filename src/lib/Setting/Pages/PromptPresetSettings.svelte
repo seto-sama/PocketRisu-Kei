@@ -8,7 +8,7 @@
     import PromptRegexBlock from "./PromptPreset/PromptRegexBlock.svelte";
     import PromptLegacySettings from "./PromptPreset/PromptLegacySettings.svelte";
     import { language } from "src/lang";
-    import { DBState, openPresetList } from "src/ts/stores.svelte";
+    import { DBState, openPresetList, PromptPresetSubmenuIndex } from "src/ts/stores.svelte";
     import {
         promptPresetPromptItems,
         promptPresetParameterItems,
@@ -18,7 +18,6 @@
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import { ImageIcon, XIcon } from "@lucide/svelte";
 
-    let submenu = $state(0);
     const activeIndex = $derived(DBState.db.botPresetsId);
     const activePreset = $derived(DBState.db.botPresets[activeIndex]);
     const basicInfoItems: SettingItem[] = [{
@@ -59,10 +58,10 @@
             { label: language.advancedSettings, value: 2 },
             { label: language.regexScript, value: 3 },
         ]}
-        bind:selected={submenu}
+        bind:selected={$PromptPresetSubmenuIndex}
     />
 
-    {#if submenu === 0}
+    {#if $PromptPresetSubmenuIndex === 0}
         <SettingLayout variant="section" title={language.basicInfo} first>
             <div class="[&>*:first-child]:border-t-0">
                 {#if activePreset}
@@ -89,15 +88,15 @@
             </div>
         </SettingLayout>
         <SettingLayout variant="section" title={language.parameters}><SettingRenderer items={promptPresetParameterItems} layout="row" /></SettingLayout>
-    {:else if submenu === 1}
+    {:else if $PromptPresetSubmenuIndex === 1}
         <SettingRenderer items={promptPresetPromptItems} />
-    {:else if submenu === 2}
+    {:else if $PromptPresetSubmenuIndex === 2}
         <SettingLayout variant="section" title={language.presetPromptProcessing} first><PromptTemplateBlock /></SettingLayout>
 
         <div class="mt-4">
             <PromptLegacySettings />
         </div>
-    {:else if submenu === 3}
+    {:else if $PromptPresetSubmenuIndex === 3}
         <PromptRegexBlock />
     {/if}
 </SettingPage>

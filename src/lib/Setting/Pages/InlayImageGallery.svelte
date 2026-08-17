@@ -8,6 +8,7 @@
   import ShSelect from '../../UI/GUI/ShSelect.svelte'
 
   import { language } from 'src/lang'
+  import { InlayGallerySubmenuIndex } from 'src/ts/stores.svelte'
   import { alertConfirm, notifySuccess, notifyError } from 'src/ts/alert'
   import { downloadFile } from 'src/ts/globalApi.svelte'
   import {
@@ -29,8 +30,6 @@
   import FullscreenImageViewer from '../../UI/GUI/FullscreenImageViewer.svelte'
   import IconButton from '../../UI/GUI/IconButton.svelte'
   import { createIncrementalList } from '../../UI/incrementalList.svelte'
-
-  let submenu = $state(0)
 
   type SortKey = 'created-desc' | 'created-asc' | 'updated-desc' | 'updated-asc'
   type SpecialFilter = 'all' | 'meta-missing' | 'orphan-character' | 'orphan-chat' | 'orphan-message'
@@ -75,7 +74,7 @@
   const characterMap = $derived(new Map(characterIndex.map((char) => [char.chaId, char])))
   const allChatIds = $derived(new Set(characterIndex.flatMap((char) => char.chats.map((chat) => chat.id))))
   const availableChats = $derived(characterFilter ? (characterMap.get(characterFilter)?.chats ?? []) : [])
-  const tabItems = $derived(allItems.filter((item) => submenu === 0
+  const tabItems = $derived(allItems.filter((item) => $InlayGallerySubmenuIndex === 0
     ? item.type === 'image'
     : item.type === 'video' || item.type === 'audio'))
 
@@ -307,7 +306,7 @@
 
   // --- Effects ---
   $effect(() => {
-    submenu
+    $InlayGallerySubmenuIndex
     selection.clear()
     closeViewer()
   })
@@ -319,7 +318,7 @@
   })
 
   $effect(() => {
-    submenu
+    $InlayGallerySubmenuIndex
     allItems.length
     sortKey
     characterFilter
@@ -353,18 +352,18 @@
   loadAssets()
 </script>
 
-<div class="min-h-0 flex flex-col {submenu !== 2 ? 'h-full overflow-hidden' : ''}">
+<div class="min-h-0 flex flex-col {$InlayGallerySubmenuIndex !== 2 ? 'h-full overflow-hidden' : ''}">
   <div class="shrink-0">
     <SettingPage title={language.playground.inlayImageGallery}>
       <SettingTabs tabs={[
         { label: language.playground.inlayImageList, value: 0 },
         { label: language.playground.inlayMediaList, value: 1 },
         { label: language.settings, value: 2 },
-      ]} bind:selected={submenu} />
+      ]} bind:selected={$InlayGallerySubmenuIndex} />
     </SettingPage>
   </div>
 
-  {#if submenu === 2}
+  {#if $InlayGallerySubmenuIndex === 2}
     <SettingRenderer items={inlayImageSettingsItems} layout="row" />
   {:else}
     <header class="shrink-0 flex flex-col gap-3 bg-bgcolor pb-4">
@@ -439,7 +438,7 @@
         <div class="min-h-full flex flex-col items-center justify-center text-center text-textcolor2">
           <p class="text-lg">{language.playground.inlayEmpty}</p>
           <p class="text-sm mt-2">
-            {submenu === 0
+            {$InlayGallerySubmenuIndex === 0
               ? language.playground.inlayImageGalleryEmptyDesc
               : language.playground.inlayMediaGalleryEmptyDesc}
           </p>

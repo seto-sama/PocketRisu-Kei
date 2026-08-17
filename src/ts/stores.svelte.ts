@@ -78,6 +78,15 @@ export const AdminStatsSubmenuIndex = writable(0)
 // mode gear button can deep-link to the Sidebar tab — see src/ts/routing
 // (AccessibilityTab) and Setting/Pages/AccessibilitySettings.svelte.
 export const AccessibilitySubmenuIndex = writable(0)
+// Shared tab state lets settings search deep-link into pages that previously
+// kept their selected tab as component-local state.
+export const DisplaySubmenuIndex = writable(0)
+export const AdvancedSubmenuIndex = writable(0)
+export const LanguageSubmenuIndex = writable(0)
+export const PromptPresetSubmenuIndex = writable(0)
+export const OtherBotsSubmenuIndex = writable(0)
+export const InlayGallerySubmenuIndex = writable(0)
+export const ModelPresetListTabIndex = writable(0)
 export const ReloadGUIPointer = writable(0)
 // Room switches need background/script-cache refreshes, but they must not
 // invalidate every room's parsed-message cache like a real GUI/script edit.

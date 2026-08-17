@@ -16,7 +16,7 @@
     import ApiKeyPoolManager from "./ApiKeyPoolManager.svelte";
     import ModelPresetOptions from "./ModelPresetOptions.svelte";
     import { language } from "src/lang";
-    import { DBState, openModelProfileBrowser, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
+    import { DBState, ModelPresetListTabIndex, openModelProfileBrowser, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
     import { alertConfirm, notifySuccess, notifyWarning } from "src/ts/alert";
     import { testModelPreset, type ModelPresetTestResult } from "src/ts/process/request/request";
     import {
@@ -46,8 +46,7 @@
     let testMessage = $state(language.modelPresetTestDefault);
     let testing = $state(false);
     let testResult = $state<ModelPresetTestResult | null>(null);
-    // Top-level page tabs (hidden while editing a preset): 0=presets, 1=keys, 2=settings.
-    let page = $state(0);
+    // Top-level page tabs are shared so settings search can open Options.
     let suppressPresetClick = $state(false);
     let refreshingAllPresets = $state(false);
 
@@ -587,12 +586,12 @@
                 { label: language.apiKeyManagerMenu, value: 1 },
                 { label: language.modelPresetTabOptions, value: 2 },
             ]}
-            bind:selected={page}
+            bind:selected={$ModelPresetListTabIndex}
         />
 
-        {#if page === 1}
+        {#if $ModelPresetListTabIndex === 1}
             <ApiKeyPoolManager />
-        {:else if page === 2}
+        {:else if $ModelPresetListTabIndex === 2}
             <ModelPresetOptions />
         {:else}
             <div class="flex gap-2 mb-4">
