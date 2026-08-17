@@ -1,4 +1,4 @@
-<div class="risu-field-border h-full min-h-0 w-full overflow-hidden rounded-md bg-bgcolor text-textcolor" bind:this={editorRoot}></div>
+<div class="risu-field-border h-full min-h-0 w-full rounded-md bg-bgcolor text-textcolor" bind:this={editorRoot}></div>
 
 <script lang="ts">
     import { autocompletion, closeCompletion, completionKeymap, completionStatus, type CompletionContext } from '@codemirror/autocomplete'
@@ -32,7 +32,7 @@
     } from '@lucide/svelte'
     import { createRawSnippet, mount, onDestroy, onMount, unmount, type Component } from 'svelte'
     import IconButton from './IconButton.svelte'
-    import { AllCBS } from 'src/ts/cbs'
+    import { getCBSCompletionEntries } from 'src/ts/cbs'
     import { getCBSHighlightRanges, type HighlightType } from 'src/ts/gui/highlight'
     import { language } from 'src/lang'
 
@@ -87,10 +87,26 @@
         decorations: (plugin) => plugin.decorations,
     })
 
-    const completionOptions = AllCBS.map((label) => ({
-        label,
-        type: label.startsWith('#') || label.startsWith('/') ? 'keyword' : 'variable',
-        apply: label.endsWith(':') ? `${label}:` : label.startsWith('#') ? `${label} ` : `${label}}}`,
+    const completionOptions = getCBSCompletionEntries().map((entry) => ({
+        label: entry.name,
+        type: entry.name.startsWith('#') || entry.name.startsWith('/') ? 'keyword' : 'variable',
+        detail: entry.detail,
+        boost: entry.deprecated ? -1 : 0,
+        apply: entry.name.endsWith(':')
+            ? `${entry.name}:`
+            : entry.name.startsWith('#') ? `${entry.name} ` : `${entry.name}}}`,
+        info: () => {
+            const dom = document.createElement('div')
+            dom.className = 'risu-cbs-completion-info'
+
+            const signature = document.createElement('code')
+            signature.textContent = `{{${entry.name}${entry.name.startsWith('#') ? ' …' : ''}}}`
+
+            const description = document.createElement('div')
+            description.textContent = entry.description
+            dom.append(signature, description)
+            return dom
+        },
     }))
 
     function cbsCompletion(context: CompletionContext) {
@@ -297,6 +313,7 @@
         '&.cm-focused': { outline: 'none' },
         '.cm-scroller': {
             overflow: 'auto',
+            borderRadius: '0.375rem',
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
             lineHeight: '1.625',
         },
@@ -430,8 +447,80 @@
             border: '1px solid var(--risu-theme-borderc)',
         },
         '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
-            backgroundColor: 'var(--risu-theme-selected)',
+            background: 'var(--risu-theme-selected) !important',
             color: 'var(--risu-theme-textcolor)',
+        },
+        '.cm-tooltip.cm-tooltip-autocomplete': {
+            overflow: 'visible',
+            backgroundColor: 'transparent',
+            border: '0',
+            boxShadow: 'none',
+        },
+        '.cm-tooltip-autocomplete > ul': {
+            minWidth: '16rem',
+            maxWidth: 'min(32rem, 80vw)',
+            height: 'auto',
+            maxHeight: '12rem',
+            padding: '0.125rem',
+            fontSize: '0.6875rem',
+            backgroundColor: 'var(--risu-theme-darkbg)',
+            border: '1px solid var(--risu-theme-darkborderc)',
+            borderRadius: '0.25rem',
+        },
+        '.cm-tooltip-autocomplete > ul > li': {
+            display: 'flex',
+            boxSizing: 'border-box',
+            height: '1.125rem',
+            alignItems: 'center',
+            padding: '0 0.25rem',
+            lineHeight: '1',
+            borderRadius: '0.125rem',
+        },
+        '.cm-completionLabel': {
+            minWidth: '0',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+        },
+        '.cm-completionMatchedText': {
+            color: 'var(--risu-theme-primary)',
+            fontWeight: '600',
+            textDecoration: 'none',
+        },
+        '.cm-completionDetail': {
+            flex: '0 0 auto',
+            marginLeft: 'auto',
+            paddingLeft: '0.375rem',
+            color: 'var(--risu-theme-textcolor2)',
+            fontSize: '0.625rem',
+            fontStyle: 'normal',
+        },
+        '.cm-tooltip.cm-completionInfo': {
+            width: 'min(26rem, 48vw)',
+            maxHeight: 'min(22rem, 70vh)',
+            padding: '0',
+            overflowY: 'auto',
+            backgroundColor: 'var(--risu-theme-darkbg)',
+            border: '1px solid var(--risu-theme-darkborderc)',
+            borderRadius: '0.375rem',
+        },
+        '.cm-completionInfo.cm-completionInfo-right, .cm-completionInfo.cm-completionInfo-right-narrow': {
+            marginLeft: '-1px',
+        },
+        '.risu-cbs-completion-info': {
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+            padding: '0.5rem 0.625rem',
+            color: 'var(--risu-theme-textcolor)',
+            fontSize: '0.6875rem',
+            lineHeight: '1.5',
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'anywhere',
+        },
+        '.risu-cbs-completion-info code': {
+            color: 'var(--risu-theme-primary)',
+            fontSize: '0.75rem',
+            fontWeight: '600',
         },
         '.cm-cbs-depth-0': { color: 'var(--color-syntax-depth-0)' },
         '.cm-cbs-depth-1': { color: 'var(--color-syntax-depth-1)' },
@@ -457,7 +546,7 @@
                 extensions: [
                     minimalSetup,
                     search({ createPanel: createSearchPanel, top: true }),
-                    autocompletion({ override: [cbsCompletion], activateOnTyping: true }),
+                    autocompletion({ override: [cbsCompletion], activateOnTyping: true, icons: false }),
                     keymap.of([
                         { key: 'Mod-Enter', run: () => { onSave(); return true }, preventDefault: true },
                         { key: 'Mod-h', run: openSearchPanel, preventDefault: true },

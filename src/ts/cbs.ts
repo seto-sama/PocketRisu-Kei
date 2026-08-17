@@ -2510,17 +2510,47 @@ export function getCBSDefinitions(): readonly CBSDefinition[] {
 }
 
 export function getCBSCompletionNames(): string[] {
-    const names: string[] = []
+    return getCBSCompletionEntries().map(entry => entry.name)
+}
+
+export type CBSCompletionEntry = {
+    name: string
+    description: string
+    detail: string
+    deprecated: boolean
+}
+
+/** Editor-facing CBS metadata derived from the runtime registry. */
+export function getCBSCompletionEntries(): CBSCompletionEntry[] {
+    const entries = new Map<string, CBSCompletionEntry>()
 
     for (const definition of getCBSDefinitions()) {
         if (definition.internalOnly) continue
         for (const name of [definition.name, ...definition.alias]) {
-            names.push(name)
-            if (name.startsWith('#')) names.push(`/${name.slice(1)}`)
+            const isAlias = name !== definition.name
+            if (!entries.has(name)) {
+                entries.set(name, {
+                    name,
+                    description: definition.description,
+                    detail: isAlias ? `alias of ${definition.name}` : name.startsWith('#') ? 'block' : '',
+                    deprecated: !!definition.deprecated,
+                })
+            }
+            if (name.startsWith('#')) {
+                const closingName = `/${name.slice(1)}`
+                if (!entries.has(closingName)) {
+                    entries.set(closingName, {
+                        name: closingName,
+                        description: `Closes the ${name} block.\n\n${definition.description}`,
+                        detail: `closes ${name}`,
+                        deprecated: !!definition.deprecated,
+                    })
+                }
+            }
         }
     }
 
-    return [...new Set(names)]
+    return [...entries.values()]
 }
 
 export const AllCBS = getCBSCompletionNames()

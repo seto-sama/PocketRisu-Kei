@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { defaultCBSRegisterArg, getCBSCompletionNames, registerCBS, type RegisterCallback } from './cbs'
+import { defaultCBSRegisterArg, getCBSCompletionEntries, getCBSCompletionNames, registerCBS, type RegisterCallback } from './cbs'
 
 describe('metadata CBS', () => {
     it('exposes current block syntax to editor tooling', () => {
         expect(getCBSCompletionNames()).toEqual(expect.arrayContaining(['#when', '/when']))
+        expect(getCBSCompletionEntries()).toEqual(expect.arrayContaining([
+            expect.objectContaining({ name: '#when', detail: 'block' }),
+            expect.objectContaining({ name: '/when', detail: 'closes #when' }),
+        ]))
     })
 
     it('uses the effective generation model label for modelname', () => {

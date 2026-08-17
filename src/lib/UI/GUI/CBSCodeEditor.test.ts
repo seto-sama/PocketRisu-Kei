@@ -60,7 +60,12 @@ describe('CBSCodeEditor', () => {
         startCompletion(editor)
         await new Promise(resolve => setTimeout(resolve, 150))
 
-        expect(currentCompletions(editor.state).map(option => option.label)).toContain('#when')
+        const whenCompletion = currentCompletions(editor.state).find(option => option.label === '#when')
+        expect(whenCompletion).toMatchObject({
+            label: '#when',
+            detail: 'block',
+        })
+        expect(whenCompletion?.info).toBeTypeOf('function')
     })
 
     it('renders CBS highlighting and opens replace search with Ctrl+H', async () => {
