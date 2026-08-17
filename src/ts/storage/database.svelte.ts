@@ -1564,16 +1564,12 @@ export interface character{
     chats:Chat[]
     chatFolders: ChatFolder[]
     chatPage: number
-    viewScreen: 'emotion'|'none'|'imggen',
+    viewScreen: 'emotion'|'none',
     bias: [string, number][]
     emotionImages: [string, string][]
     globalLore: loreBook[]
     chaId: string
-    sdData: [string, string][]
     newGenData?: {
-        prompt: string,
-        negative: string,
-        instructions: string,
         emotionInstructions: string,
     }
     customscript: customscript[]
@@ -2062,7 +2058,6 @@ export interface Chat{
     note:string
     name:string
     localLore: loreBook[]
-    sdData?:string
     isStreaming?:boolean
     scriptstate?:{[key:string]:string|number|boolean}
     modules?:string[]
@@ -2111,6 +2106,7 @@ export interface ChatFolder{
 export interface Message{
     role: 'user'|'char'
     data: string
+    kind?: 'imageGeneration'
     saying?: string
     chatId?:string
     time?: number
@@ -2352,20 +2348,6 @@ export const themePresetTemplate: themePreset = {
     betaMobileGUI: false,
     menuSideBar: false,
     useChatSticker: false,
-}
-
-const defaultSdData:[string,string][] = [
-    ["always", "solo, 1girl"],
-    ['negative', ''],
-    ["|character\'s appearance", ''],
-    ['current situation', ''],
-    ['$character\'s pose', ''],
-    ['$character\'s emotion', ''],
-    ['current location', ''],
-]
-
-export const defaultSdDataFunc = () =>{
-    return safeStructuredClone(defaultSdData)
 }
 
 // ─────────────────────────────────────────────────────────────

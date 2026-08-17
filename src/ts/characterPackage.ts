@@ -56,6 +56,7 @@ interface InlayMetaEntry {
     updatedAt?: number
     charId?: string
     chatId?: string
+    imageGeneration?: InlayAssetMeta['imageGeneration']
 }
 
 // ── Helpers ──
@@ -382,6 +383,7 @@ async function importInlays(
                 updatedAt: meta.updatedAt || Date.now(),
                 charId: targetCharId,
                 chatId: meta.chatId,
+                imageGeneration: meta.imageGeneration,
             })
         }
     }
@@ -589,6 +591,7 @@ export async function exportCharacterPackage(
                     updatedAt: meta?.updatedAt,
                     charId: meta?.charId,
                     chatId: meta?.chatId,
+                    imageGeneration: meta?.imageGeneration,
                 }
             }
             currentStep++

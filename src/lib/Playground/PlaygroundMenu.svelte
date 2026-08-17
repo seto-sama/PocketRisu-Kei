@@ -5,7 +5,6 @@
     import PlaygroundEmbedding from "./PlaygroundEmbedding.svelte";
     import PlaygroundTokenizer from "./PlaygroundTokenizer.svelte";
     import PlaygroundJinja from "./PlaygroundJinja.svelte";
-    import PlaygroundImageGen from "./PlaygroundImageGen.svelte";
     import PlaygroundParser from "./PlaygroundParser.svelte";
     import ToolConversion from "./ToolConversion.svelte";
 
@@ -38,11 +37,6 @@
                 PlaygroundStore.set(6)
             }}>
                 <h1 class="text-2xl font-bold text-start">Jinja</h1>
-            </button>
-            <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
-                PlaygroundStore.set(7)
-            }}>
-                <h1 class="text-2xl font-bold text-start">{language.imageGeneration}</h1>
             </button>
             <button class="bg-darkbg rounded-md p-6 flex flex-col transition-shadow hover:ring-1" onclick={() => {
                 PlaygroundStore.set(8)
@@ -85,9 +79,6 @@
             {#if $PlaygroundStore === 6}
                 <PlaygroundJinja/>
             {/if}
-            {#if $PlaygroundStore === 7}
-                <PlaygroundImageGen/>
-            {/if}  
             {#if $PlaygroundStore === 8}
                 <PlaygroundParser/>
             {/if}  
