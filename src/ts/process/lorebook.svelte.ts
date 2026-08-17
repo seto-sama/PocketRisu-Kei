@@ -276,8 +276,8 @@ export async function loadLoreBookV3Prompt(options: {
             let order = fullLore[i].insertorder
             let priority = fullLore[i].insertorder
             let forceState:string = 'none'
-            let role:'system'|'user'|'assistant' = fullLore[i].role ?? 'system'
-            let hasRoleOverride = fullLore[i].role !== undefined
+            let role:'system'|'user'|'assistant' = 'system'
+            let hasRoleOverride = false
             let searchQueries:{
                 keys:string[],
                 negative:boolean,
@@ -294,9 +294,6 @@ export async function loadLoreBookV3Prompt(options: {
                             fullLore[i].comment = fullLore[j].comment
                             fullLore[i].content = fullLore[j].content
                             fullLore[i].alwaysActive = true
-                            fullLore[i].role = fullLore[j].role
-                            role = fullLore[j].role ?? 'system'
-                            hasRoleOverride = fullLore[j].role !== undefined
                             activated = true
                         }
                         break

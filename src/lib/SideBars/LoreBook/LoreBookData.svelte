@@ -9,8 +9,6 @@
     import TextInput from "../../UI/GUI/TextInput.svelte";
     import NumberInput from "../../UI/GUI/NumberInput.svelte";
     import TextAreaInput from "../../UI/GUI/TextAreaInput.svelte";
-    import SelectInput from "../../UI/GUI/SelectInput.svelte";
-    import OptionInput from "../../UI/GUI/OptionInput.svelte";
     import { tokenizeAccurate } from "src/ts/tokenizer";
     import { DBState } from "src/ts/stores.svelte";
     import LoreBookList from "./LoreBookList.svelte";
@@ -319,19 +317,6 @@
             <div data-disclosure-field>
                 <div data-disclosure-label>{language.insertOrder}<Help key="loreorder"/></div>
                 <div data-disclosure-control><NumberInput bind:value={value.insertorder} min={0} max={1000}/></div>
-            </div>
-
-            <div data-disclosure-field>
-                <div data-disclosure-label>{language.role}</div>
-                <div data-disclosure-control>
-                    <SelectInput value={value.role ?? 'system'} onchange={(e) => {
-                        value.role = e.currentTarget.value as 'system'|'user'|'assistant'
-                    }}>
-                        <OptionInput value="system">{language.systemPrompt}</OptionInput>
-                        <OptionInput value="user">{language.user}</OptionInput>
-                        <OptionInput value="assistant">{language.character}</OptionInput>
-                    </SelectInput>
-                </div>
             </div>
 
             <div data-disclosure-field>
