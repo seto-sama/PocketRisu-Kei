@@ -9,12 +9,16 @@
  */
 
 /* 채팅 영역 전체 배경 */
-.nodeonly-standard {
-  background-color: color-mix(
+.nodeonly-standard-root {
+  --no-chat-background: color-mix(
     in srgb,
     var(--risu-theme-bgcolor) 25%,
     var(--risu-theme-darkbg)
   );
+}
+
+.nodeonly-standard {
+  background-color: var(--no-chat-background);
   /* 메시지 카드와 제작자 코멘트가 함께 따라갈 가로폭 변수 (display.nodeOnlyStandardChatWidth와 동기화) */
   --no-chat-max-width: 48rem;
 }
@@ -23,20 +27,18 @@
 
 /* 메시지 바깥 배경 */
 .nodeonly-standard .risu-chat {
-  background-color: color-mix(
-    in srgb,
-    var(--risu-theme-bgcolor) 25%,
-    var(--risu-theme-darkbg)
-  );
+  background-color: var(--no-chat-background);
 }
 
 /* 채팅 입력창 배경 */
+.nodeonly-standard-root > .chat-composer-fixed-layer,
 .nodeonly-standard .sticky.pt-2.pb-2 {
-  background-color: color-mix(
-    in srgb,
-    var(--risu-theme-bgcolor) 25%,
-    var(--risu-theme-darkbg)
-  ) !important;
+  background-color: var(--no-chat-background) !important;
+}
+
+/* 고정 툴바의 둥근 아래 모서리 뒤로 채팅 바깥 배경이 보이게 함 */
+.nodeonly-standard .chat-toolbar-sticky-footer-layer {
+  background-color: var(--no-chat-background);
 }
 
 /* 제작자 코멘트 박스 (메시지 카드와 동일한 bgcolor) */

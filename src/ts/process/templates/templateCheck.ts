@@ -3,10 +3,6 @@ import type { Database } from 'src/ts/storage/database.svelte'
 export function templateCheck(db:Database){
 
     const temp = db.promptTemplate
-    if(!temp){
-        return []
-    }
-
     let mainPrompts = 0
     let notePrompts = 0
     let endRanges:number[] = []

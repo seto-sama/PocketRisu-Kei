@@ -279,10 +279,6 @@ export async function getEmotion(db:Database,chaEmotion:{[key:string]: [string, 
 export function getAuthorNoteDefaultText(){
     const db = getDatabase()
     const template = db.promptTemplate
-    if(!template){
-        return ''
-    }
-
     for(const v of template){
         if(v.type === 'authornote'){
             return v.defaultText ?? ''

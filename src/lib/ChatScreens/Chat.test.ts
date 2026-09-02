@@ -252,6 +252,39 @@ async function waitForTranslationButtonState(target: HTMLElement, active: boolea
     return target.querySelector<HTMLButtonElement>('.button-icon-translate')
 }
 
+describe('branched chat comment layout', () => {
+    it.each(['standardRisu', ''])(
+        'keeps the compact branch label and delete action on one row for the %s theme',
+        async theme => {
+            DBState.db.theme = theme
+            const target = document.createElement('div')
+            document.body.appendChild(target)
+            const component = mount(Chat, {
+                target,
+                props: {
+                    message: '{{specialcomment::branchedfrom::source-chat::Source chat::source-message::}}',
+                    isComment: true,
+                    idx: 0,
+                    totalLength: 1,
+                },
+            })
+            mountedComponents.push(component)
+            await tick()
+
+            const row = target.querySelector('.branched-from-comment-row')
+            const label = row?.querySelector('.branched-from-comment-text')
+            const removeButton = row?.querySelector<HTMLButtonElement>('.button-icon-remove')
+
+            expect(row).not.toBeNull()
+            expect(row?.classList.contains('grid')).toBe(true)
+            expect(row?.classList.contains('grid-cols-[2.5rem_minmax(0,1fr)_2.5rem]')).toBe(true)
+            expect(label?.classList.contains('text-sm')).toBe(true)
+            expect(label?.classList.contains('mb-12')).toBe(false)
+            expect(removeButton?.dataset.iconSize).toBe('default')
+        },
+    )
+})
+
 describe('Chat editing', () => {
     it('keeps user translation toggles while retaining cached room restores', async () => {
         DBState.db.translator = 'google'
@@ -1012,6 +1045,62 @@ describe('Chat editing', () => {
         expect(firstMessage.querySelector('.message-edit-area')).not.toBeNull()
     })
 
+    it('allows navigating swipes on a context-disabled message', async () => {
+        DBState.db.showPreviousChatSwipeButtons = true
+        const messages: Message[] = [{
+            role: 'char',
+            data: 'Disabled first swipe',
+            chatId: 'disabled-message',
+            swipes: ['Disabled first swipe', 'Disabled second swipe'],
+            swipeId: 0,
+            disabled: true,
+        }, {
+            role: 'char',
+            data: 'Current message',
+            chatId: 'current-message',
+        }]
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            chats: [{ id: 'chat-1', message: messages }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chats, {
+            target,
+            props: {
+                messages,
+                currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                onNextSwipe: (idx?: number) => {
+                    const message = messages[idx ?? messages.length - 1]
+                    message.swipeId = 1
+                    message.data = message.swipes![1]
+                    storeMocks.invalidateChatMessageRender(idx ?? messages.length - 1)
+                },
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 2,
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(2)
+
+        const disabledMessage = target.querySelectorAll<HTMLElement>('.chat-message-container')[0]
+        expect(disabledMessage.querySelectorAll('.button-icon-reroll')).toHaveLength(1)
+        disabledMessage.querySelector<HTMLButtonElement>('.button-icon-reroll')!.click()
+
+        await tick()
+        expect(messages[0].data).toBe('Disabled second swipe')
+        expect(messages[0].disabled).toBe(true)
+        expect(disabledMessage.textContent).toContain('2/2')
+    })
+
     it('restores a cached translation after deleting the selected swipe', async () => {
         DBState.db.translator = 'en'
         DBState.db.translatorType = 'llm'
@@ -1412,6 +1501,7 @@ describe('Chat editing', () => {
                 idx: -1,
                 firstMessage: true,
                 totalLength: 1,
+                isStreamingDisplay: true,
             },
         })
         mountedComponents.push(component)
@@ -1427,6 +1517,7 @@ describe('Chat editing', () => {
         const stickyFooterLayer = target.querySelector('.chat-message-body')?.nextElementSibling
         expect(stickyFooterLayer?.classList.contains('chat-toolbar-sticky-footer-layer')).toBe(true)
         expect(stickyFooterLayer?.classList.contains('chat-toolbar-above-fixed-composer')).toBe(true)
+        expect(stickyFooterLayer?.classList.contains('chat-toolbar-streaming-layer')).toBe(true)
     })
 
     it('hides the model label on mobile while retaining its icon', async () => {

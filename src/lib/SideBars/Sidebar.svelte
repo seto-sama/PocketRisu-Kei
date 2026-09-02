@@ -9,7 +9,6 @@
     sideBarClosing,
     sideBarStore,
     OpenRealmStore,
-    PlaygroundStore,
 
     QuickSettings,
 
@@ -23,7 +22,6 @@
     import { DBState } from 'src/ts/stores.svelte';
     import BarIcon from "./BarIcon.svelte";
     import {
-    ShellIcon,
     Settings,
     ListIcon,
     LayoutGridIcon,
@@ -291,13 +289,11 @@
   class="flex items-center justify-center py-2 flex-col gap-1 w-full"
   class:text-textcolor2={!(
     $selectedCharID < 0 &&
-    $PlaygroundStore === 0 &&
     !$settingsOpen
   )}
   onclick={() => {
     reseter();
     selectedCharID.set(-1)
-    PlaygroundStore.set(0)
     OpenRealmStore.set(false)
   }}
 >
@@ -333,21 +329,6 @@
 >
   <User2Icon />
   <span class="text-xs">{language.character}</span>
-</button>
-<button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-textcolor2={!(
-    $selectedCharID < 0 &&
-    $PlaygroundStore !== 0
-  )}
-  onclick={() => {
-    reseter();
-    selectedCharID.set(-1)
-    PlaygroundStore.set(1)
-  }}
->
-  <ShellIcon />
-  <span class="text-xs">{language.playground.playground}</span>
 </button>
 </IconButtonGroup>
 </div>
@@ -402,24 +383,10 @@
             onClick={() => {
               reseter();
               selectedCharID.set(-1)
-              PlaygroundStore.set(0)
               OpenRealmStore.set(false)
             }}
           >
             <HomeIcon />
-          </BarIcon>
-          <BarIcon
-            onClick={() => {
-              reseter()
-              if($selectedCharID === -1 && $PlaygroundStore !== 0){
-                PlaygroundStore.set(0)
-                return
-              }
-              selectedCharID.set(-1)
-              PlaygroundStore.set(1)
-            }}
-          >
-            <ShellIcon />
           </BarIcon>
           <BarIcon
             onClick={() => {

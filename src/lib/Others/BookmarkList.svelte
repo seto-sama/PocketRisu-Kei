@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { onMount, onDestroy } from "svelte";
     import { XIcon, TrashIcon, PencilIcon, BookOpenCheckIcon, BookLockIcon, ArrowRightIcon } from "@lucide/svelte";
     import Chat from "../ChatScreens/Chat.svelte";
     import { getCharImage } from "src/ts/characters";
@@ -7,7 +6,7 @@
     import { createSimpleCharacter, bookmarkListOpen, DBState, selectedCharID, ScrollToMessageStore } from "src/ts/stores.svelte";
     import { language } from "src/lang";
     import { alertInput } from "src/ts/alert";
-    import Portal from "../UI/GUI/Portal.svelte";
+    import OverlayPortal from "../UI/GUI/OverlayPortal.svelte";
 
     const close = () => $bookmarkListOpen = false;
     let chara = $derived(DBState.db.characters[$selectedCharID]);
@@ -53,18 +52,6 @@
 
     let expandedBookmarks = $state(new Set<string>());
     let expandAll = $state(false);
-
-    onMount(() => {
-        const handleKeydown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                close();
-            }
-        };
-        window.addEventListener('keydown', handleKeydown);
-        return () => {
-            window.removeEventListener('keydown', handleKeydown);
-        };
-    });
 
     function toggleExpand(chatId: string) {
         if (expandAll) {
@@ -115,9 +102,9 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<Portal>
+<OverlayPortal onEscape={close}>
 <div
-    class="risu-modal-backdrop risu-layer-dialog-base flex justify-center items-center"
+    class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center"
     onclick={(event) => {
         if (event.target === event.currentTarget) {
             close();
@@ -198,4 +185,4 @@
         {/if}
     </div>
 </div>
-</Portal>
+</OverlayPortal>

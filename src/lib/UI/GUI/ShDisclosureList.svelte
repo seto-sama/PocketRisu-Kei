@@ -78,7 +78,7 @@
 
         const preview = document.createElement('div');
         preview.textContent = name;
-        preview.className = 'risu-layer-system-popover absolute -top-96 -left-96 px-4 py-2 bg-darkbg text-textcolor2 rounded-sm text-sm whitespace-nowrap shadow-lg pointer-events-none';
+        preview.className = 'risu-layer-overlay absolute -top-96 -left-96 px-4 py-2 bg-darkbg text-textcolor2 rounded-sm text-sm whitespace-nowrap shadow-lg pointer-events-none';
         document.body.appendChild(preview);
         event.dataTransfer.setDragImage(preview, 10, 10);
         setTimeout(() => preview.remove(), 0);

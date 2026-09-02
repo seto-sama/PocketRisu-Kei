@@ -10,11 +10,9 @@
         class:text-lg={size === 'lg'}
         class:text-xl={size === 'xl'}
 
-        class:px-4={size === 'md' && padding}
+        class:risu-single-line-input={padding}
         class:py-2={size === 'md' && padding}
-        class:px-2={size === 'sm' && padding}
         class:py-1={size === 'sm' && padding}
-        class:px-6={size === 'lg' || size === 'xl' && padding}
         class:py-3={size === 'lg' || size === 'xl'&& padding}
 
         class:mb-4={marginBottom}
@@ -50,11 +48,9 @@
         class:text-lg={size === 'lg'}
         class:text-xl={size === 'xl'}
 
-        class:px-4={size === 'md' && padding}
+        class:risu-single-line-input={padding}
         class:py-2={size === 'md' && padding}
-        class:px-2={size === 'sm' && padding}
         class:py-1={size === 'sm' && padding}
-        class:px-6={size === 'lg' || size === 'xl' && padding}
         class:py-3={size === 'lg' || size === 'xl'&& padding}
 
         class:mb-4={marginBottom}
@@ -141,6 +137,10 @@
 </script>
 
 <style>
+    .risu-single-line-input {
+        padding-inline: 0.625rem;
+    }
+
     .hide-text:not(:focus):not(:hover) {
         text-indent: -9999px;
     }

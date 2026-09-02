@@ -46,6 +46,25 @@ export function getTriggerV2BlockRange(effects: triggerEffect[], startIndex: num
     return { start: startIndex, end: startIndex };
 }
 
+export function getTriggerV2TopLevelDividerIndexes(effects: triggerEffect[]): Set<number> {
+    const groupEnds: number[] = [];
+
+    for (let index = 0; index < effects.length; index++) {
+        const effect = asV2(effects[index]);
+        if (!effect || effect.indent !== 0 || effect.type === 'v2Else' || effect.type === 'v2EndIndent') continue;
+
+        if (blockStartTypes.has(effect.type)) {
+            const { end } = getTriggerV2BlockRange(effects, index);
+            groupEnds.push(end);
+            index = end;
+        } else {
+            groupEnds.push(index);
+        }
+    }
+
+    return new Set(groupEnds.slice(0, -1));
+}
+
 export function getTriggerV2ElseBlock(effects: triggerEffect[], effectIndex: number): TriggerV2ElseBlock | null {
     const effect = asV2(effects[effectIndex]);
     if (!effect || (effect.type !== 'v2If' && effect.type !== 'v2IfAdvanced')) return null;
@@ -86,6 +105,18 @@ export function toggleTriggerV2Else(effects: triggerEffect[], effectIndex: numbe
     return next;
 }
 
+export function ensureTriggerV2ElseBlocks(effects: triggerEffect[]): triggerEffect[] {
+    let next = effects;
+    for (let index = effects.length - 1; index >= 0; index--) {
+        const effect = asV2(next[index]);
+        if (effect?.type !== 'v2If' && effect?.type !== 'v2IfAdvanced') continue;
+        const block = getTriggerV2ElseBlock(next, index);
+        if (!block || block.elseIndex !== -1 || block.endIndentIndex === -1) continue;
+        next = toggleTriggerV2Else(next, index, true);
+    }
+    return next;
+}
+
 export function appendTriggerV2Effect(effects: triggerEffect[], effect: triggerEffectV2): triggerEffect[] {
     const next = [...effects, effect];
     if (structuralStartTypes.has(effect.type)) {
@@ -94,6 +125,12 @@ export function appendTriggerV2Effect(effects: triggerEffect[], effect: triggerE
             indent: effect.indent + 1,
             endOfLoop: effect.type === 'v2Loop' || effect.type === 'v2LoopNTimes',
         });
+        if (effect.type === 'v2If' || effect.type === 'v2IfAdvanced') {
+            next.push(
+                { type: 'v2Else', indent: effect.indent },
+                { type: 'v2EndIndent', indent: effect.indent + 1 },
+            );
+        }
     }
     return next;
 }

@@ -2,8 +2,10 @@ import { decode as decodeMsgpack, encode as encodeMsgpack } from "msgpackr/index
 import * as fflate from "fflate";
 import { decryptBuffer, encryptBuffer } from "src/ts/util";
 import { decodeRPack, encodeRPack } from "src/ts/rpack/rpack_js.js";
+import { v4 as uuidv4 } from "uuid";
 
 export interface TranslatorPreset {
+    id: string;
     name: string;
     prompt: string;
     maxResponse: number;
@@ -34,15 +36,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
 
-function isTranslatorPresetValue(value: unknown): value is TranslatorPreset {
+type TranslatorPresetInput = Omit<TranslatorPreset, "id"> & { id?: string };
+
+function isTranslatorPresetInput(value: unknown): value is TranslatorPresetInput {
     return (
         isRecord(value) &&
+        (value.id === undefined || typeof value.id === "string") &&
         typeof value.name === "string" &&
         typeof value.prompt === "string" &&
         typeof value.maxResponse === "number" &&
         Number.isFinite(value.maxResponse) &&
         (value.folderId === undefined || typeof value.folderId === "string")
     );
+}
+
+function isTranslatorPresetValue(value: unknown): value is TranslatorPreset {
+    return isTranslatorPresetInput(value) && typeof value.id === "string" && value.id.length > 0;
 }
 
 function getBytes(value: unknown): Uint8Array | null {
@@ -95,6 +104,7 @@ export function createTranslatorPreset(
     existing: Partial<TranslatorPreset> = {}
 ): TranslatorPreset {
     return {
+        id: typeof existing.id === "string" && existing.id.length > 0 ? existing.id : uuidv4(),
         name,
         prompt: typeof existing.prompt === "string" ? existing.prompt : "",
         maxResponse:
@@ -208,7 +218,7 @@ async function decodeEncryptedTranslatorPresetFile(data: Uint8Array): Promise<Tr
 
     const parsedPreset: unknown = decodeMsgpack(new Uint8Array(decryptedPreset));
 
-    if (!isTranslatorPresetValue(parsedPreset)) {
+    if (!isTranslatorPresetInput(parsedPreset)) {
         throw new Error("Invalid translator preset file.");
     }
 

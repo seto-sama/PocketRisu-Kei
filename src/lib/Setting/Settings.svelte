@@ -43,7 +43,7 @@
         { index: 3, icon: MonitorIcon, label: language.soundAndDisplay },
         { index: 11, icon: AccessibilityIcon, label: language.accessibility },
         { index: 6, icon: ActivityIcon, label: language.advancedSettings },
-        { index: 23, icon: ImageIcon, label: language.playground.inlayImageGallery },
+        { index: 23, icon: ImageIcon, label: language.inlayGallery.inlayImageGallery },
         { index: 21, icon: MonitorSmartphoneIcon, label: language.connectionManagement },
         { index: 22, icon: ArchiveIcon, label: language.storageManagement },
         { index: 24, icon: CogIcon, label: language.adminAndStats },

@@ -5,7 +5,7 @@
     import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
     import SettingRenderer from "../../SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import InlineNameInput from "src/lib/UI/GUI/InlineNameInput.svelte";
     import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { DBState } from "src/ts/stores.svelte";
@@ -16,6 +16,7 @@
         translatorPresetImportExtensions,
     } from "src/ts/translator/presets";
     import { selectSingleFile } from "src/ts/util";
+    import { v4 as uuidv4 } from "uuid";
 
     let pickerOpen = $state(false);
     let editMode = $state(false);
@@ -78,6 +79,7 @@
 
     function duplicatePreset(index: number) {
         const preset = safeStructuredClone(DBState.db.translatorPresets[index]);
+        preset.id = uuidv4();
         preset.name = `${preset.name} Copy`;
         DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
         DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
@@ -112,6 +114,7 @@
             const file = await selectSingleFile(translatorPresetImportExtensions);
             if (!file) return;
             const preset = await decodeTranslatorPresetFile(file.data);
+            preset.id = uuidv4();
             preset.folderId = selectedFolder !== "all" && selectedFolder !== "uncategorized"
                 ? selectedFolder : undefined;
             DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
@@ -171,7 +174,7 @@
         {#snippet itemContent(index)}
                 {@const preset = DBState.db.translatorPresets[index]}
                 {#if editMode}
-                    <div class="min-w-0 grow"><TextInput bind:value={DBState.db.translatorPresets[index].name} placeholder="string" padding={false} fullwidth className="h-8 min-w-0 px-2" /></div>
+                    <div class="min-w-0 grow"><InlineNameInput bind:value={DBState.db.translatorPresets[index].name} size="default" placeholder="string" /></div>
                 {:else}
                     <span class="grow min-w-0 truncate">{preset.name}</span>
                 {/if}

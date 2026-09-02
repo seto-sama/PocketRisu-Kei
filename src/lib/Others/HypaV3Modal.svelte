@@ -17,7 +17,7 @@
   import BulkResummaryResult from "./HypaV3Modal/bulk-resummary-result.svelte";
   import ManualSummaryPanel from "./HypaV3Modal/manual-summary-panel.svelte";
   import ModalSearch from "./HypaV3Modal/modal-search.svelte";
-  import Portal from "../UI/GUI/Portal.svelte";
+  import OverlayPortal from "../UI/GUI/OverlayPortal.svelte";
   
   import type {
     SummaryItemState,
@@ -576,9 +576,9 @@
 
 </script>
 
-<Portal>
+<OverlayPortal>
 <!-- Modal Backdrop -->
-<div class="risu-modal-backdrop risu-layer-dialog-base p-1 sm:p-2">
+<div class="risu-modal-backdrop risu-layer-overlay p-1 sm:p-2">
   <!-- Modal Wrapper -->
   <div class="flex justify-center w-full h-full">
     <!-- Modal Window -->
@@ -680,4 +680,4 @@
   {filterState}
   onCategoryFilter={handleCategoryFilter}
 />
-</Portal>
+</OverlayPortal>

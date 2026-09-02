@@ -404,8 +404,7 @@ export const languageVietnamese = {
         "helpSlot": "Sử dụng {{slot}} để giữ nguyên",
         "expression": "Biểu thức"
     },
-    "playground": {
-        "playground": "Playground",
+    "inlayGallery": {
         "inlayDeleteConfirm": "Bạn có chắc muốn xóa \"{name}\" không?",
         "inlayDeleteMultipleConfirm": "Bạn có chắc muốn xóa ${count} tài sản được chọn không?",
         "inlayDeleteSelected": "Xóa mục đã chọn",
@@ -733,7 +732,6 @@ export const languageVietnamese = {
     "rangeStart": "Phạm vi bắt đầu",
     "rangeEnd": "Cuối phạm vi",
     "untilChatEnd": "Cho đến khi kết thúc cuộc trò chuyện",
-    "usePromptTemplate": "Sử dụng mẫu nhắc nhở",
     "specialType": "Loại đặc biệt",
     "noSpecialType": "Không có loại đặc biệt",
     "promptTemplate": "Mẫu nhắc nhở",
@@ -946,8 +944,6 @@ export const languageVietnamese = {
     "moduleIntergration": "Tích hợp mô-đun",
     "previewInfo": "Bản xem trước này hiển thị lời nhắc trước khi xử lý theo mô hình cụ thể.",
     "miscTools": "Công cụ khác",
-    "promptConvertion": "Chuyển đổi lời nhắc",
-    "convertionStep1": "Chọn tất cả tập tin liên quan đến lời nhắc (Context, Instruct và Sampler JSON được hỗ trợ)",
     "customCSS": "CSS tùy chỉnh",
     "betaMobileGUI": "GUI di động Beta",
     "menu": "Menu",

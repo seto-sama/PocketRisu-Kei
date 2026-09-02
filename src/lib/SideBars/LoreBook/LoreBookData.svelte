@@ -7,6 +7,7 @@
     import ShSwitch from "../../UI/GUI/ShSwitch.svelte";
     import Help from "../../Others/Help.svelte";
     import TextInput from "../../UI/GUI/TextInput.svelte";
+    import InlineNameInput from "../../UI/GUI/InlineNameInput.svelte";
     import NumberInput from "../../UI/GUI/NumberInput.svelte";
     import TextAreaInput from "../../UI/GUI/TextAreaInput.svelte";
     import { DBState } from "src/ts/stores.svelte";
@@ -176,11 +177,8 @@
             {/if}
             {#if listEditMode}
                 <div class="min-w-0 grow">
-                    <TextInput
+                    <InlineNameInput
                         bind:value={value.comment}
-                        className="h-6 min-w-0 px-2"
-                        padding={false}
-                        fullwidth
                         onkeydown={(event) => event.stopPropagation()}
                     />
                 </div>
@@ -300,7 +298,7 @@
 
             <div data-disclosure-field>
                 <div data-disclosure-label>{language.prompt}</div>
-                <div data-disclosure-control><TextAreaInput highlight autocomplete="off" bind:value={value.content} /></div>
+                <div data-disclosure-control><TextAreaInput autocomplete="off" bind:value={value.content} /></div>
             </div>
             <TokenCount value={value.content} className="mb-2" />
 

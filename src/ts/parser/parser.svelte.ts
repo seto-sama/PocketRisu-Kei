@@ -748,7 +748,7 @@ function createMissingInlayPlaceholder(id: string): HTMLDivElement {
 
     const title = document.createElement('div')
     title.className = 'x-risu-risu-inlay-missing-title'
-    title.textContent = language.playground.inlayMissing
+    title.textContent = language.inlayGallery.inlayMissing
 
     const subtitle = document.createElement('div')
     subtitle.className = 'x-risu-risu-inlay-missing-subtitle'
@@ -1434,6 +1434,11 @@ function makeArray(p1: unknown[]): string{
 }
 
 function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,type2?:string,funcArg?:string[],mode?:string}{
+    const getPreviewChatVar = (key:string) =>
+        matcherArg.variableOverrides?.chat?.[key] ?? getChatVar(key)
+    const getPreviewGlobalVar = (key:string) =>
+        matcherArg.variableOverrides?.global?.[key] ?? getGlobalChatVar(key)
+
     if(p1.startsWith('#if') || p1.startsWith('#if_pure ')){
         const statement = p1.split(' ', 2)
         const state = statement[1]
@@ -1527,7 +1532,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'var':{
-                        const variable = getChatVar(condition)
+                        const variable = getPreviewChatVar(condition)
                         if(isTruthy(variable)){
                             statement.push('1')
                         }
@@ -1537,7 +1542,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'toggle':{
-                        const variable = getGlobalChatVar('toggle_' + condition)
+                        const variable = getPreviewGlobalVar('toggle_' + condition)
                         if(isTruthy(variable)){
                             statement.push('1')
                         }
@@ -1547,7 +1552,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'vis':{ //vis = variable is
-                        const variable = getChatVar(statement.pop())
+                        const variable = getPreviewChatVar(statement.pop())
                         if(variable === condition){
                             statement.push('1')
                         }
@@ -1557,7 +1562,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'visnot':{ //visnot = variable is not
-                        const variable = getChatVar(statement.pop())
+                        const variable = getPreviewChatVar(statement.pop())
                         if(variable !== condition){
                             statement.push('1')
                         }
@@ -1567,7 +1572,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'tis':{ //tis = toggle is
-                        const variable = getGlobalChatVar('toggle_' + statement.pop())
+                        const variable = getPreviewGlobalVar('toggle_' + statement.pop())
                         if(variable === condition){
                             statement.push('1')
                         }
@@ -1577,7 +1582,7 @@ function blockStartMatcher(p1:string,matcherArg:matcherArg):{type:blockMatch,typ
                         break
                     }
                     case 'tisnot':{ //tisnot = toggle is not
-                        const variable = getGlobalChatVar('toggle_' + statement.pop())
+                        const variable = getPreviewGlobalVar('toggle_' + statement.pop())
                         if(variable !== condition){
                             statement.push('1')
                         }
@@ -1832,6 +1837,7 @@ export function risuChatParser(da:string, arg:{
     runVar?:boolean
     functions?:Map<string,{data:string,arg:string[]}>
     callStack?:number
+    variableOverrides?: matcherArg['variableOverrides']
     cbsConditions?:CbsConditions
 } = {}):string{
     if (da == null) return ''
@@ -1890,6 +1896,7 @@ export function risuChatParser(da:string, arg:{
         runVar: arg.runVar ?? false,
         consistantChar: arg.consistantChar ?? false,
         cbsConditions: arg.cbsConditions ?? {},
+        variableOverrides: arg.variableOverrides,
         callStack: arg.callStack,
         getNested: () => {
             return nested

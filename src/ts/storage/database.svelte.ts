@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import { checkNullish, decryptBuffer, encryptBuffer, selectSingleFile } from '../util';
+import { checkNullish, decryptBuffer, encryptBuffer, selectMultipleFile, selectSingleFile } from '../util';
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
 import { initializeCharacterRuntimeState } from './persistenceShape';
@@ -7,7 +7,7 @@ import type { RisuPlugin } from '../plugins/plugins.svelte';
 import type {triggerscript as triggerscriptMain} from '../process/triggers';
 import { downloadFile, saveAsset as saveImageGlobal } from '../globalApi.svelte';
 import { defaultJailbreak, defaultMainPrompt } from './defaultPrompts';
-import { notifySuccess } from '../alert';
+import { alertError, notifySuccess } from '../alert';
 import type { NAISettings } from '../process/models/nai';
 import { prebuiltNAIpresets, prebuiltPresets } from '../process/templates/templates';
 import { defaultColorScheme, type ColorScheme } from '../gui/colorscheme';
@@ -93,9 +93,112 @@ export function normalizePersonaSelection(data: Database): void {
     }
 }
 
-function normalizePromptTemplate(template: PromptItem[]|null|undefined): PromptItem[]|null {
+const DEFAULT_PROMPT_FORMAT_ORDER: readonly FormatingOrderItem[] = [
+    'main',
+    'description',
+    'personaPrompt',
+    'chats',
+    'lastChat',
+    'jailbreak',
+    'lorebook',
+    'globalNote',
+    'authorNote',
+]
+
+interface LegacyPromptTemplateSource {
+    mainPrompt?: string
+    jailbreak?: string
+    globalNote?: string
+    formatingOrder?: FormatingOrderItem[]
+}
+
+function legacyTextToPromptItems(
+    text: string,
+    type: 'plain'|'jailbreak',
+    type2: 'main'|'globalNote'|'normal',
+): PromptItem[] {
+    const roleText = text.startsWith('@@') ? text : `@@system\n${text}`
+    const parts = roleText.split(/@@@?(user|assistant|system)\n/)
+    const items: PromptItem[] = []
+
+    for(let index = 1; index < parts.length; index += 2){
+        const parsedRole = parts[index]
+        items.push({
+            type,
+            type2,
+            text: parts[index + 1]?.trim() ?? '',
+            role: parsedRole === 'assistant' ? 'bot' : parsedRole as 'user'|'system',
+        })
+    }
+
+    return items
+}
+
+function createPromptTemplateFromLegacy(source: LegacyPromptTemplateSource = {}): PromptItem[] {
+    const mainPrompt = typeof source.mainPrompt === 'string' ? source.mainPrompt : defaultMainPrompt
+    const jailbreak = typeof source.jailbreak === 'string' ? source.jailbreak : defaultJailbreak
+    const globalNote = typeof source.globalNote === 'string' ? source.globalNote : ''
+    const formatOrder = Array.isArray(source.formatingOrder)
+        ? source.formatingOrder
+        : DEFAULT_PROMPT_FORMAT_ORDER
+    const template: PromptItem[] = []
+
+    for(const item of formatOrder){
+        switch(item){
+            case 'main':{
+                template.push(...legacyTextToPromptItems(mainPrompt, 'plain', 'main'))
+                break
+            }
+            case 'description':{
+                template.push({ type: 'description' })
+                break
+            }
+            case 'personaPrompt':{
+                template.push({ type: 'persona' })
+                break
+            }
+            case 'chats':{
+                template.push({ type: 'chat', rangeStart: 0, rangeEnd: -1 })
+                break
+            }
+            case 'lastChat':{
+                template.push({ type: 'chat', rangeStart: -1, rangeEnd: 'end' })
+                break
+            }
+            case 'jailbreak':{
+                template.push(...legacyTextToPromptItems(jailbreak, 'jailbreak', 'normal'))
+                break
+            }
+            case 'lorebook':{
+                template.push({ type: 'lorebook' })
+                break
+            }
+            case 'globalNote':{
+                template.push(...legacyTextToPromptItems(globalNote, 'plain', 'globalNote'))
+                break
+            }
+            case 'authorNote':{
+                template.push({ type: 'authornote' })
+                break
+            }
+            case 'postEverything':{
+                template.push({ type: 'postEverything' })
+                break
+            }
+        }
+    }
+
+    return template
+}
+
+function normalizePromptTemplate(
+    template: PromptItem[]|null|undefined,
+    legacySource: LegacyPromptTemplateSource = {},
+): PromptItem[] {
+    // A missing template selected the legacy formatter. Materialize its fields
+    // before making templates always-on; an explicit [] still means "No Format".
     if(!Array.isArray(template)){
-        return null
+        return createPromptTemplateFromLegacy(legacySource)
     }
     const normalized = safeStructuredClone(template) as any[]
     for(const item of normalized){
@@ -129,9 +232,8 @@ function normalizePromptTemplate(template: PromptItem[]|null|undefined): PromptI
 }
 
 export function setDatabase(data:Database){
-    if(Array.isArray(data.promptTemplate)){
-        data.promptTemplate = normalizePromptTemplate(data.promptTemplate)
-    }
+    delete (data as Database & { modelRegistrySeen?: unknown }).modelRegistrySeen
+    data.promptTemplate = normalizePromptTemplate(data.promptTemplate, data)
     if(checkNullish(data.characters)){
         data.characters = []
     }
@@ -169,7 +271,7 @@ export function setDatabase(data:Database){
         data.jailbreakToggle = false
     }
     if(checkNullish(data.formatingOrder)){
-        data.formatingOrder = ['main','description', 'personaPrompt','chats','lastChat','jailbreak','lorebook', 'globalNote', 'authorNote']
+        data.formatingOrder = [...DEFAULT_PROMPT_FORMAT_ORDER]
     }
     if(checkNullish(data.loreBookDepth)){
         data.loreBookDepth = 5
@@ -278,9 +380,7 @@ export function setDatabase(data:Database){
     // (db.botPresetsId index) remains the source of truth for active preset.
     if (Array.isArray(data.botPresets)) {
         for (const preset of data.botPresets) {
-            if(Array.isArray(preset.promptTemplate)){
-                preset.promptTemplate = normalizePromptTemplate(preset.promptTemplate)
-            }
+            preset.promptTemplate = normalizePromptTemplate(preset.promptTemplate, preset)
             if (preset && !preset.id) {
                 preset.id = uuidv4()
             }
@@ -697,6 +797,8 @@ export function setDatabase(data:Database){
     data.hypaV3PresetFolders ??= []
     data.hypaV3PresetId ??= 0
     normalizeTranslatorPresetState(data)
+    data.translationDialogPromptPresetId ??=
+        data.translatorPresets[data.translatorPresetId]?.id ?? ''
     data.showDeprecatedTriggerV2 ??= false
     data.returnCSSError ??= true
     data.checkCorruption ??= false
@@ -801,6 +903,8 @@ export function setDatabase(data:Database){
     data.chatLoadAdditionalPages = normalizeChatLoadPages(data.chatLoadAdditionalPages, DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES)
     data.fixedChatTextarea ??= true
     applyModelPresetDefaults(data)
+    data.translationDialogModelPresetId ??=
+        data.defaultModelBinding?.aux?.translate ?? ''
     changeLanguage(data.language)
     setDatabaseLite(data)
 }
@@ -1209,7 +1313,7 @@ export interface Database{
     hideRealm:boolean
     colorScheme:ColorScheme
     colorSchemeName:string
-    promptTemplate?:PromptItem[]
+    promptTemplate:PromptItem[]
     hypaModel:HypaModel
     saveTime?:number
     mancerHeader:string
@@ -1242,6 +1346,9 @@ export interface Database{
     /** User-defined groups for organizing translator presets. */
     translatorPresetFolders?: PromptPresetFolder[]
     translatorPresetId: number
+    /** Prompt/model selections used only by the manual translation dialog. */
+    translationDialogPromptPresetId: string
+    translationDialogModelPresetId: string
     top_p: number,
     google: {
         accessToken: string
@@ -2302,7 +2409,8 @@ export const presetTemplate:botPreset = {
     maxResponse: 300,
     frequencyPenalty: 70,
     PresensePenalty: 70,
-    formatingOrder: ['main', 'description', 'personaPrompt','chats','lastChat', 'jailbreak', 'lorebook', 'globalNote', 'authorNote'],
+    formatingOrder: [...DEFAULT_PROMPT_FORMAT_ORDER],
+    promptTemplate: createPromptTemplateFromLegacy(),
     currentPluginProvider: "",
     textgenWebUIStreamURL: '',
     textgenWebUIBlockingURL: '',
@@ -2482,7 +2590,7 @@ export function saveCurrentPreset(){
         proxyRequestModel: db.proxyRequestModel,
         openrouterRequestModel: db.openrouterRequestModel,
         NAISettings: safeStructuredClone(db.NAIsettings),
-        promptTemplate: normalizePromptTemplate(db.promptTemplate) ?? null,
+        promptTemplate: normalizePromptTemplate(db.promptTemplate, db),
         NAIadventure: db.NAIadventure ?? false,
         NAIappendName: db.NAIappendName ?? false,
         localStopStrings: db.localStopStrings,
@@ -2593,7 +2701,7 @@ export function setPreset(db:Database, newPres: botPreset){
     db.openrouterRequestModel = newPres.openrouterRequestModel ?? db.openrouterRequestModel
     db.proxyRequestModel = newPres.proxyRequestModel ?? db.proxyRequestModel
     db.NAIsettings = newPres.NAISettings ?? db.NAIsettings
-    db.promptTemplate = normalizePromptTemplate(newPres.promptTemplate)
+    db.promptTemplate = normalizePromptTemplate(newPres.promptTemplate, newPres)
     db.NAIadventure = newPres.NAIadventure
     db.NAIappendName = newPres.NAIappendName
     db.NAIsettings.cfg_scale ??= 1
@@ -2912,171 +3020,126 @@ export async function downloadPreset(id:number, type:'json'|'risupreset'|'return
 }
 
 
-export async function importPreset(f:{
+type PresetImportFile = {
     name:string
     data:Uint8Array
-}|null = null){
-    if(!f){
-        f = await selectSingleFile(["json", "preset", "risupreset", "risup"])
-    }
-    if(!f){
-        return
-    }
-    let pre:any
-    if(f.name.endsWith('.risupreset') || f.name.endsWith('.risup')){
-        let data = f.data
-        if(f.name.endsWith('.risup')){
-            data = await decodeRPack(data)
-        }
-        const decoded = await decodeMsgpack(fflate.decompressSync(data))
-        console.log(decoded)
-        if((decoded.presetVersion === 0 || decoded.presetVersion === 2) && decoded.type === 'preset'){
-            pre = {...presetTemplate,...decodeMsgpack(Buffer.from(await decryptBuffer(decoded.preset ?? decoded.pres, 'risupreset')))}
-        }
-    }
-    else{
-        pre = {...presetTemplate,...(JSON.parse(Buffer.from(f.data).toString('utf-8')))}
-        console.log(pre)
-    }
-    if(pre?.promptTemplate !== undefined){
-        pre.promptTemplate = normalizePromptTemplate(pre.promptTemplate)
-    }
-    let db = getDatabase()
-    if(pre.presetVersion && pre.presetVersion >= 3){
-        //NAI preset
-        const pr = safeStructuredClone(prebuiltPresets.NAI)
-        pr.temperature = pre.parameters.temperature * 100
-        pr.maxResponse = pre.parameters.max_length
-        pr.NAISettings.topK = pre.parameters.top_k
-        pr.NAISettings.topP = pre.parameters.top_p
-        pr.NAISettings.topA = pre.parameters.top_a
-        pr.NAISettings.typicalp = pre.parameters.typical_p
-        pr.NAISettings.tailFreeSampling = pre.parameters.tail_free_sampling
-        pr.NAISettings.repetitionPenalty = pre.parameters.repetition_penalty
-        pr.NAISettings.repetitionPenaltyRange = pre.parameters.repetition_penalty_range
-        pr.NAISettings.repetitionPenaltySlope = pre.parameters.repetition_penalty_slope
-        pr.NAISettings.frequencyPenalty = pre.parameters.repetition_penalty_frequency
-        pr.NAISettings.repostitionPenaltyPresence = pre.parameters.repetition_penalty_presence
-        pr.PresensePenalty = pre.parameters.repetition_penalty_presence * 100
-        pr.NAISettings.cfg_scale = pre.parameters.cfg_scale
-        pr.NAISettings.mirostat_lr = pre.parameters.mirostat_lr
-        pr.NAISettings.mirostat_tau = pre.parameters.mirostat_tau
-        pr.name = pre.name ?? "Imported"
-        pr.id = uuidv4()
-        db.botPresets.push(pr)
-        return
-    }
+}
 
-    if(Array.isArray(pre?.prompt_order?.[0]?.order) && Array.isArray(pre?.prompts)){
-        //ST preset
-        const pr = safeStructuredClone(presetTemplate)
-        pr.promptTemplate = []
-
-        function findPrompt(identifier:number){
-            return pre.prompts.find((p:any) => p.identifier === identifier)
-        }
-        pr.temperature = (pre.temperature ?? 0.8) * 100
-        pr.frequencyPenalty = (pre.frequency_penalty ?? 0.7) * 100
-        pr.PresensePenalty = (pre.presence_penalty * 0.7) * 100
-        pr.top_p = pre.top_p ?? 1
-
-        for(const prompt of pre.prompt_order[0].order){
-            if(!prompt?.enabled){
-                continue
-            }
-            const p = findPrompt(prompt?.identifier ?? '')
-            if(p){
-                switch(p.identifier){
-                    case 'main':{
-                        pr.promptTemplate.push({
-                            type: 'plain',
-                            type2: 'main',
-                            text: p.content ?? "",
-                            role: p.role ?? "system"
-                        })
-                        break
-                    }
-                    case 'jailbreak':
-                    case 'nsfw':{
-                        pr.promptTemplate.push({
-                            type: 'jailbreak',
-                            type2: 'normal',
-                            text: p.content ?? "",
-                            role: p.role ?? "system"
-                        })
-                        break
-                    }
-                    case 'dialogueExamples':
-                    case 'charPersonality':
-                    case 'scenario':{
-                        break //ignore
-                    }
-                    case 'chatHistory':{
-                        pr.promptTemplate.push({
-                            type: 'chat',
-                            rangeEnd: 'end',
-                            rangeStart: 0
-                        })
-                        break
-                    }
-                    case 'worldInfoBefore':{
-                        pr.promptTemplate.push({
-                            type: 'lorebook'
-                        })
-                        break
-                    }
-                    case 'worldInfoAfter':{
-                        break
-                    }
-                    case 'charDescription':{
-                        pr.promptTemplate.push({
-                            type: 'description'
-                        })
-                        break
-                    }
-                    case 'personaDescription':{
-                        pr.promptTemplate.push({
-                            type: 'persona'
-                        })
-                        break
-                    }
-                    default:{
-                        console.log(p)
-                        pr.promptTemplate.push({
-                            type: 'plain',
-                            type2: 'normal',
-                            text: p.content ?? "",
-                            role: p.role ?? "system"
-                        })
-                    }
-                }
-            }
-            else{
-                console.log("Prompt not found", prompt)
-
-            }
-        }
-        if(pre?.assistant_prefill){
-            pr.promptTemplate.push({
-                type: 'postEverything'
-            })
-            pr.promptTemplate.push({
-                type: 'plain',
-                type2: 'main',
-                text: `{{#if {{prefill_supported}}}}${pre?.assistant_prefill}{{/if}}`,
-                role: 'bot'
-            })
-        }
-        pr.promptTemplate = normalizePromptTemplate(pr.promptTemplate)
-        pr.name = "Imported ST Preset"
-        pr.id = uuidv4()
-        db.botPresets.push(pr)
-        return
+function isLegacyRisuPreset(value:unknown):value is Partial<botPreset>{
+    if(!value || typeof value !== 'object' || Array.isArray(value)){
+        return false
     }
-    pre.name ??= "Imported"
+    const preset = value as Record<string, unknown>
+    return Object.prototype.hasOwnProperty.call(preset, 'promptTemplate')
+        || Array.isArray(preset.formatingOrder)
+        || typeof preset.mainPrompt === 'string'
+        || typeof preset.jailbreak === 'string'
+        || typeof preset.globalNote === 'string'
+        || typeof preset.apiType === 'string'
+}
+
+function addImportedPreset(pre:botPreset, hasImportedPromptTemplate = true){
+    pre.promptTemplate = normalizePromptTemplate(hasImportedPromptTemplate ? pre.promptTemplate : undefined, pre)
+    pre.name ||= "Imported"
     pre.id = uuidv4()
+    const db = getDatabase()
     if(!Array.isArray(db.botPresets)){
         db.botPresets = []
     }
     db.botPresets.push(pre)
+}
+
+export async function importPreset(input:PresetImportFile|PresetImportFile[]|null = null){
+    try{
+        const files = input
+            ? (Array.isArray(input) ? input : [input])
+            : await selectMultipleFile(["json", "preset", "risupreset", "risup"])
+        if(files.length === 0){
+            return
+        }
+
+        const nativeFiles = files.filter(file => {
+            const name = file.name.toLowerCase()
+            return name.endsWith('.risupreset') || name.endsWith('.risup')
+        })
+        if(nativeFiles.length > 0){
+            if(files.length !== 1){
+                throw new Error('Risu preset files must be imported one at a time.')
+            }
+            const file = nativeFiles[0]
+            let data = file.data
+            if(file.name.toLowerCase().endsWith('.risup')){
+                data = await decodeRPack(data)
+            }
+            const decoded = await decodeMsgpack(fflate.decompressSync(data))
+            if((decoded.presetVersion !== 0 && decoded.presetVersion !== 2) || decoded.type !== 'preset'){
+                throw new Error('Unsupported Risu preset format.')
+            }
+            const importedPreset = decodeMsgpack(Buffer.from(await decryptBuffer(decoded.preset ?? decoded.pres, 'risupreset')))
+            const hasPromptTemplate = Object.prototype.hasOwnProperty.call(importedPreset, 'promptTemplate')
+            addImportedPreset({...presetTemplate, ...importedPreset}, hasPromptTemplate)
+            return
+        }
+
+        // Prompt conversion pulls in tokenizer-related code, so load it only when
+        // importing a non-native preset rather than on every database startup.
+        const { convertPromptFiles, detectPromptJSONType } = await import('../process/prompt')
+        const conversionFiles = files.map(file => {
+            const content = Buffer.from(file.data).toString('utf-8')
+            return {
+                name: file.name,
+                content,
+                type: detectPromptJSONType(content),
+            }
+        })
+
+        if(files.length > 1){
+            const unsupported = conversionFiles.find(file => file.type === 'NOTSUPPORTED')
+            if(unsupported){
+                throw new Error(`Unsupported prompt preset format: ${unsupported.name}`)
+            }
+            addImportedPreset(convertPromptFiles(conversionFiles, presetTemplate))
+            return
+        }
+
+        const conversionFile = conversionFiles[0]
+        if(conversionFile.type !== 'NOTSUPPORTED'){
+            addImportedPreset(convertPromptFiles(conversionFiles, presetTemplate))
+            return
+        }
+
+        const importedPreset = JSON.parse(conversionFile.content)
+        if(importedPreset?.presetVersion >= 3){
+            // NovelAI preset
+            const pre = {...presetTemplate, ...importedPreset}
+            const pr = safeStructuredClone(prebuiltPresets.NAI)
+            pr.temperature = pre.parameters.temperature * 100
+            pr.maxResponse = pre.parameters.max_length
+            pr.NAISettings.topK = pre.parameters.top_k
+            pr.NAISettings.topP = pre.parameters.top_p
+            pr.NAISettings.topA = pre.parameters.top_a
+            pr.NAISettings.typicalp = pre.parameters.typical_p
+            pr.NAISettings.tailFreeSampling = pre.parameters.tail_free_sampling
+            pr.NAISettings.repetitionPenalty = pre.parameters.repetition_penalty
+            pr.NAISettings.repetitionPenaltyRange = pre.parameters.repetition_penalty_range
+            pr.NAISettings.repetitionPenaltySlope = pre.parameters.repetition_penalty_slope
+            pr.NAISettings.frequencyPenalty = pre.parameters.repetition_penalty_frequency
+            pr.NAISettings.repostitionPenaltyPresence = pre.parameters.repetition_penalty_presence
+            pr.PresensePenalty = pre.parameters.repetition_penalty_presence * 100
+            pr.NAISettings.cfg_scale = pre.parameters.cfg_scale
+            pr.NAISettings.mirostat_lr = pre.parameters.mirostat_lr
+            pr.NAISettings.mirostat_tau = pre.parameters.mirostat_tau
+            pr.name = pre.name ?? "Imported"
+            addImportedPreset(pr)
+            return
+        }
+
+        if(!isLegacyRisuPreset(importedPreset)){
+            throw new Error(`Unsupported prompt preset format: ${conversionFile.name}`)
+        }
+        const hasPromptTemplate = Object.prototype.hasOwnProperty.call(importedPreset, 'promptTemplate')
+        addImportedPreset({...presetTemplate, ...importedPreset}, hasPromptTemplate)
+    } catch(error){
+        alertError(error)
+    }
 }

@@ -8,20 +8,20 @@
     import { DownloadIcon, SquarePenIcon, HardDriveUploadIcon, PlusIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { exportChat, importChat } from "../../ts/characters";
     import { findCharacterbyId } from "../../ts/util";
-    import TextInput from "../UI/GUI/TextInput.svelte";
+    import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
     import { changeChatTo, createPersistedChat, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { v4 } from "uuid";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
-    import Portal from "../UI/GUI/Portal.svelte";
+    import OverlayPortal from "../UI/GUI/OverlayPortal.svelte";
 
     let editMode = $state(false)
     /** @type {{close?: any}} */
     let { close = () => {} } = $props();
 </script>
 
-<Portal>
-<div class="risu-modal-backdrop risu-layer-dialog-base flex justify-center items-center">
+<OverlayPortal>
+<div class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-72 max-h-full overflow-y-auto">
         <div class="flex items-center text-textcolor mb-4">
             <h2 class="mt-0 mb-0">{language.chatList}</h2>
@@ -37,7 +37,7 @@
                 }
             }} class="flex items-center text-textcolor border-t-1 border-solid border-0 border-darkborderc p-2 cursor-pointer" class:bg-selected={i === DBState.db.characters[$selectedCharID].chatPage}>
                 {#if editMode}
-                    <TextInput bind:value={DBState.db.characters[$selectedCharID].chats[i].name} padding={false}/>
+                    <InlineNameInput bind:value={DBState.db.characters[$selectedCharID].chats[i].name} />
                 {:else}
                     <span>{chat.name}</span>
                 {/if}
@@ -104,7 +104,7 @@
         </IconButtonGroup>
     </div>
 </div>
-</Portal>
+</OverlayPortal>
 
 <style>
     .break-any{

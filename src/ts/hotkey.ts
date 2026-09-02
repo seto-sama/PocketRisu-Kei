@@ -13,7 +13,6 @@ import {
     openThemePresetList,
     OpenRealmStore,
     personaSelectCallback,
-    PlaygroundStore,
     QuickSettings,
     SafeModeStore,
     selectedCharID,
@@ -231,7 +230,6 @@ function selectAdjacentCharacter(direction: -1 | 1): boolean {
     const nextIndex = currentIndex + direction
     if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sorted.length) return false
     selectedCharID.set(sorted[nextIndex].index)
-    PlaygroundStore.set(0)
     OpenRealmStore.set(false)
     return true
 }

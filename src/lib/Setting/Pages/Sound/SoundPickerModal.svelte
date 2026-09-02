@@ -49,7 +49,7 @@
     }
 </script>
 
-<ShDialog bind:open size="default" tier="alert">
+<ShDialog bind:open size="default">
     {#snippet title()}
         {language.selectNotificationSound}
     {/snippet}

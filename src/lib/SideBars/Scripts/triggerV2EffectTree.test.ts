@@ -2,8 +2,10 @@ import { describe, expect, test } from 'vitest';
 import type { triggerEffect, triggerEffectV2 } from 'src/ts/process/triggers';
 import {
     appendTriggerV2Effect,
+    ensureTriggerV2ElseBlocks,
     getTriggerV2BlockRange,
     getTriggerV2ElseBlock,
+    getTriggerV2TopLevelDividerIndexes,
     moveTriggerV2Effect,
     removeTriggerV2Effect,
     toggleTriggerV2Else,
@@ -26,6 +28,24 @@ describe('Trigger V2 effect tree', () => {
 
         expect(shape(next)).toEqual([
             { type: 'v2IfAdvanced', indent: 0 },
+            { type: 'v2EndIndent', indent: 1 },
+            { type: 'v2Else', indent: 0 },
+            { type: 'v2EndIndent', indent: 1 },
+        ]);
+    });
+
+    test('adds an empty else branch to an existing conditional', () => {
+        const initial = [
+            effect('v2IfAdvanced', 0),
+            effect('v2SetVar', 1),
+            effect('v2EndIndent', 1),
+        ];
+
+        expect(shape(ensureTriggerV2ElseBlocks(initial))).toEqual([
+            { type: 'v2IfAdvanced', indent: 0 },
+            { type: 'v2SetVar', indent: 1 },
+            { type: 'v2EndIndent', indent: 1 },
+            { type: 'v2Else', indent: 0 },
             { type: 'v2EndIndent', indent: 1 },
         ]);
     });
@@ -112,6 +132,21 @@ describe('Trigger V2 effect tree', () => {
         ]);
     });
 
+    test('places dividers only between top-level action groups', () => {
+        const effects = [
+            effect('v2SetVar', 0),
+            effect('v2IfAdvanced', 0),
+            effect('v2ConsoleLog', 1),
+            effect('v2EndIndent', 1),
+            effect('v2Else', 0),
+            effect('v2SetVar', 1),
+            effect('v2EndIndent', 1),
+            effect('v2StopTrigger', 0),
+        ];
+
+        expect([...getTriggerV2TopLevelDividerIndexes(effects)]).toEqual([0, 6]);
+    });
+
     test('does not move a block into itself', () => {
         const effects = [
             effect('v2LoopNTimes', 0),
@@ -120,5 +155,25 @@ describe('Trigger V2 effect tree', () => {
         ];
 
         expect(moveTriggerV2Effect(effects, 0, 2)).toBe(effects);
+    });
+
+    test('moves a top-level action into an else branch', () => {
+        const effects = [
+            effect('v2SetVar', 0),
+            effect('v2IfAdvanced', 0),
+            effect('v2ConsoleLog', 1),
+            effect('v2EndIndent', 1),
+            effect('v2Else', 0),
+            effect('v2EndIndent', 1),
+        ];
+
+        expect(shape(moveTriggerV2Effect(effects, 0, 5))).toEqual([
+            { type: 'v2IfAdvanced', indent: 0 },
+            { type: 'v2ConsoleLog', indent: 1 },
+            { type: 'v2EndIndent', indent: 1 },
+            { type: 'v2Else', indent: 0 },
+            { type: 'v2SetVar', indent: 1 },
+            { type: 'v2EndIndent', indent: 1 },
+        ]);
     });
 });

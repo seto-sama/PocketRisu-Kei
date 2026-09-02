@@ -91,11 +91,7 @@
         })
 
     let hasJailbreakPrompt = $derived.by(() => {
-        const template = DBState.db.promptTemplate
-        if (!template) {
-            return (DBState.db.jailbreak ?? '').trim().length > 0
-        }
-        return templateUsesJailbreakToggle(template)
+        return templateUsesJailbreakToggle(DBState.db.promptTemplate)
     })
 
     function isToggleDirty(key: string): boolean {

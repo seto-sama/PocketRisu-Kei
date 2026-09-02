@@ -43,7 +43,7 @@
 </script>
 
 <script lang="ts">
-    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, CopyIcon, PowerOff, GitBranch, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
+    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, MessageSquareOff, MessageSquarePlus, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
     import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy } from "src/ts/globalApi.svelte"
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
@@ -52,7 +52,7 @@
     import { risuChatParser } from "src/ts/process/scripts"
     import { runTrigger } from 'src/ts/process/triggers'
     import { sayTTS } from "src/ts/process/tts"
-    import { DBState, ReloadChatPointer, CurrentTriggerIdStore, invalidateChatMessageRender, popupStore } from 'src/ts/stores.svelte'
+    import { DBState, ReloadChatPointer, CurrentTriggerIdStore, invalidateChatMessageRender } from 'src/ts/stores.svelte'
 
     import { capitalize, getUserIcon, getUserName, sleep } from "src/ts/util"
     import { onDestroy, onMount, tick } from "svelte"
@@ -77,6 +77,9 @@
     import { createSubscriber } from "svelte/reactivity";
     import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges, subscribeTranslationResume } from "./chatBodyRenderController.svelte";
     import type { ChatScrollController } from "./chatScroll";
+    import ChatAdaptiveAction from "./ChatAdaptiveAction.svelte";
+    import ShDropdownMenuItem from "../UI/GUI/ShDropdownMenuItem.svelte";
+    import ShTooltip from "../UI/GUI/ShTooltip.svelte";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -635,6 +638,7 @@
 
 
     let blankMessage = $derived((message === '{{none}}' || message === '{{blank}}' || message === '') && idx === -1 && !altGreeting || isComment)
+    const isBranchedFromComment = $derived(Boolean(isComment && message?.startsWith('{{specialcomment::branchedfrom::')))
     let nodeOnlyWidthClass = $derived(
         DBState.db.nodeOnlyStandardChatWidth === 'full' ? 'max-w-full' :
         DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
@@ -917,6 +921,7 @@
     <div
         class="chat-toolbar-sticky-layer chat-toolbar-sticky-footer-layer"
         class:chat-toolbar-above-fixed-composer={DBState.db.fixedChatTextarea}
+        class:chat-toolbar-streaming-layer={isStreamingDisplay}
     >
         <div class="chat-toolbar-sticky-footer">
             <div class="chat-toolbar-sticky-footer-content">
@@ -941,21 +946,24 @@
             void cancelOriginalEdit()
         }} />
     {:else if isComment}
-        <div class="w-full flex justify-center text-textcolor2 italic mb-12">
+        <div class={{
+            "flex justify-center text-textcolor2 italic": true,
+            "branched-from-comment-text": isBranchedFromComment,
+            "min-w-0 text-sm leading-5": isBranchedFromComment,
+            "w-full mb-12": !isBranchedFromComment,
+        }}>
 
             {#if msgDisplay.startsWith('{{specialcomment')}
                 {@const parts = msgDisplay.split('::')}
                 {@const type = parts[1]}
 
                 {#if type === 'branchedfrom'}
-                    <button class="text-primary hover:underline"
+                    <button class="min-w-0 text-center text-primary hover:underline"
                         onclick={() => {
-                            console.log(parts)
                             changeChatTo(parts[2] ?? '')
                             foldChatToMessage(parts[4])
                         }}
                     >
-                        <GitBranch size={20} class="inline-block mr-1" />
                         {language.branchedText.replace("{}", parts[3] ?? '')}
                     </button>
                 {/if}
@@ -1014,11 +1022,23 @@
     {/if}
 {/snippet}
 
-{#snippet iconButtons(options:{applyTextColors?:boolean} = {})}
-    <div class="grow flex items-center justify-end" class:text-textcolor2={options?.applyTextColors !== false}>
+{#snippet branchedFromCommentRow()}
+    <div class="branched-from-comment-row grid w-full min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center py-1">
+        <span aria-hidden="true"></span>
+        <div class="min-w-0">
+            {@render textBox()}
+        </div>
+        <div class="flex justify-center">
+            {@render iconButtons({grow: false, compactComment: true})}
+        </div>
+    </div>
+{/snippet}
+
+{#snippet iconButtons(options:{applyTextColors?:boolean; grow?:boolean; compactComment?:boolean} = {})}
+    <div class="flex items-center justify-end" class:grow={options.grow !== false} class:text-textcolor2={options.applyTextColors !== false}>
         {#if isComment}
             <IconButton
-                size="lg"
+                size={options.compactComment ? "default" : "lg"}
                 tone="destructive"
                 className="button-icon-remove"
                 onclick={async () => {
@@ -1030,22 +1050,29 @@
         {:else}
             <span class="text-xs">{statusMessage}</span>
             <IconButtonGroup size="lg" className="ml-2 flex-wrap justify-end">
-                {@render translationButton()}
                 {#if window.innerWidth >= 640}
-                    {@render majorIconButtonsBody(false)}
+                    {@render ttsButton(false)}
+                    {@render translationButton()}
+                    {@render copyButton(false)}
+                    {@render deleteButton(false)}
                     {#if DBState.db.characters[selIdState.selId] && idx > -1}
                         <PopupButton>
-                            {@render minorIconButtonsBody(true)}
+                            {@render minorMenuItems()}
                         </PopupButton>
                     {/if}
                 {:else}
+                    {@render translationButton()}
                     {#if DBState.db.characters[selIdState.selId] && idx > -1}
                         <PopupButton>
-                            {@render majorIconButtonsBody(true)}
-                            {@render minorIconButtonsBody(true)}
+                            {@render copyButton(true)}
+                            {@render ttsButton(true)}
+                            {@render deleteButton(true)}
+                            {@render minorMenuItems()}
                         </PopupButton>
                     {:else}
-                        {@render majorIconButtonsBody(false)}
+                        {@render copyButton(false)}
+                        {@render ttsButton(false)}
+                        {@render deleteButton(false)}
                     {/if}
                 {/if}
                 {#if firstMessage}
@@ -1070,9 +1097,9 @@
 {/snippet}
 
 
-{#snippet majorIconButtonsBody(showNames:boolean)}
+{#snippet copyButton(showNames:boolean)}
     {#if !blankMessage}
-    <IconButton size="lg" expanded={showNames} className="button-icon-copy" onclick={async ()=>{
+    <ChatAdaptiveAction menu={showNames} className="button-icon-copy" onclick={async ()=>{
         if(window.navigator.clipboard.write){
             try {
                 alertWait(language.loading)
@@ -1296,29 +1323,35 @@
     }}>
         <CopyIcon />
         {#if showNames}
-            <span class="ml-1">{language.copy}</span>
+            <span>{language.copy}</span>
         {/if}
-    </IconButton>
-{/if}
-{#if idx > -1}
-    {#if DBState.db.ttsEnabled && DBState.db.characters[selIdState.selId].ttsMode !== 'none' && (DBState.db.characters[selIdState.selId].ttsMode)}
-        <IconButton size="lg" expanded={showNames} className="button-icon-tts" onclick={()=>{
+    </ChatAdaptiveAction>
+    {/if}
+{/snippet}
+
+{#snippet ttsButton(showNames:boolean)}
+    {#if idx > -1 && DBState.db.ttsEnabled && DBState.db.characters[selIdState.selId].ttsMode !== 'none' && DBState.db.characters[selIdState.selId].ttsMode}
+        <ChatAdaptiveAction menu={showNames} className="button-icon-tts" onclick={()=>{
             return sayTTS(null, message)
         }}>
             <Volume2Icon />
             {#if showNames}
-                <span class="ml-1">TTS</span>
+                <span>TTS</span>
             {/if}
-        </IconButton>
+        </ChatAdaptiveAction>
     {/if}
-    <IconButton size="lg" expanded={showNames} tone="destructive" className="button-icon-remove" disabled={generationOwned} onclick={rm}>
+{/snippet}
+
+{#snippet deleteButton(showNames:boolean)}
+    {#if idx > -1}
+    <ChatAdaptiveAction menu={showNames} tone="destructive" className="button-icon-remove" disabled={generationOwned} onclick={rm}>
         <TrashIcon />
 
         {#if showNames}
-            <span class="ml-1">{language.remove}</span>
+            <span>{language.remove}</span>
         {/if}
-    </IconButton>
-{/if}
+    </ChatAdaptiveAction>
+    {/if}
 {/snippet}
 
 {#snippet translationButton(showNames = false)}
@@ -1414,28 +1447,19 @@
     {/if}
 {/snippet}
 
-{#snippet minorIconButtonsBody(showNames:boolean)}
-    <fieldset class="contents" disabled={generationOwned}>
+{#snippet minorMenuItems()}
     {#if idx > -1}
-        <IconButton size="lg" expanded={showNames} onclick={toggleMessageRole}>
+        <ShDropdownMenuItem disabled={generationOwned} onSelect={toggleMessageRole}>
             <ArrowLeftRightIcon />
-            {#if showNames}
-                <span class="ml-1">{language.changeMessageRole}</span>
-            {/if}
-        </IconButton>
+            <span>{language.changeMessageRole}</span>
+        </ShDropdownMenuItem>
 
-        <IconButton size="lg" expanded={showNames} active={isBookmarked} activeColor="primary" className="button-icon-bookmark" onclick={async () => {
-            await sleep(1)
-            toggleBookmark()
-        }}>
+        <ShDropdownMenuItem disabled={generationOwned} class={isBookmarked ? 'button-icon-bookmark text-primary' : 'button-icon-bookmark'} onSelect={toggleBookmark}>
             <BookmarkIcon />
-            {#if showNames}
-                <span class="ml-1">{language.bookmark}</span>
-            {/if}
-        </IconButton>
+            <span>{language.bookmark}</span>
+        </ShDropdownMenuItem>
 
-    <IconButton size="lg" expanded={showNames} onclick={async () => {
-        await sleep(1)
+    <ShDropdownMenuItem disabled={generationOwned} onSelect={async () => {
         const currentChat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage]
 
         if(DBState.db.createFolderOnBranch && !currentChat.folderId){
@@ -1471,34 +1495,48 @@
         }
     }}>
         <SplitIcon />
-        {#if showNames}
-            <span class="ml-1">{language.branch}</span>
-        {/if}
-    </IconButton>
+        <span>{language.branch}</span>
+    </ShDropdownMenuItem>
 
-    <IconButton size="lg" expanded={showNames} onclick={async () => {
-        await sleep(1)
+    <ShDropdownMenuItem disabled={generationOwned} onSelect={() => {
         const currentMessage = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].disabled = !currentMessage.disabled
     }}>
-        <PowerOff />
-        {#if showNames}
-            <span class="ml-1">{language.disableMessage}</span>
+        {#if disabled === true}
+            <MessageSquarePlus />
+        {:else}
+            <MessageSquareOff />
         {/if}
-    </IconButton>
+        <span>{disabled === true ? language.enableMessage : language.disableMessage}</span>
+    </ShDropdownMenuItem>
 
-    <IconButton size="lg" expanded={showNames} onclick={async () => {
-        await sleep(1)
+    <ShDropdownMenuItem disabled={generationOwned} onSelect={() => {
         const currentMessage = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].disabled = currentMessage.disabled === 'allBefore' ? false : 'allBefore'
     }}>
         <Scissors />
-        {#if showNames}
-            <span class="ml-1">{language.disableAbove}</span>
-        {/if}
-    </IconButton>
+        <span>{language.disableAbove}</span>
+        <ShTooltip>
+            {#snippet trigger(props)}
+                <button
+                    {...props}
+                    type="button"
+                    class="ml-auto inline-flex items-center border-0 bg-transparent p-0 text-textcolor2"
+                    tabindex="-1"
+                    aria-label={language.disableAboveHelp}
+                    onpointerdown={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                    }}
+                    onclick={(event) => event.stopPropagation()}
+                >
+                    <CircleQuestionMarkIcon />
+                </button>
+            {/snippet}
+            {language.disableAboveHelp}
+        </ShTooltip>
+    </ShDropdownMenuItem>
     {/if}
-    </fieldset>
 {/snippet}
 
 {#snippet senderIcon(options:{rounded?:boolean,styleFix?:string} = {})}
@@ -1671,7 +1709,11 @@
      data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      onclickcapture={handleButtonTriggerWithin}>
-    <div class="text-textcolor grow max-w-full sm:px-4 py-4">
+    <div
+        class="text-textcolor grow max-w-full sm:px-4"
+        class:py-2={isBranchedFromComment}
+        class:py-4={!isBranchedFromComment}
+    >
         {#if !blankMessage}
             <div
                 class="chat-message-shell flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto bg-bgcolor sm:rounded-lg"
@@ -1706,10 +1748,14 @@
             </div>
         {:else if isComment}
             <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto px-4 sm:px-8">
-                <div class="flexium items-center">
-                    {@render iconButtons()}
-                </div>
-                {@render textBox()}
+                {#if isBranchedFromComment}
+                    {@render branchedFromCommentRow()}
+                {:else}
+                    <div class="flexium items-center">
+                        {@render iconButtons()}
+                    </div>
+                    {@render textBox()}
+                {/if}
             </div>
         {/if}
     </div>
@@ -1723,7 +1769,11 @@
      data-partial-edit-disabled={controlDisabled.partialEdit}
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      onclickcapture={handleButtonTriggerWithin}>
-    <div class="text-textcolor mt-1 ml-4 mr-4 mb-1 p-2 bg-transparent grow border-t-gray-900 border-opacity/30 border-transparent flexium items-start max-w-full" >
+    <div
+        class="text-textcolor mt-1 ml-4 mr-4 mb-1 px-2 bg-transparent grow border-t-gray-900 border-opacity/30 border-transparent flexium items-start max-w-full"
+        class:py-1={isBranchedFromComment}
+        class:py-2={!isBranchedFromComment}
+    >
         {#if DBState.db.theme === 'mobilechat' && !blankMessage}
             <div class={role === 'user' ? "flex items-start w-full justify-end" : "flex items-start"}>
                 {#if role !== 'user'}
@@ -1805,6 +1855,10 @@
                 {/if}
                 {@render textBox()}
             </span>
+        {:else if isBranchedFromComment}
+            <span class="w-full max-w-full min-w-0">
+                {@render branchedFromCommentRow()}
+            </span>
         {:else}
             {@render senderIcon({rounded: DBState.db.roundIcons})}
             <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
@@ -1857,6 +1911,12 @@
 
     .chat-toolbar-sticky-footer-layer.chat-toolbar-above-fixed-composer {
         bottom: var(--chat-composer-sticky-height, 0px);
+    }
+
+    /* Keep the actively streaming sticky footer on one compositor surface so
+       its one-pixel separator does not follow fractional scroll raster phases. */
+    .chat-toolbar-sticky-footer-layer.chat-toolbar-streaming-layer {
+        transform: translateZ(0);
     }
 
     .chat-toolbar-message {

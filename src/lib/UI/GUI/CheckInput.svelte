@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { CheckIcon } from '@lucide/svelte';
 
     interface Props {
         check?: boolean;
@@ -58,21 +59,13 @@
         class={"w-5 h-5 min-w-5 min-h-5 flex justify-center items-center transition-colors duration-200 "
             + (card
                 ? `rounded border ${check ? (checkedColor === 'primary' ? 'border-primary bg-primary' : 'border-borderc bg-borderc') : `border-darkborderc ${cardUncheckedFill ? 'bg-darkbg/50 mix-blend-multiply' : 'bg-transparent'}`}`
-                : `rounded-md border-2 ${check ? (checkedColor === 'primary' ? 'border-primary bg-primary' : 'border-darkborderc bg-darkborderc') : 'border-darkborderc bg-darkbutton'}`)}
+                : `rounded-md border ${check ? 'border-primary bg-primary' : 'border-darkborderc bg-transparent'}`)}
         aria-hidden="true"
         aria-describedby="{name} {check ? 'abled' : 'disabled'}"
         aria-labelledby="{name} {check ? 'abled' : 'disabled'}"
     >
         {#if check}
-            {#if card}
-                <svg class="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M2 6l3 3 5-5" />
-                </svg>
-            {:else}
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="white" class="w-3 h-3" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                </svg>
-            {/if}
+            <CheckIcon class="w-3 h-3 text-white" strokeWidth={5} aria-hidden="true" />
         {/if}
     </span>
     {#if !hiddenName && !reverse}

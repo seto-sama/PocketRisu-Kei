@@ -45,6 +45,7 @@ import {
     startStatus, appendText, endStatus, hasRequestStatus, markPhase, setStatusTokenCounter, addBadge,
     type RequestKind,
 } from "src/ts/status/requestStatus";
+import { setRequestStatusAction } from "src/ts/status/requestStatusActions";
 import type { RevenantOperationContext, RevenantProviderJobSpec } from "../revenant";
 import {
     appendRevenantJobRequestText,
@@ -94,6 +95,10 @@ export interface requestDataArgument{
     blockPlugins?: boolean
     /** Module that owns this auxiliary LLM request, when applicable. */
     moduleId?: string
+    /** One-request model preset override used by isolated tools such as the translation dialog. */
+    modelPresetOverrideId?: string
+    /** Overrides the click behavior of this request's existing status toast. */
+    onRequestStatusActivate?: () => void
     /** Persisted data needed to apply an auxiliary result after a reload. */
     revenantOperationContext?:RevenantOperationContext
     /** Who acknowledges the durable auxiliary result after provider completion. */
@@ -372,7 +377,7 @@ export async function requestChatDataMain(arg:requestDataArgument, model:ModelMo
     arg.formated = removeEmptyChatMessages(arg.formated)
 
     const currentChat = getCurrentChat()
-    const binding = resolveChatModelBinding(currentChat, model, arg.moduleId)
+    const binding = resolveChatModelBinding(currentChat, model, arg.moduleId, arg.modelPresetOverrideId)
     if(binding.kind === 'modelPreset'){
         return executeModelPresetRequest(
             arg,
@@ -588,6 +593,7 @@ async function requestPluginPreset(
             phase: 'connecting',
             now: Date.now(),
             abortSignal: abortSignal ?? undefined,
+            onActivate: arg.onRequestStatusActivate,
         }))
     }
 
@@ -1243,9 +1249,11 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
                 phase: 'connecting',
                 now: startedAt,
                 abortSignal: abortSignal ?? undefined,
+                onActivate: arg.onRequestStatusActivate,
             }))
             const startObservedRequestStatus = (startedAt: number) => {
                 if (statusJobId && hasRequestStatus(genId)) {
+                    setRequestStatusAction(genId, arg.onRequestStatusActivate)
                     safeStatus(() => markPhase(genId, 'connecting', startedAt))
                     return
                 }

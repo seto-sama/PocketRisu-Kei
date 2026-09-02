@@ -203,9 +203,9 @@
 </script>
 
 {#snippet tokenRow(label: string, value: string)}
-    <ShSettings variant="row">
-        <span class="min-w-0 flex-1 truncate">{label}</span>
-        <span class="shrink-0 text-textcolor2 tabular-nums">{value}</span>
+    <ShSettings variant="row" size="compact">
+        <span class="min-w-0 flex-1 truncate text-base">{label}</span>
+        <span class="shrink-0 text-sm leading-5 text-textcolor2 tabular-nums">{value}</span>
     </ShSettings>
 {/snippet}
 
@@ -250,7 +250,7 @@
 </Accordion>
 
 <Accordion styled name={language.tokens}>
-    <ShSettings spacing="spaced">
+    <ShSettings spacing="none">
         {#await getCharacterDescriptionToken()}
             {@render tokenRow(language.devToolTokens.characterProfile, language.devToolTokens.loading)}
         {:then token}
@@ -274,7 +274,7 @@
             {/await}
         {/if}
     </ShSettings>
-    <span class="mt-2 block text-sm text-textcolor2">{language.devToolTokens.estimateNotice}</span>
+    <span class="mt-2 block text-xs leading-4 text-textcolor2">{language.devToolTokens.estimateNotice}</span>
 </Accordion>
 
 <Accordion styled name={language.autopilot}>
@@ -284,7 +284,7 @@
     {#each $devToolAutopilotStore as _, i}
         <div class="mt-2 flex items-center gap-1">
             <div class="min-w-0 flex-1">
-                <TextAreaInput highlight bind:value={$devToolAutopilotStore[i]} placeholder="..." fullwidth />
+                <TextAreaInput bind:value={$devToolAutopilotStore[i]} placeholder="..." fullwidth />
             </div>
             <IconButtonGroup size="sm" direction="vertical">
                 <IconButton
@@ -342,7 +342,7 @@
 
 <Accordion styled name={language.devToolPromptPreview.title}>
     <ShSettings spacing="spaced">
-        <ShSettings variant="row" className="px-0">
+        <ShSettings variant="row">
             <span class="min-w-0 pr-2">{language.devToolPromptPreview.type}</span>
             <SelectInput className="min-w-0 flex-1" bind:value={previewMode}>
                 <OptionInput value="chat">{language.devToolPromptPreview.chat}</OptionInput>
@@ -350,7 +350,7 @@
             </SelectInput>
         </ShSettings>
         {#if previewMode === 'instruct'}
-            <ShSettings variant="row" className="px-0">
+            <ShSettings variant="row">
                 <span class="min-w-0 pr-2">{language.devToolPromptPreview.instructionType}</span>
                 <SelectInput className="min-w-0 flex-1" bind:value={instructType}>
                     {#each Object.keys(chatTemplates) as template}
@@ -366,7 +366,7 @@
                 </div>
             {/if}
         {/if}
-        <ShSettings variant="row" className="px-0">
+        <ShSettings variant="row">
             <span class="min-w-0 pr-2">{language.devToolPromptPreview.merge}</span>
             <SelectInput className="min-w-0 flex-1" bind:value={previewJoin}>
                 <OptionInput value="yes">{language.devToolPromptPreview.withMerge}</OptionInput>

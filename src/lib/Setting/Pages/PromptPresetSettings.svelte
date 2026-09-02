@@ -4,7 +4,7 @@
     import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import SettingRenderer from "../SettingRenderer.svelte";
-    import PromptTemplateBlock from "./PromptPreset/PromptTemplateBlock.svelte";
+    import PromptSettings from "./PromptSettings.svelte";
     import PromptRegexBlock from "./PromptPreset/PromptRegexBlock.svelte";
     import PromptLegacySettings from "./PromptPreset/PromptLegacySettings.svelte";
     import { language } from "src/lang";
@@ -91,7 +91,7 @@
     {:else if $PromptPresetSubmenuIndex === 1}
         <SettingRenderer items={promptPresetPromptItems} />
     {:else if $PromptPresetSubmenuIndex === 2}
-        <SettingLayout variant="section" title={language.presetPromptProcessing} first><PromptTemplateBlock /></SettingLayout>
+        <SettingLayout variant="section" title={language.presetPromptProcessing} first><PromptSettings mode="inline" subMenu={1} /></SettingLayout>
 
         <div class="mt-4">
             <PromptLegacySettings />

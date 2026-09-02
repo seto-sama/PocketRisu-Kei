@@ -91,7 +91,7 @@ function routeLabel(route: SettingsRouteValue): string {
         case SettingsRoute.PromptPreset: return language.promptPresetMenu;
         case SettingsRoute.RemoteAccess: return language.connectionManagement;
         case SettingsRoute.System: return language.storageManagement;
-        case SettingsRoute.InlayImageGallery: return language.playground.inlayImageGallery;
+        case SettingsRoute.InlayImageGallery: return language.inlayGallery.inlayImageGallery;
         case SettingsRoute.AdminAndStats: return language.adminAndStats;
         default: return '';
     }

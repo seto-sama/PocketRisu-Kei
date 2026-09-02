@@ -30,7 +30,6 @@
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import Help from "./Help.svelte";
-    import { getChatBranches } from "src/ts/gui/branches";
     import { getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
     import { alertInput, alertConfirm, alertError, alertNormalWait, notifySuccess } from "src/ts/alert";
     import { selectSingleFile } from "src/ts/util";
@@ -38,6 +37,7 @@
     import { getDetailedOSLabel, getFallbackOSLabel, getRisuEnvironmentLabel } from "src/ts/platform";
     import { PRODUCT_NAME } from "src/ts/branding";
     import RequestDiagnosticsModal from "./RequestDiagnosticsModal.svelte";
+    import { overlayLayer } from 'src/ts/gui/overlayStack';
 
     let showDetails = $state(false);
     let translatedStackTrace = $state('');
@@ -73,11 +73,6 @@
     let cardExportType = $state('realm')
     let cardExportType2 = $state('')
     let cardLicense = $state('')
-    let branchHover:null|{
-        x:number,
-        y:number,
-        content:string,
-    } = $state(null)
     let copiedKey: string | null = $state(null)
     let togglePresetShowAll = $state(false)
     let suppressInputFocusRestore = false
@@ -130,9 +125,6 @@
             input = ''
         } else {
             input = $alertStore.defaultValue ?? ''
-        }
-        if($alertStore.type !== 'branches'){
-            branchHover = null
         }
         if($alertStore.type !== 'cardexport'){
             cardExportType = ''
@@ -200,8 +192,8 @@
     }}
 />
 
-{#if $alertStore.type !== 'none' && $alertStore.type !== 'requestdata' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'branches' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress' && $alertStore.type !== 'confirmMulti' && $alertStore.type !== 'addchar'}
-    <div class="risu-modal-backdrop risu-layer-dialog-alert flex justify-center items-center">
+{#if $alertStore.type !== 'none' && $alertStore.type !== 'requestdata' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress' && $alertStore.type !== 'confirmMulti' && $alertStore.type !== 'addchar'}
+    <div use:overlayLayer class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
         <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
             {#if $alertStore.type === 'selectChar'}
                 <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">Select</h2>
@@ -212,7 +204,7 @@
             {/if}
 
             {#if $alertStore.type === 'login'}
-                <div class="risu-modal-backdrop risu-layer-dialog-alert flex justify-center items-center">
+                <div use:overlayLayer class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
                     <iframe src={hubURL + '/hub/login'} title="login" class="w-full h-full">
                     </iframe>
                 </div>
@@ -247,7 +239,7 @@
 
 {:else if $alertStore.type === 'cardexport'}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="risu-modal-backdrop risu-layer-dialog-alert flex flex-col items-center justify-center" role="button" tabindex="0" onclick={cancelCardExport}>
+    <div use:overlayLayer class="risu-modal-backdrop risu-layer-overlay flex flex-col items-center justify-center" role="button" tabindex="0" onclick={cancelCardExport}>
         <div class="bg-darkbg rounded-md p-4 max-w-full flex flex-col w-2xl" role="button" tabindex="0" onclick={(e) => {
             e.stopPropagation()
         }}>
@@ -332,83 +324,11 @@
     <!-- Log Generator by dootaang, GPL3 -->
     <!-- Svelte, Typescript version by Kwaroran -->
     
-    <div class="risu-modal-backdrop risu-layer-dialog-alert flex justify-center items-center">
+    <div use:overlayLayer class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
         <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
             <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">{language.preview}</h2>
 
         </div>
-    </div>
-{:else if $alertStore.type === 'branches'}
-    <div class="risu-modal-backdrop risu-layer-dialog-alert flex justify-center items-center overflow-x-auto overflow-y-auto">
-        {#if branchHover !== null}
-            <div class="z-30 whitespace-pre-wrap p-4 text-textcolor bg-darkbg border-darkborderc border rounded-md absolute" style="top: {branchHover.y * 80 + 24}px; left: {(branchHover.x + 1) * 80 + 24}px">
-                {branchHover.content}
-            </div>
-        {/if}
-
-        <div class="x-50 right-2 top-2 absolute">
-            <IconButton size="lg" className="bg-darkbg border-darkborderc border rounded-md" onclick={() => {
-                alertStore.set({
-                    type: 'none',
-                    msg: ''
-                })
-            }}>
-                <XIcon />
-            </IconButton>
-        </div>
-
-        {#each getChatBranches() as obj}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-            <div
-                role="table"
-                class="peer w-12 h-12 z-20 bg-bgcolor border border-darkborderc rounded-full flex justify-center items-center overflow-y-auto absolute"
-                style="top: {obj.y * 80 + 24}px; left: {obj.x * 80 + 24}px"
-                onmouseenter={() => {
-                    if(branchHover === null){
-                        const char = getCurrentCharacter()
-                        branchHover = {
-                            x: obj.x,
-                            y: obj.y,
-                            content: char.chats[obj.chatId].message[obj.y - 1].data
-                        }
-                    }
-                }}
-                onclick={() => {
-                    if(branchHover === null){
-                        const char = getCurrentCharacter()
-                        branchHover = {
-                            x: obj.x,
-                            y: obj.y,
-                            content: char.chats[obj.chatId].message[obj.y - 1].data
-                        }
-                    }
-                }}
-                onmouseleave={() => {
-                    branchHover = null
-                }}
-            >
-                
-            </div>
-            {#if obj.connectX === obj.x}
-                {#if obj.multiChild}
-                    <div class="w-0 h-20 border-x border-x-red-500 absolute" style="top: {(obj.y-1) * 80 + 24}px; left: {obj.x * 80 + 45}px">
-
-                    </div>
-                {:else}
-                    <div class="w-0 h-20 border-x border-x-blue-500 absolute" style="top: {(obj.y-1) * 80 + 24}px; left: {obj.x * 80 + 45}px">
-
-                    </div>
-                {/if}
-            {:else if obj.connectX !== -1}
-                <div class="w-0 h-10 border-x border-x-red-500 absolute" style="top: {(obj.y) * 80}px; left: {obj.x * 80 + 45}px">
-
-                </div>
-                <div class="h-0 border-y border-y-red-500 absolute" style="top: {(obj.y) * 80}px; left: {obj.connectX * 80 + 46}px" style:width={Math.abs((obj.x - obj.connectX) * 80) + 'px'}>
-
-                </div>
-            {/if}
-        {/each}
     </div>
 {/if}
 
@@ -558,7 +478,10 @@
 
 <ShAlertDialog
     open={$alertStore.type === 'ask'}
+    closeOnEscape={true}
     closeOnOutsideClick={true}
+    onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
+    onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'ask') {
             alertStore.set({ type: 'none', msg: 'no' })
@@ -579,7 +502,10 @@
 
 <ShAlertDialog
     open={$alertStore.type === 'pluginconfirm'}
+    closeOnEscape={true}
     closeOnOutsideClick={true}
+    onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
+    onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'pluginconfirm') {
             alertStore.set({ type: 'none', msg: 'no' })
@@ -745,6 +671,9 @@
 
 <ShAlertDialog
     open={$alertStore.type === 'tos'}
+    closeOnEscape={true}
+    onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
+    onConfirm={() => alertStore.set({ type: 'none', msg: 'yes' })}
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'tos') {
             alertStore.set({ type: 'none', msg: 'no' })
@@ -764,13 +693,9 @@
     {/snippet}
 </ShAlertDialog>
 
-<!-- tier="base" puts this below default ShDialog/ShAlertDialog tier so
-     nested alertConfirm/alertInput (overwrite, rename, delete) paint on
-     top regardless of Portal mount order. See .agent/guide/ui.md. -->
 <ShDialog
     open={$togglePresetsOpenStore}
     onOpenChange={(v) => { if (!v) closeTogglePresets() }}
-    tier="base"
 >
     {#snippet title()}{language.togglePresetSelectTitle}{/snippet}
 

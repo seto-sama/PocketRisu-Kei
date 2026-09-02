@@ -1454,11 +1454,10 @@
 <ShDialog
   open={true}
   size="xl"
-  tier="alert"
   closable={false}
   closeOnEscape={false}
   closeOnOutsideClick={false}
-  contentClass="gap-0 overflow-hidden p-0"
+  contentClass="gap-0 p-0"
   bodyClass="min-h-0 flex flex-col"
   ariaLabel={language.promptDiff.title}
 >
@@ -1474,9 +1473,6 @@
           </div>
         </div>
         <CheckInput
-          card
-          cardUncheckedFill={false}
-          checkedColor="primary"
           bind:check={isGrouped}
           disabled={diffStyle !== 'line' || viewStyle === 'split'}
           margin={false}
@@ -1485,9 +1481,6 @@
           name={language.promptDiff.groupChanges}
         />
         <CheckInput
-          card
-          cardUncheckedFill={false}
-          checkedColor="primary"
           bind:check={showOnlyChanges}
           margin={false}
           grayText

@@ -17,10 +17,6 @@ export const helpEn = {
         model: "Model option is a main model used in chat.",
         submodel: "Auxiliary Model is used for tasks such as emotion analysis, translation, and summarization. A smaller model is recommended.",
         oaiapikey: "API key for OpenAI. you can get it in https://platform.openai.com/account/api-keys",
-        mainprompt: "The main prompt option sets the default model behavior.",
-        jailbreak: "The jailbreak prompt option activates when jailbreak toggle is on in character.",
-        globalNote: "A note that strongly affects model behavior, also known as UJB. Works in all characters.",
-        formatOrder: "formating order of prompt. lower blocks does more effect to the model.",
         forceUrl: "if it is not blank, the request will go to the url that you had inputed.",
         tempature:
             "lower values make character follow prompts closely, but it will more likely to response like a machine.\nHigher values will result in creative behavior, but the character's response can break down more easily.",
@@ -74,7 +70,7 @@ export const helpEn = {
             "\n\n```\n<START>\n{{user}}: hi\n{{char}}: hello\n<START>\n{{user}}: hi\nHaruhi: hello\n```" +
             "\n\n```<START>``` Marks the beginning of a new conversation.",
         creatorQuotes: "Note that appearances on top of first message. Used to inform users about this character. It doesn't go into prompt.",
-        systemPrompt: "A prompt that replaces main prompt in settings if its not blank.",
+        systemPrompt: "This prompt is no longer used and is not included in requests.",
         chatNote: "A note that strongly affects model behavior. Embbedded to current chat, also known as memory or UJB.",
         personality: "A brief description about character's personality. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
         scenario: "A brief description about character's scenario. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
@@ -349,7 +345,9 @@ export const helpEn = {
         lightningRealmImport:
             "Use a faster import path when importing characters from RisuRealm while account sync is enabled. Experimental.",
         unrecommendedTriggerV1:
-            "Allow adding and editing Trigger V1. Trigger V1 is deprecated; use V2/V3 for new work. Keep this only for legacy V1 compatibility.",
+            "Allow adding and editing Trigger V1. Trigger V1 is deprecated; use V2 for new work. Keep this only for legacy V1 compatibility.",
+        unrecommendedTriggerV2:
+            "Show deprecated Trigger V2 effects. Improved effects provide the same functionality, so use effects from the Control and Lorebook V2 categories for new work.",
         themePresets:
             "Bundle the current Sound & Display settings (layout, color/font, sizes, sound toggles, etc.) as a preset and switch between them. The active preset auto-syncs with edits you make below; clicking opens the preset list to add, switch, rename, or delete.",
         theme: "Overall chat layout theme.",
@@ -606,8 +604,6 @@ export const helpEn = {
             "For OpenAI o-series reasoning models. Controls how much effort goes into reasoning.\n\n- **-1**: model default\n- **0–2**: low / medium / high (deeper reasoning is slower and more expensive)",
         verbosity:
             "Response-length control on some OpenAI models. `0` is concise, `2` is long-form. Only meaningful on models that support it.",
-        usePromptTemplate:
-            "Use a custom prompt template (Settings → Prompt Template) instead of the four prompt fields above (main / jailbreak / note / order). Templates allow more sophisticated prompt composition but have a steeper learning curve.",
         customFlags:
             "Force capability flags on the current model. For example, even if the model doesn't natively report image input support, turning on `hasImageInput` makes the system assume it does. Useful for compatibility shims and workarounds — set the wrong flag and requests will break.",
         enableCustomFlags:
@@ -620,8 +616,6 @@ export const helpEn = {
             "Regex scripts that apply only to this bot configuration, in addition to global regex scripts. See the global regex script help for syntax details.",
         botIcon:
             "Default icon for this bot configuration. Independent of the character card's icon — used as the assistant message icon.",
-        botPromptTemplate:
-            "Pick a prompt template. Templates allow more elaborate prompt construction than the main / jailbreak / note fields. Only active when \"Use Prompt Template\" is enabled.",
         personaName:
             "Name of the current persona. This fills the `{{user}}` variable in chats and is the name the character uses to address you.",
         personaNote:

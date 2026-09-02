@@ -15,7 +15,7 @@
     import { language } from './lang';
     import SavePopupIconComp from './lib/Others/SavePopupIcon.svelte';
     import Botpreset from './lib/Setting/botpreset.svelte';
-    import Modelpreset from './lib/Setting/modelpreset.svelte';
+    import QuickModelPresetPicker from './lib/UI/QuickModelPresetPicker.svelte';
     import ModelProfileBrowser from './lib/Setting/modelProfileBrowser.svelte';
     import Themepreset from './lib/Setting/themepreset.svelte';
     import ListedPersona from './lib/Setting/listedPersona.svelte';
@@ -143,7 +143,7 @@
         <Botpreset close={() => {$openPresetList = false}} />
     {/if}
     {#if $openModelPresetList}
-        <Modelpreset close={() => {$openModelPresetList = false}} />
+        <QuickModelPresetPicker bind:open={$openModelPresetList} />
     {/if}
     {#if $openModelProfileBrowser}
         <ModelProfileBrowser close={() => {$openModelProfileBrowser = false}} />

@@ -6,7 +6,7 @@
     import ShDropdownMenuContent from 'src/lib/UI/GUI/ShDropdownMenuContent.svelte';
     import ShDropdownMenuItem from 'src/lib/UI/GUI/ShDropdownMenuItem.svelte';
     import IconButtonGroup from 'src/lib/UI/GUI/IconButtonGroup.svelte';
-    import { selectedCharID, PlaygroundStore, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
+    import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
     import { onDestroy, tick, untrack } from 'svelte';
     import Chat from "./Chat.svelte";
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
@@ -63,10 +63,11 @@ import { isMobile } from 'src/ts/platform'
     import ShButton from '../UI/GUI/ShButton.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
     import Portal from '../UI/GUI/Portal.svelte';
+    import OverlayPortal from '../UI/GUI/OverlayPortal.svelte';
     import ImageGenerationDialog from './ImageGenerationDialog.svelte';
+    import TranslationDialog from './TranslationDialog.svelte';
     import { generateAIImageInlay } from 'src/ts/process/stableDiff';
-
-    const loadPlaygroundMenu = () => import('../Playground/PlaygroundMenu.svelte').then(m => m.default);
+    import { floorCssLengthToPhysicalPixel } from 'src/ts/gui/physicalPixel';
 
     // Whether an Enter keydown should send (vs insert a newline), based on the
     // per-platform send-key mode. Mobile uses sendKeyMobile, desktop sendKeyPC.
@@ -92,6 +93,7 @@ import { isMobile } from 'src/ts/platform'
     let messageInputTranslate:string = $state('')
     let openMenu = $state(false)
     let imageGenerationOpen = $state(false)
+    let translationOpen = $state(false)
     let imageRerollingTarget = $state.raw<{ roomId: string, messageId: string } | null>(null)
     let loadPages = $state(getInitialChatLoadPages(DBState.db))
     let doingChatInputTranslate = false
@@ -103,6 +105,7 @@ import { isMobile } from 'src/ts/platform'
     let chatsInstance: any = $state()
     let chatScreenRoot: HTMLDivElement | null = $state(null)
     let composerHeight = $state(0)
+    let composerToolbarOffset = $state(0)
     let chatScrollController: ChatScrollController | null = null
     let isScrollingToMessage = $state(false)
     let historyLoadInFlight = false
@@ -115,6 +118,29 @@ import { isMobile } from 'src/ts/platform'
     let loadPagesRoomKey = $state('')
     let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter?.chatPage ?? -1}:${currentChatSlot?.id ?? ''}`)
     let currentRoomHasImageReroll = $derived(imageRerollingTarget?.roomId === currentChatSlot?.id)
+
+    function trackComposerMetrics(node: HTMLElement) {
+        const update = () => {
+            composerHeight = node.offsetHeight
+            composerToolbarOffset = floorCssLengthToPhysicalPixel(
+                node.getBoundingClientRect().height,
+                globalThis.devicePixelRatio,
+            )
+        }
+        const resizeObserver = typeof ResizeObserver === 'undefined'
+            ? null
+            : new ResizeObserver(update)
+        resizeObserver?.observe(node)
+        window.addEventListener('resize', update)
+        update()
+
+        return {
+            destroy() {
+                resizeObserver?.disconnect()
+                window.removeEventListener('resize', update)
+            },
+        }
+    }
 
     async function insertGeneratedImage(
         reference: string,
@@ -747,7 +773,7 @@ import { isMobile } from 'src/ts/platform'
         if (idx === undefined) return getLastCharMsg()
         if (!DBState.db.showPreviousChatSwipeButtons || !msgs?.[idx]) return null
         const msg = msgs[idx]
-        if (msg.role !== 'char' || msg.isComment || msg.disabled) return null
+        if (msg.role !== 'char' || msg.isComment) return null
         return msg
     }
 
@@ -1205,7 +1231,11 @@ import { isMobile } from 'src/ts/platform'
 
 
 
-<div class="w-full h-full relative" style={customStyle}>
+<div
+    class="w-full h-full relative"
+    class:nodeonly-standard-root={DBState.db.theme === ''}
+    style={customStyle}
+>
     {#if currentCharacter?.type === 'character'}
         <ImageGenerationDialog
             bind:open={imageGenerationOpen}
@@ -1213,6 +1243,7 @@ import { isMobile } from 'src/ts/platform'
             onGenerated={insertGeneratedImage}
         />
     {/if}
+    <TranslationDialog bind:open={translationOpen} />
     
     {#if DBState.db.nodeOnlyScrollButtonType !== 'off' && currentChat.length > 0}
         <Portal>
@@ -1304,13 +1335,7 @@ import { isMobile } from 'src/ts/platform'
         </div>
     {/if}
     {#if $selectedCharID < 0}
-        {#if $PlaygroundStore === 0}
-            <MainMenu />
-        {:else}
-            {#await loadPlaygroundMenu() then PlaygroundMenu}
-                <PlaygroundMenu />
-            {/await}
-        {/if}
+        <MainMenu />
     {:else if $chatDeselected}
         <div class="h-full w-full flex items-center justify-center text-textcolor2">
             <span>{language.selectChatToView}</span>
@@ -1318,8 +1343,8 @@ import { isMobile } from 'src/ts/platform'
     {:else}
         {#snippet composerCluster()}
             <div
-                    class="{DBState.db.fixedChatTextarea ? 'sticky risu-layer-composer pt-2 pb-2 right-0 bottom-0 bg-bgcolor' : 'mt-2 mb-2'} w-full"
-                    bind:offsetHeight={composerHeight}
+                    class="{DBState.db.fixedChatTextarea ? 'chat-composer-fixed-layer absolute risu-layer-composer pt-2 pb-2 right-0 bottom-0 bg-bgcolor' : 'mt-2 mb-2'} w-full"
+                    use:trackComposerMetrics
             >
               <div class="mx-auto w-full {composerWidthClass} px-2">
                 <!-- "plugin-compat-items-stretch" is a compat hook (not a Tailwind class):
@@ -1379,6 +1404,9 @@ import { isMobile } from 'src/ts/platform'
                                         <WandSparklesIcon /><span>{language.imageGeneration}</span>
                                     </ShDropdownMenuItem>
                                 {/if}
+                                <ShDropdownMenuItem onSelect={() => { translationOpen = true }}>
+                                    <LanguagesIcon /><span>{language.translate}</span>
+                                </ShDropdownMenuItem>
                                 <ShDropdownMenuItem onSelect={() => {
                                     DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules ??= []
                                     openModuleList = true
@@ -1581,7 +1609,7 @@ import { isMobile } from 'src/ts/platform'
 
         <div class="h-full w-full flex flex-col overflow-y-auto overscroll-y-contain relative default-chat-screen"
             bind:this={chatScreenRoot}
-            style:--chat-composer-sticky-height={DBState.db.fixedChatTextarea ? `${composerHeight}px` : '0px'}
+            style:--chat-composer-sticky-height={DBState.db.fixedChatTextarea ? `${composerToolbarOffset}px` : '0px'}
             class:nodeonly-standard={DBState.db.theme === ''}
             class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
             class:no-chat-width-full={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'full'}
@@ -1716,11 +1744,23 @@ import { isMobile } from 'src/ts/platform'
                 </div>
             {/if}
 
-            {@render composerCluster()}
+            {#if DBState.db.fixedChatTextarea}
+                <div
+                    class="w-full shrink-0"
+                    style:height={`${composerHeight}px`}
+                    aria-hidden="true"
+                ></div>
+            {:else}
+                {@render composerCluster()}
+            {/if}
 
             <div class="chat-scroll-anchor" data-chat-scroll-anchor aria-hidden="true"></div>
 
         </div>
+
+        {#if DBState.db.fixedChatTextarea}
+            {@render composerCluster()}
+        {/if}
 
     {/if}
 </div>
@@ -1740,8 +1780,8 @@ import { isMobile } from 'src/ts/platform'
 {/if}
 
 {#if composerFullscreen}
-    <Portal>
-    <div class="risu-layer-dialog-base fixed inset-0 bg-bgcolor flex flex-col p-4">
+    <OverlayPortal>
+    <div class="risu-layer-overlay fixed inset-0 bg-bgcolor flex flex-col p-4">
         <div class="mx-auto w-full max-w-3xl flex flex-col flex-1 min-h-0">
             <div class="flex items-center justify-between mb-2">
                 <span class="text-textcolor text-sm">{language.chatInputExpandTitle}</span>
@@ -1766,7 +1806,7 @@ import { isMobile } from 'src/ts/platform'
             </div>
         </div>
     </div>
-    </Portal>
+    </OverlayPortal>
 {/if}
 
 <style>

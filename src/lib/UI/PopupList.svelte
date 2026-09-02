@@ -2,7 +2,7 @@
     import { closePopup, popupStore } from "src/ts/stores.svelte";
     import { sleep } from "src/ts/util";
     import { onDestroy, onMount } from "svelte";
-    import Portal from "./GUI/Portal.svelte";
+    import OverlayPortal from "./GUI/OverlayPortal.svelte";
 
     let styleString = $derived.by(() => {
         let styleString = '';
@@ -36,9 +36,9 @@
 </script>
 
 {#if popupStore.children}
-    <Portal>
-    <div class="risu-layer-system-popover bg-darkbg border-darkborderc border rounded-md p-4 gap-2 flex flex-col fixed items-start" style={styleString}>
+    <OverlayPortal>
+    <div class="risu-layer-overlay bg-darkbg border-darkborderc border rounded-md p-4 gap-2 flex flex-col fixed items-start" style={styleString}>
         {@render popupStore.children()}
     </div>
-    </Portal>
+    </OverlayPortal>
 {/if}

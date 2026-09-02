@@ -9,7 +9,7 @@
         themePresetTemplate,
     } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
-    import TextInput from "../UI/GUI/TextInput.svelte";
+    import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import { updateColorScheme, updateTextThemeAndCSS } from "src/ts/gui/colorscheme";
@@ -105,7 +105,7 @@
         {@const preset = DBState.db.themePresets[index]}
         {#if editMode}
             <div class="min-w-0 grow">
-                <TextInput bind:value={DBState.db.themePresets[index].name} placeholder="string" padding={false} fullwidth className="h-8 min-w-0 px-2" />
+                <InlineNameInput bind:value={DBState.db.themePresets[index].name} size="default" placeholder="string" />
             </div>
         {:else}
             <span class="min-w-0 grow truncate">{preset.name}</span>

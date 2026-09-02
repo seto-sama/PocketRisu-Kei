@@ -41,17 +41,32 @@
         value: string
         wordWrap?: boolean
         onSave?: () => void
+        onValueChange?: (value: string) => void
+        searchRequest?: number
+        onSearchOpened?: () => void
+        onSearchOpenChange?: (open: boolean) => void
     }
 
     let {
-        value = $bindable(),
+        value,
         wordWrap = true,
         onSave = () => {},
+        onValueChange = () => {},
+        searchRequest = 0,
+        onSearchOpened = () => {},
+        onSearchOpenChange = () => {},
     }: Props = $props()
 
     let editorRoot: HTMLDivElement
     let editor: EditorView | undefined
+    let wasSearchOpen = false
     const wrapCompartment = new Compartment()
+
+    function handleSearchRequest() {
+        if (!editor || searchRequest === 0) return
+        openSearchPanel(editor)
+        onSearchOpened()
+    }
 
     const highlightClasses: Record<HighlightType, string> = {
         cbsnest0: 'cm-cbs-depth-0',
@@ -567,11 +582,25 @@
                     cbsHighlights,
                     editorTheme,
                     EditorView.updateListener.of((update) => {
-                        if (update.docChanged) value = update.state.doc.toString()
+                        if (update.docChanged) {
+                            const nextValue = update.state.doc.toString()
+                            onValueChange(nextValue)
+                        }
+                        const isSearchOpen = searchPanelOpen(update.state)
+                        if (isSearchOpen !== wasSearchOpen) {
+                            wasSearchOpen = isSearchOpen
+                            onSearchOpenChange(isSearchOpen)
+                        }
                     }),
                 ],
             }),
         })
+        handleSearchRequest()
+    })
+
+    $effect(() => {
+        void searchRequest
+        handleSearchRequest()
     })
 
     $effect(() => {
@@ -592,5 +621,8 @@
         })
     })
 
-    onDestroy(() => editor?.destroy())
+    onDestroy(() => {
+        editor?.destroy()
+        if (wasSearchOpen) onSearchOpenChange(false)
+    })
 </script>

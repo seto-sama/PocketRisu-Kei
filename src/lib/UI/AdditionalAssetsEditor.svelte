@@ -337,7 +337,7 @@
     total={previewIndexes.length}
     canGoPrev={previewPosition >= 0 && previewIndexes.length > 1}
     canGoNext={previewPosition >= 0 && previewIndexes.length > 1}
-    metadataLabel={language.playground.inlayInfo}
+    metadataLabel={language.inlayGallery.inlayInfo}
     closeLabel={language.goback}
     onClose={() => (previewIndex = -1)}
     onPrev={() => goToPreviewNeighbor(-1)}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { hypaV3ProgressStore } from "src/ts/stores.svelte";
-  import Portal from "../UI/GUI/Portal.svelte";
+  import OverlayPortal from "../UI/GUI/OverlayPortal.svelte";
 
   let isExpanded = $state(false);
 
@@ -9,10 +9,10 @@
   };
 </script>
 
-<Portal>
+<OverlayPortal>
 {#if isExpanded}
   <div
-    class="risu-layer-dialog-base absolute w-full h-full flex justify-center items-center pointer-events-none"
+    class="risu-layer-overlay fixed inset-0 flex justify-center items-center pointer-events-none"
   >
     <button
       class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl max-h-full overflow-y-auto transition-opacity duration-300 pointer-events-auto"
@@ -36,7 +36,7 @@
   </div>
 {:else}
   <button
-    class="risu-layer-dialog-base fixed top-4 right-4 bg-darkbg p-2 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center"
+    class="risu-layer-overlay fixed top-4 right-4 bg-darkbg p-2 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center"
     type="button"
     style="opacity: 0.8;"
     onclick={toggleExpand}
@@ -55,4 +55,4 @@
     </div>
   </button>
 {/if}
-</Portal>
+</OverlayPortal>

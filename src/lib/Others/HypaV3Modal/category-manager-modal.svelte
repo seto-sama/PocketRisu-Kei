@@ -111,7 +111,6 @@
 <ShDialog
   bind:open={categoryManagerState.isOpen}
   size="default"
-  tier="base"
   onOpenChange={(open) => {
     if (!open) closeCategoryManager();
   }}

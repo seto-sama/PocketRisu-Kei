@@ -365,7 +365,6 @@
                 <details class="group" class:opacity-50={message.disabled}>
                   <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 risu-interactive-surface">
                     <CheckInput
-                      card
                       check={manualSelectedMessageIndices.has(message.index)}
                       hiddenName
                       margin={false}
@@ -375,7 +374,7 @@
                       }}
                     />
                     <span class="w-10 shrink-0 text-xs text-textcolor2">#{message.index}</span>
-                    <span class="w-16 shrink-0 text-xs text-textcolor2">{message.role}</span>
+                    <span class="w-10 shrink-0 text-xs text-textcolor2">{message.role}</span>
                     <span class="min-w-0 flex-1 truncate text-sm text-textcolor">{message.displayData}</span>
                     <ChevronDownIcon size={16} class="shrink-0 text-textcolor2 transition-transform group-open:rotate-180" />
                   </summary>

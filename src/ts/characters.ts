@@ -647,9 +647,11 @@ export function characterFormatUpdate(indexOrCharacter:number|character){
     cha.globalLore = updateLorebooks(cha.globalLore)
     if((cha.viewScreen as string) === 'imggen') cha.viewScreen = 'none'
     cha = updateInlayScreen(cha)
-    // Migrate legacy 'none' value to '' for UI dropdown compatibility
+    // Migrate legacy disabled values to '' for UI dropdown compatibility.
+    // `normal` was written by old character-card imports but is not a TTS
+    // provider and therefore had no matching dropdown option.
     // Using '' because it's falsy, so `if (ttsMode)` correctly detects enabled TTS
-    if (cha.ttsMode === 'none') {
+    if (cha.ttsMode === 'none' || cha.ttsMode === 'normal') {
         cha.ttsMode = ''
     }
     cha.ttsMode ??= ''

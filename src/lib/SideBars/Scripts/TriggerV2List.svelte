@@ -1,7 +1,6 @@
 <script lang="ts">
     import { PlusIcon, DownloadIcon, UploadIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
@@ -11,17 +10,18 @@
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
     import ShDisclosureList from "src/lib/UI/GUI/ShDisclosureList.svelte";
-    import Sortable from "sortablejs";
+    import Sortable, { type Options, type SortableEvent } from "sortablejs";
     import { sleep, sortableOptions } from "src/ts/util";
     import { alertConfirm } from "src/ts/alert";
     import TriggerV2EffectData from "./TriggerV2EffectData.svelte";
+    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
     import { createTriggerV2Effect, effectCategories } from "./triggerV2EffectRegistry";
     import {
         appendTriggerV2Effect,
-        getTriggerV2ElseBlock,
+        ensureTriggerV2ElseBlocks,
+        getTriggerV2TopLevelDividerIndexes,
         moveTriggerV2Effect,
         removeTriggerV2Effect,
-        toggleTriggerV2Else,
     } from "./triggerV2EffectTree";
 
     interface Props {
@@ -38,6 +38,18 @@
     let openedTriggers = $state(new Set<triggerscript>())
     let openedEffects = $state(new Set<triggerEffect>())
     let addingEffectForIndex = $state(-1)
+    let selectedEffectType = $state('')
+    let triggerNames = $derived(value.slice(1).map((candidate) => candidate.comment))
+    const normalizedElseTriggers = new WeakSet<triggerscript>()
+    const triggerEffectSortableOptions: Partial<Options> = {
+        filter: '.no-sort, .trigger-v2-drag-disabled [data-disclosure-toggle]',
+        onMove: (event) => {
+            if (event.related.hasAttribute('data-trigger-v2-drop-slot')) return -1
+            if (event.related.hasAttribute('data-trigger-v2-before-else')) return -1
+            if (event.related.hasAttribute('data-trigger-v2-else')) return 1
+            return true
+        },
+    }
 
     $effect(() => {
         if (!value || value.length === 0) {
@@ -50,6 +62,17 @@
         }
         if (selectedIndex >= value.length) selectedIndex = Math.max(0, value.length - 1)
         if (selectedIndex < 0) selectedIndex = 0
+
+        let normalized = false
+        for (const trigger of value) {
+            if (normalizedElseTriggers.has(trigger)) continue
+            normalizedElseTriggers.add(trigger)
+            const effect = ensureTriggerV2ElseBlocks(trigger.effect)
+            if (effect === trigger.effect) continue
+            trigger.effect = effect
+            normalized = true
+        }
+        if (normalized) value = [...value]
     })
 
     const getFilteredTriggers = () => {
@@ -58,7 +81,7 @@
             : Object.fromEntries(Object.entries(effectCategories).filter(([key]) => key !== 'Deprecated'))
         
         const categoryTriggers = allCategories[selectedCategory] || []
-        return categoryTriggers.filter(checkSupported)
+        return categoryTriggers.filter(effect => checkSupported(effect, selectedIndex))
     }
 
     const getAvailableCategories = () => {
@@ -68,7 +91,7 @@
         
         return Object.keys(allCategories).filter(category => {
             const categoryTriggers = allCategories[category] || []
-            return categoryTriggers.some(checkSupported)
+            return categoryTriggers.some(effect => checkSupported(effect, selectedIndex))
         })
     }
 
@@ -189,19 +212,36 @@
         if (!effect) return
         value[triggerIndex].effect = removeTriggerV2Effect(value[triggerIndex].effect, effectIndex)
         openedEffects.delete(effect)
-        openedEffects = new Set(openedEffects)
         value = [...value]
+        pruneOpenedEffects()
     }
 
-    const getElseBlock = (triggerIndex: number, effectIndex: number) => {
-        return getTriggerV2ElseBlock(value[triggerIndex]?.effect ?? [], effectIndex)
+    const pruneOpenedEffects = () => {
+        const liveEffects = new Set(value.flatMap((trigger) => trigger.effect))
+        openedEffects = new Set([...openedEffects].filter((effect) => liveEffects.has(effect)))
     }
 
-    const toggleElseBlock = (triggerIndex: number, effectIndex: number, checked: boolean) => {
-        const trigger = value[triggerIndex]
-        if (!trigger) return
-        trigger.effect = toggleTriggerV2Else(trigger.effect, effectIndex, checked)
+    const reorderEffect = (triggerIndex: number, event: SortableEvent) => {
+        const fromIndex = Number(event.item.dataset.triggerV2EffectIndex)
+        if (!Number.isInteger(fromIndex)) return
+
+        let nextEffectElement = event.item.nextElementSibling as HTMLElement | null
+        while (nextEffectElement && !nextEffectElement.hasAttribute('data-trigger-v2-effect-index')) {
+            nextEffectElement = nextEffectElement.nextElementSibling as HTMLElement | null
+        }
+        const insertIndex = nextEffectElement
+            ? Number(nextEffectElement.dataset.triggerV2EffectIndex)
+            : value[triggerIndex].effect.length
+        if (!Number.isInteger(insertIndex)) return
+
+        selectedIndex = triggerIndex
+        value[triggerIndex].effect = moveTriggerV2Effect(
+            value[triggerIndex].effect,
+            fromIndex,
+            insertIndex,
+        )
         value = [...value]
+        pruneOpenedEffects()
     }
 
     const addEffect = (triggerIndex: number, type: string) => {
@@ -271,7 +311,7 @@
         input.click()
     }
 
-    const checkSupported = (e:string, triggerIndex = selectedIndex) => {
+    const checkSupported = (e:string, triggerIndex: number) => {
         if(!value || value.length === 0 || triggerIndex < 0 || triggerIndex >= value.length || !value[triggerIndex]){
             return false
         }
@@ -359,6 +399,7 @@
         {/if}
         {#each value as trigger, i}
             {#if i > 0}
+                {@const topLevelDividerIndexes = getTriggerV2TopLevelDividerIndexes(trigger.effect)}
                 <ShDisclosureList
                     variant="item"
                     open={openedTriggers.has(trigger)}
@@ -419,6 +460,7 @@
                         <IconButton aria-label={language.add} onclick={(event) => {
                             event.stopPropagation()
                             selectedIndex = i
+                            selectedEffectType = ''
                             addingEffectForIndex = addingEffectForIndex === i ? -1 : i
                         }}>
                             {#if addingEffectForIndex === i}<XIcon />{:else}<PlusIcon />{/if}
@@ -427,32 +469,38 @@
 
                     {#if addingEffectForIndex === i}
                         <div class="mb-2 rounded-md border border-darkborderc bg-darkbg p-2">
-                            <div data-disclosure-field>
-                                <div data-disclosure-label>{language.type}</div>
-                                <div data-disclosure-control>
-                                    <SelectInput bind:value={selectedCategory}>
-                                        {#each getAvailableCategories() as category}
-                                            <OptionInput value={category}>{language.triggerCategories[category] || category}</OptionInput>
+                            <div class="flex min-h-10 w-full items-center justify-between gap-2 px-1">
+                                <span class="min-w-0">{language.type}</span>
+                                <SelectInput
+                                    className="w-48 shrink-0"
+                                    bind:value={selectedCategory}
+                                    onchange={() => selectedEffectType = ''}
+                                >
+                                    {#each getAvailableCategories() as category}
+                                        <OptionInput value={category}>{language.triggerCategories[category] || category}</OptionInput>
+                                    {/each}
+                                </SelectInput>
+                            </div>
+                            <div class="flex min-h-10 w-full items-center justify-between gap-2 px-1">
+                                <span class="min-w-0">{language.action}</span>
+                                {#key selectedCategory}
+                                    <SelectInput
+                                        className="w-48 shrink-0"
+                                        bind:value={selectedEffectType}
+                                        onchange={(event) => {
+                                            const type = event.currentTarget.value
+                                            if (type) addEffect(i, type)
+                                        }}
+                                    >
+                                        <OptionInput value="">{language.select}</OptionInput>
+                                        {#each getFilteredTriggers() as type}
+                                            <OptionInput value={type}>
+                                                {language.triggerDesc[type]}{effectCategories.Deprecated.includes(type) ? ' (Deprecated)' : ''}
+                                            </OptionInput>
                                         {/each}
                                     </SelectInput>
-                                </div>
+                                {/key}
                             </div>
-                            <div class="max-h-64 overflow-y-auto rounded-md border border-darkborderc">
-                                {#each getFilteredTriggers() as type}
-                                    <button
-                                        type="button"
-                                        class="block w-full border-b border-darkborderc p-2 text-left text-sm text-textcolor2 last:border-b-0 risu-interactive-surface-solid risu-interactive-foreground"
-                                        class:opacity-60={effectCategories.Deprecated.includes(type)}
-                                        onclick={() => addEffect(i, type)}
-                                    >
-                                        {language.triggerDesc[type]}
-                                        {#if effectCategories.Deprecated.includes(type)}
-                                            <span class="ml-1 text-xs opacity-60">(Deprecated)</span>
-                                        {/if}
-                                    </button>
-                                {/each}
-                            </div>
-                            <CheckInput bind:check={DBState.db.showDeprecatedTriggerV2} name={language.showDeprecatedTriggerV2} grayText className="mt-2" />
                         </div>
                     {/if}
 
@@ -460,43 +508,56 @@
                         {#if trigger.effect.length === 0}
                             <div class="px-3 py-6 text-center text-sm text-textcolor2">{language.noEffect}</div>
                         {/if}
-                        {#each trigger.effect as effect, effectIndex}
+                        <ShSortableList
+                            className="w-full"
+                            draggable="[data-trigger-v2-sortable-item]"
+                            dataAttribute="data-sortable-key"
+                            handle="[data-disclosure-toggle]"
+                            options={triggerEffectSortableOptions}
+                            onReorder={(_orderedKeys, event) => reorderEffect(i, event)}
+                        >
+                          {#each trigger.effect as effect, effectIndex (effect)}
+                            {#if effect.type === 'v2EndIndent'}
+                                <div
+                                    class="no-sort -my-1 h-2"
+                                    data-trigger-v2-sortable-item
+                                    data-trigger-v2-drop-slot
+                                    data-sortable-key={`drop-${effectIndex}`}
+                                    aria-hidden="true"
+                                ></div>
+                            {/if}
                             <div
                                 role="listitem"
-                                draggable={!openedEffects.has(effect) && effect.type !== 'v2EndIndent' && effect.type !== 'v2Else'}
+                                data-trigger-v2-sortable-item
+                                data-sortable-key={`effect-${effectIndex}`}
+                                data-trigger-v2-effect-index={effectIndex}
+                                data-trigger-v2-before-else={
+                                    effect.type === 'v2EndIndent' && trigger.effect[effectIndex + 1]?.type === 'v2Else'
+                                        ? ''
+                                        : undefined
+                                }
+                                data-trigger-v2-else={effect.type === 'v2Else' ? '' : undefined}
+                                class:trigger-v2-drag-disabled={openedEffects.has(effect)}
+                                class:no-sort={effect.type === 'v2EndIndent' || effect.type === 'v2Else'}
                                 class:cursor-grab={!openedEffects.has(effect) && effect.type !== 'v2EndIndent' && effect.type !== 'v2Else'}
-                                ondragstart={(event) => {
-                                    event.dataTransfer?.setData('text/plain', 'trigger-v2-effect')
-                                    event.dataTransfer?.setData('effectIndex', effectIndex.toString())
-                                }}
-                                ondragover={(event) => event.preventDefault()}
-                                ondrop={(event) => {
-                                    event.preventDefault()
-                                    if (event.dataTransfer?.getData('text/plain') !== 'trigger-v2-effect') return
-                                    selectedIndex = i
-                                    const fromIndex = Number(event.dataTransfer?.getData('effectIndex'))
-                                    value[i].effect = moveTriggerV2Effect(value[i].effect, fromIndex, effectIndex)
-                                    value = [...value]
-                                }}
                             >
                                 <TriggerV2EffectData
                                     value={effect as triggerEffectV2}
                                     open={openedEffects.has(effect)}
-                                    removable={effect.type !== 'v2EndIndent'}
-                                    showElse={effect.type === 'v2If' || effect.type === 'v2IfAdvanced'}
-                                    hasElse={(getElseBlock(i, effectIndex)?.elseIndex ?? -1) !== -1}
-                                    triggerNames={value.slice(1).map((candidate) => candidate.comment)}
+                                    removable={effect.type !== 'v2EndIndent' && effect.type !== 'v2Else'}
+                                    divider={topLevelDividerIndexes.has(effectIndex)}
+                                    {triggerNames}
                                     titleHtml={effect.type === 'v2EndIndent'
-                                        ? `<span class="text-textcolor2" style="margin-left:${(effect as triggerEffectV2).indent}rem">...</span>`
+                                        ? `<span class="text-xs text-textcolor2" style="margin-left:${(effect as triggerEffectV2).indent}rem">${language.triggerInputLabels.blockEnd}</span>`
                                         : formatEffectDisplay(effect, i)}
                                     onToggle={() => {
                                         if (effect.type !== 'v2EndIndent') toggleEffect(i, effect)
                                     }}
                                     onRemove={() => removeEffectAt(i, effectIndex)}
-                                    onElseChange={(checked) => toggleElseBlock(i, effectIndex, checked)}
                                 />
                             </div>
-                        {/each}
+                          {/each}
+                        </ShSortableList>
                     </ShDisclosureList>
                 </ShDisclosureList>
             {/if}

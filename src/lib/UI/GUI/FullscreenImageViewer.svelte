@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { Snippet } from 'svelte';
     import { ChevronLeft, ChevronRight, Info, X } from '@lucide/svelte';
-    import Portal from './Portal.svelte';
+    import OverlayPortal from './OverlayPortal.svelte';
     import IconButton from './IconButton.svelte';
     import IconButtonGroup from './IconButtonGroup.svelte';
 
@@ -84,9 +84,9 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-    <Portal>
+    <OverlayPortal>
     <!-- Base tier keeps blocking alerts such as delete confirmation above the viewer. -->
-    <div class="risu-layer-dialog-base fixed inset-0 flex overflow-hidden bg-bgcolor text-textcolor">
+    <div class="risu-layer-overlay fixed inset-0 flex overflow-hidden bg-bgcolor text-textcolor">
         <div class="relative flex flex-1 min-w-0 items-center justify-center overflow-hidden">
             <div class="absolute top-0 inset-x-0 z-10 flex items-center gap-3 px-4 py-3 bg-gradient-to-b from-darkbg/90 to-transparent pointer-events-none">
                 <div class="flex-1 min-w-0">
@@ -179,5 +179,5 @@
             {/if}
         </div>
     </div>
-    </Portal>
+    </OverlayPortal>
 {/if}

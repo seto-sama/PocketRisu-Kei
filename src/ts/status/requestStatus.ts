@@ -1,4 +1,5 @@
 import { writable, get } from "svelte/store"
+import { clearRequestStatusAction, setRequestStatusAction } from "./requestStatusActions"
 
 // Request Status Channel — a surface-agnostic store that request producers
 // publish to (phase/tokens/badges) and a renderer subscribes to. Decouples the
@@ -198,6 +199,7 @@ export interface StartStatusInit {
     phase?: RequestPhase
     now: number
     abortSignal?: AbortSignal
+    onActivate?: () => void
 }
 
 const abortBindings = new Map<string, () => void>()
@@ -209,6 +211,7 @@ function clearAbortBinding(id: string): void {
 
 export function startStatus(id: string, init: StartStatusInit): void {
     clearAbortBinding(id)
+    setRequestStatusAction(id, init.onActivate)
     requestStatuses.update((m) => {
         const next = new Map(m)
         next.set(id, {
@@ -432,6 +435,7 @@ async function finalRecount(id: string, recountBase?: EndStatusUsage): Promise<v
 // terminal entries; also used to clear aborted/failed immediately if desired).
 export function clearStatus(id: string): void {
     clearAbortBinding(id)
+    clearRequestStatusAction(id)
     requestStatuses.update((m) => {
         if (!m.has(id)) return m
         const next = new Map(m)
@@ -529,7 +533,10 @@ function tick(): void {
         }
         return changed ? next : m
     })
-    for (const id of abandonedIds) clearAbortBinding(id)
+    for (const id of abandonedIds) {
+        clearAbortBinding(id)
+        clearRequestStatusAction(id)
+    }
     // Authoritative token recount (async, off the sync path).
     trackTokenWork(refreshRequestStatusTokenCounts())
     if (!hasLiveEntries(get(requestStatuses))) {

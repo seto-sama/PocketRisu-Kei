@@ -5,7 +5,7 @@
 <script lang="ts">
     import { tick } from 'svelte';
     import TextInput from './TextInput.svelte';
-    import Portal from './Portal.svelte';
+    import OverlayPortal from './OverlayPortal.svelte';
 
     interface Props {
         value: string;
@@ -177,12 +177,13 @@
     />
 
     {#if listVisible}
-        <Portal>
+        <OverlayPortal>
         <div
             bind:this={dropdownEl}
+            data-risu-dialog-interactive
             id={listboxId}
             role="listbox"
-            class="risu-layer-system-popover fixed max-h-64 overflow-y-auto rounded-md border border-darkborderc
+            class="risu-layer-overlay fixed max-h-64 overflow-y-auto rounded-md border border-darkborderc
                    bg-darkbg shadow-lg p-1"
             style={dropdownStyle}
         >
@@ -201,6 +202,6 @@
                 </button>
             {/each}
         </div>
-        </Portal>
+        </OverlayPortal>
     {/if}
 </div>

@@ -9,16 +9,18 @@
     import type { Snippet } from 'svelte';
     import { AlertDialog } from 'bits-ui';
     import { cn } from 'src/lib/utils';
-    import type { ShDialogTier } from './ShDialog.svelte';
-    import { dialogLayerClasses } from 'src/ts/gui/layers';
+    import { provideOverlayLayer } from 'src/ts/gui/overlayLayer.svelte';
 
     interface Props {
         open?: boolean;
         onOpenChange?: (open: boolean) => void;
         size?: ShAlertDialogSize;
-        tier?: ShDialogTier;
         closeOnEscape?: boolean;
         closeOnOutsideClick?: boolean;
+        /** Keyboard actions for binary confirmation dialogs. Enter confirms;
+         *  Escape cancels when `closeOnEscape` is enabled. */
+        onConfirm?: () => void;
+        onCancel?: () => void;
         contentClass?: string;
         title?: Snippet;
         description?: Snippet;
@@ -35,9 +37,10 @@
         open = $bindable(false),
         onOpenChange,
         size = 'default',
-        tier = 'alert',
         closeOnEscape = false,
         closeOnOutsideClick = false,
+        onConfirm,
+        onCancel,
         contentClass = '',
         title,
         description,
@@ -45,6 +48,9 @@
         children,
         ariaLabel,
     }: Props = $props();
+
+    const overlayLayer = provideOverlayLayer(() => open);
+    const overlayStyle = $derived(`--risu-overlay-z: ${overlayLayer.zIndex};`);
 
     const sizeClasses: Record<ShAlertDialogSize, string> = {
         sm: 'max-w-sm',
@@ -61,17 +67,39 @@
         'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95';
+
+    function handleEscapeKeydown(event: KeyboardEvent) {
+        if (!closeOnEscape || !onCancel) return
+        event.preventDefault()
+        onCancel()
+    }
+
+    function handleKeydown(event: KeyboardEvent) {
+        if (
+            event.key !== 'Enter' || event.isComposing || event.repeat ||
+            event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || !onConfirm
+        ) return
+
+        event.preventDefault()
+        event.stopPropagation()
+        onConfirm()
+    }
 </script>
 
 <AlertDialog.Root bind:open {onOpenChange}>
     <AlertDialog.Portal>
         <AlertDialog.Overlay
-            class={cn('risu-modal-backdrop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0', dialogLayerClasses[tier])}
+            class="risu-modal-backdrop risu-layer-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+            style={overlayStyle}
         />
         <AlertDialog.Content
-            class={cn(contentBase, dialogLayerClasses[tier], sizeClasses[size], contentClass)}
+            data-risu-overlay-layer={overlayLayer.allocatedZIndex}
+            class={cn(contentBase, 'risu-layer-overlay', sizeClasses[size], contentClass)}
+            style={overlayStyle}
             escapeKeydownBehavior={closeOnEscape ? 'close' : 'ignore'}
             interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
+            onEscapeKeydown={handleEscapeKeydown}
+            onkeydown={handleKeydown}
         >
             {#if title || description}
                 <div class="flex flex-col gap-1">

@@ -10,10 +10,6 @@ export const helpEs = {
         "model": "La opción de modelo es el modelo principal usado en el chat.",
         "submodel": "El Modelo Auxiliar se utiliza para tareas como análisis de emociones, traducción y resumen. Se recomienda un modelo más pequeño.",
         "oaiapikey": "Clave API para OpenAI. Puedes obtenerla en https://platform.openai.com/account/api-keys",
-        "mainprompt": "La opción de prompt principal establece el comportamiento predeterminado del modelo.",
-        "jailbreak": "La opción de prompt jailbreak se activa cuando el interruptor jailbreak está activado en el personaje.",
-        "globalNote": "Una nota que afecta fuertemente el comportamiento del modelo, también conocida como UJB. Funciona en todos los personajes.",
-        "formatOrder": "Orden de formateo del prompt. Los bloques inferiores tienen más efecto en el modelo.",
         "forceUrl": "Si no está en blanco, la solicitud se enviará a la URL que hayas ingresado.",
         "tempature": "Valores más bajos hacen que el personaje siga los prompts de cerca, pero es más probable que responda como una máquina.\nValores más altos resultarán en un comportamiento creativo, pero la respuesta del personaje puede descomponerse más fácilmente.",
         "frequencyPenalty": "Valores más altos evitan el uso de palabras duplicadas en la respuesta, pero la respuesta del personaje puede descomponerse más fácilmente.",
@@ -35,7 +31,7 @@ export const helpEs = {
         "oogaboogaURL": "Si tu WebUI admite una versión anterior de la API, tu URL debería parecerse a *https:.../run/textgen*\n\nSi tu WebUI admite la nueva versión de la API, tu URL debería parecerse a *https://.../api/v1/generate* y usar el servidor API como host, y agregar --api a los argumentos.",
         "exampleMessage": "Conversaciones de ejemplo que afectan la respuesta del personaje. No usa tokens permanentemente.\n\nFormato de ejemplo de conversaciones:\n\n```\n<START>\n{{usuario}}: hola\n{{char}}: hola\n<START>\n{{usuario}}: hola\nHaruhi: hola\n```\n\n```<START>``` Marca el comienzo de una nueva conversación.",
         "creatorQuotes": "Nota que aparece en la parte superior del primer mensaje. Se utiliza para informar a los usuarios sobre este personaje. No va en el prompt.",
-        "systemPrompt": "Un prompt que reemplaza el prompt principal en la configuración si no está en blanco.",
+        "systemPrompt": "Este prompt ya no se utiliza y no se incluye en las solicitudes.",
         "chatNote": "Una nota que afecta fuertemente el comportamiento del modelo. Embebida en el chat actual. También conocida como memoria o ujb.",
         "personality": "Una breve descripción sobre la personalidad del personaje. \n\n**No se recomienda usar esta opción. Descríbelo en la descripción del personaje en su lugar.**",
         "scenario": "Una breve descripción sobre el escenario del personaje. \n\n**No se recomienda usar esta opción. Descríbelo en la descripción del personaje en su lugar.**",
@@ -115,6 +111,6 @@ export const helpEs = {
         "openRouterProviderOnly": "Solo usar los proveedores en esta lista, si todos los proveedores no están disponibles, la solicitud fallará. Ver detalles en https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
         "openRouterProviderIgnore": "Ignorar los proveedores en esta lista, si todos los proveedores son ignorados, la solicitud fallará. Ver detalles en https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",
         "hideAllImagesDesc": "Oculta los iconos de bots, recursos de imágenes de bots y portadas de RisuRealm.",
-        "embedding": "El modelo de incrustación (embedding) se utiliza para la búsqueda de similitud en múltiples características:\n\n- **Memoria a Largo Plazo**: HypaV2, HypaV3, Memoria Hanurai y SupaMemory (con HypaMemory habilitado)\n- **Texto Adicional**: Coincidencia de información adicional del personaje basada en el contexto\n- **Activos Dinámicos**: Encontrar nombres de activos similares cuando no se encuentra una coincidencia exacta\n- **Imágenes de Emoción**: Cuando el método de Emoción está configurado en 'embedding'\n- **Scripts de Activación**: Condiciones de similitud en scripts de activación\n- **Archivos Adjuntos**: Búsqueda dentro de archivos adjuntos PDF/TXT/XML\n- **Playground**: Pruebas de incrustación en Playground",
+        "embedding": "El modelo de incrustación (embedding) se utiliza para la búsqueda de similitud en múltiples características:\n\n- **Memoria a Largo Plazo**: HypaV2, HypaV3, Memoria Hanurai y SupaMemory (con HypaMemory habilitado)\n- **Texto Adicional**: Coincidencia de información adicional del personaje basada en el contexto\n- **Activos Dinámicos**: Encontrar nombres de activos similares cuando no se encuentra una coincidencia exacta\n- **Imágenes de Emoción**: Cuando el método de Emoción está configurado en 'embedding'\n- **Scripts de Activación**: Condiciones de similitud en scripts de activación\n- **Archivos Adjuntos**: Búsqueda dentro de archivos adjuntos PDF/TXT/XML",
         "enableScrollToActiveChar": "Si está habilitado, pulsar la tecla de acceso rápido o mantener presionada la tecla Ctrl mientras se arrastra un personaje desplazará la vista hasta el personaje activo. Las carpetas se abrirán automáticamente si están cerradas."
     }

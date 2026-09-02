@@ -14,7 +14,7 @@
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import { onDestroy } from "svelte";
-    import { importMCPModule } from "src/ts/process/mcp/mcp";
+    import { builtInMCPIds, importMCPModule, type BuiltInMCPId } from "src/ts/process/mcp/mcp";
     import { convertModuleToCharacter } from "src/ts/interchangeability";
     import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { getCharImage } from "src/ts/characters";
@@ -23,6 +23,9 @@
     import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
     import ModelPresetList from "src/lib/UI/ModelPresetList.svelte";
     import { openSettings, SettingsRoute } from "src/ts/routing";
+    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
+    import ShSelect from "src/lib/UI/GUI/ShSelect.svelte";
+    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
@@ -38,7 +41,17 @@
     let personaSearch = $state('')
     let visiblePersonaIndexes = $state<number[]>([])
     let emptyPersonaMessage = $state('')
+    let mcpImportOpen = $state(false)
+    let mcpImportSource = $state<string>(builtInMCPIds[0])
+    let customMCPAddress = $state('')
+    let mcpImporting = $state(false)
     const personaFolders = $derived(DBState.db.personaFolders ?? [])
+    const selectedMCPAddress = $derived(
+        mcpImportSource === 'custom' ? customMCPAddress.trim() : mcpImportSource
+    )
+    const selectedMCPAlreadyImported = $derived(
+        !!selectedMCPAddress && DBState.db.modules.some(rmodule => rmodule.mcp?.url === selectedMCPAddress)
+    )
     DBState.db.moduleModelBindings ??= {}
     let {
         embedded = false,
@@ -179,6 +192,35 @@
         )
     }
 
+    function builtInMCPLabel(id:BuiltInMCPId):string {
+        switch(id){
+            case 'internal:aiaccess': return language.mcpImport.builtIn.aiAccess
+            case 'internal:risuai': return language.mcpImport.builtIn.risuAccess
+            case 'internal:fs': return language.mcpImport.builtIn.fileSystem
+            case 'internal:googlesearch': return language.mcpImport.builtIn.googleSearch
+            case 'internal:dice': return language.mcpImport.builtIn.dice
+            case 'internal:graphmem': return language.mcpImport.builtIn.graphMemory
+        }
+    }
+
+    function openMCPImportDialog() {
+        mcpImportSource = builtInMCPIds[0]
+        customMCPAddress = ''
+        mcpImportOpen = true
+    }
+
+    async function submitMCPImport() {
+        if (!selectedMCPAddress || selectedMCPAlreadyImported || mcpImporting) return
+        mcpImporting = true
+        try {
+            if (await importMCPModule(selectedMCPAddress)) {
+                mcpImportOpen = false
+            }
+        } finally {
+            mcpImporting = false
+        }
+    }
+
     onDestroy(() => {
         refreshModules()
     })
@@ -216,9 +258,7 @@
                 <HardDriveUpload  />
             </IconButton>
         {:else}
-            <IconButton onclick={async () => {
-                await importMCPModule()
-            }}>
+            <IconButton title={language.mcpImport.title} onclick={openMCPImportDialog}>
                 <Waypoints />
             </IconButton>
         {/if}
@@ -438,3 +478,44 @@
     {/if}
     </SettingPage>
 {/if}
+
+<ShDialog bind:open={mcpImportOpen} size="default" closeOnEscape={!mcpImporting} closeOnOutsideClick={!mcpImporting} closable={!mcpImporting}>
+    {#snippet title()}{language.mcpImport.title}{/snippet}
+    {#snippet description()}{language.mcpImport.description}{/snippet}
+
+    <div class="flex flex-col gap-4">
+        <div class="flex flex-col gap-1.5">
+            <span class="text-sm text-textcolor2">{language.mcpImport.source}</span>
+            <ShSelect bind:value={mcpImportSource}>
+                {#each builtInMCPIds as id}
+                    <OptionInput value={id}>{builtInMCPLabel(id)} ({id})</OptionInput>
+                {/each}
+                <OptionInput value="custom">{language.mcpImport.customSource}</OptionInput>
+            </ShSelect>
+        </div>
+
+        {#if mcpImportSource === 'custom'}
+            <label class="flex flex-col gap-1.5">
+                <span class="text-sm text-textcolor2">{language.mcpImport.address}</span>
+                <TextInput
+                    bind:value={customMCPAddress}
+                    placeholder={language.mcpImport.addressPlaceholder}
+                    fullwidth
+                />
+            </label>
+        {/if}
+
+        {#if selectedMCPAlreadyImported}
+            <p class="text-sm text-warning">{language.mcpImport.alreadyImported}</p>
+        {/if}
+    </div>
+
+    {#snippet footer()}
+        <ShButton variant="outline" onclick={() => (mcpImportOpen = false)} disabled={mcpImporting}>
+            {language.cancel}
+        </ShButton>
+        <ShButton onclick={submitMCPImport} disabled={!selectedMCPAddress || selectedMCPAlreadyImported || mcpImporting}>
+            {language.import}
+        </ShButton>
+    {/snippet}
+</ShDialog>

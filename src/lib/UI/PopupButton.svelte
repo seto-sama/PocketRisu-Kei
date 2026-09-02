@@ -1,8 +1,10 @@
 <script lang="ts">
     import { MenuIcon } from "@lucide/svelte";
-    import { closePopup, popupStore } from "src/ts/stores.svelte";
-    import { sleep } from "src/ts/util";
+    import { language } from "src/lang";
     import IconButton from "./GUI/IconButton.svelte";
+    import ShDropdownMenu from "./GUI/ShDropdownMenu.svelte";
+    import ShDropdownMenuContent from "./GUI/ShDropdownMenuContent.svelte";
+    import ShDropdownMenuTrigger from "./GUI/ShDropdownMenuTrigger.svelte";
 
     const {
         children
@@ -10,19 +12,17 @@
         children: import("svelte").Snippet
     } = $props();
     
-    let buttonId = Math.random()
 </script>
 
-<IconButton size="lg" onclick={async (e:MouseEvent) => {
-    await sleep(0)
-    if(popupStore.openId === buttonId){
-        closePopup()
-        return
-    }
-    popupStore.mouseX = e.clientX
-    popupStore.mouseY = e.clientY
-    popupStore.children = children
-    popupStore.openId = buttonId
-}} className="button-icon-menu">
-    <MenuIcon />
-</IconButton>
+<ShDropdownMenu>
+    <ShDropdownMenuTrigger>
+        {#snippet child({ props })}
+            <IconButton {...props} size="lg" className="button-icon-menu" aria-label={language.menu}>
+                <MenuIcon />
+            </IconButton>
+        {/snippet}
+    </ShDropdownMenuTrigger>
+    <ShDropdownMenuContent side="top" align="end" class="min-w-48 max-h-[70vh] overflow-y-auto">
+        {@render children()}
+    </ShDropdownMenuContent>
+</ShDropdownMenu>

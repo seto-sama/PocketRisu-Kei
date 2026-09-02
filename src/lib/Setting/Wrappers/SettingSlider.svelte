@@ -162,7 +162,6 @@
         step={item.options?.step}
         fixed={item.options?.fixed}
         multiple={item.options?.multiple}
-        disableable={item.options?.disableable}
         {customText}
         bind:value={localValue}
     />

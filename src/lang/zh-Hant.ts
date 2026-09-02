@@ -406,8 +406,7 @@ export const languageChineseTraditional = {
         "helpSlot": "使用 {{slot}} 保持不變",
         "expression": "表達式",
     },
-    "playground": {
-        "playground": "Playground",
+    "inlayGallery": {
         "inlayDeleteConfirm": "確定要刪除「{name}」嗎？",
         "inlayDeleteMultipleConfirm": "確定要刪除選取的 {count} 個資源嗎？",
         "inlayDeleteSelected": "刪除選取項目",
@@ -800,7 +799,6 @@ export const languageChineseTraditional = {
     "rangeStart": "範圍開始",
     "rangeEnd": "範圍結束",
     "untilChatEnd": "直到對話結束",
-    "usePromptTemplate": "使用提示詞模板",
     "specialType": "特殊類型",
     "noSpecialType": "無特殊類型",
     "promptTemplate": "提示詞模板",
@@ -1018,8 +1016,6 @@ export const languageChineseTraditional = {
     "moduleIntergration": "模組整合",
     "previewInfo": "此預覽顯示模型處理前的提示詞。",
     "miscTools": "其他工具",
-    "promptConvertion": "提示詞轉換",
-    "convertionStep1": "請選擇與提示詞相關的檔案（支援 Context、Instruct 及 Sampler JSON）",
     "customCSS": "自訂 CSS",
     "betaMobileGUI": "測試版行動介面",
     "enableScrollToActiveChar": "啟用捲動至目前角色",

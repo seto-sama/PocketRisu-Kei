@@ -14,4 +14,17 @@ describe('Trigger V2 effect registry', () => {
     test('returns null for unknown effect types', () => {
         expect(createTriggerV2Effect('v2Unknown')).toBeNull();
     });
+
+    test('lists every Lorebook V2 effect', () => {
+        expect(effectCategories['Lorebook V2']).toEqual([
+            'v2GetAllLorebooks',
+            'v2GetLorebookByName',
+            'v2GetLorebookByIndex',
+            'v2CreateLorebook',
+            'v2ModifyLorebookByIndex',
+            'v2DeleteLorebookByIndex',
+            'v2GetLorebookCountNew',
+            'v2SetLorebookAlwaysActive',
+        ]);
+    });
 });

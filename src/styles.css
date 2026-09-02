@@ -159,21 +159,16 @@
 }
 
 /*
-  Application stacking scale. Each global tier advances by one step so a
-  component can derive the next tier without copying magic numbers. Component
-  internals should use the isolated local tiers instead of this global scale.
+  Open overlays receive --risu-overlay-z from the shared runtime stack. The
+  static overlay value is only a fallback for layout-scoped UI.
 */
 :root {
   --risu-z-step: 10;
   --risu-z-sticky: var(--risu-z-step);
   --risu-z-composer: calc(var(--risu-z-sticky) + var(--risu-z-step));
   --risu-z-chrome: calc(var(--risu-z-composer) + var(--risu-z-step));
-  --risu-z-dialog-base: calc(var(--risu-z-chrome) + var(--risu-z-step));
-  --risu-z-dialog-menu: calc(var(--risu-z-dialog-base) + var(--risu-z-step));
-  --risu-z-dialog-alert: calc(var(--risu-z-dialog-menu) + var(--risu-z-step));
-  --risu-z-dialog-top: calc(var(--risu-z-dialog-alert) + var(--risu-z-step));
-  --risu-z-system-popover: calc(var(--risu-z-dialog-top) + var(--risu-z-step));
-  --risu-z-blocking: calc(var(--risu-z-system-popover) + var(--risu-z-step));
+  --risu-z-overlay: calc(var(--risu-z-chrome) + var(--risu-z-step));
+  --risu-z-blocking: calc(var(--risu-z-overlay) + var(--risu-z-step));
 
   --risu-z-local-content: 0;
   --risu-z-local-focus: 1;
@@ -193,24 +188,8 @@
   z-index: var(--risu-z-chrome);
 }
 
-@utility risu-layer-dialog-base {
-  z-index: var(--risu-z-dialog-base);
-}
-
-@utility risu-layer-dialog-menu {
-  z-index: var(--risu-z-dialog-menu);
-}
-
-@utility risu-layer-dialog-alert {
-  z-index: var(--risu-z-dialog-alert);
-}
-
-@utility risu-layer-dialog-top {
-  z-index: var(--risu-z-dialog-top);
-}
-
-@utility risu-layer-system-popover {
-  z-index: var(--risu-z-system-popover);
+@utility risu-layer-overlay {
+  z-index: var(--risu-overlay-z, var(--risu-z-overlay));
 }
 
 @utility risu-layer-blocking {

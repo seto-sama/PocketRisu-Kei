@@ -165,9 +165,9 @@
 
   function getStatusLabel(item: InlayExplorerItem | null): string | null {
     if (!item) return null
-    if (!item.hasMeta) return language.playground.inlayFilterMetaMissing
-    if (isOrphanCharacter(item)) return language.playground.inlayFilterOrphanCharacter
-    if (isOrphanChat(item)) return language.playground.inlayFilterOrphanChat
+    if (!item.hasMeta) return language.inlayGallery.inlayFilterMetaMissing
+    if (isOrphanCharacter(item)) return language.inlayGallery.inlayFilterOrphanCharacter
+    if (isOrphanChat(item)) return language.inlayGallery.inlayFilterOrphanChat
     return null
   }
 
@@ -280,7 +280,7 @@
   const deselectAll = () => selection.clear()
 
   const deleteAsset = async (id: string, name: string) => {
-    if (!(await alertConfirm(language.playground.inlayDeleteConfirm.replace('{name}', name)))) return
+    if (!(await alertConfirm(language.inlayGallery.inlayDeleteConfirm.replace('{name}', name)))) return
     const currentIndex = sortedItems.findIndex((item) => item.id === id)
     const neighborId = currentIndex >= 0
       ? (sortedItems[currentIndex + 1] ?? sortedItems[currentIndex - 1])?.id
@@ -296,7 +296,7 @@
 
   const deleteSelected = async () => {
     if (selection.size === 0) return
-    if (!(await alertConfirm(language.playground.inlayDeleteMultipleConfirm.replace('{count}', selection.size.toString())))) return
+    if (!(await alertConfirm(language.inlayGallery.inlayDeleteMultipleConfirm.replace('{count}', selection.size.toString())))) return
     const ids = allItems.filter((item) => selection.has(item.id)).map((item) => item.id)
     await removeInlayAssets(ids)
     allItems = allItems.filter((item) => !selection.has(item.id))
@@ -354,10 +354,10 @@
 
 <div class="min-h-0 flex flex-col {$InlayGallerySubmenuIndex !== 2 ? 'h-full overflow-hidden' : ''}">
   <div class="shrink-0">
-    <SettingPage title={language.playground.inlayImageGallery}>
+    <SettingPage title={language.inlayGallery.inlayImageGallery}>
       <SettingTabs tabs={[
-        { label: language.playground.inlayImageList, value: 0 },
-        { label: language.playground.inlayMediaList, value: 1 },
+        { label: language.inlayGallery.inlayImageList, value: 0 },
+        { label: language.inlayGallery.inlayMediaList, value: 1 },
         { label: language.settings, value: 2 },
       ]} bind:selected={$InlayGallerySubmenuIndex} />
     </SettingPage>
@@ -369,16 +369,16 @@
     <header class="shrink-0 flex flex-col gap-3 bg-bgcolor pb-4">
       <div class="flex flex-wrap gap-3 items-center">
         <span class="text-textcolor2 text-sm">
-          {language.playground.inlayTotalAssets.replace('{count}', filteredItems.length.toString())}
+          {language.inlayGallery.inlayTotalAssets.replace('{count}', filteredItems.length.toString())}
         </span>
         <div class="flex gap-2 ml-auto">
           {#if hasSelection}
-            <ShButton onclick={deleteSelected} variant="destructive" size="sm">{language.playground.inlayDeleteSelected}</ShButton>
+            <ShButton onclick={deleteSelected} variant="destructive" size="sm">{language.inlayGallery.inlayDeleteSelected}</ShButton>
             <ShButton onclick={deselectAll} variant="outline" size="sm">
-              {language.playground.inlayDeselectAll} ({selection.size})
+              {language.inlayGallery.inlayDeselectAll} ({selection.size})
             </ShButton>
           {:else if filteredItems.length > 0}
-            <ShButton onclick={selectAll} variant="outline" size="sm">{language.playground.inlaySelectAll}</ShButton>
+            <ShButton onclick={selectAll} variant="outline" size="sm">{language.inlayGallery.inlaySelectAll}</ShButton>
           {/if}
         </div>
       </div>
@@ -387,12 +387,12 @@
         <SettingLayout variant="filter" title={language.systemLogsFilters} bind:open={filtersOpen} activeCount={activeFilterCount}>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
               <div class="flex flex-col gap-1 text-xs text-textcolor2">
-                <span>{language.playground.inlaySort}</span>
+                <span>{language.inlayGallery.inlaySort}</span>
                 <ShSelect bind:value={sortKey} size="sm">
-                  <OptionInput value="updated-desc">{language.playground.inlaySortUpdatedDesc}</OptionInput>
-                  <OptionInput value="updated-asc">{language.playground.inlaySortUpdatedAsc}</OptionInput>
-                  <OptionInput value="created-desc">{language.playground.inlaySortCreatedDesc}</OptionInput>
-                  <OptionInput value="created-asc">{language.playground.inlaySortCreatedAsc}</OptionInput>
+                  <OptionInput value="updated-desc">{language.inlayGallery.inlaySortUpdatedDesc}</OptionInput>
+                  <OptionInput value="updated-asc">{language.inlayGallery.inlaySortUpdatedAsc}</OptionInput>
+                  <OptionInput value="created-desc">{language.inlayGallery.inlaySortCreatedDesc}</OptionInput>
+                  <OptionInput value="created-asc">{language.inlayGallery.inlaySortCreatedAsc}</OptionInput>
                 </ShSelect>
               </div>
               <div class="flex flex-col gap-1 text-xs text-textcolor2">
@@ -414,13 +414,13 @@
                 </ShSelect>
               </div>
               <div class="flex flex-col gap-1 text-xs text-textcolor2">
-                <span>{language.playground.inlayFilter}</span>
+                <span>{language.inlayGallery.inlayFilter}</span>
                 <ShSelect bind:value={specialFilter} size="sm">
-                  <OptionInput value="all">{language.playground.inlayFilterAll}</OptionInput>
-                  <OptionInput value="meta-missing">{language.playground.inlayFilterMetaMissing}</OptionInput>
-                  <OptionInput value="orphan-character">{language.playground.inlayFilterOrphanCharacter}</OptionInput>
-                  <OptionInput value="orphan-chat">{language.playground.inlayFilterOrphanChat}</OptionInput>
-                  <OptionInput value="orphan-message">{language.playground.inlayFilterOrphanMessage}</OptionInput>
+                  <OptionInput value="all">{language.inlayGallery.inlayFilterAll}</OptionInput>
+                  <OptionInput value="meta-missing">{language.inlayGallery.inlayFilterMetaMissing}</OptionInput>
+                  <OptionInput value="orphan-character">{language.inlayGallery.inlayFilterOrphanCharacter}</OptionInput>
+                  <OptionInput value="orphan-chat">{language.inlayGallery.inlayFilterOrphanChat}</OptionInput>
+                  <OptionInput value="orphan-message">{language.inlayGallery.inlayFilterOrphanMessage}</OptionInput>
                 </ShSelect>
               </div>
             </div>
@@ -432,15 +432,15 @@
       {#if loading}
         <div class="min-h-full flex flex-col items-center justify-center gap-4">
           <div class="w-12 h-12 border-4 border-darkborderc border-t-borderc rounded-full animate-spin"></div>
-          <p class="text-textcolor2 text-sm">{language.playground.inlayLoadingMore}</p>
+          <p class="text-textcolor2 text-sm">{language.inlayGallery.inlayLoadingMore}</p>
         </div>
       {:else if filteredItems.length === 0}
         <div class="min-h-full flex flex-col items-center justify-center text-center text-textcolor2">
-          <p class="text-lg">{language.playground.inlayEmpty}</p>
+          <p class="text-lg">{language.inlayGallery.inlayEmpty}</p>
           <p class="text-sm mt-2">
             {$InlayGallerySubmenuIndex === 0
-              ? language.playground.inlayImageGalleryEmptyDesc
-              : language.playground.inlayMediaGalleryEmptyDesc}
+              ? language.inlayGallery.inlayImageGalleryEmptyDesc
+              : language.inlayGallery.inlayMediaGalleryEmptyDesc}
           </p>
         </div>
       {:else}
@@ -466,7 +466,7 @@
                 {#if failedVideoThumbnails.has(item.id)}
                   <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-textcolor2/60">
                     <Video size={36} />
-                    <span class="text-[10px]">{language.playground.inlayVideoAsset}</span>
+                    <span class="text-[10px]">{language.inlayGallery.inlayVideoAsset}</span>
                   </div>
                 {:else}
                   <img
@@ -481,7 +481,7 @@
               {:else}
                 <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-textcolor2/60">
                   <AudioLines size={36} />
-                  <span class="text-[10px]">{language.playground.inlayAudioAsset}</span>
+                  <span class="text-[10px]">{language.inlayGallery.inlayAudioAsset}</span>
                 </div>
               {/if}
 
@@ -496,7 +496,7 @@
               <div
                 class="absolute top-1.5 left-1.5 z-10 transition-opacity
                   {selection.has(item.id) ? '' : 'opacity-0 group-hover:opacity-100'}"
-                title={selection.has(item.id) ? language.playground.inlayDeselectAll : language.playground.inlaySelectAll}
+                title={selection.has(item.id) ? language.inlayGallery.inlayDeselectAll : language.inlayGallery.inlaySelectAll}
               >
                 <CheckInput
                   card
@@ -546,7 +546,7 @@
                     <button
                       class="w-6 h-6 rounded bg-draculared/30 hover:bg-draculared/70 flex items-center justify-center text-white transition-colors"
                       onclick={(e) => { e.stopPropagation(); deleteAsset(item.id, item.name) }}
-                      title={language.playground.inlayDelete}
+                      title={language.inlayGallery.inlayDelete}
                     >
                       <Trash2 size={12} />
                     </button>
@@ -578,10 +578,10 @@
   total={sortedItems.length}
   loading={viewerLoading}
   error={viewerError}
-  loadingLabel={language.playground.inlayLoadingOriginal}
+  loadingLabel={language.inlayGallery.inlayLoadingOriginal}
   {canGoPrev}
   {canGoNext}
-  metadataLabel={language.playground.inlayInfo}
+  metadataLabel={language.inlayGallery.inlayInfo}
   closeLabel={language.goback}
   onClose={closeViewer}
   onPrev={() => goToNeighbor(-1)}
@@ -620,7 +620,7 @@
       <IconButton onclick={() => downloadCurrent(currentViewerItem)} title={language.download} aria-label={language.download} className="text-textcolor">
         <Download />
       </IconButton>
-      <IconButton tone="destructive" onclick={() => deleteAsset(currentViewerItem.id, currentViewerItem.name)} title={language.playground.inlayDelete} aria-label={language.playground.inlayDelete} className="text-textcolor">
+      <IconButton tone="destructive" onclick={() => deleteAsset(currentViewerItem.id, currentViewerItem.name)} title={language.inlayGallery.inlayDelete} aria-label={language.inlayGallery.inlayDelete} className="text-textcolor">
         <Trash2 />
       </IconButton>
     {/if}
@@ -631,7 +631,7 @@
       <div class="space-y-2 text-xs">
         {#if !currentViewerItem.hasMeta}
           <span class="risu-status-warning inline-flex rounded px-1.5 py-0.5 text-[9px] font-medium">
-            {language.playground.inlayFilterMetaMissing}
+            {language.inlayGallery.inlayFilterMetaMissing}
           </span>
         {/if}
         <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
@@ -641,7 +641,7 @@
               <span class="truncate">{getCharacterName(currentViewerItem)}</span>
               {#if isOrphanCharacter(currentViewerItem)}
                 <span class="risu-status-warning shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium">
-                  {language.playground.inlayFilterOrphanCharacter}
+                  {language.inlayGallery.inlayFilterOrphanCharacter}
                 </span>
               {/if}
             </dd>
@@ -652,7 +652,7 @@
               <span class="truncate">{getChatName(currentViewerItem)}</span>
               {#if isOrphanChat(currentViewerItem)}
                 <span class="risu-status-warning shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium">
-                  {language.playground.inlayFilterOrphanChat}
+                  {language.inlayGallery.inlayFilterOrphanChat}
                 </span>
               {/if}
             </dd>

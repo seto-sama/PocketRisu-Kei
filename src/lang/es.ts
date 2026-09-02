@@ -404,8 +404,7 @@ export const languageSpanish = {
         "helpSlot": "Usa {{slot}} para mantener sin cambios",
         "expression": "Expresión"
     },
-    "playground": {
-        "playground": "Playground",
+    "inlayGallery": {
         "inlayDeleteConfirm": "¿Estás seguro de que deseas eliminar \"{name}\"?",
         "inlayDeleteMultipleConfirm": "¿Estás seguro de que deseas eliminar los {count} recursos seleccionados?",
         "inlayDeleteSelected": "Eliminar seleccionados",
@@ -733,7 +732,6 @@ export const languageSpanish = {
     "rangeStart": "Inicio del Rango",
     "rangeEnd": "Fin del Rango",
     "untilChatEnd": "Hasta el Fin del Chat",
-    "usePromptTemplate": "Usar Plantilla de Prompt",
     "specialType": "Tipo Especial",
     "noSpecialType": "Sin Tipo Especial",
     "promptTemplate": "Plantilla de Prompt",
@@ -946,8 +944,6 @@ export const languageSpanish = {
     "moduleIntergration": "Integración de Módulos",
     "previewInfo": "Esta vista previa muestra el prompt antes del procesamiento específico del modelo.",
     "miscTools": "Herramientas Varias",
-    "promptConvertion": "Conversión de Prompt",
-    "convertionStep1": "Selecciona todos los archivos relacionados con el prompt (Contexto, Instrucción y Sampler JSON compatibles)",
     "customCSS": "CSS Personalizado",
     "betaMobileGUI": "GUI Móvil Beta",
     "menu": "Menú",

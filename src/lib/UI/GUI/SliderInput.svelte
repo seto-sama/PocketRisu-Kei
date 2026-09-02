@@ -10,19 +10,6 @@
 > -->
 
 <div class="w-full flex {className ?? ''}" class:mb-4={marginBottom}>
-  {#if disableable}
-
-    <div class="relative h-8 border-darkborderc border rounded-full cursor-pointer rounded-r-none border-r-0 flex justify-center items-center pl-2">
-      <CheckInput check={value !== -1000 && value !== undefined} margin={false} onChange={(c) => {
-        onchange?.()
-        if(c) {
-          value = min;
-        } else {
-          value = -1000;
-        }
-      }}></CheckInput>
-    </div>
-  {/if}
   <div 
     role="slider"
     tabindex="0"
@@ -31,7 +18,6 @@
     aria-valuenow={sliderValue}
     aria-valuetext={displayText}
     class="relative w-full h-8 border-darkborderc border rounded-full cursor-pointer"
-    class:rounded-l-none={disableable}
     style:background={
       `linear-gradient(to right, var(--risu-theme-darkbutton) 0%, var(--risu-theme-darkbutton) ${sliderPercent}%, var(--risu-theme-darkbg) ${sliderPercent}%, var(--risu-theme-darkbg) 100%)`
     }
@@ -73,7 +59,6 @@
 
 <script lang="ts">
   import { language } from "src/lang";
-  import CheckInput from "./CheckInput.svelte";
 
     let slider: HTMLDivElement = $state()
     let mouseDown = $state(false)
@@ -85,10 +70,8 @@
     step?: number;
     fixed?: number;
     multiple?: number;
-    disableable?: boolean;
     customText?: string|undefined;
     className?: string;
-    onchange?: Function;
   }
 
   let {
@@ -99,10 +82,8 @@
     step = 1,
     fixed = 0,
     multiple = 1,
-    disableable = false,
     customText = undefined,
-    className,
-    onchange
+    className
   }: Props = $props();
 
   let isDisabledValue = $derived(value === -1000 || value === undefined);

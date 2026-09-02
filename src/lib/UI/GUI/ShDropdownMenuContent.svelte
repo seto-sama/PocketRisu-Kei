@@ -1,26 +1,31 @@
 <script lang="ts">
-    // shadcn-svelte DropdownMenu Content — RisuAI tokens. Portals to body.
-    // Menus sit one application layer above base dialogs and below alerts.
+    // shadcn-svelte DropdownMenu Content — RisuAI tokens. Portals to body
+    // and receives its z-index from the shared overlay stack.
     import { DropdownMenu } from 'bits-ui';
     import { cn } from 'src/lib/utils';
+    import OverlayLayerRoot from './OverlayLayerRoot.svelte';
 
     let {
         ref = $bindable(null),
         sideOffset = 4,
         align = 'start',
         class: className,
+        style: styleProp,
         ...restProps
     }: DropdownMenu.ContentProps = $props();
+
 </script>
 
 <DropdownMenu.Portal>
+    <OverlayLayerRoot interactive>
     <DropdownMenu.Content
         bind:ref
         data-slot="dropdown-menu-content"
         {sideOffset}
         {align}
+        style={styleProp}
         class={cn(
-            'risu-layer-dialog-menu min-w-32 rounded-md border border-darkborderc bg-darkbg text-textcolor p-1 shadow-md outline-none ' +
+            'risu-layer-overlay min-w-32 rounded-md border border-darkborderc bg-darkbg text-textcolor p-1 shadow-md outline-none ' +
             'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
             'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 ' +
@@ -30,4 +35,5 @@
         )}
         {...restProps}
     />
+    </OverlayLayerRoot>
 </DropdownMenu.Portal>

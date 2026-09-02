@@ -413,7 +413,7 @@
     {:else if uiField.widget === 'combobox'}
         <input
             type="text"
-            class="risu-field-border bg-darkbg rounded-md px-3 py-2 text-textcolor"
+            class="risu-field-border bg-darkbg rounded-md px-2.5 py-2 text-textcolor"
             bind:value={userValues[fieldKey] as string}
             placeholder={uiField.placeholder ?? ''}
         />

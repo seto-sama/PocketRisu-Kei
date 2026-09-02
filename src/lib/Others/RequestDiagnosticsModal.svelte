@@ -152,10 +152,8 @@
 <ShDialog
     bind:open
     size="xl"
-    tier="alert"
     closeOnEscape={true}
     closeOnOutsideClick={true}
-    contentClass="overflow-hidden"
     bodyClass="min-h-0"
     {onOpenChange}
 >

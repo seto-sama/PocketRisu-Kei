@@ -7,11 +7,12 @@
     import { get } from 'svelte/store';
     import { openSettings, SettingsRoute } from 'src/ts/routing';
     import { GitCompare } from "@lucide/svelte";
-    import TextInput from "../UI/GUI/TextInput.svelte";
+    import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
     import { prebuiltPresets } from "src/ts/process/templates/templates";
     import PromptDiffModal from "../Others/PromptDiffModal.svelte";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
+    import IconButton from "../UI/GUI/IconButton.svelte";
 
     let editMode = $state(false)
     let selectedFolder = $state<string>('all')
@@ -167,7 +168,7 @@
             {@const preset = DBState.db.botPresets[index]}
             {#if editMode}
                 <div class="min-w-0 grow">
-                    <TextInput bind:value={DBState.db.botPresets[index].name} placeholder="string" padding={false} fullwidth className="h-8 min-w-0 px-2" />
+                    <InlineNameInput bind:value={DBState.db.botPresets[index].name} size="default" placeholder="string" />
                 </div>
             {:else}
                 {#if preset.image}
@@ -175,13 +176,19 @@
                 {/if}
                 <span class="min-w-0 grow truncate">{preset.name}</span>
             {/if}
+        {/snippet}
+        {#snippet itemActions(index)}
             {#if DBState.db.showPromptComparison}
-                <button type="button" class="ml-3 shrink-0 {selectedDiffPreset === index ? 'text-green-500' : 'text-textcolor2 risu-interactive-accent'} cursor-pointer" onclick={(e) => {
-                    e.stopPropagation()
-                    handleDiffMode(index)
-                }}>
-                    <GitCompare size={18}/>
-                </button>
+                <IconButton
+                    active={selectedDiffPreset === index}
+                    activeColor="primary"
+                    title={language.showPromptComparison}
+                    aria-label={language.showPromptComparison}
+                    aria-pressed={selectedDiffPreset === index}
+                    onclick={() => handleDiffMode(index)}
+                >
+                    <GitCompare />
+                </IconButton>
             {/if}
         {/snippet}
         {#if $settingsOpen}

@@ -81,6 +81,26 @@ describe('resolveChatModelBinding — per-module override', () => {
     })
 })
 
+describe('resolveChatModelBinding — one-request override', () => {
+    const OVERRIDE_PRESET = { id: 'p-override', name: 'Override' } as any
+    const chat = { modelBinding: bindingWith('p-main') } as any
+
+    beforeEach(() => {
+        mockDb.modelPresets = [PRESET, OVERRIDE_PRESET]
+    })
+
+    test('uses the explicitly requested preset without changing the chat binding', () => {
+        expect(resolveChatModelBinding(chat, 'translate', undefined, 'p-override'))
+            .toEqual({ kind: 'modelPreset', preset: OVERRIDE_PRESET })
+        expect(chat.modelBinding.main).toBe('p-main')
+    })
+
+    test('blocks a dangling explicit override instead of silently using another model', () => {
+        expect(resolveChatModelBinding(chat, 'translate', undefined, 'missing'))
+            .toEqual({ kind: 'block', reason: 'sub-unset' })
+    })
+})
+
 function presetWith(opts: { schema?: any[]; userValues?: any; defaults?: any } = {}) {
     return {
         id: 'p-main',

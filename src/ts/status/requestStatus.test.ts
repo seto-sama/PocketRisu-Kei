@@ -5,6 +5,7 @@ import {
     appendText,
     abortStatusesForChat,
     computeTokPerSec,
+    clearStatus,
     endStatus,
     endStatusesForChat,
     isTerminalPhase,
@@ -26,6 +27,7 @@ import {
     TOK_PER_SEC_WINDOW_MS,
     STATUS_ABANDON_MS,
 } from './requestStatus'
+import { activateRequestStatus, hasRequestStatusAction } from './requestStatusActions'
 
 beforeEach(() => {
     requestStatuses.set(new Map())
@@ -146,12 +148,20 @@ describe('publish API', () => {
     })
 
     it('startStatus creates an entry', () => {
-        startStatus('g1', { kind: 'main', label: 'gpt', chatId: 'c1', now: 100 })
+        const onActivate = vi.fn()
+        startStatus('g1', { kind: 'main', label: 'gpt', chatId: 'c1', now: 100, onActivate })
         const e = get(requestStatuses).get('g1')!
         expect(e.phase).toBe('connecting')
         expect(e.label).toBe('gpt')
         expect(e.chatId).toBe('c1')
         expect(e.startedAt).toBe(100)
+        expect(hasRequestStatusAction('g1')).toBe(true)
+        expect(activateRequestStatus('g1')).toBe(true)
+        expect(onActivate).toHaveBeenCalledOnce()
+
+        clearStatus('g1')
+        expect(hasRequestStatusAction('g1')).toBe(false)
+        expect(activateRequestStatus('g1')).toBe(false)
     })
 
     it('moves a live request to aborted as soon as its signal is cancelled', () => {

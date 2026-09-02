@@ -8,7 +8,7 @@
     import ShButton from 'src/lib/UI/GUI/ShButton.svelte';
     import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte';
     import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte';
-    import Portal from 'src/lib/UI/GUI/Portal.svelte';
+    import OverlayPortal from 'src/lib/UI/GUI/OverlayPortal.svelte';
     import { isMobile } from 'src/ts/platform';
     import { layerZIndexes } from 'src/ts/gui/layers';
     import {
@@ -319,7 +319,7 @@
 
         blockButtonWrapper.style.position = 'fixed';
         blockButtonWrapper.style.gap = `${PARTIAL_EDIT_BUTTON_GAP}px`;
-        blockButtonWrapper.style.zIndex = layerZIndexes.systemPopover;
+        blockButtonWrapper.style.zIndex = layerZIndexes.overlay;
         positionBlockButtons(getLastContentRect(block), blockButtonWrapper);
     }
 
@@ -342,7 +342,7 @@
 
         dragButtonWrapper.style.position = 'fixed';
         dragButtonWrapper.style.gap = `${PARTIAL_EDIT_BUTTON_GAP}px`;
-        dragButtonWrapper.style.zIndex = layerZIndexes.systemPopover;
+        dragButtonWrapper.style.zIndex = layerZIndexes.overlay;
         positionDragButtons(anchor, dragButtonWrapper);
     }
 
@@ -695,7 +695,7 @@
 </script>
 
 {#snippet MatchSelectionModal(mode: MatchingMode, matches: RangeResultWithContext[], title: string)}
-    <Portal>
+    <OverlayPortal>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="partial-edit-overlay" onclick={(e) => { if (e.target === e.currentTarget) cancelMatchSelection(); }}>
@@ -735,12 +735,12 @@
             </div>
         </div>
     </div>
-    </Portal>
+    </OverlayPortal>
 {/snippet}
 
 <!-- Match failed modal -->
 {#if showMatchFailedModal}
-    <Portal>
+    <OverlayPortal>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="partial-edit-overlay" onclick={(e) => { if (e.target === e.currentTarget) showMatchFailedModal = false; }}>
@@ -757,12 +757,12 @@
             </div>
         </div>
     </div>
-    </Portal>
+    </OverlayPortal>
 {/if}
 
 <!-- Delete confirmation modal -->
 {#if isConfirmingDelete}
-    <Portal>
+    <OverlayPortal>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="partial-edit-overlay" onclick={(e) => { if (e.target === e.currentTarget) handleCancelDelete(); }}>
@@ -796,7 +796,7 @@
             </div>
         </div>
     </div>
-    </Portal>
+    </OverlayPortal>
 {/if}
 
 <!-- Match selection modal (shared for edit/delete) -->
