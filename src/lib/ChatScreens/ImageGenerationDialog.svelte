@@ -150,7 +150,11 @@
 </script>
 
 <Dialog bind:open size="default" closeOnEscape={!presetPickerOpen && !stylePresetPickerOpen} closeOnOutsideClick={!presetPickerOpen && !stylePresetPickerOpen} closable>
-    {#snippet title()}{language.imageGeneration}{/snippet}
+    {#snippet title()}
+        <span class="inline-flex items-center">
+            {language.imageGeneration}<Help key="imageGenerationPresetQuickEdit" name={language.imageGeneration} />
+        </span>
+    {/snippet}
 
     <div>
         <div class="flex flex-col gap-2">
@@ -178,7 +182,7 @@
                 />
             </div>
         </div>
-        <div class="mt-2 flex flex-col gap-3 border-t border-darkborderc pt-2">
+        <div class="mt-2 flex flex-col gap-3 pt-1.5">
             <label class="flex flex-col gap-1 text-sm text-maintext">
                 <span>{language.prompt}</span>
                 <Textarea bind:value={prompt} fullwidth commitMode="input" onInput={cacheDraft} />

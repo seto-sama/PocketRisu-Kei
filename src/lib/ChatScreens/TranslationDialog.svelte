@@ -92,7 +92,11 @@
     closeOnOutsideClick={!promptPickerOpen && !modelPickerOpen}
     closable
 >
-    {#snippet title()}{language.translator}{/snippet}
+    {#snippet title()}
+        <span class="inline-flex items-center">
+            {language.translator}<Help key="translationDialog" name={language.translator} />
+        </span>
+    {/snippet}
 
     <div class="flex flex-col gap-3">
         <div>

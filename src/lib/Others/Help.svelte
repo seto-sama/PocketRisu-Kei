@@ -17,6 +17,7 @@
     {#snippet trigger(props)}
         <span
             {...props}
+            data-risu-help
             role="button"
             tabindex="0"
             aria-label={`${name} ${language.showHelp}`.trim()}
