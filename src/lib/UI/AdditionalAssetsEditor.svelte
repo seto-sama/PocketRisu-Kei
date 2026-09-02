@@ -378,9 +378,9 @@
     {#snippet metadataOverlay()}
         {#if previewAsset}
             <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-                <dt class="text-subtext">{language.extensionInfo}</dt>
+                <dt class="text-subtext">{language.imageInfo}</dt>
                 <dd class="text-maintext">
-                    {previewAsset[2]?.toUpperCase() ?? ''}{#if previewAsset[2] && previewDimensions}{', '}{/if}{#if previewDimensions}{previewDimensions.width} × {previewDimensions.height}px{/if}
+                    {#if previewDimensions}{previewDimensions.width} × {previewDimensions.height}{#if extensionOf(previewAsset)} ({extensionOf(previewAsset).toUpperCase()}){/if}{:else}{extensionOf(previewAsset)?.toUpperCase() ?? ''}{/if}
                 </dd>
             </dl>
         {/if}
