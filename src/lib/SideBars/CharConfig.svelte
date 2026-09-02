@@ -13,32 +13,30 @@
     import Help from "../Others/Help.svelte";
     import { exportChar } from "src/ts/characterCards";
     import { getElevenTTSVoices, getWebSpeechTTSVoices, getVOICEVOXVoices, oaiVoices, getNovelAIVoices, getTTSApiKey } from "src/ts/process/tts";
-    import TextInput from "../UI/GUI/TextInput.svelte";
-    import ShInput from "../UI/GUI/ShInput.svelte";
-    import NumberInput from "../UI/GUI/NumberInput.svelte";
-    import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
-    import ShButton from "../UI/GUI/ShButton.svelte";
-    import SelectInput from "../UI/GUI/SelectInput.svelte";
-    import OptionInput from "../UI/GUI/OptionInput.svelte";
+    import Input from "../UI/components/Input.svelte";
+    import NumberInput from "../UI/components/NumberInput.svelte";
+    import Textarea from "../UI/components/Textarea.svelte";
+    import Button from "../UI/components/Button.svelte";
+    import Select from "../UI/components/Select.svelte";
+    import SelectOption from "../UI/components/SelectOption.svelte";
     import RegexList from "./Scripts/RegexList.svelte";
     import TriggerList from "./Scripts/TriggerList.svelte";
-    import CheckInput from "../UI/GUI/CheckInput.svelte";
+    import Checkbox from "../UI/components/Checkbox.svelte";
     import { updateInlayScreen } from "src/ts/process/inlayScreen";
     import { registerOnnxModel } from "src/ts/process/transformers";
-    import MultiLangInput from "../UI/GUI/MultiLangInput.svelte";
+    import MultiLangInput from "../UI/components/MultiLangInput.svelte";
     import { exportCharacterPackage, importPackageToCharacter } from "src/ts/characterPackage";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
-    import Accordion from "../UI/Accordion.svelte";
-    import ShSettings from "../UI/GUI/ShSettings.svelte";
-    import ShSwitch from "../UI/GUI/ShSwitch.svelte";
-    import ShSelect from "../UI/GUI/ShSelect.svelte";
-    import ShSlider from "../UI/GUI/ShSlider.svelte";
+    import Accordion from "../UI/components/Accordion.svelte";
+    import SettingsList from "../UI/components/SettingsList.svelte";
+    import Switch from "../UI/components/Switch.svelte";
+    import Slider from "../UI/components/Slider.svelte";
     import SettingLayout from "../Setting/Wrappers/SettingLayout.svelte";
-    import IconButton from "../UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import AdditionalAssetsEditor from "../UI/AdditionalAssetsEditor.svelte";
-    import TokenCount from "../UI/GUI/TokenCount.svelte";
-    import ShChoiceGroup from "../UI/GUI/ShChoiceGroup.svelte";
+    import TokenCount from "../UI/components/TokenCount.svelte";
+    import ChoiceGroup from "../UI/components/ChoiceGroup.svelte";
     import AvatarFallback from "../UI/AvatarFallback.svelte";
 
     let pkgIncludeCharacter = $state(true)
@@ -235,15 +233,15 @@
 {#if $CharConfigSubMenu === 0}
     {#if licensed !== 'private'}
         <span class="text-maintext">{language.characterName}</span>
-        <ShInput className="mt-2 mb-4" autocomplete="off" placeholder={language.characterName} bind:value={DBState.db.characters[$selectedCharID].name} />
+        <Input className="mt-2 mb-4" autocomplete="off" placeholder={language.characterName} bind:value={DBState.db.characters[$selectedCharID].name} />
         <span class="text-maintext">{language.nickname}<Help key="nickname" /></span>
-        <ShInput className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].nickname}/>
+        <Input className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].nickname}/>
         <span class="text-maintext">{language.description}<Help key="charDesc"/></span>
-        <TextAreaInput margin="both" autocomplete="off" bind:value={(DBState.db.characters[$selectedCharID] as character).desc}></TextAreaInput>
+        <Textarea margin="both" autocomplete="off" bind:value={(DBState.db.characters[$selectedCharID] as character).desc}></Textarea>
         <TokenCount value={(DBState.db.characters[$selectedCharID] as character).desc} className="mb-4" />
     {/if}
     <span class="text-maintext">{language.authorNote}<Help key="chatNote"/></span>
-    <TextAreaInput
+    <Textarea
         margin="both"
         autocomplete="off"
         bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note}
@@ -252,7 +250,7 @@
     <TokenCount value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note} className="mb-4" />
     {#if licensed !== 'private'}
         <span class="text-maintext">{language.firstMessage}<Help key="charFirstMessage"/></span>
-        <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></TextAreaInput>
+        <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></Textarea>
         <TokenCount value={DBState.db.characters[$selectedCharID].firstMessage} className="mb-4" />
 
         <div class="flex w-full items-center justify-between text-maintext">
@@ -274,7 +272,7 @@
             <div class="mt-2">
                 <div class="flex items-center gap-1">
                     <div class="min-w-0 flex-1">
-                        <TextAreaInput bind:value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} popupTitle={`${language.altGreet} ${i + 1}`} placeholder="..." fullwidth />
+                        <Textarea bind:value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} popupTitle={`${language.altGreet} ${i + 1}`} placeholder="..." fullwidth />
                     </div>
                     <div class="flex flex-col items-center text-subtext">
                         <button class="p-1 risu-interactive-accent disabled:opacity-30" onclick={() => moveAlternateGreetingUp(i)} disabled={i === 0}>
@@ -300,14 +298,14 @@
         {/each}
     {/if}
     <div class="mt-6">
-        <ShButton
+        <Button
             variant="destructive"
             className="w-full"
             onclick={() => removeChar($selectedCharID, DBState.db.characters[$selectedCharID].name)}
         >
             <TrashIcon />
             <span>{language.removeCharacter}</span>
-        </ShButton>
+        </Button>
     </div>
 {:else if licensed === 'private'}
     <span>You are not allowed</span>
@@ -316,7 +314,7 @@
     })()}
 {:else if $CharConfigSubMenu === 1}
     <div class="w-full shrink-0">
-    <ShChoiceGroup
+    <ChoiceGroup
         variant="pill"
         size="md"
         name="characterDisplaySubmenu"
@@ -409,34 +407,34 @@
             </div>
 
         {#if DBState.db.characters[$selectedCharID].image !== ''}
-            <ShSettings spacing="none" className="mt-4">
-                <ShSettings variant="row">
+            <SettingsList spacing="none" className="mt-4">
+                <SettingsList variant="row">
                     <span class="min-w-0 text-maintext">{language.largePortrait}</span>
-                    <ShSwitch bind:checked={(DBState.db.characters[$selectedCharID] as character).largePortrait}/>
-                </ShSettings>
-            </ShSettings>
+                    <Switch bind:checked={(DBState.db.characters[$selectedCharID] as character).largePortrait}/>
+                </SettingsList>
+            </SettingsList>
         {/if}
 
 
     {:else if viewSubMenu === 'emotion'}
-        <ShSettings spacing="none" className="mb-3">
-            <ShSettings variant="row">
+        <SettingsList spacing="none" className="mb-3">
+            <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">{language.enableEmotionImages}</span>
-                <ShSwitch
+                <Switch
                     checked={DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
                     onCheckedChange={setEmotionImagesEnabled}
                 />
-            </ShSettings>
+            </SettingsList>
             {#if DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
-                <ShSettings variant="row">
+                <SettingsList variant="row">
                     <span class="min-w-0 text-maintext">{language.inlayViewScreen}</span>
-                    <ShSwitch
+                    <Switch
                         checked={(DBState.db.characters[$selectedCharID] as character).inlayViewScreen}
                         onCheckedChange={setEmotionInlayEnabled}
                     />
-                </ShSettings>
+                </SettingsList>
             {/if}
-        </ShSettings>
+        </SettingsList>
 
         {#if DBState.db.characters[$selectedCharID].viewScreen === 'emotion'}
             <AdditionalAssetsEditor
@@ -448,21 +446,21 @@
 
             {#if (DBState.db.characters[$selectedCharID] as character).inlayViewScreen}
                 <span class="mt-3 block text-maintext">{language.emotionInstructions}</span>
-                <TextAreaInput bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.emotionInstructions} />
+                <Textarea bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.emotionInstructions} />
             {/if}
         {/if}
     {:else if viewSubMenu === 'assets'}
 
             {#if DBState.db.newImageHandlingBeta}
-            <CheckInput card bind:check={DBState.db.characters[$selectedCharID].prebuiltAssetCommand} name={language.insertAssetPrompt}/>
+            <Checkbox card bind:check={DBState.db.characters[$selectedCharID].prebuiltAssetCommand} name={language.insertAssetPrompt}/>
 
             {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
 
             <span class="text-maintext mt-2">{language.assetStyle}</span>
-            <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
-                <OptionInput value="">{language.static}</OptionInput>
-                <OptionInput value="dynamic">{language.dynamic}</OptionInput>
-            </SelectInput>
+            <Select className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].prebuiltAssetStyle}>
+                <SelectOption value="">{language.static}</SelectOption>
+                <SelectOption value="dynamic">{language.dynamic}</SelectOption>
+            </Select>
             {/if}
             {/if}
             <AdditionalAssetsEditor
@@ -487,7 +485,7 @@
 {:else if $CharConfigSubMenu === 4}
     {#if DBState.db.characters[$selectedCharID].type === 'character'}
         <span class="block text-maintext">{language.backgroundHTML}<Help key="backgroundHTML" /></span>
-        <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].backgroundHTML}></TextAreaInput>
+        <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].backgroundHTML}></Textarea>
 
         <span class="mt-2 text-maintext">{language.regexScript}<Help key="regexScript"/></span>
         <RegexList bind:value={DBState.db.characters[$selectedCharID].customscript} actionIconSize="default" />
@@ -527,10 +525,10 @@
     }
 
     <span class="text-maintext">{language.creator}</span>
-    <ShInput className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalData.creator} />
+    <Input className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalData.creator} />
 
     <span class="text-maintext">{language.CharVersion}</span>
-    <ShInput className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalData.character_version}/>
+    <Input className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalData.character_version}/>
 
     <div class="flex w-full items-center justify-between text-maintext">
         <span>{language.creatorNotes}<Help key="creatorQuotes"/></span>
@@ -552,19 +550,19 @@
     {/if}
 
     {#if !licenseRestricted}
-        <ShButton onclick={async () => {
+        <Button onclick={async () => {
             const res = await exportChar($selectedCharID)
-        }} className="mt-6">{language.exportCharacter}</ShButton>
+        }} className="mt-6">{language.exportCharacter}</Button>
     {/if}
 
-    <ShButton className="mt-2" onclick={async () => {
+    <Button className="mt-2" onclick={async () => {
         const char = getCurrentCharacter()
         if (!await alertConfirm(language.convertCharacterToModuleConfirm.replace('{}', char.name))) return
         const m = convertCharacterToModule(char)
         DBState.db.modules.push(m)
         void requestImmediateSave()
         notifySuccess(language.successfullyConverted)
-    }}>{language.convertToModule}</ShButton>
+    }}>{language.convertToModule}</Button>
 
     {#if DBState.db.characters[$selectedCharID].type === 'character'}
         {@const char = DBState.db.characters[$selectedCharID] as character}
@@ -572,55 +570,55 @@
             <h3 class="text-lg font-bold mb-3">{language.characterPackage}</h3>
             {#key $selectedCharID}
                 <div class="flex items-center justify-between py-1">
-                    <CheckInput check={licenseRestricted ? false : pkgIncludeCharacter} name={language.characterPackageCharacter + ' (charx)'} margin={false}
+                    <Checkbox check={licenseRestricted ? false : pkgIncludeCharacter} name={language.characterPackageCharacter + ' (charx)'} margin={false}
                         onChange={(v) => { pkgIncludeCharacter = v }}
                         className={licenseRestricted ? "opacity-50 pointer-events-none" : ""} />
                     <span class="text-subtext text-sm ml-2 truncate shrink-0">{char.name}</span>
                 </div>
                 <div class="flex items-center justify-between py-1">
-                    <CheckInput bind:check={pkgIncludeChats} name={language.characterPackageChats + ' (json)'} margin={false} />
+                    <Checkbox bind:check={pkgIncludeChats} name={language.characterPackageChats + ' (json)'} margin={false} />
                     <span class="text-subtext text-sm ml-2 shrink-0">{char.chats.length}{language.characterPackageChatCount}</span>
                 </div>
                 <div class="flex items-center py-1">
-                    <CheckInput bind:check={pkgIncludePersona} name={language.characterPackagePersona} margin={false} />
+                    <Checkbox bind:check={pkgIncludePersona} name={language.characterPackagePersona} margin={false} />
                 </div>
                 <div class="flex items-center py-1">
-                    <CheckInput bind:check={pkgIncludeInlays} name={language.characterPackageInlays} margin={false} />
+                    <Checkbox bind:check={pkgIncludeInlays} name={language.characterPackageInlays} margin={false} />
                 </div>
             {/key}
-            <ShButton className="mt-2 w-full" onclick={async () => {
+            <Button className="mt-2 w-full" onclick={async () => {
                 await exportCharacterPackage($selectedCharID, {
                     includeCharacter: licenseRestricted ? false : pkgIncludeCharacter,
                     includeChats: pkgIncludeChats,
                     includePersona: pkgIncludePersona,
                     includeInlays: pkgIncludeInlays
                 })
-            }}>{language.characterPackageExport}</ShButton>
-            <ShButton className="mt-2 w-full" onclick={async () => {
+            }}>{language.characterPackageExport}</Button>
+            <Button className="mt-2 w-full" onclick={async () => {
                 await importPackageToCharacter($selectedCharID)
-            }}>{language.characterPackageImportToChar}</ShButton>
+            }}>{language.characterPackageImportToChar}</Button>
         </div>
     {/if}
 
 {:else if $CharConfigSubMenu === 5 && DBState.db.ttsEnabled}
     {#if DBState.db.characters[$selectedCharID].type === 'character'}
         <span class="text-maintext">{language.provider}</span>
-        <ShSelect className="mb-4 mt-2 w-full" bind:value={DBState.db.characters[$selectedCharID].ttsMode} onchange={() => {
+        <Select className="mb-4 mt-2 w-full" bind:value={DBState.db.characters[$selectedCharID].ttsMode} onchange={() => {
             if(DBState.db.characters[$selectedCharID].type === 'character'){
                 (DBState.db.characters[$selectedCharID] as character).ttsSpeech = ''
             }
         }}>
-            <OptionInput value="">{language.disabled}</OptionInput>
-            <OptionInput value="elevenlab">ElevenLabs</OptionInput>
-            <OptionInput value="webspeech">Web Speech</OptionInput>
-            <OptionInput value="VOICEVOX">VOICEVOX</OptionInput>
-            <OptionInput value="openai">OpenAI</OptionInput>
-            <OptionInput value="novelai">NovelAI</OptionInput>
-            <OptionInput value="huggingface">Huggingface</OptionInput>
-            <OptionInput value="vits">VITS</OptionInput>
-            <OptionInput value="gptsovits">GPT-SoVITS</OptionInput>
-            <OptionInput value="fishspeech">fish-speech</OptionInput>
-        </ShSelect>
+            <SelectOption value="">{language.disabled}</SelectOption>
+            <SelectOption value="elevenlab">ElevenLabs</SelectOption>
+            <SelectOption value="webspeech">Web Speech</SelectOption>
+            <SelectOption value="VOICEVOX">VOICEVOX</SelectOption>
+            <SelectOption value="openai">OpenAI</SelectOption>
+            <SelectOption value="novelai">NovelAI</SelectOption>
+            <SelectOption value="huggingface">Huggingface</SelectOption>
+            <SelectOption value="vits">VITS</SelectOption>
+            <SelectOption value="gptsovits">GPT-SoVITS</SelectOption>
+            <SelectOption value="fishspeech">fish-speech</SelectOption>
+        </Select>
         
 
         {#if DBState.db.characters[$selectedCharID].ttsMode === 'webspeech'}
@@ -628,12 +626,12 @@
                 <span class="text-maintext">Web Speech isn't supported in your browser or OS</span>
             {:else}
                 <span class="text-maintext">{language.Speech}</span>
-                <SelectInput className="mb-4 mt-2" bind:value={(DBState.db.characters[$selectedCharID] as character).ttsSpeech}>
-                    <OptionInput value="">Auto</OptionInput>
+                <Select className="mb-4 mt-2" bind:value={(DBState.db.characters[$selectedCharID] as character).ttsSpeech}>
+                    <SelectOption value="">Auto</SelectOption>
                     {#each getWebSpeechTTSVoices() as voice}
-                        <OptionInput value={voice}>{voice}</OptionInput>
+                        <SelectOption value={voice}>{voice}</SelectOption>
                     {/each}
-                </SelectInput>
+                </Select>
                 {#if (DBState.db.characters[$selectedCharID] as character).ttsSpeech !== ''}
                     <span class="text-danger text-sm">If you do not set it to Auto, it may not work properly when importing from another OS or browser.</span>
                 {/if}
@@ -642,12 +640,12 @@
             <span class="text-sm mb-2 text-subtext">Please set the ElevenLabs API key in "global Settings → Bot Settings → Others → ElevenLabs API key"</span>
             {#await getElevenTTSVoices() then voices}
                 <span class="text-maintext">{language.Speech}</span>
-                <SelectInput className="mb-4 mt-2" bind:value={(DBState.db.characters[$selectedCharID] as character).ttsSpeech}>
-                    <OptionInput value="">Unset</OptionInput>
+                <Select className="mb-4 mt-2" bind:value={(DBState.db.characters[$selectedCharID] as character).ttsSpeech}>
+                    <SelectOption value="">Unset</SelectOption>
                         {#each voices as voice}
-                            <OptionInput value={voice.voice_id}>{voice.name}</OptionInput>
+                            <SelectOption value={voice.voice_id}>{voice.name}</SelectOption>
                         {/each}
-                </SelectInput>
+                </Select>
             {/await}
          {:else if DBState.db.characters[$selectedCharID].ttsMode === 'VOICEVOX'}
             {#if !voicevoxUrl}
@@ -656,22 +654,22 @@
                 </p>
             {:else}
                 <span class="text-maintext">Speaker</span>
-                <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].voicevoxConfig.speaker}>
+                <Select className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].voicevoxConfig.speaker}>
                     {#await getVOICEVOXVoices() then voices}
                         {#each voices as voice}
-                            <OptionInput value={voice.list}  selected={DBState.db.characters[$selectedCharID].voicevoxConfig.speaker === voice.list}>{voice.name}</OptionInput>
+                            <SelectOption value={voice.list}  selected={DBState.db.characters[$selectedCharID].voicevoxConfig.speaker === voice.list}>{voice.name}</SelectOption>
                         {/each}
                     {:catch}
-                        <OptionInput value="">{language.ttsVoicevoxLoadError}</OptionInput>
+                        <SelectOption value="">{language.ttsVoicevoxLoadError}</SelectOption>
                     {/await}
-                </SelectInput>
+                </Select>
                 {#if voicevoxStyles.length > 0}
                 <span class="text-maintext">Style</span>
-                <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].ttsSpeech}>
+                <Select className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].ttsSpeech}>
                 {#each voicevoxStyles as styles}
-                        <OptionInput value={styles.id} selected={DBState.db.characters[$selectedCharID].ttsSpeech === styles.id}>{styles.name}</OptionInput>
+                        <SelectOption value={styles.id} selected={DBState.db.characters[$selectedCharID].ttsSpeech === styles.id}>{styles.name}</SelectOption>
                 {/each}
-                </SelectInput>
+                </Select>
                 {/if}
                 <span class="text-maintext">Speed scale</span>
                 <NumberInput marginBottom bind:value={DBState.db.characters[$selectedCharID].voicevoxConfig.SPEED_SCALE}/>
@@ -686,106 +684,106 @@
                 <NumberInput marginBottom bind:value={DBState.db.characters[$selectedCharID].voicevoxConfig.INTONATION_SCALE}/>
             {/if}
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'novelai'}
-            <ShSettings variant="row">
+            <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">Custom Voice Seed</span>
-                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].naittsConfig.customvoice}/>
-            </ShSettings>
+                <Switch bind:checked={DBState.db.characters[$selectedCharID].naittsConfig.customvoice}/>
+            </SettingsList>
             {#if !DBState.db.characters[$selectedCharID].naittsConfig.customvoice}
                 <span class="text-maintext">Voice</span>
-                <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].naittsConfig.voice}>
+                <Select className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].naittsConfig.voice}>
                     {#await getNovelAIVoices() then voices}
                         {#each voices as voiceGroup}
                             <optgroup label={voiceGroup.gender} class="bg-darkbg appearance-none">
                                 {#each voiceGroup.voices as voice}
-                                    <OptionInput value={voice} selected={DBState.db.characters[$selectedCharID].naittsConfig.voice === voice}>{voice}</OptionInput>
+                                    <SelectOption value={voice} selected={DBState.db.characters[$selectedCharID].naittsConfig.voice === voice}>{voice}</SelectOption>
                                 {/each}
                             </optgroup>
                         {/each}
                     {/await}
-                </SelectInput>
+                </Select>
             {:else}
                 <span class="text-maintext">Voice</span>
-                <ShInput autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].naittsConfig.voice}/>
+                <Input autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].naittsConfig.voice}/>
             {/if}
             <span class="text-maintext">Version</span>
-            <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].naittsConfig.version}>
-                <OptionInput value="v1">v1</OptionInput>
-                <OptionInput value="v2">v2</OptionInput>
-            </SelectInput>
+            <Select className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].naittsConfig.version}>
+                <SelectOption value="v1">v1</SelectOption>
+                <SelectOption value="v2">v2</SelectOption>
+            </Select>
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'openai'}
             <span class="text-maintext">Voice</span>
             {#if !DBState.db.characters[$selectedCharID].oaiTTSConfig?.enabled}
-                <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].oaiVoice}>
-                    <OptionInput value="">Unset</OptionInput>
+                <Select className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].oaiVoice}>
+                    <SelectOption value="">Unset</SelectOption>
                     {#each oaiVoices as voice}
-                        <OptionInput value={voice}>{voice}</OptionInput>
+                        <SelectOption value={voice}>{voice}</SelectOption>
                     {/each}
-                </SelectInput>
+                </Select>
             {:else}
-                <TextInput className="mb-4 mt-2" commitMode="blur"
+                <Input className="mb-4 mt-2" commitMode="blur"
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.voice}
                     placeholder={DBState.db.characters[$selectedCharID].oaiVoice || 'alloy'} />
             {/if}
 
-            <ShSettings variant="row">
+            <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">Advanced (OpenAI-compatible endpoint)</span>
-                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].oaiTTSConfig.enabled} />
-            </ShSettings>
+                <Switch bind:checked={DBState.db.characters[$selectedCharID].oaiTTSConfig.enabled} />
+            </SettingsList>
 
             {#if DBState.db.characters[$selectedCharID].oaiTTSConfig?.enabled}
                 <span class="text-maintext">Base URL</span>
-                <TextInput className="mb-4 mt-2" commitMode="blur"
+                <Input className="mb-4 mt-2" commitMode="blur"
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.baseURL}
                     placeholder="https://api.openai.com/v1" />
 
                 <span class="text-maintext">API Key (overrides global)</span>
-                <TextInput className="mb-4 mt-2" commitMode="blur" hideText={DBState.db.hideApiKey}
+                <Input className="mb-4 mt-2" commitMode="blur" hideText={DBState.db.hideApiKey}
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.apiKey}
                     placeholder="Leave empty to use global OpenAI API key" />
 
                 <span class="text-maintext">Model</span>
-                <TextInput className="mb-4 mt-2" commitMode="blur"
+                <Input className="mb-4 mt-2" commitMode="blur"
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.model}
                     placeholder="tts-1" />
 
                 <span class="text-maintext">Response Format</span>
-                <SelectInput className="mb-4 mt-2"
+                <Select className="mb-4 mt-2"
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.format}>
-                    <OptionInput value="mp3">mp3</OptionInput>
-                    <OptionInput value="opus">opus</OptionInput>
-                    <OptionInput value="aac">aac</OptionInput>
-                    <OptionInput value="flac">flac</OptionInput>
-                    <OptionInput value="wav">wav</OptionInput>
-                    <OptionInput value="pcm">pcm</OptionInput>
-                </SelectInput>
+                    <SelectOption value="mp3">mp3</SelectOption>
+                    <SelectOption value="opus">opus</SelectOption>
+                    <SelectOption value="aac">aac</SelectOption>
+                    <SelectOption value="flac">flac</SelectOption>
+                    <SelectOption value="wav">wav</SelectOption>
+                    <SelectOption value="pcm">pcm</SelectOption>
+                </Select>
             {/if}
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'huggingface'}
             <span class="text-maintext">Model</span>
-            <ShInput className="mb-4 mt-2" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].hfTTS.model} />
+            <Input className="mb-4 mt-2" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].hfTTS.model} />
 
             <span class="text-maintext">Language</span>
-            <ShInput className="mb-4 mt-2" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].hfTTS.language} placeholder="en" />
+            <Input className="mb-4 mt-2" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].hfTTS.language} placeholder="en" />
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'vits'}
             {#if DBState.db.characters[$selectedCharID].vits}
                 <span class="text-maintext">{DBState.db.characters[$selectedCharID].vits.name ?? 'Unnamed VitsModel'}</span>
             {:else}
                 <span class="text-maintext">No Model</span>
             {/if}
-            <ShButton onclick={async () => {
+            <Button onclick={async () => {
                 const model = await registerOnnxModel()
                 if(model && DBState.db.characters[$selectedCharID].type === 'character'){
                     DBState.db.characters[$selectedCharID].vits = model
                 }
-            }}>{language.selectModel}</ShButton>
+            }}>{language.selectModel}</Button>
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'gptsovits'}
             <SettingLayout variant="row" title="Volume">
-                {#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.01} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.volume}/></div>{/snippet}
+                {#snippet control()}<div class="w-48"><Slider min={0} max={1} step={0.01} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.volume}/></div>{/snippet}
             </SettingLayout>
             <SettingLayout variant="row" title="URL">
-                {#snippet control()}<ShInput className="w-48" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.url}/>{/snippet}
+                {#snippet control()}<Input className="w-48" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.url}/>{/snippet}
             </SettingLayout>
             <SettingLayout variant="row" title="Use Auto Path">
-                {#snippet control()}<ShSwitch bind:checked={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_auto_path}/>{/snippet}
+                {#snippet control()}<Switch bind:checked={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_auto_path}/>{/snippet}
             </SettingLayout>
 
             {#if !DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_auto_path}
@@ -794,16 +792,16 @@
                     title="Reference Audio Path"
                     description="e.g. C:/Users/user/Downloads/GPT-SoVITS-v2-240821"
                 >
-                    {#snippet control()}<ShInput className="w-48" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_path}/>{/snippet}
+                    {#snippet control()}<Input className="w-48" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_path}/>{/snippet}
                 </SettingLayout>
             {/if}
 
             <SettingLayout variant="row" title="Use Long Audio">
-                {#snippet control()}<ShSwitch bind:checked={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}/>{/snippet}
+                {#snippet control()}<Switch bind:checked={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}/>{/snippet}
             </SettingLayout>
             <SettingLayout variant="row" title="Reference Audio Data" description="3–10s audio file">
                 {#snippet control()}
-                    <ShButton
+                    <Button
                         variant="outline"
                         className="w-48 min-w-0"
                         onclick={async () => {
@@ -823,59 +821,59 @@
                                 ? DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_data.fileName
                                 : language.selectFile}
                         </span>
-                    </ShButton>
+                    </Button>
                 {/snippet}
             </SettingLayout>
             <SettingLayout variant="row" title="Text Language">
                 {#snippet control()}
-                    <ShSelect className="w-48" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_lang}>
+                    <Select className="w-48" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_lang}>
                         {#each gptSoVitsLanguageOptions as [value, label]}
-                            <OptionInput {value}>{label}</OptionInput>
+                            <SelectOption {value}>{label}</SelectOption>
                         {/each}
-                    </ShSelect>
+                    </Select>
                 {/snippet}
             </SettingLayout>
 
             {#if !DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}
                 <SettingLayout variant="row" title="Use Reference Audio Script">
-                    {#snippet control()}<ShSwitch bind:checked={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_prompt}/>{/snippet}
+                    {#snippet control()}<Switch bind:checked={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_prompt}/>{/snippet}
                 </SettingLayout>
             {/if}
 
             {#if DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_prompt && !DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}
                 <SettingLayout variant="row" title="Reference Audio Script" stacked>
-                    <TextAreaInput height="20" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.prompt}/>
+                    <Textarea height="20" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.prompt}/>
                 </SettingLayout>
             {/if}
 
             <SettingLayout variant="row" title="Reference Audio Language">
                 {#snippet control()}
-                    <ShSelect className="w-48" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.prompt_lang}>
+                    <Select className="w-48" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.prompt_lang}>
                         {#each gptSoVitsLanguageOptions as [value, label]}
-                            <OptionInput {value}>{label}</OptionInput>
+                            <SelectOption {value}>{label}</SelectOption>
                         {/each}
-                    </ShSelect>
+                    </Select>
                 {/snippet}
             </SettingLayout>
             <SettingLayout variant="row" title="Top P">
-                {#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.05} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.top_p}/></div>{/snippet}
+                {#snippet control()}<div class="w-48"><Slider min={0} max={1} step={0.05} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.top_p}/></div>{/snippet}
             </SettingLayout>
             <SettingLayout variant="row" title="Temperature">
-                {#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.05} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.temperature}/></div>{/snippet}
+                {#snippet control()}<div class="w-48"><Slider min={0} max={1} step={0.05} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.temperature}/></div>{/snippet}
             </SettingLayout>
             <SettingLayout variant="row" title="Speed">
-                {#snippet control()}<div class="w-48"><ShSlider min={0.6} max={1.65} step={0.05} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.speed}/></div>{/snippet}
+                {#snippet control()}<div class="w-48"><Slider min={0.6} max={1.65} step={0.05} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.speed}/></div>{/snippet}
             </SettingLayout>
             <SettingLayout variant="row" title="Top K">
-                {#snippet control()}<div class="w-48"><ShSlider min={1} max={100} step={1} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.top_k}/></div>{/snippet}
+                {#snippet control()}<div class="w-48"><Slider min={1} max={100} step={1} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.top_k}/></div>{/snippet}
             </SettingLayout>
             <SettingLayout variant="row" title="Text Split Method">
                 {#snippet control()}
-                    <ShSelect className="w-48" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_split_method}>
+                    <Select className="w-48" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_split_method}>
                         {#each gptSoVitsTextSplitOptions as [value, label]}
-                            <OptionInput {value}>{label}</OptionInput>
+                            <SelectOption {value}>{label}</SelectOption>
                         {/each}
-                    </ShSelect>
+                    </Select>
                 {/snippet}
             </SettingLayout>
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'fishspeech'}
@@ -883,17 +881,17 @@
                 <span class="text-maintext">Loading...</span>
             {:then}
                 <span class="text-maintext">Model</span>
-                <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].fishSpeechConfig.model._id}>
-                    <OptionInput value="">Not selected</OptionInput>
+                <Select className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].fishSpeechConfig.model._id}>
+                    <SelectOption value="">Not selected</SelectOption>
                     {#each fishSpeechModels as model}
-                        <OptionInput value={model._id}>
+                        <SelectOption value={model._id}>
                             <div class="flex items-center">
                                 <span>{model.title}</span>
                                 <span class="text-sm text-subtext">{model.description}</span>
                             </div>
-                        </OptionInput>
+                        </SelectOption>
                     {/each}
-                </SelectInput>
+                </Select>
             {:catch}
                 <span class="text-maintext">An error occurred while fetching the models.</span>
             {/await}
@@ -901,71 +899,71 @@
             <span class="text-maintext">Chunk Length</span>
             <NumberInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].fishSpeechConfig.chunk_length}/>
 
-            <ShSettings variant="row" className="mb-4 mt-2">
+            <SettingsList variant="row" className="mb-4 mt-2">
                 <span class="min-w-0 text-maintext">Normalize</span>
-                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].fishSpeechConfig.normalize}/>
-            </ShSettings>
+                <Switch bind:checked={DBState.db.characters[$selectedCharID].fishSpeechConfig.normalize}/>
+            </SettingsList>
         {/if}
         {#if DBState.db.characters[$selectedCharID].ttsMode}
-            <ShSettings variant="row" className="mt-2">
+            <SettingsList variant="row" className="mt-2">
                 <span class="min-w-0 text-maintext">{language.ttsReadOnlyQuoted}</span>
-                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].ttsReadOnlyQuoted}/>
-            </ShSettings>
+                <Switch bind:checked={DBState.db.characters[$selectedCharID].ttsReadOnlyQuoted}/>
+            </SettingsList>
         {/if}
     {/if}
 {:else if $CharConfigSubMenu === 2}
         <span class="text-maintext">{language.replaceGlobalNote}<Help key="replaceGlobalNote"/></span>
-        <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></TextAreaInput>
+        <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></Textarea>
 
         <span class="text-maintext mt-2">{language.translatorNote}<Help key="translatorNote" /></span>
-        <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].translatorNote}></TextAreaInput>
+        <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].translatorNote}></Textarea>
 
         <span class="text-maintext mt-2">{language.customPromptTemplateToggle}<Help key="customPromptTemplateToggle" /></span>
-        <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].customModuleToggle}></TextAreaInput>
+        <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].customModuleToggle}></Textarea>
 
         <span class="text-maintext mt-2">{language.defaultVariables}<Help key="defaultVariables" /></span>
-        <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].defaultVariables}></TextAreaInput>
+        <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].defaultVariables}></Textarea>
 
-        <ShSettings spacing="none" className="mt-4">
-            <ShSettings variant="row">
+        <SettingsList spacing="none" className="mt-4">
+            <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">{language.utilityBot}<Help key="utilityBot" name={language.utilityBot}/></span>
-                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].utilityBot}/>
-            </ShSettings>
-            <ShSettings variant="row">
+                <Switch bind:checked={DBState.db.characters[$selectedCharID].utilityBot}/>
+            </SettingsList>
+            <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">{language.lowLevelAccess}<Help key="lowLevelAccess" name={language.lowLevelAccess}/></span>
-                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].lowLevelAccess}/>
-            </ShSettings>
-            <ShSettings variant="row">
+                <Switch bind:checked={DBState.db.characters[$selectedCharID].lowLevelAccess}/>
+            </SettingsList>
+            <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">{language.hideChatIcon}</span>
-                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].hideChatIcon}/>
-            </ShSettings>
-            <ShSettings variant="row">
+                <Switch bind:checked={DBState.db.characters[$selectedCharID].hideChatIcon}/>
+            </SettingsList>
+            <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">{language.escapeOutput}</span>
-                <ShSwitch bind:checked={(DBState.db.characters[$selectedCharID] as character).escapeOutput}/>
-            </ShSettings>
-        </ShSettings>
+                <Switch bind:checked={(DBState.db.characters[$selectedCharID] as character).escapeOutput}/>
+            </SettingsList>
+        </SettingsList>
 
-        <div class="w-full mt-6">
-        <Accordion name={language.legacySettings} styled>
+        <div class="w-full mt-4">
+        <Accordion class="mt-2" name={language.legacySettings}>
             <span class="text-maintext">{language.systemPrompt}<Help key="systemPrompt"/></span>
-            <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].systemPrompt}></TextAreaInput>
+            <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].systemPrompt}></Textarea>
 
             <span class="text-maintext mt-2">{language.additionalText}<Help key="additionalText" /></span>
-            <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalText}></TextAreaInput>
+            <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalText}></Textarea>
 
             <span class="text-maintext">{language.personality}<Help key="personality" unrecommended/></span>
-            <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].personality}></TextAreaInput>
+            <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].personality}></Textarea>
 
             <span class="text-maintext">{language.scenario}<Help key="scenario" unrecommended/></span>
-            <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].scenario}></TextAreaInput>
+            <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].scenario}></Textarea>
 
             <span class="text-maintext">{language.exampleMessage}<Help key="exampleMessage"/></span>
-            <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].exampleMessage}></TextAreaInput>
+            <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].exampleMessage}></Textarea>
 
             <span class="text-maintext">{language.depthPrompt}</span>
             <div class="flex justify-center items-center mb-4">
                 <NumberInput bind:value={DBState.db.characters[$selectedCharID].depth_prompt.depth} className="w-12"/>
-                <ShInput autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].depth_prompt.prompt} className="flex-1"/>
+                <Input autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].depth_prompt.prompt} className="flex-1"/>
             </div>
 
             <span class="text-maintext mt-2">Bias<Help key="bias"/></span>
@@ -991,7 +989,7 @@
                     {#each (DBState.db.characters[$selectedCharID] as character).bias as bias, i}
                         <tr class="align-middle text-center">
                             <td class="font-medium truncate w-1/2">
-                                <TextInput fullh fullwidth bind:value={(DBState.db.characters[$selectedCharID] as character).bias[i][0]} placeholder="string" />
+                                <Input fullh fullwidth bind:value={(DBState.db.characters[$selectedCharID] as character).bias[i][0]} placeholder="string" />
                             </td>
                             <td class="font-medium truncate w-1/3">
                                 <NumberInput fullh fullwidth bind:value={(DBState.db.characters[$selectedCharID] as character).bias[i][1]} max={100} min={-100} />
@@ -1011,7 +1009,7 @@
 
             <div class="mt-4">
                 <span class="text-maintext">{language.charjs}<Help key="charjs" unrecommended/></span>
-                <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].virtualscript}></TextAreaInput>
+                <Textarea margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].virtualscript}></Textarea>
             </div>
         </Accordion>
         </div>

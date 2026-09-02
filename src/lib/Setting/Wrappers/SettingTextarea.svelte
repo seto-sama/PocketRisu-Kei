@@ -2,8 +2,8 @@
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
     import { getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
-    import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte';
-    import TokenCount from 'src/lib/UI/GUI/TokenCount.svelte';
+    import Textarea from '../../UI/components/Textarea.svelte';
+    import TokenCount from '../../UI/components/TokenCount.svelte';
     import Help from 'src/lib/Others/Help.svelte';
     import { language } from 'src/lang';
 
@@ -40,7 +40,7 @@
         {#if item.helpKey && (language.help as any)[item.helpKey]}
             <p class="text-xs text-subtext mt-0.5">{(language.help as any)[item.helpKey]}</p>
         {/if}
-        <TextAreaInput
+        <Textarea
             className="mt-2"
             bind:value={localValue}
             placeholder={item.options?.placeholder}
@@ -59,7 +59,7 @@
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>
-    <TextAreaInput
+    <Textarea
         className="mt-2 mb-4"
         bind:value={localValue}
         placeholder={item.options?.placeholder}

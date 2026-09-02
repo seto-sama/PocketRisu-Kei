@@ -1,7 +1,7 @@
 <script lang="ts">
     import { loadingOverlayStore } from "src/ts/stores.svelte";
     import { language } from "src/lang";
-    import OverlayPortal from "../UI/GUI/OverlayPortal.svelte";
+    import OverlayPortal from "../UI/components/overlay/OverlayPortal.svelte";
 </script>
 
 {#if $loadingOverlayStore.active}

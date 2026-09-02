@@ -11,10 +11,10 @@
     import { forageStorage, downloadFile } from "src/ts/globalApi.svelte";
     import { RotateCcwIcon, DownloadIcon, TrashIcon } from "@lucide/svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-    import InlineRenameAction from "src/lib/UI/GUI/InlineRenameAction.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
+    import InlineRenameAction from "../UI/components/InlineRenameAction.svelte";
+    import Button from "../UI/components/Button.svelte";
     import BackupNoteEditor from "src/lib/Setting/BackupNoteEditor.svelte";
     import { updateBackupNote } from "src/ts/drive/backupNotes";
 
@@ -219,9 +219,9 @@
     </SettingLayout>
     {#if remaining > 0}
         <div class="flex justify-center mt-3">
-            <ShButton variant="outline" size="sm" onclick={() => shown += PAGE_SIZE}>
+            <Button variant="outline" size="sm" onclick={() => shown += PAGE_SIZE}>
                 {language.systemLogsLoadMore}
-            </ShButton>
+            </Button>
         </div>
     {/if}
 {/if}

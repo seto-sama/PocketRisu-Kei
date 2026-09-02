@@ -1,9 +1,9 @@
 <script lang="ts">
     import { ImageIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
-    import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte'
+    import Button from '../UI/components/Button.svelte'
+    import Dialog from '../UI/components/Dialog.svelte'
+    import Textarea from '../UI/components/Textarea.svelte'
     import type { character as Character } from 'src/ts/storage/database.svelte'
     import { notifyError } from 'src/ts/alert'
     import { DBState } from 'src/ts/stores.svelte'
@@ -13,7 +13,7 @@
     import { getCurrentImageGenerationPreset } from 'src/ts/imageGeneration/presets'
     import ImageStylePresetList from 'src/lib/UI/ImageStylePresetList.svelte'
     import { applyImageStylePreset, listImageStylePresets } from 'src/ts/imageGeneration/stylePresets'
-    import NumberInput from 'src/lib/UI/GUI/NumberInput.svelte'
+    import NumberInput from '../UI/components/NumberInput.svelte'
     import Help from 'src/lib/Others/Help.svelte'
     import {
         beginImageGenerationWorkflow,
@@ -149,7 +149,7 @@
     }
 </script>
 
-<ShDialog bind:open size="default" closeOnEscape={!presetPickerOpen && !stylePresetPickerOpen} closeOnOutsideClick={!presetPickerOpen && !stylePresetPickerOpen} closable>
+<Dialog bind:open size="default" closeOnEscape={!presetPickerOpen && !stylePresetPickerOpen} closeOnOutsideClick={!presetPickerOpen && !stylePresetPickerOpen} closable>
     {#snippet title()}{language.imageGeneration}{/snippet}
 
     <div>
@@ -181,22 +181,22 @@
         <div class="mt-2 flex flex-col gap-3 border-t border-darkborderc pt-2">
             <label class="flex flex-col gap-1 text-sm text-maintext">
                 <span>{language.prompt}</span>
-                <TextAreaInput bind:value={prompt} fullwidth commitMode="input" onInput={cacheDraft} />
+                <Textarea bind:value={prompt} fullwidth commitMode="input" onInput={cacheDraft} />
             </label>
             <label class="flex flex-col gap-1 text-sm text-maintext">
                 <span>{language.negativePrompt}</span>
-                <TextAreaInput bind:value={negativePrompt} fullwidth commitMode="input" onInput={cacheDraft} />
+                <Textarea bind:value={negativePrompt} fullwidth commitMode="input" onInput={cacheDraft} />
             </label>
         </div>
     </div>
 
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => { open = false }}>
+        <Button variant="outline" onclick={() => { open = false }}>
             {generating ? language.close : language.cancel}
-        </ShButton>
-        <ShButton variant="primary" disabled={generating || !prompt.trim()} onclick={generate}>
+        </Button>
+        <Button variant="primary" disabled={generating || !prompt.trim()} onclick={generate}>
             <ImageIcon />
             {generating ? language.loading : language.generateImage}
-        </ShButton>
+        </Button>
     {/snippet}
-</ShDialog>
+</Dialog>

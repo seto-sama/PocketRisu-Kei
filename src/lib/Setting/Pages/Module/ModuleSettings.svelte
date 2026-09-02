@@ -1,34 +1,35 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
+    import SettingPage from "../../../UI/components/SettingPage.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     
     import { DBState } from 'src/ts/stores.svelte';
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import Switch from "../../../UI/components/Switch.svelte";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
     import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
     import { BotIcon, DownloadIcon, TagsIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import Input from "../../../UI/components/Input.svelte";
     import { onDestroy } from "svelte";
     import { builtInMCPIds, importMCPModule, type BuiltInMCPId } from "src/ts/process/mcp/mcp";
     import { convertModuleToCharacter } from "src/ts/interchangeability";
     import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { getCharImage } from "src/ts/characters";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import IconButton from "../../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../../UI/components/IconButtonGroup.svelte";
+    import SortableList from "../../../UI/components/SortableList.svelte";
     import ModelPresetList from "src/lib/UI/ModelPresetList.svelte";
     import { openSettings, SettingsRoute } from "src/ts/routing";
-    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
-    import ShSelect from "src/lib/UI/GUI/ShSelect.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
+    import Dialog from "../../../UI/components/Dialog.svelte";
+    import Select from "../../../UI/components/Select.svelte";
+    import SelectOption from "../../../UI/components/SelectOption.svelte";
     import ModuleChatMenu from "src/lib/Setting/Pages/Module/ModuleChatMenu.svelte";
     import AvatarFallback from "src/lib/UI/AvatarFallback.svelte";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
+    import { isEventFromInteractiveChild } from "src/lib/utils";
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
@@ -70,6 +71,16 @@
             if(search === '') return true
             return rmodule.name.toLowerCase().includes(search.toLowerCase())
         })
+    }
+
+    function toggleGlobalModule(event: MouseEvent, moduleId: string) {
+        event.stopPropagation()
+        const enabledModules = DBState.db.enabledModules ?? []
+        DBState.db.enabledModules = enabledModules.includes(moduleId)
+            ? enabledModules.filter((id) => id !== moduleId)
+            : [...enabledModules, moduleId]
+        refreshModules()
+        void requestImmediateSave()
     }
 
     const visibleModules = $derived(filteredModules(DBState.db.modules, moduleSearch))
@@ -307,7 +318,7 @@
     <SettingPage title={embedded ? undefined : view === 'mcp' ? 'MCP' : language.modules}>
 
     <SettingLayout variant="search" className="mt-4">
-        <TextInput className="min-w-0 grow" placeholder={language.search} bind:value={moduleSearch} />
+        <Input className="min-w-0 grow" placeholder={language.search} bind:value={moduleSearch} />
         {#snippet control()}
         <IconButtonGroup size="lg">
         {#if view === 'modules'}
@@ -347,7 +358,7 @@
         {/snippet}
     </SettingLayout>
 
-    <ShSortableList
+    <SortableList
         className="contain w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto"
         onReorder={reorderModules}
     >
@@ -366,6 +377,7 @@
                     tabindex="0"
                     onclick={() => editModule(rmodule)}
                     onkeydown={(event) => {
+                        if (isEventFromInteractiveChild(event)) return
                         if (event.key !== 'Enter' && event.key !== ' ') return
                         event.preventDefault()
                         editModule(rmodule)
@@ -401,16 +413,7 @@
                                 className={globalButtonClass(rmodule)}
                                 title={language.enableGlobal}
                                 oncontextmenu={(e) => openPersonaModuleModal(rmodule, e)}
-                                onclick={async (e) => {
-                                e.stopPropagation()
-                                if(DBState.db.enabledModules.includes(rmodule.id)){
-                                    DBState.db.enabledModules.splice(DBState.db.enabledModules.indexOf(rmodule.id), 1)
-                                }
-                                else{
-                                    DBState.db.enabledModules.push(rmodule.id)
-                                }
-                                DBState.db.enabledModules = DBState.db.enabledModules
-                            }}
+                                onclick={(event) => toggleGlobalModule(event, rmodule.id)}
                             >
                                 <GlobeIcon />
                             </IconButton>
@@ -434,7 +437,7 @@
                 </div>
             {/each}
         {/if}
-    </ShSortableList>
+    </SortableList>
 
     {#if personaModuleTarget}
         <PresetPickerLayout
@@ -488,7 +491,7 @@
                     <span>{persona.name}</span>
                     {#if persona.note}<span class="text-subtext"> / {persona.note}</span>{/if}
                 </div>
-                <ShSwitch
+                <Switch
                     checked={!!persona.id && personaModuleSelection.includes(persona.id)}
                     className="mr-1"
                 />
@@ -512,11 +515,11 @@
 {:else if mode === 1}
     <SettingPage title={language.createModule}>
     <ModuleMenu bind:currentModule={tempModule}/>
-    <ShButton className="mt-6" onclick={() => {
+    <Button className="mt-6" onclick={() => {
         DBState.db.modules.push(tempModule)
         notifySuccess(language.moduleCreated)
         mode = 0
-    }}>{language.createModule}</ShButton>
+    }}>{language.createModule}</Button>
     </SettingPage>
 {:else if mode === 2}
     <SettingPage title={language.editModule}>
@@ -553,25 +556,25 @@
     </SettingPage>
 {/if}
 
-<ShDialog bind:open={mcpImportOpen} size="default" closeOnEscape={!mcpImporting} closeOnOutsideClick={!mcpImporting} closable={!mcpImporting}>
+<Dialog bind:open={mcpImportOpen} size="default" closeOnEscape={!mcpImporting} closeOnOutsideClick={!mcpImporting} closable={!mcpImporting}>
     {#snippet title()}{language.mcpImport.title}{/snippet}
     {#snippet description()}{language.mcpImport.description}{/snippet}
 
     <div class="flex flex-col gap-4">
         <div class="flex flex-col gap-1.5">
             <span class="text-sm text-subtext">{language.mcpImport.source}</span>
-            <ShSelect bind:value={mcpImportSource}>
+            <Select bind:value={mcpImportSource}>
                 {#each builtInMCPIds as id}
-                    <OptionInput value={id}>{builtInMCPLabel(id)} ({id})</OptionInput>
+                    <SelectOption value={id}>{builtInMCPLabel(id)} ({id})</SelectOption>
                 {/each}
-                <OptionInput value="custom">{language.mcpImport.customSource}</OptionInput>
-            </ShSelect>
+                <SelectOption value="custom">{language.mcpImport.customSource}</SelectOption>
+            </Select>
         </div>
 
         {#if mcpImportSource === 'custom'}
             <label class="flex flex-col gap-1.5">
                 <span class="text-sm text-subtext">{language.mcpImport.address}</span>
-                <TextInput
+                <Input
                     bind:value={customMCPAddress}
                     placeholder={language.mcpImport.addressPlaceholder}
                     fullwidth
@@ -585,11 +588,11 @@
     </div>
 
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => (mcpImportOpen = false)} disabled={mcpImporting}>
+        <Button variant="outline" onclick={() => (mcpImportOpen = false)} disabled={mcpImporting}>
             {language.cancel}
-        </ShButton>
-        <ShButton onclick={submitMCPImport} disabled={!selectedMCPAddress || selectedMCPAlreadyImported || mcpImporting}>
+        </Button>
+        <Button onclick={submitMCPImport} disabled={!selectedMCPAddress || selectedMCPAlreadyImported || mcpImporting}>
             {language.import}
-        </ShButton>
+        </Button>
     {/snippet}
-</ShDialog>
+</Dialog>

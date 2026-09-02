@@ -2,8 +2,8 @@
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
     import { getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
-    import TextInput from 'src/lib/UI/GUI/TextInput.svelte';
-    import ShCombobox from 'src/lib/UI/GUI/ShCombobox.svelte';
+    import Input from '../../UI/components/Input.svelte';
+    import Combobox from '../../UI/components/Combobox.svelte';
     import Help from 'src/lib/Others/Help.svelte';
     import SettingItemRow from './SettingItemRow.svelte';
 
@@ -35,7 +35,7 @@
     <SettingItemRow {item}>
         {#snippet control()}
             {#if suggestions.length > 0 && !item.options?.hideText}
-                <ShCombobox
+                <Combobox
                     containerClassName="w-48"
                     className="h-8 w-full text-sm"
                     size="sm"
@@ -45,7 +45,7 @@
                     oncommit={() => commitValue(localValue)}
                 />
             {:else}
-                <TextInput
+                <Input
                     className="h-8 w-48 text-sm"
                     size="sm"
                     bind:value={localValue}
@@ -64,7 +64,7 @@
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>
     {#if suggestions.length > 0 && !item.options?.hideText}
-        <ShCombobox
+        <Combobox
             className="mt-2"
             marginBottom={true}
             options={suggestions}
@@ -73,7 +73,7 @@
             oncommit={() => commitValue(localValue)}
         />
     {:else}
-        <TextInput
+        <Input
             className="mt-2"
             marginBottom={true}
             bind:value={localValue}

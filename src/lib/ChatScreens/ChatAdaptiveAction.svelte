@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { Snippet } from "svelte";
-    import IconButton, { type IconButtonTone } from "../UI/GUI/IconButton.svelte";
-    import ShDropdownMenuItem from "../UI/GUI/ShDropdownMenuItem.svelte";
+    import IconButton, { type IconButtonTone } from "../UI/components/IconButton.svelte";
+    import { Item as DropdownMenuItem } from "../UI/components/dropdown-menu";
 
     interface Props {
         menu?: boolean;
@@ -23,14 +23,14 @@
 </script>
 
 {#if menu}
-    <ShDropdownMenuItem
+    <DropdownMenuItem
         variant={tone === 'destructive' ? 'destructive' : 'default'}
         class={className}
         {disabled}
         onSelect={() => onclick?.()}
     >
         {@render children()}
-    </ShDropdownMenuItem>
+    </DropdownMenuItem>
 {:else}
     <IconButton size="lg" {tone} {className} {disabled} {onclick}>
         {@render children()}

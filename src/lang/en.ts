@@ -766,7 +766,7 @@ export const languageEnglish = {
     others: "Others",
     advancedRequestTab: "Request",
     dataDisplay: "Data Display",
-    developerSettings: "Developer Settings",
+    laboratory: "Laboratory",
     sectionInterface: "Interface",
     sectionHomeList: "Home & Chat List",
     sectionChatView: "Chat View",

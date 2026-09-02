@@ -4,9 +4,9 @@
     import { language } from "src/lang";
     import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
-    import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import PresetHeader from "../../UI/components/PresetHeader.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
+    import Button from "../../UI/components/Button.svelte";
     import { getCharImage } from "src/ts/characters";
     import { saveUserPersona, selectUserImg } from "src/ts/persona";
     import type { SettingItem } from "src/ts/setting/types";
@@ -89,10 +89,10 @@
                         <AvatarFallback className="h-full w-full" iconSize={56} />
                     {/if}
                 </button>
-                <ShButton variant="outline" size="sm" className="w-full max-sm:w-44" onclick={selectUserImg}>
+                <Button variant="outline" size="sm" className="w-full max-sm:w-44" onclick={selectUserImg}>
                     <ImageIcon/>
                     {language.select}
-                </ShButton>
+                </Button>
             </div>
 
             <div class="min-w-0 grow">

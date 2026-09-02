@@ -3,8 +3,8 @@
     import { language } from "src/lang";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
-    import InlineEditableName from "src/lib/UI/GUI/InlineEditableName.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import InlineEditableName from "../../../UI/components/InlineEditableName.svelte";
+    import Switch from "../../../UI/components/Switch.svelte";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { AddonSettingsTab, openAddonSettings } from "src/ts/routing";
     import { DBState, ReloadGUIPointer, selectedCharID } from "src/ts/stores.svelte";
@@ -180,6 +180,7 @@
             controller={renameController}
             bind:value={DBState.db.modules[index].name}
             size="default"
+            editorLeadingInset={rmodule.mcp ? 'border' : 'row'}
             placeholder="string"
             disabled={!folderManagement}
             onActivate={() => selectModule(index)}
@@ -198,13 +199,13 @@
             <!-- The switch is chat-scoped on left click and character-scoped on right click/long press. -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <div
-                class="mr-1 shrink-0"
+                class="mr-1 flex shrink-0 items-center"
                 role="presentation"
                 onclick={(event) => event.stopPropagation()}
                 oncontextmenu={(event) => toggleScoped(rmodule.id, event)}
                 title={language.chatModulesInfo}
             >
-                <ShSwitch
+                <Switch
                     checked={isPrimary(rmodule.id) || isScoped(rmodule.id)}
                     disabled={isGlobal(rmodule.id)}
                     className={isScoped(rmodule.id) && !isPrimary(rmodule.id) ? 'data-[state=checked]:bg-scoped' : ''}

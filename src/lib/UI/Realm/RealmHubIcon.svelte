@@ -3,15 +3,12 @@
     import { hubURL, type hubType } from "src/ts/characterCards";
     import { DBState } from "src/ts/stores.svelte";
     import { parseMultilangString } from "src/ts/util";
-    import ShButton from "../GUI/ShButton.svelte";
+    import Button from "../components/Button.svelte";
     import RealmTagList from "./RealmTagList.svelte";
     import { tooltip } from "src/ts/gui/tooltip";
     import CharacterMasonryIcon from "../CharacterMasonryIcon.svelte";
     import { language } from "src/lang";
-    import ShContextMenu from "../GUI/ShContextMenu.svelte";
-    import ShContextMenuContent from "../GUI/ShContextMenuContent.svelte";
-    import ShContextMenuItem from "../GUI/ShContextMenuItem.svelte";
-    import ShContextMenuTrigger from "../GUI/ShContextMenuTrigger.svelte";
+    import * as ContextMenu from "../components/context-menu";
     import { muteRealmCharacter, muteRealmCreator } from "src/ts/realmMute";
 
     interface Props {
@@ -26,8 +23,8 @@
 
 </script>
 
-<ShContextMenu>
-    <ShContextMenuTrigger class="block w-full">
+<ContextMenu.Root>
+    <ContextMenu.Trigger class="block w-full">
         {#if iconOnly}
             <CharacterMasonryIcon
                 src={`${hubURL}/resource/` + chara.img}
@@ -36,7 +33,7 @@
                 onclick={onClick}
             />
         {:else}
-            <ShButton variant="secondary" className="relative h-auto w-full flex-col items-start justify-start whitespace-normal p-4 text-left font-normal" onclick={onClick}>
+            <Button variant="secondary" className="relative h-auto w-full flex-col items-start justify-start whitespace-normal p-4 text-left font-normal" onclick={onClick}>
                 <div class="flex gap-2 w-full">
                 {#if DBState.db.hideAllImages}
                     <div class="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md bg-button flex items-center justify-center text-subtext">
@@ -62,15 +59,15 @@
                         {/if}
                     </div>
                 </div>
-            </div></ShButton>
+            </div></Button>
         {/if}
-    </ShContextMenuTrigger>
-    <ShContextMenuContent class="min-w-40">
-        <ShContextMenuItem onSelect={() => muteRealmCharacter(chara)}>
+    </ContextMenu.Trigger>
+    <ContextMenu.Content class="min-w-40">
+        <ContextMenu.Item onSelect={() => muteRealmCharacter(chara)}>
             {language.realmMuteCharacter}
-        </ShContextMenuItem>
-        <ShContextMenuItem disabled={!chara.creator?.trim()} onSelect={() => muteRealmCreator(chara)}>
+        </ContextMenu.Item>
+        <ContextMenu.Item disabled={!chara.creator?.trim()} onSelect={() => muteRealmCreator(chara)}>
             {language.realmMuteCreator}
-        </ShContextMenuItem>
-    </ShContextMenuContent>
-</ShContextMenu>
+        </ContextMenu.Item>
+    </ContextMenu.Content>
+</ContextMenu.Root>

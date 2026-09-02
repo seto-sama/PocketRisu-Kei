@@ -34,18 +34,17 @@
         type UpdateInfo,
         type SelfUpdateProgress,
     } from "src/ts/update";
-    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShBadge from "src/lib/UI/GUI/ShBadge.svelte";
-    import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
-    import ShInput from "src/lib/UI/GUI/ShInput.svelte";
-    import ShToggle from "src/lib/UI/GUI/ShToggle.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import Dialog from "../UI/components/Dialog.svelte";
+    import Button from "../UI/components/Button.svelte";
+    import Badge from "../UI/components/Badge.svelte";
+    import Alert from "../UI/components/Alert.svelte";
+    import Input from "../UI/components/Input.svelte";
+    import Toggle from "../UI/components/Toggle.svelte";
+    import Switch from "../UI/components/Switch.svelte";
     import { TriangleAlertIcon, InfoIcon, CheckCircleIcon, XCircleIcon } from "@lucide/svelte";
-    import ShSelect from "src/lib/UI/GUI/ShSelect.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import ShAccordion from "src/lib/UI/GUI/ShAccordion.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import Select from "../UI/components/Select.svelte";
+    import SelectOption from "../UI/components/SelectOption.svelte";
+    import Accordion from "../UI/components/Accordion.svelte";
 
     let lastResult = $state('');
 
@@ -329,15 +328,15 @@ function hello(): string {
 
     async function deleteNestedItem(idx: number) {
         const name = nestedItems[idx];
-        // ShDialog parent stays open during alertConfirm child overlay.
+        // Dialog parent stays open during alertConfirm child overlay.
         const ok = await alertConfirm(`"${name}"을 삭제하시겠습니까?`);
         if (ok) {
             nestedItems = nestedItems.filter((_, i) => i !== idx);
             notifySuccess(`"${name}" 삭제됨`);
-            setResult(`중첩: "${name}" 삭제 후 ShDialog 유지`);
+            setResult(`중첩: "${name}" 삭제 후 Dialog 유지`);
         } else {
             notifyInfo('삭제 취소');
-            setResult('중첩: 삭제 취소, ShDialog 유지');
+            setResult('중첩: 삭제 취소, Dialog 유지');
         }
     }
 
@@ -347,7 +346,7 @@ function hello(): string {
         if (newName && newName !== oldName) {
             nestedItems[idx] = newName;
             notifySuccess(`"${oldName}" → "${newName}"`);
-            setResult(`중첩: 이름 변경 후 ShDialog 유지`);
+            setResult(`중첩: 이름 변경 후 Dialog 유지`);
         } else {
             setResult('중첩: 이름 변경 없음');
         }
@@ -390,7 +389,7 @@ function hello(): string {
     }
 
     // ─── Section 7: Component gallery ────────────────────────────────────────
-    // Live preview of the Sh* components in their current vega-derived spec.
+    // Live preview of the shared components in their current vega-derived spec.
     // Buttons are no-ops; widgets bind to local state for interaction feel.
 
     let galleryToggle1 = $state(false);
@@ -429,9 +428,9 @@ function hello(): string {
 <div class="flex flex-col gap-3">
     <div class="flex items-center justify-between flex-wrap gap-2">
         <h2 class="text-lg font-semibold text-maintext">Dev Panel</h2>
-        <ShButton variant="ghost" size="sm" onclick={disablePanel}>
+        <Button variant="ghost" size="sm" onclick={disablePanel}>
             Disable panel
-        </ShButton>
+        </Button>
     </div>
     <p class="text-xs text-subtext">
         Toggled via <code class="bg-lightbg px-1 py-0.5 rounded">localStorage['risu-dev-panel']='1'</code>.
@@ -442,20 +441,20 @@ function hello(): string {
     <div class="mt-2 flex flex-col gap-2">
         <h3 class="text-sm font-semibold text-maintext">1. 기본 alert*</h3>
         <div class="flex flex-wrap gap-2">
-            <ShButton variant="destructive" onclick={triggerErrorWithStack}>alertError (스택 있음)</ShButton>
-            <ShButton variant="destructive" onclick={triggerErrorNoStack}>alertError (스택 없음)</ShButton>
-            <ShButton onclick={triggerNormal}>alertNormal</ShButton>
-            <ShButton onclick={triggerNormalWait}>alertNormalWait → notify</ShButton>
-            <ShButton variant="secondary" onclick={triggerMarkdown}>alertMd (markdown)</ShButton>
-            <ShButton variant="outline" onclick={triggerConfirm}>alertConfirm</ShButton>
-            <ShButton variant="outline" onclick={triggerInputSimple}>alertInput (단순)</ShButton>
-            <ShButton variant="outline" onclick={triggerInputDatalist}>alertInput (datalist)</ShButton>
-            <ShButton variant="outline" onclick={triggerInputDefault}>alertInput (defaultValue)</ShButton>
-            <ShButton variant="outline" onclick={triggerSelect}>alertSelect</ShButton>
-            <ShButton variant="outline" onclick={triggerSelectDisplay}>alertSelect (with prompt)</ShButton>
-            <ShButton variant="outline" onclick={triggerConfirmMulti2}>alertConfirmMulti (2 destructive)</ShButton>
-            <ShButton variant="outline" onclick={triggerConfirmMulti3}>alertConfirmMulti (3 default)</ShButton>
-            <ShButton variant="outline" onclick={triggerConfirmMultiMixed}>alertConfirmMulti (mixed variants)</ShButton>
+            <Button variant="destructive" onclick={triggerErrorWithStack}>alertError (스택 있음)</Button>
+            <Button variant="destructive" onclick={triggerErrorNoStack}>alertError (스택 없음)</Button>
+            <Button onclick={triggerNormal}>alertNormal</Button>
+            <Button onclick={triggerNormalWait}>alertNormalWait → notify</Button>
+            <Button variant="secondary" onclick={triggerMarkdown}>alertMd (markdown)</Button>
+            <Button variant="outline" onclick={triggerConfirm}>alertConfirm</Button>
+            <Button variant="outline" onclick={triggerInputSimple}>alertInput (단순)</Button>
+            <Button variant="outline" onclick={triggerInputDatalist}>alertInput (datalist)</Button>
+            <Button variant="outline" onclick={triggerInputDefault}>alertInput (defaultValue)</Button>
+            <Button variant="outline" onclick={triggerSelect}>alertSelect</Button>
+            <Button variant="outline" onclick={triggerSelectDisplay}>alertSelect (with prompt)</Button>
+            <Button variant="outline" onclick={triggerConfirmMulti2}>alertConfirmMulti (2 destructive)</Button>
+            <Button variant="outline" onclick={triggerConfirmMulti3}>alertConfirmMulti (3 default)</Button>
+            <Button variant="outline" onclick={triggerConfirmMultiMixed}>alertConfirmMulti (mixed variants)</Button>
         </div>
     </div>
 
@@ -463,13 +462,13 @@ function hello(): string {
     <div class="mt-4 flex flex-col gap-2">
         <h3 class="text-sm font-semibold text-maintext">2. 로딩 / 진행 전환</h3>
         <p class="text-xs text-subtext">
-            alertWait 메시지 갱신, alertWait → alertError 덮어쓰기, progress 0→100% 등 ShLoadingDialog 동작을 확인합니다.
+            alertWait 메시지 갱신, alertWait → alertError 덮어쓰기, progress 0→100% 등 LoadingDialog 동작을 확인합니다.
         </p>
         <div class="flex flex-wrap gap-2">
-            <ShButton variant="ghost" onclick={triggerWaitShort}>alertWait (2.5초)</ShButton>
-            <ShButton variant="ghost" onclick={triggerWaitMultiStep}>alertWait (4단계 갱신)</ShButton>
-            <ShButton variant="ghost" onclick={triggerWaitThenError}>alertWait → alertError</ShButton>
-            <ShButton variant="ghost" onclick={triggerProgressBar}>progress 0→100%</ShButton>
+            <Button variant="ghost" onclick={triggerWaitShort}>alertWait (2.5초)</Button>
+            <Button variant="ghost" onclick={triggerWaitMultiStep}>alertWait (4단계 갱신)</Button>
+            <Button variant="ghost" onclick={triggerWaitThenError}>alertWait → alertError</Button>
+            <Button variant="ghost" onclick={triggerProgressBar}>progress 0→100%</Button>
         </div>
     </div>
 
@@ -480,11 +479,11 @@ function hello(): string {
             serverBackupManager 등 프로덕션 호출처의 흐름을 그대로 재현합니다.
         </p>
         <div class="flex flex-wrap gap-2">
-            <ShButton onclick={simulateBackupRestoreSuccess}>백업 복원 (성공)</ShButton>
-            <ShButton onclick={simulateBackupRestorePartialFail}>백업 복원 (부분 실패)</ShButton>
-            <ShButton onclick={simulatePluginPermissionFlow}>플러그인 권한 흐름 (3종 연속)</ShButton>
-            <ShButton onclick={simulateCharacterCreate}>캐릭터 생성 흐름</ShButton>
-            <ShButton onclick={simulateImageGeneration}>이미지 생성 (실패)</ShButton>
+            <Button onclick={simulateBackupRestoreSuccess}>백업 복원 (성공)</Button>
+            <Button onclick={simulateBackupRestorePartialFail}>백업 복원 (부분 실패)</Button>
+            <Button onclick={simulatePluginPermissionFlow}>플러그인 권한 흐름 (3종 연속)</Button>
+            <Button onclick={simulateCharacterCreate}>캐릭터 생성 흐름</Button>
+            <Button onclick={simulateImageGeneration}>이미지 생성 (실패)</Button>
         </div>
     </div>
 
@@ -492,11 +491,11 @@ function hello(): string {
     <div class="mt-4 flex flex-col gap-2">
         <h3 class="text-sm font-semibold text-maintext">4. 중첩 오버레이</h3>
         <p class="text-xs text-subtext">
-            ShDialog (자체 state) 위에 alertConfirm / alertInput (alertStore 기반)을 띄워 togglePresets 류의 중첩 패턴을 검증합니다.
-            자식 모달이 닫혀도 부모 ShDialog가 유지되어야 합니다.
+            Dialog (자체 state) 위에 alertConfirm / alertInput (alertStore 기반)을 띄워 togglePresets 류의 중첩 패턴을 검증합니다.
+            자식 모달이 닫혀도 부모 Dialog가 유지되어야 합니다.
         </p>
         <div class="flex flex-wrap gap-2">
-            <ShButton onclick={() => { nestedDialogOpen = true }}>중첩 모달 열기</ShButton>
+            <Button onclick={() => { nestedDialogOpen = true }}>중첩 모달 열기</Button>
         </div>
     </div>
 
@@ -507,7 +506,7 @@ function hello(): string {
             테스트 중 누적된 상태를 초기화합니다.
         </p>
         <div class="flex flex-wrap gap-2">
-            <ShButton variant="destructive" onclick={resetPluginPermissions}>플러그인 권한 리셋</ShButton>
+            <Button variant="destructive" onclick={resetPluginPermissions}>플러그인 권한 리셋</Button>
         </div>
     </div>
 
@@ -523,31 +522,31 @@ function hello(): string {
         <div class="mt-1 flex flex-col gap-1.5">
             <span class="text-xs text-subtext">Idle 상태</span>
             <div class="flex flex-wrap gap-2">
-                <ShButton size="sm" onclick={() => showUpdate()}>Optional + Self-update</ShButton>
-                <ShButton size="sm" onclick={() => showUpdate({ severity: 'required' })}>Required + Self-update</ShButton>
-                <ShButton size="sm" onclick={() => showUpdate({ canSelfUpdate: false })}>Optional + View Release only</ShButton>
-                <ShButton size="sm" onclick={() => showUpdate({ severity: 'required', canSelfUpdate: false })}>Required + View Release only</ShButton>
-                <ShButton size="sm" onclick={() => showUpdate({ popupMessage: SAMPLE_POPUP_MESSAGE })}>+ popupMessage</ShButton>
+                <Button size="sm" onclick={() => showUpdate()}>Optional + Self-update</Button>
+                <Button size="sm" onclick={() => showUpdate({ severity: 'required' })}>Required + Self-update</Button>
+                <Button size="sm" onclick={() => showUpdate({ canSelfUpdate: false })}>Optional + View Release only</Button>
+                <Button size="sm" onclick={() => showUpdate({ severity: 'required', canSelfUpdate: false })}>Required + View Release only</Button>
+                <Button size="sm" onclick={() => showUpdate({ popupMessage: SAMPLE_POPUP_MESSAGE })}>+ popupMessage</Button>
             </div>
         </div>
 
         <div class="mt-1 flex flex-col gap-1.5">
             <span class="text-xs text-subtext">진행 단계 (X 숨김 / 블로킹)</span>
             <div class="flex flex-wrap gap-2">
-                <ShButton size="sm" onclick={() => showProgress({ step: 'checking', progress: 0, message: '업데이트 정보 확인 중...' })}>checking</ShButton>
-                <ShButton size="sm" onclick={() => showProgress({ step: 'downloading', progress: 50, message: 'v99.99.99-demo 다운로드 중... (3.2 MB / 6.4 MB)' })}>downloading 50%</ShButton>
-                <ShButton size="sm" onclick={() => showProgress({ step: 'extracting', progress: null, message: '아카이브 추출 중...' })}>extracting</ShButton>
-                <ShButton size="sm" onclick={() => showProgress({ step: 'replacing', progress: null, message: '실행 파일 교체 중...' })}>replacing</ShButton>
-                <ShButton size="sm" onclick={() => showProgress({ step: 'restarting', progress: null, message: '서버 재시작 대기 중...' })}>restarting</ShButton>
+                <Button size="sm" onclick={() => showProgress({ step: 'checking', progress: 0, message: '업데이트 정보 확인 중...' })}>checking</Button>
+                <Button size="sm" onclick={() => showProgress({ step: 'downloading', progress: 50, message: 'v99.99.99-demo 다운로드 중... (3.2 MB / 6.4 MB)' })}>downloading 50%</Button>
+                <Button size="sm" onclick={() => showProgress({ step: 'extracting', progress: null, message: '아카이브 추출 중...' })}>extracting</Button>
+                <Button size="sm" onclick={() => showProgress({ step: 'replacing', progress: null, message: '실행 파일 교체 중...' })}>replacing</Button>
+                <Button size="sm" onclick={() => showProgress({ step: 'restarting', progress: null, message: '서버 재시작 대기 중...' })}>restarting</Button>
             </div>
         </div>
 
         <div class="mt-1 flex flex-col gap-1.5">
             <span class="text-xs text-subtext">종료 단계 (X 노출 / 닫기 가능)</span>
             <div class="flex flex-wrap gap-2">
-                <ShButton size="sm" variant="success" onclick={() => showProgress({ step: 'done', progress: 100, message: '업데이트 완료.' })}>done (Reload 주의)</ShButton>
-                <ShButton size="sm" variant="destructive" onclick={() => showProgress({ step: 'error', progress: null, message: '업데이트 실패: 서버 응답 없음 (HTTP 502)' })}>error</ShButton>
-                <ShButton size="sm" variant="ghost" onclick={forceCloseUpdate}>강제 닫기</ShButton>
+                <Button size="sm" variant="success" onclick={() => showProgress({ step: 'done', progress: 100, message: '업데이트 완료.' })}>done (Reload 주의)</Button>
+                <Button size="sm" variant="destructive" onclick={() => showProgress({ step: 'error', progress: null, message: '업데이트 실패: 서버 응답 없음 (HTTP 502)' })}>error</Button>
+                <Button size="sm" variant="ghost" onclick={forceCloseUpdate}>강제 닫기</Button>
             </div>
         </div>
     </div>
@@ -559,65 +558,65 @@ function hello(): string {
             vega-derived h-10 spec 시각 검증용. 같은 행에 놓인 컴포넌트들이 정렬되어야 함.
         </p>
 
-        <!-- ShButton variants × default size -->
+        <!-- Button variants × default size -->
         <div class="flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">ShButton variants (default size, h-10)</span>
+            <span class="text-xs text-subtext">Button variants (default size, h-10)</span>
             <div class="flex flex-wrap gap-2 items-center">
-                <ShButton variant="default">Default</ShButton>
-                <ShButton variant="outline">Outline</ShButton>
-                <ShButton variant="secondary">Secondary</ShButton>
-                <ShButton variant="ghost">Ghost</ShButton>
-                <ShButton variant="primary">Primary</ShButton>
-                <ShButton variant="destructive">Destructive</ShButton>
-                <ShButton variant="attention">Attention</ShButton>
-                <ShButton variant="warning">Warning</ShButton>
-                <ShButton variant="success">Success</ShButton>
-                <ShButton variant="link">Link</ShButton>
+                <Button variant="default">Default</Button>
+                <Button variant="outline">Outline</Button>
+                <Button variant="secondary">Secondary</Button>
+                <Button variant="ghost">Ghost</Button>
+                <Button variant="primary">Primary</Button>
+                <Button variant="destructive">Destructive</Button>
+                <Button variant="attention">Attention</Button>
+                <Button variant="warning">Warning</Button>
+                <Button variant="success">Success</Button>
+                <Button variant="link">Link</Button>
             </div>
             <p class="text-xs text-subtext/60 mt-1">
-                Primary는 filled-solid 톤(테마별 동적 액센트). destructive/success의 muted 톤과는 의도적으로 차별화 — ShSwitch 트랙과 같은 풀 fill 강도를 공유합니다.
+                Primary는 filled-solid 톤(테마별 동적 액센트). destructive/success의 muted 톤과는 의도적으로 차별화 — Switch 트랙과 같은 풀 fill 강도를 공유합니다.
             </p>
         </div>
 
-        <!-- ShButton sizes -->
+        <!-- Button sizes -->
         <div class="flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">ShButton sizes (xs h-7 / sm h-8 / default h-10 / lg h-11)</span>
+            <span class="text-xs text-subtext">Button sizes (xs h-7 / sm h-8 / default h-10 / lg h-11)</span>
             <div class="flex flex-wrap gap-2 items-center">
-                <ShButton size="xs">xs</ShButton>
-                <ShButton size="sm">sm</ShButton>
-                <ShButton size="default">default</ShButton>
-                <ShButton size="lg">lg</ShButton>
+                <Button size="xs">xs</Button>
+                <Button size="sm">sm</Button>
+                <Button size="default">default</Button>
+                <Button size="lg">lg</Button>
             </div>
         </div>
 
-        <!-- ShToggle -->
+        <!-- Toggle -->
         <div class="flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">ShToggle (default h-10)</span>
+            <span class="text-xs text-subtext">Toggle (default h-10)</span>
             <div class="flex flex-wrap gap-2 items-center">
-                <ShToggle bind:pressed={galleryToggle1}>Toggle</ShToggle>
-                <ShToggle bind:pressed={galleryToggle2} variant="default">Default variant</ShToggle>
-                <ShToggle bind:pressed={galleryToggle3} size="sm">sm</ShToggle>
+                <Toggle bind:pressed={galleryToggle1}>Toggle</Toggle>
+                <Toggle bind:pressed={galleryToggle2} variant="default">Default variant</Toggle>
+                <Toggle bind:pressed={galleryToggle3} size="sm">sm</Toggle>
             </div>
         </div>
 
-        <!-- ShSwitch -->
+        <!-- Switch -->
         <div class="flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">ShSwitch (checked → bg-primary)</span>
+            <span class="text-xs text-subtext">Switch (checked → bg-primary)</span>
             <div class="flex flex-wrap gap-4 items-center">
                 <label class="flex items-center gap-2 cursor-pointer select-none text-maintext">
-                    <ShSwitch bind:checked={gallerySwitch1} />
+                    <Switch bind:checked={gallerySwitch1} />
                     off → on
                 </label>
                 <label class="flex items-center gap-2 cursor-pointer select-none text-maintext">
-                    <ShSwitch bind:checked={gallerySwitch2} />
+                    <Switch bind:checked={gallerySwitch2} />
                     on (default)
                 </label>
                 <label class="flex items-center gap-2 cursor-pointer select-none text-maintext">
-                    <ShSwitch bind:checked={gallerySwitch3} size="sm" />
+                    <Switch bind:checked={gallerySwitch3} size="sm" />
                     sm size
                 </label>
                 <label class="flex items-center gap-2 cursor-pointer select-none text-subtext">
-                    <ShSwitch bind:checked={gallerySwitch4} disabled />
+                    <Switch bind:checked={gallerySwitch4} disabled />
                     disabled (on)
                 </label>
             </div>
@@ -626,101 +625,101 @@ function hello(): string {
             </p>
         </div>
 
-        <!-- ShBadge -->
+        <!-- Badge -->
         <div class="flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">ShBadge variants</span>
+            <span class="text-xs text-subtext">Badge variants</span>
             <div class="flex flex-wrap gap-2 items-center">
-                <ShBadge>default</ShBadge>
-                <ShBadge variant="secondary">secondary</ShBadge>
-                <ShBadge variant="destructive">destructive</ShBadge>
-                <ShBadge variant="outline">outline</ShBadge>
-                <ShBadge variant="ghost">ghost</ShBadge>
-                <ShBadge variant="attention">attention</ShBadge>
-                <ShBadge variant="warning">warning</ShBadge>
-                <ShBadge variant="info">info</ShBadge>
-                <ShBadge variant="success">success</ShBadge>
+                <Badge>default</Badge>
+                <Badge variant="secondary">secondary</Badge>
+                <Badge variant="destructive">destructive</Badge>
+                <Badge variant="outline">outline</Badge>
+                <Badge variant="ghost">ghost</Badge>
+                <Badge variant="attention">attention</Badge>
+                <Badge variant="warning">warning</Badge>
+                <Badge variant="info">info</Badge>
+                <Badge variant="success">success</Badge>
             </div>
         </div>
 
-        <!-- ShAlert -->
+        <!-- Alert -->
         <div class="flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">ShAlert variants (icon + body)</span>
+            <span class="text-xs text-subtext">Alert variants (icon + body)</span>
             <div class="flex flex-col gap-2 max-w-md">
-                <ShAlert variant="default">
+                <Alert variant="default">
                     {#snippet icon()}<InfoIcon />{/snippet}
                     {#snippet title()}안내{/snippet}
                     중성 톤의 기본 알림. 추가 컨텍스트가 필요할 때 사용합니다.
-                </ShAlert>
-                <ShAlert variant="info">
+                </Alert>
+                <Alert variant="info">
                     {#snippet icon()}<InfoIcon />{/snippet}
                     파란 톤 정보 안내. 일반적인 도움말/팁 전달용.
-                </ShAlert>
-                <ShAlert variant="success">
+                </Alert>
+                <Alert variant="success">
                     {#snippet icon()}<CheckCircleIcon />{/snippet}
                     {#snippet title()}완료{/snippet}
                     초록 톤. 작업 성공 알림에 사용합니다.
-                </ShAlert>
-                <ShAlert variant="warning">
+                </Alert>
+                <Alert variant="warning">
                     {#snippet icon()}<TriangleAlertIcon />{/snippet}
                     노랑 톤. 주의 환기가 필요한 상황에 사용합니다.
-                </ShAlert>
-                <ShAlert variant="destructive">
+                </Alert>
+                <Alert variant="destructive">
                     {#snippet icon()}<XCircleIcon />{/snippet}
                     {#snippet title()}위험{/snippet}
                     빨강(danger) 톤. 보안/데이터 위험 경고용.
-                </ShAlert>
-                <ShAlert variant="info">
+                </Alert>
+                <Alert variant="info">
                     아이콘 없는 형태. 단순 정보 박스로 사용 가능.
-                </ShAlert>
+                </Alert>
             </div>
         </div>
 
-        <!-- ShAlert + action (CTA banner) -->
+        <!-- Alert + action (CTA banner) -->
         <div class="flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">ShAlert action 슬롯 (info + CTA 버튼, 우측 정렬·모바일 wrap)</span>
+            <span class="text-xs text-subtext">Alert action 슬롯 (info + CTA 버튼, 우측 정렬·모바일 wrap)</span>
             <div class="flex flex-col gap-2 max-w-md">
-                <ShAlert variant="info">
+                <Alert variant="info">
                     {#snippet icon()}<InfoIcon />{/snippet}
                     {#snippet title()}아이콘 + 텍스트 + 우측 버튼. 액션이 있는 안내 배너.{/snippet}
                     {#snippet action()}
-                        <ShButton variant="outline" size="sm">바로가기</ShButton>
+                        <Button variant="outline" size="sm">바로가기</Button>
                     {/snippet}
-                </ShAlert>
-                <ShAlert variant="warning">
+                </Alert>
+                <Alert variant="warning">
                     {#snippet icon()}<TriangleAlertIcon />{/snippet}
                     {#snippet title()}경고 톤에서도 동일하게 동작합니다.{/snippet}
                     {#snippet action()}
-                        <ShButton variant="outline" size="sm">조치</ShButton>
+                        <Button variant="outline" size="sm">조치</Button>
                     {/snippet}
-                </ShAlert>
+                </Alert>
             </div>
         </div>
 
-        <!-- ShInput / ShSelect / ShButton 정렬 검증 -->
+        <!-- Input / Select / Button 정렬 검증 -->
         <div class="flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">폼 정렬 (ShInput + ShSelect + ShButton 모두 h-10)</span>
+            <span class="text-xs text-subtext">폼 정렬 (Input + Select + Button 모두 h-10)</span>
             <div class="flex flex-wrap gap-2 items-end">
-                <ShInput bind:value={galleryInputText} placeholder="ShInput (text-base 16px)" className="max-w-xs" />
-                <ShSelect bind:value={gallerySelectValue} className="max-w-xs">
-                    <OptionInput value="option-1">옵션 1</OptionInput>
-                    <OptionInput value="option-2">옵션 2 (선택됨)</OptionInput>
-                    <OptionInput value="option-3">옵션 3</OptionInput>
-                </ShSelect>
-                <ShButton>제출</ShButton>
+                <Input bind:value={galleryInputText} placeholder="Input (text-base 16px)" className="max-w-xs" />
+                <Select bind:value={gallerySelectValue} className="max-w-xs">
+                    <SelectOption value="option-1">옵션 1</SelectOption>
+                    <SelectOption value="option-2">옵션 2 (선택됨)</SelectOption>
+                    <SelectOption value="option-3">옵션 3</SelectOption>
+                </Select>
+                <Button>제출</Button>
             </div>
             <p class="text-xs text-subtext/60 mt-1">
                 세 컨트롤의 위·아래 라인이 픽셀 단위로 맞아야 합니다.
             </p>
         </div>
 
-        <!-- ShSelect 긴 리스트 — 스크롤-인-뷰 + 초기 열림 점프 검증 -->
+        <!-- Select 긴 리스트 — 스크롤-인-뷰 + 초기 열림 점프 검증 -->
         <div class="flex flex-col gap-1.5">
-            <span class="text-xs text-subtext">긴 ShSelect (50개) — 키보드 nav 스크롤 검증</span>
-            <ShSelect bind:value={galleryLongSelectValue} className="max-w-xs">
+            <span class="text-xs text-subtext">긴 Select (50개) — 키보드 nav 스크롤 검증</span>
+            <Select bind:value={galleryLongSelectValue} className="max-w-xs">
                 {#each galleryLongOptions as opt}
-                    <OptionInput value={opt}>{opt}</OptionInput>
+                    <SelectOption value={opt}>{opt}</SelectOption>
                 {/each}
-            </ShSelect>
+            </Select>
             <ul class="text-xs text-subtext/60 mt-1 list-disc pl-4 space-y-0.5">
                 <li>처음 열기: 기본값이 <code>item-25</code>이라 드롭다운이 그 위치로 스크롤되어 열려야 함</li>
                 <li>↓↓↓ 연타: 하이라이트가 항상 화면 안에 있어야 함 (block: nearest)</li>
@@ -732,15 +731,15 @@ function hello(): string {
 
     <!-- Section 8 -->
     <div class="mt-4 flex flex-col gap-3">
-        <h3 class="text-sm font-semibold text-maintext">8. ShAccordion 변형 비교</h3>
+        <h3 class="text-sm font-semibold text-maintext">8. Accordion 변형 비교</h3>
         <p class="text-xs text-subtext">
             <code>card</code> / <code>plain</code> / <code>indent</code> 세 변형. 좌측은 사이드바 폭(280px) 제약, 우측은 풀폭. 펼친 상태에서 좌우 패딩·보더 손실을 비교하세요.
         </p>
 
         {#snippet sampleBody()}
             <div class="text-subtext text-sm">샘플 본문 — 폭 비교용</div>
-            <TextInput value="Field A" />
-            <TextInput value="Field B" />
+            <Input value="Field A" />
+            <Input value="Field B" />
         {/snippet}
 
         <div class="grid grid-cols-2 gap-4">
@@ -750,21 +749,21 @@ function hello(): string {
                 <div class="max-w-[280px] flex flex-col gap-3">
                     <div class="flex flex-col gap-1">
                         <div class="text-xs text-subtext/70">card</div>
-                        <ShAccordion name="Sample" variant="card">
+                        <Accordion name="Sample" variant="card">
                             {@render sampleBody()}
-                        </ShAccordion>
+                        </Accordion>
                     </div>
                     <div class="flex flex-col gap-1">
                         <div class="text-xs text-subtext/70">plain</div>
-                        <ShAccordion name="Sample" variant="plain">
+                        <Accordion name="Sample" variant="plain">
                             {@render sampleBody()}
-                        </ShAccordion>
+                        </Accordion>
                     </div>
                     <div class="flex flex-col gap-1">
                         <div class="text-xs text-subtext/70">indent</div>
-                        <ShAccordion name="Sample" variant="indent">
+                        <Accordion name="Sample" variant="indent">
                             {@render sampleBody()}
-                        </ShAccordion>
+                        </Accordion>
                     </div>
                 </div>
             </div>
@@ -775,21 +774,21 @@ function hello(): string {
                 <div class="flex flex-col gap-3">
                     <div class="flex flex-col gap-1">
                         <div class="text-xs text-subtext/70">card</div>
-                        <ShAccordion name="Sample" variant="card">
+                        <Accordion name="Sample" variant="card">
                             {@render sampleBody()}
-                        </ShAccordion>
+                        </Accordion>
                     </div>
                     <div class="flex flex-col gap-1">
                         <div class="text-xs text-subtext/70">plain</div>
-                        <ShAccordion name="Sample" variant="plain">
+                        <Accordion name="Sample" variant="plain">
                             {@render sampleBody()}
-                        </ShAccordion>
+                        </Accordion>
                     </div>
                     <div class="flex flex-col gap-1">
                         <div class="text-xs text-subtext/70">indent</div>
-                        <ShAccordion name="Sample" variant="indent">
+                        <Accordion name="Sample" variant="indent">
                             {@render sampleBody()}
-                        </ShAccordion>
+                        </Accordion>
                     </div>
                 </div>
             </div>
@@ -803,7 +802,7 @@ function hello(): string {
     {/if}
 </div>
 
-<ShDialog bind:open={nestedDialogOpen} size="lg">
+<Dialog bind:open={nestedDialogOpen} size="lg">
     {#snippet title()}프리셋 관리 (중첩 테스트){/snippet}
     {#snippet description()}
         각 프리셋의 작업 버튼을 클릭하면 alertConfirm / alertInput이 위에 뜨고, 닫히면 이 모달은 그대로 유지되어야 합니다.
@@ -813,8 +812,8 @@ function hello(): string {
         {#each nestedItems as item, i}
             <div class="flex items-center gap-2 p-2 border border-darkborderc rounded-md">
                 <span class="flex-1 text-maintext">{item}</span>
-                <ShButton variant="outline" size="sm" onclick={() => renameNestedItem(i)}>이름 변경</ShButton>
-                <ShButton variant="destructive" size="sm" onclick={() => deleteNestedItem(i)}>삭제</ShButton>
+                <Button variant="outline" size="sm" onclick={() => renameNestedItem(i)}>이름 변경</Button>
+                <Button variant="destructive" size="sm" onclick={() => deleteNestedItem(i)}>삭제</Button>
             </div>
         {/each}
         {#if nestedItems.length === 0}
@@ -823,10 +822,10 @@ function hello(): string {
     </div>
 
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => {
+        <Button variant="outline" onclick={() => {
             nestedItems = ['프리셋 A', '프리셋 B', '프리셋 C'];
             setResult('중첩: 항목 초기화');
-        }}>초기화</ShButton>
-        <ShButton onclick={() => { nestedDialogOpen = false }}>닫기</ShButton>
+        }}>초기화</Button>
+        <Button onclick={() => { nestedDialogOpen = false }}>닫기</Button>
     {/snippet}
-</ShDialog>
+</Dialog>

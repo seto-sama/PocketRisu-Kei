@@ -9,10 +9,10 @@
     // Origin plugin is best-effort: new V3 writes are tagged into a sidecar
     // meta store (pluginStorageMeta), but legacy/V2 keys have no record and show
     // as unknown. Edit/delete are allowed directly, guarded by confirm.
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
-    import ShSelect from 'src/lib/UI/GUI/ShSelect.svelte'
-    import OptionInput from 'src/lib/UI/GUI/OptionInput.svelte'
+    import Button from '../../UI/components/Button.svelte'
+    import Input from '../../UI/components/Input.svelte'
+    import Select from '../../UI/components/Select.svelte'
+    import SelectOption from '../../UI/components/SelectOption.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import {
         RefreshCwIcon,
@@ -50,8 +50,8 @@
     const safeLocal = new SafeLocalStorage()
     const idb = new SafeLocalPluginStorage()
 
-    let backendIndex = $state(0)
-    const backend = $derived(BACKENDS[backendIndex].id)
+    let backend = $state<BackendId>('save')
+    const backendInfo = $derived(BACKENDS.find(item => item.id === backend) ?? BACKENDS[0])
     let entries = $state<Entry[]>([])
     let loading = $state(false)
     let loadError = $state<string | null>(null)
@@ -302,7 +302,7 @@
         if (targets.length === 0) return
 
         const isAll = targets.length === entries.length
-        const backendLabel = BACKENDS[backendIndex].label()
+        const backendLabel = backendInfo.label()
         const msg = isAll
             ? language.pluginStorageBulkDeleteAllConfirm(backendLabel, targets.length)
             : language.pluginStorageBulkDeleteConfirm(backendLabel, targets.length)
@@ -330,11 +330,11 @@
     }
 
     // Load on mount and whenever the backend tab changes; reset search per tab.
-    let loadedIndex = -1
+    let loadedBackend: BackendId | null = null
     $effect(() => {
-        const idx = backendIndex
-        if (idx === loadedIndex) return
-        loadedIndex = idx
+        const currentBackend = backend
+        if (currentBackend === loadedBackend) return
+        loadedBackend = currentBackend
         searchQuery = ''
         ownerFilter = ''
         load()
@@ -348,26 +348,26 @@
         <div class="flex flex-nowrap items-start gap-2 overflow-x-auto pb-1">
             <div class="flex flex-col gap-1 text-xs text-subtext min-w-32 flex-1">
                 <span>{language.pluginStorageLocation}</span>
-                <ShSelect value={backendIndex} size="sm" onchange={(e) => backendIndex = Number(e.currentTarget.value)}>
-                    {#each BACKENDS as b, i (b.id)}<OptionInput value={i}>{b.label()}</OptionInput>{/each}
-                </ShSelect>
-                <span class="leading-relaxed opacity-70">{BACKENDS[backendIndex].desc()}</span>
+                <Select bind:value={backend} size="sm">
+                    {#each BACKENDS as item (item.id)}<SelectOption value={item.id}>{item.label()}</SelectOption>{/each}
+                </Select>
+                <span class="leading-relaxed opacity-70">{backendInfo.desc()}</span>
             </div>
             <div class="flex flex-col gap-1 text-xs text-subtext min-w-32 flex-1">
                 <span>{language.pluginStorageOwner}</span>
-                <ShSelect bind:value={ownerFilter} size="sm">
-                    <OptionInput value="">{language.inlayGallery.inlayFilterAll}</OptionInput>
-                    {#each ownerOptions as p (p)}<OptionInput value={p}>{p}</OptionInput>{/each}
-                    {#if hasUnknown}<OptionInput value={UNKNOWN}>{language.pluginStorageOwnerUnknown}</OptionInput>{/if}
-                </ShSelect>
+                <Select bind:value={ownerFilter} size="sm">
+                    <SelectOption value="">{language.inlayGallery.inlayFilterAll}</SelectOption>
+                    {#each ownerOptions as p (p)}<SelectOption value={p}>{p}</SelectOption>{/each}
+                    {#if hasUnknown}<SelectOption value={UNKNOWN}>{language.pluginStorageOwnerUnknown}</SelectOption>{/if}
+                </Select>
             </div>
         </div>
     </SettingLayout>
 
     <SettingLayout variant="search">
-        <ShInput bind:value={searchQuery} placeholder={language.pluginStorageSearch} />
+        <Input bind:value={searchQuery} placeholder={language.pluginStorageSearch} />
         {#snippet control()}
-        <ShButton
+        <Button
             variant="destructive"
             size="default"
             onclick={removeFiltered}
@@ -377,7 +377,7 @@
             {isFiltered
                 ? language.pluginStorageBulkDeleteShown
                 : language.pluginStorageBulkDeleteAll}
-        </ShButton>
+        </Button>
         {/snippet}
     </SettingLayout>
 </div>

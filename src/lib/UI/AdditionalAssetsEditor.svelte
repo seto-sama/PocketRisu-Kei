@@ -6,11 +6,11 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { selectMultipleFile } from 'src/ts/util';
     import { onDestroy } from 'svelte';
-    import FullscreenImageViewer from './GUI/FullscreenImageViewer.svelte';
-    import AssetViewerActions from './GUI/AssetViewerActions.svelte';
-    import IconButton from './GUI/IconButton.svelte';
-    import IconButtonGroup from './GUI/IconButtonGroup.svelte';
-    import ShInput from './GUI/ShInput.svelte';
+    import FullscreenImageViewer from './components/FullscreenImageViewer.svelte';
+    import AssetViewerActions from './components/AssetViewerActions.svelte';
+    import IconButton from './components/IconButton.svelte';
+    import IconButtonGroup from './components/IconButtonGroup.svelte';
+    import Input from './components/Input.svelte';
     import { createIncrementalList } from './incrementalList.svelte';
 
     type AdditionalAsset = [string, string, string];
@@ -307,7 +307,7 @@
                 </div>
 
                 <div class="h-14 min-w-0 flex-1 overflow-hidden">
-                    <ShInput
+                    <Input
                         autocomplete="off"
                         value={asset[0]}
                         oninput={(event) => renameAsset(i, event.currentTarget.value)}

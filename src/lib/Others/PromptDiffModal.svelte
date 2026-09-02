@@ -3,12 +3,12 @@
     import { XIcon } from "@lucide/svelte"
     import { getDatabase, type PromptDiffPrefs } from "../../ts/storage/database.svelte"
     import type { PromptItem, PromptItemPlain, PromptItemChatML, PromptItemTyped, PromptItemAuthorNote, PromptItemChat } from "src/ts/process/prompt.ts";
-    import CheckInput from "../UI/GUI/CheckInput.svelte";
-    import ShChoiceGroup from "../UI/GUI/ShChoiceGroup.svelte";
-    import ShSlider from "../UI/GUI/ShSlider.svelte";
-    import ShDialog from "../UI/GUI/ShDialog.svelte";
-    import ShBadge from "../UI/GUI/ShBadge.svelte";
-    import IconButton from "../UI/GUI/IconButton.svelte";
+    import Checkbox from "../UI/components/Checkbox.svelte";
+    import ChoiceGroup from "../UI/components/ChoiceGroup.svelte";
+    import Slider from "../UI/components/Slider.svelte";
+    import Dialog from "../UI/components/Dialog.svelte";
+    import Badge from "../UI/components/Badge.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
     import { language } from "src/lang";
 
     interface Props {
@@ -1437,12 +1437,12 @@
     : language.promptDiff.unchanged}
 
   <div class="flex flex-col items-end gap-1 shrink-0">
-    <ShBadge
+    <Badge
       variant={cardPart.k === 'modify' ? 'info' : cardPart.k === 'add' ? 'success' : cardPart.k === 'remove' ? 'destructive' : 'secondary'}
       size="sm"
     >
       {statusLabel}
-    </ShBadge>
+    </Badge>
     <div class="flex items-center gap-3 text-[11px] text-subtext">
       <span>{formatPromptDiffText(language.promptDiff.changeCount, { count: cardChangeCount })}</span>
       <span class="tabular-nums">~{c.modifiedCount ?? 0} / +{c.addedCount ?? 0} / -{c.removedCount ?? 0}</span>
@@ -1451,7 +1451,7 @@
 {/snippet}
 
 
-<ShDialog
+<Dialog
   open={true}
   size="xl"
   closable={false}
@@ -1467,12 +1467,12 @@
         <div class="flex shrink-0 items-center gap-2">
           <span class="text-xs text-subtext">{language.promptDiff.viewMode}</span>
           <div class="flex items-center gap-1">
-            <ShChoiceGroup variant="pill" name="diffStyle" bind:value={diffStyle} options={diffOptions} />
-            <ShChoiceGroup variant="pill" name="formatStyle" bind:value={formatStyle} options={formatOptions} />
-            <ShChoiceGroup variant="pill" name="viewStyle" bind:value={viewStyle} options={viewOptions} />
+            <ChoiceGroup variant="pill" name="diffStyle" bind:value={diffStyle} options={diffOptions} />
+            <ChoiceGroup variant="pill" name="formatStyle" bind:value={formatStyle} options={formatOptions} />
+            <ChoiceGroup variant="pill" name="viewStyle" bind:value={viewStyle} options={viewOptions} />
           </div>
         </div>
-        <CheckInput
+        <Checkbox
           bind:check={isGrouped}
           disabled={diffStyle !== 'line' || viewStyle === 'split'}
           margin={false}
@@ -1480,7 +1480,7 @@
           className="shrink-0 whitespace-nowrap text-xs"
           name={language.promptDiff.groupChanges}
         />
-        <CheckInput
+        <Checkbox
           bind:check={showOnlyChanges}
           margin={false}
           grayText
@@ -1490,7 +1490,7 @@
         {#if showOnlyChanges}
           <div class="flex shrink-0 items-center gap-2">
             <span class="text-xs text-subtext">{language.promptDiff.context}</span>
-            <ShSlider
+            <Slider
               className="w-28"
               min={0}
               max={5}
@@ -1733,7 +1733,7 @@
       {/if}
     </div>
 
-</ShDialog>
+</Dialog>
 
 <style>
   :global(.diff-empty-pattern) {

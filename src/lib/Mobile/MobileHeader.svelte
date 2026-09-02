@@ -5,7 +5,7 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { MobileGUIStack, MobileSearch, selectedCharID, SettingsMenuIndex, MobileSideBar } from "src/ts/stores.svelte";
     import { SettingsRoute } from "src/ts/routing";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";
 
 </script>

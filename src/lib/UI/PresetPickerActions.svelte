@@ -1,7 +1,7 @@
 <script lang="ts">
     import { UploadIcon, PlusIcon } from "@lucide/svelte";
-    import IconButton from "./GUI/IconButton.svelte";
-    import IconButtonGroup from "./GUI/IconButtonGroup.svelte";
+    import IconButton from "./components/IconButton.svelte";
+    import IconButtonGroup from "./components/IconButtonGroup.svelte";
 
     interface Props {
         onCreate?: () => void;

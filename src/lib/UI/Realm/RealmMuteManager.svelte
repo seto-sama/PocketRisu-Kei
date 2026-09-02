@@ -11,8 +11,8 @@
         unmuteRealmCreator,
     } from 'src/ts/realmMute';
     import PresetPickerLayout from '../PresetPickerLayout.svelte';
-    import IconButton from '../GUI/IconButton.svelte';
-    import IconButtonGroup from '../GUI/IconButtonGroup.svelte';
+    import IconButton from '../components/IconButton.svelte';
+    import IconButtonGroup from '../components/IconButtonGroup.svelte';
 
     interface Props {
         onClose: () => void;

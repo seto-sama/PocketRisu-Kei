@@ -2,14 +2,13 @@
     import { language } from "src/lang";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import ApiKeyModeControl, { getInitialApiKeyInputMode, type ApiKeyInputMode } from "src/lib/Setting/ApiKeyModeControl.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import SliderInput from "src/lib/UI/GUI/SliderInput.svelte";
-    import ShSlider from "src/lib/UI/GUI/ShSlider.svelte";
+    import Switch from "../../UI/components/Switch.svelte";
+    import Button from "../../UI/components/Button.svelte";
+    import NumberInput from "../../UI/components/NumberInput.svelte";
+    import Input from "../../UI/components/Input.svelte";
+    import Select from "../../UI/components/Select.svelte";
+    import SelectOption from "../../UI/components/SelectOption.svelte";
+    import Slider from "../../UI/components/Slider.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import { listApiKeys } from "src/ts/preset/apiKeyPool";
     import { selectSingleFile } from "src/ts/util";
@@ -19,10 +18,10 @@
     import { ImageIcon, XIcon } from "@lucide/svelte";
     import SettingRenderer from "../SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
-    import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
+    import PresetHeader from "../../UI/components/PresetHeader.svelte";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
-    import InlineEditableName from "src/lib/UI/GUI/InlineEditableName.svelte";
+    import InlineEditableName from "../../UI/components/InlineEditableName.svelte";
     import {
         createImageGenerationPreset,
         moveImageGenerationPreset,
@@ -208,10 +207,10 @@
         <div class="[&>*:first-child]:border-t-0">
             <SettingLayout variant="row" title={language.emotionMethod} description={language.help.emotionMethod}>
                 {#snippet control()}
-                    <SelectInput className="w-48 text-sm" size="sm" bind:value={DBState.db.emotionProcesser}>
-                        <OptionInput value="submodel">{language.submodel}</OptionInput>
-                        <OptionInput value="embedding">MiniLM-L6-v2</OptionInput>
-                    </SelectInput>
+                    <Select className="w-48 text-sm" size="sm" bind:value={DBState.db.emotionProcesser}>
+                        <SelectOption value="submodel">{language.submodel}</SelectOption>
+                        <SelectOption value="embedding">MiniLM-L6-v2</SelectOption>
+                    </Select>
                 {/snippet}
             </SettingLayout>
             <SettingRenderer items={emotionPromptItems} layout="row" />
@@ -232,11 +231,11 @@
         </SettingLayout>
         <SettingLayout variant="row" title={`${language.imageGeneration} ${language.provider}`} description={language.help.sdProvider}>
           {#snippet control()}
-          <SelectInput className="w-48 text-sm" size="sm" bind:value={settings.sdProvider}>
-            <OptionInput value="" >{language.none}</OptionInput>
-            <OptionInput value="novelai" >Novel AI</OptionInput>
-            <OptionInput value="comfyui" >ComfyUI</OptionInput>
-          </SelectInput>
+          <Select className="w-48 text-sm" size="sm" bind:value={settings.sdProvider}>
+            <SelectOption value="" >{language.none}</SelectOption>
+            <SelectOption value="novelai" >Novel AI</SelectOption>
+            <SelectOption value="comfyui" >ComfyUI</SelectOption>
+          </Select>
           {/snippet}
         </SettingLayout>
 
@@ -245,24 +244,24 @@
                 {#snippet control()}<ApiKeyModeControl bind:mode={imageNovelAIKeyMode} entries={imageNovelAIKeys} selectedId={imageNovelAIKeyRef} bind:directValue={settings.NAIApiKey} onSelect={selectImageKey} placeholder="pst-..." />{/snippet}
             </SettingLayout>
 
-            <SettingLayout variant="row" title={language.model} description={language.help.naiModel}>{#snippet control()}<SelectInput className="w-48 text-sm" size="sm" bind:value={settings.NAIImgModel}>
-                <OptionInput value="nai-diffusion-5-full">NAI V5 Full</OptionInput>
-                <OptionInput value="nai-diffusion-5-curated">NAI V5 Curated</OptionInput>
-                <OptionInput value="nai-diffusion-4-5-full">NAI V4.5 Full</OptionInput>
-                <OptionInput value="nai-diffusion-4-5-curated">NAI V4.5 Curated</OptionInput>
-                <OptionInput value="nai-diffusion-4-full">NAI V4 Full</OptionInput>
-                <OptionInput value="nai-diffusion-4-curated-preview">NAI V4 Curated</OptionInput>
+            <SettingLayout variant="row" title={language.model} description={language.help.naiModel}>{#snippet control()}<Select className="w-48 text-sm" size="sm" bind:value={settings.NAIImgModel}>
+                <SelectOption value="nai-diffusion-5-full">NAI V5 Full</SelectOption>
+                <SelectOption value="nai-diffusion-5-curated">NAI V5 Curated</SelectOption>
+                <SelectOption value="nai-diffusion-4-5-full">NAI V4.5 Full</SelectOption>
+                <SelectOption value="nai-diffusion-4-5-curated">NAI V4.5 Curated</SelectOption>
+                <SelectOption value="nai-diffusion-4-full">NAI V4 Full</SelectOption>
+                <SelectOption value="nai-diffusion-4-curated-preview">NAI V4 Curated</SelectOption>
 
-            </SelectInput>{/snippet}</SettingLayout>
+            </Select>{/snippet}</SettingLayout>
             <NovelAIImageCoreSettings {settings} />
 
-            <SettingLayout variant="row" title={language.imageSettings.imageReference} description={language.help.naiImageReference}>{#snippet control()}<SelectInput className="w-48 text-sm" size="sm" bind:value={settings.NAIImgConfig.reference_mode}>
-                <OptionInput value="" >{language.none}</OptionInput>
-                <OptionInput value="vibe" >{language.imageSettings.vibeTransfer}</OptionInput>
+            <SettingLayout variant="row" title={language.imageSettings.imageReference} description={language.help.naiImageReference}>{#snippet control()}<Select className="w-48 text-sm" size="sm" bind:value={settings.NAIImgConfig.reference_mode}>
+                <SelectOption value="" >{language.none}</SelectOption>
+                <SelectOption value="vibe" >{language.imageSettings.vibeTransfer}</SelectOption>
                 {#if settings.NAIImgModel === 'nai-diffusion-4-5-full' || settings.NAIImgModel === 'nai-diffusion-4-5-curated'}
-                    <OptionInput value="reference" >{language.imageSettings.characterReference}</OptionInput>
+                    <SelectOption value="reference" >{language.imageSettings.characterReference}</SelectOption>
                 {/if}
-            </SelectInput>{/snippet}</SettingLayout>
+            </Select>{/snippet}</SettingLayout>
 
             {#if settings.NAIImgConfig.reference_mode === 'vibe'}
                 <SettingLayout variant="row" title={language.imageSettings.vibeFile}>
@@ -271,12 +270,12 @@
                         {#if settings.NAIImgConfig.vibe_data?.thumbnail}
                             <img src={settings.NAIImgConfig.vibe_data.thumbnail} alt={language.imageSettings.vibePreview} class="h-8 w-8 rounded object-cover border border-darkborderc" />
                         {/if}
-                        <ShButton variant="outline" size="sm" onclick={uploadVibeFile}>
+                        <Button variant="outline" size="sm" onclick={uploadVibeFile}>
                             <ImageIcon />
                             {settings.NAIImgConfig.vibe_data ? language.edit : language.select}
-                        </ShButton>
+                        </Button>
                         {#if settings.NAIImgConfig.vibe_data}
-                            <ShButton
+                            <Button
                                 variant="destructive"
                                 size="icon-sm"
                                 onclick={() => {
@@ -286,7 +285,7 @@
                                 aria-label={language.remove}
                             >
                                 <XIcon />
-                            </ShButton>
+                            </Button>
                         {/if}
                     </div>
                 {/snippet}
@@ -294,7 +293,7 @@
 
                 {#if settings.NAIImgConfig.vibe_data}
 
-                    <SettingLayout variant="row" title={language.imageSettings.vibeModel} description={language.help.naiVibeModel}>{#snippet control()}<SelectInput className="w-48 text-sm" size="sm" bind:value={settings.NAIImgConfig.vibe_model_selection} onchange={(e) => {
+                    <SettingLayout variant="row" title={language.imageSettings.vibeModel} description={language.help.naiVibeModel}>{#snippet control()}<Select className="w-48 text-sm" size="sm" bind:value={settings.NAIImgConfig.vibe_model_selection} onchange={(e) => {
                         // When vibe model changes, set InfoExtracted to the first value
                         if (settings.NAIImgConfig.vibe_data?.encodings &&
                             settings.NAIImgConfig.vibe_model_selection &&
@@ -307,28 +306,28 @@
                         }
                     }}>
                         {#if settings.NAIImgConfig.vibe_data.encodings?.v4full}
-                            <OptionInput value="v4full">nai-diffusion-4-full</OptionInput>
+                            <SelectOption value="v4full">nai-diffusion-4-full</SelectOption>
                         {/if}
                         {#if settings.NAIImgConfig.vibe_data.encodings?.v4curated}
-                            <OptionInput value="v4curated">nai-diffusion-4-curated</OptionInput>
+                            <SelectOption value="v4curated">nai-diffusion-4-curated</SelectOption>
                         {/if}
                         {#if settings.NAIImgConfig.vibe_data.encodings?.['v4-5full']}
-                            <OptionInput value="v4-5full">nai-diffusion-4-5-full</OptionInput>
+                            <SelectOption value="v4-5full">nai-diffusion-4-5-full</SelectOption>
                         {/if}
                         {#if settings.NAIImgConfig.vibe_data.encodings?.['v4-5curated']}
-                            <OptionInput value="v4-5curated">nai-diffusion-4-5-curated</OptionInput>
+                            <SelectOption value="v4-5curated">nai-diffusion-4-5-curated</SelectOption>
                         {/if}
-                    </SelectInput>{/snippet}</SettingLayout>
+                    </Select>{/snippet}</SettingLayout>
 
-                    <SettingLayout variant="row" title={language.imageSettings.informationExtracted} description={language.help.naiInfoExtracted}>{#snippet control()}<SelectInput className="w-48 text-sm" size="sm" bind:value={settings.NAIImgConfig.InfoExtracted}>
+                    <SettingLayout variant="row" title={language.imageSettings.informationExtracted} description={language.help.naiInfoExtracted}>{#snippet control()}<Select className="w-48 text-sm" size="sm" value={String(settings.NAIImgConfig.InfoExtracted)} onchange={(event) => settings.NAIImgConfig.InfoExtracted = Number(event.currentTarget.value)}>
                         {#if settings.NAIImgConfig.vibe_model_selection && settings.NAIImgConfig.vibe_data.encodings[settings.NAIImgConfig.vibe_model_selection]}
                             {#each Object.entries(settings.NAIImgConfig.vibe_data.encodings[settings.NAIImgConfig.vibe_model_selection]) as [key, value]}
-                                <OptionInput value={value.params.information_extracted}>{value.params.information_extracted}</OptionInput>
+                                <SelectOption value={String(value.params.information_extracted)}>{value.params.information_extracted}</SelectOption>
                             {/each}
                         {/if}
-                    </SelectInput>{/snippet}</SettingLayout>
+                    </Select>{/snippet}</SettingLayout>
 
-                    <SettingLayout variant="row" title={language.imageSettings.referenceStrength} description={language.help.naiRefStrength}>{#snippet control()}<div class="w-48"><SliderInput min={0} max={1} step={0.1} fixed={2} bind:value={settings.NAIImgConfig.reference_strength_multiple[0]} /></div>{/snippet}</SettingLayout>
+                    <SettingLayout variant="row" title={language.imageSettings.referenceStrength} description={language.help.naiRefStrength}>{#snippet control()}<div class="w-48"><Slider min={0} max={1} step={0.1} fixed={2} bind:value={settings.NAIImgConfig.reference_strength_multiple[0]} /></div>{/snippet}</SettingLayout>
                 {/if}
             {/if}
 
@@ -336,11 +335,11 @@
                 (settings.NAIImgModel === 'nai-diffusion-4-5-full' || settings.NAIImgModel === 'nai-diffusion-4-5-curated')}
                 <SettingLayout variant="row" title={language.imageSettings.referenceType} description={language.help.naiReferenceType}>
                     {#snippet control()}
-                        <SelectInput className="w-48 text-sm" size="sm" bind:value={settings.NAIImgConfig.reference_type}>
-                            <OptionInput value="character">{language.imageSettings.referenceCharacter}</OptionInput>
-                            <OptionInput value="style">{language.imageSettings.referenceStyle}</OptionInput>
-                            <OptionInput value="character&style">{language.imageSettings.referenceCharacterAndStyle}</OptionInput>
-                        </SelectInput>
+                        <Select className="w-48 text-sm" size="sm" bind:value={settings.NAIImgConfig.reference_type}>
+                            <SelectOption value="character">{language.imageSettings.referenceCharacter}</SelectOption>
+                            <SelectOption value="style">{language.imageSettings.referenceStyle}</SelectOption>
+                            <SelectOption value="character&style">{language.imageSettings.referenceCharacterAndStyle}</SelectOption>
+                        </Select>
                     {/snippet}
                 </SettingLayout>
                 <SettingLayout variant="row" title={language.imageSettings.characterReferenceImage} description={language.imageSettings.useCharacterDefaultHint}>
@@ -353,12 +352,12 @@
                                 <img src={image} class="h-8 w-8 rounded object-cover border border-darkborderc" alt={language.imageSettings.imagePreview}/>
                             {/await}
                         {/if}
-                        <ShButton variant="outline" size="sm" onclick={uploadReferenceImage}>
+                        <Button variant="outline" size="sm" onclick={uploadReferenceImage}>
                             <ImageIcon />
                             {settings.NAIImgConfig.character_image ? language.edit : language.select}
-                        </ShButton>
+                        </Button>
                         {#if settings.NAIImgConfig.character_image}
-                            <ShButton
+                            <Button
                                 variant="destructive"
                                 size="icon-sm"
                                 onclick={() => {
@@ -368,16 +367,16 @@
                                 aria-label={language.remove}
                             >
                                 <XIcon />
-                            </ShButton>
+                            </Button>
                         {/if}
                     </div>
                 {/snippet}
                 </SettingLayout>
                 <SettingLayout variant="row" title={language.imageSettings.preciseReferenceStrength} description={language.help.naiReferenceStrength}>
-                    {#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.05} fixed={2} inputWidth="w-16" bind:value={settings.NAIImgConfig.reference_strength} /></div>{/snippet}
+                    {#snippet control()}<div class="w-48"><Slider min={0} max={1} step={0.05} fixed={2} inputWidth="w-16" bind:value={settings.NAIImgConfig.reference_strength} /></div>{/snippet}
                 </SettingLayout>
                 <SettingLayout variant="row" title={language.imageSettings.referenceFidelity} description={language.help.naiReferenceFidelity}>
-                    {#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.05} fixed={2} inputWidth="w-16" bind:value={settings.NAIImgConfig.reference_fidelity} /></div>{/snippet}
+                    {#snippet control()}<div class="w-48"><Slider min={0} max={1} step={0.05} fixed={2} inputWidth="w-16" bind:value={settings.NAIImgConfig.reference_fidelity} /></div>{/snippet}
                 </SettingLayout>
 
             {/if}
@@ -387,29 +386,29 @@
 
             {#if (settings.NAIImgModel === 'nai-diffusion-3' || settings.NAIImgModel === 'nai-diffusion-furry-3' || settings.NAIImgModel === 'nai-diffusion-2')
             && settings.NAIImgConfig.sampler !== 'ddim_v3'}
-                <SettingLayout variant="row" title={language.imageSettings.useSmea} description={language.help.naiUseSMEA}>{#snippet control()}<ShSwitch bind:checked={settings.NAIImgConfig.sm}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.imageSettings.useSmea} description={language.help.naiUseSMEA}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.sm}/>{/snippet}</SettingLayout>
             {/if}
 
             {#if settings.NAIImgModel === 'nai-diffusion-3' && settings.NAIImgConfig.sampler !== 'ddim_v3'}
-                <SettingLayout variant="row" title={language.imageSettings.useDyn} description={language.help.naiUseDYN}>{#snippet control()}<ShSwitch bind:checked={settings.NAIImgConfig.sm_dyn}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.imageSettings.useDyn} description={language.help.naiUseDYN}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.sm_dyn}/>{/snippet}</SettingLayout>
             {/if}
 
             {#if settings.NAIImgModel === 'nai-diffusion-4-5-full' || settings.NAIImgModel === 'nai-diffusion-4-5-curated'
             || settings.NAIImgModel === 'nai-diffusion-4-full' || settings.NAIImgModel === 'nai-diffusion-4-curated-preview'
             || settings.NAIImgModel === 'nai-diffusion-3' || settings.NAIImgModel === 'nai-diffusion-furry-3'}
-                <SettingLayout variant="row" title={language.imageSettings.varietyPlus} description={language.help.naiVarietyPlus}>{#snippet control()}<ShSwitch bind:checked={settings.NAIImgConfig.variety_plus}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.imageSettings.varietyPlus} description={language.help.naiVarietyPlus}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.variety_plus}/>{/snippet}</SettingLayout>
             {/if}
 
             {#if settings.NAIImgModel === 'nai-diffusion-3' || settings.NAIImgModel === 'nai-diffusion-furry-3' || settings.NAIImgModel === 'nai-diffusion-2'}
-                <SettingLayout variant="row" title={language.imageSettings.decrisp} description={language.help.naiDecrisp}>{#snippet control()}<ShSwitch bind:checked={settings.NAIImgConfig.decrisp}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.imageSettings.decrisp} description={language.help.naiDecrisp}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.decrisp}/>{/snippet}</SettingLayout>
             {/if}
 
             {#if settings.NAIImgModel === 'nai-diffusion-4-full'
             || settings.NAIImgModel === 'nai-diffusion-4-curated-preview'}
-                <SettingLayout variant="row" title={language.imageSettings.useLegacyUc} description={language.help.naiLegacyUC}>{#snippet control()}<ShSwitch bind:checked={settings.NAIImgConfig.legacy_uc}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.imageSettings.useLegacyUc} description={language.help.naiLegacyUC}>{#snippet control()}<Switch bind:checked={settings.NAIImgConfig.legacy_uc}/>{/snippet}</SettingLayout>
             {/if}
 
-            <SettingLayout variant="row" title={language.imageSettings.enableI2i} description={language.help.naiEnableI2I}>{#snippet control()}<ShSwitch bind:checked={settings.NAII2I}/>{/snippet}</SettingLayout>
+            <SettingLayout variant="row" title={language.imageSettings.enableI2i} description={language.help.naiEnableI2I}>{#snippet control()}<Switch bind:checked={settings.NAII2I}/>{/snippet}</SettingLayout>
 
             {#if settings.NAII2I}
                 <SettingLayout variant="row" title={language.imageSettings.i2iReferenceImage} description={language.imageSettings.useCharacterDefaultHint} stacked>
@@ -444,7 +443,7 @@
                     </button>
 
                     {#if settings.NAIImgConfig.image && settings.NAIImgConfig.image !== ''}
-                        <ShButton
+                        <Button
                             variant="destructive"
                             size="sm"
                             onclick={() => {
@@ -454,12 +453,12 @@
                             className="absolute top-2 right-2"
                         >
                             {language.remove}
-                        </ShButton>
+                        </Button>
                     {/if}
                 </div>
                 </SettingLayout>
-                <SettingLayout variant="row" title={language.imageSettings.strength}>{#snippet control()}<div class="w-48"><SliderInput min={0} max={0.99} step={0.01} fixed={2} bind:value={settings.NAIImgConfig.strength}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.imageSettings.noise}>{#snippet control()}<div class="w-48"><SliderInput min={0} max={0.99} step={0.01} fixed={2} bind:value={settings.NAIImgConfig.noise}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.imageSettings.strength}>{#snippet control()}<div class="w-48"><Slider min={0} max={0.99} step={0.01} fixed={2} bind:value={settings.NAIImgConfig.strength}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.imageSettings.noise}>{#snippet control()}<div class="w-48"><Slider min={0} max={0.99} step={0.01} fixed={2} bind:value={settings.NAIImgConfig.noise}/></div>{/snippet}</SettingLayout>
 
 
             {/if}
@@ -468,8 +467,8 @@
 
 
         {#if settings.sdProvider === 'comfyui'}
-            <SettingLayout variant="row" title={`ComfyUI ${language.providerURL}`} description={language.help.comfyUrl}>{#snippet control()}<TextInput commitMode="blur" className="w-48 text-sm" size="sm" placeholder="http://127.0.0.1:8188" bind:value={settings.comfyUiUrl}/>{/snippet}</SettingLayout>
-            <SettingLayout variant="row" title={language.imageSettings.workflow} description={language.help.comfyWorkflow}>{#snippet control()}<TextInput commitMode="blur" className="w-48 text-sm" size="sm" bind:value={settings.comfyConfig.workflow}/>{/snippet}</SettingLayout>
+            <SettingLayout variant="row" title={`ComfyUI ${language.providerURL}`} description={language.help.comfyUrl}>{#snippet control()}<Input commitMode="blur" className="w-48 text-sm" size="sm" placeholder="http://127.0.0.1:8188" bind:value={settings.comfyUiUrl}/>{/snippet}</SettingLayout>
+            <SettingLayout variant="row" title={language.imageSettings.workflow} description={language.help.comfyWorkflow}>{#snippet control()}<Input commitMode="blur" className="w-48 text-sm" size="sm" bind:value={settings.comfyConfig.workflow}/>{/snippet}</SettingLayout>
             <SettingLayout variant="row" title={language.imageSettings.timeoutSeconds} description={language.help.comfyTimeout}>{#snippet control()}<NumberInput className="w-48 text-sm" size="sm" bind:value={settings.comfyConfig.timeout} min={1} max={120}/>{/snippet}</SettingLayout>
         {/if}
 
@@ -512,6 +511,7 @@
                 controller={renameController}
                 bind:value={DBState.db.imageGenerationPresets[index].name}
                 size="default"
+                editorLeadingInset="row"
                 placeholder={language.imageGenerationPresetNew}
                 onActivate={() => selectImagePreset(index)}
             />

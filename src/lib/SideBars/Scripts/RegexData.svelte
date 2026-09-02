@@ -4,16 +4,16 @@
     import { ReloadGUIPointer } from "src/ts/stores.svelte";
     import { alertConfirm } from "src/ts/alert";
     import type { customscript } from "src/ts/storage/database.svelte";
-    import TextInput from "../../UI/GUI/TextInput.svelte";
-    import TextAreaInput from "../../UI/GUI/TextAreaInput.svelte";
-    import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
-    import ShDisclosureList from "src/lib/UI/GUI/ShDisclosureList.svelte";
+    import Input from "../../UI/components/Input.svelte";
+    import Textarea from "../../UI/components/Textarea.svelte";
+    import NumberInput from "../../UI/components/NumberInput.svelte";
+    import Switch from "../../UI/components/Switch.svelte";
+    import DisclosureList from "../../UI/components/DisclosureList.svelte";
     import Help from "src/lib/Others/Help.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import type { IconButtonSize } from "src/lib/UI/GUI/IconButton.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import type { IconButtonSize } from "../../UI/components/IconButton.svelte";
     import type { ActiveRegexScriptType } from "./regexScriptGroups";
-    import ShChoiceGroup from "src/lib/UI/GUI/ShChoiceGroup.svelte";
+    import ChoiceGroup from "../../UI/components/ChoiceGroup.svelte";
     interface Props {
         value: customscript;
         selectedTypes?: string[];
@@ -140,7 +140,7 @@
     }
 </script>
 
-<ShDisclosureList
+<DisclosureList
     variant="item"
     open={isOpen}
     onToggle={toggleOpen}
@@ -165,7 +165,7 @@
     <div data-disclosure-field>
         <div data-disclosure-label>{language.name}</div>
         <div data-disclosure-control>
-            <TextInput bind:value={value.comment} oninput={(e) => {
+            <Input bind:value={value.comment} oninput={(e) => {
                 value.comment = e.currentTarget.value
                 onSharedChange()
             }} onchange={(e) => {
@@ -176,7 +176,7 @@
     <div data-disclosure-field>
         <div data-disclosure-label>{language.regexTarget}</div>
         <div data-disclosure-control>
-            <TextInput bind:value={value.in} oninput={(e) => {
+            <Input bind:value={value.in} oninput={(e) => {
                 value.in = e.currentTarget.value
                 onSharedChange()
             }} />
@@ -185,7 +185,7 @@
     <div data-disclosure-field>
         <div data-disclosure-label>{language.regexOutput}</div>
         <div data-disclosure-control>
-            <TextAreaInput autocomplete="off" bind:value={value.out} onInput={(e) => {
+            <Textarea autocomplete="off" bind:value={value.out} onInput={(e) => {
                 onSharedChange()
                 $ReloadGUIPointer += 1
             }} />
@@ -195,7 +195,7 @@
     <div data-disclosure-field>
         <div data-disclosure-label>{language.scriptType}</div>
         <div data-disclosure-control>
-            <ShChoiceGroup
+            <ChoiceGroup
                 mode="multiple"
                 variant="grid"
                 size="md"
@@ -210,7 +210,7 @@
 
     <div data-disclosure-row>
         <span class="text-sm text-maintext">FLAGS</span>
-        <ShSwitch
+        <Switch
             checked={!!value.ableFlag}
             onCheckedChange={(checked) => {
                 value.ableFlag = checked
@@ -223,7 +223,7 @@
     </div>
     {#if value.ableFlag}
         <div>
-            <ShChoiceGroup
+            <ChoiceGroup
                 mode="multiple"
                 variant="grid"
                 size="md"
@@ -251,4 +251,4 @@
             </div>
         </div>
     {/if}
-</ShDisclosureList>
+</DisclosureList>

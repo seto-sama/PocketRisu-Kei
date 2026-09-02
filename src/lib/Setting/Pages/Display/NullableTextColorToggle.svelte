@@ -1,8 +1,8 @@
 <script lang="ts">
     import { language } from 'src/lang';
     import { DBState } from 'src/ts/stores.svelte';
-    import ColorInput from 'src/lib/UI/GUI/ColorInput.svelte';
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
+    import ColorInput from '../../../UI/components/ColorInput.svelte';
+    import Switch from '../../../UI/components/Switch.svelte';
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte';
 
     interface Props {
@@ -31,7 +31,7 @@
             <ColorInput bind:value={DBState.db[field]} />
         {/if}
         {#if !alwaysEnabled}
-            <ShSwitch
+            <Switch
                 checked={enabled}
                 onCheckedChange={(v) => {
                     if (toggleField) {

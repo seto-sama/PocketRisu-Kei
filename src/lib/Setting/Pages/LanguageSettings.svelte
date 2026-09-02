@@ -5,8 +5,8 @@
         translatorConfigurationItems,
     } from "src/ts/setting/languageSettingsData.svelte";
     import SettingRenderer from "../SettingRenderer.svelte";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
+    import SettingTabs from "../../UI/components/SettingTabs.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import { language } from "src/lang";
     import TranslationCachePanel from "./Language/TranslationCachePanel.svelte";

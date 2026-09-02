@@ -1,11 +1,12 @@
 <script lang="ts">
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
+    import Button from '../../UI/components/Button.svelte'
+    import Input from '../../UI/components/Input.svelte'
+    import DateTimeInput from '../../UI/components/DateTimeInput.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
-    import ShSelect from 'src/lib/UI/GUI/ShSelect.svelte'
-    import OptionInput from 'src/lib/UI/GUI/OptionInput.svelte'
+    import Select from '../../UI/components/Select.svelte'
+    import SelectOption from '../../UI/components/SelectOption.svelte'
     import Help from 'src/lib/Others/Help.svelte'
-    import ShTooltip from 'src/lib/UI/GUI/ShTooltip.svelte'
+    import Tooltip from '../../UI/components/Tooltip.svelte'
     import { Trash2Icon, ChartNoAxesColumnIcon, SearchIcon } from '@lucide/svelte'
     import { alertConfirm, alertMd, notifyError } from 'src/ts/alert'
     import { forageStorage } from 'src/ts/globalApi.svelte'
@@ -18,6 +19,9 @@
     type UsagePeriod = 'day' | 'week' | 'month' | 'custom'
 
     const LIST_LIMIT = 100
+    const MAX_CHART_BUCKETS = 60
+    const CHART_DRAG_THRESHOLD_PX = 4
+    const CHART_CLICK_SUPPRESSION_MS = 250
 
     interface UsageEntry {
         jobId: string
@@ -82,6 +86,67 @@
     let entrySearch = $state('')
     let period = $state<UsagePeriod>('week')
     let filtersOpen = $state(false)
+    let chartDragging = $state(false)
+
+    function dragChart(node: HTMLDivElement) {
+        const scroller = node.parentElement as HTMLDivElement
+        let startX = 0
+        let startScrollLeft = 0
+        let moved = false
+        let suppressClickUntil = 0
+
+        function stopDrag() {
+            window.removeEventListener('mousemove', handleMouseMove)
+            window.removeEventListener('mouseup', handleMouseUp)
+            window.removeEventListener('blur', handleMouseUp)
+            if (!moved) return
+
+            suppressClickUntil = performance.now() + CHART_CLICK_SUPPRESSION_MS
+            chartDragging = false
+        }
+
+        function handleMouseDown(event: MouseEvent) {
+            if (event.button !== 0 || scroller.scrollWidth <= scroller.clientWidth) return
+
+            startX = event.clientX
+            startScrollLeft = scroller.scrollLeft
+            moved = false
+            window.addEventListener('mousemove', handleMouseMove)
+            window.addEventListener('mouseup', handleMouseUp)
+            window.addEventListener('blur', handleMouseUp)
+        }
+
+        function handleMouseMove(event: MouseEvent) {
+            const distance = event.clientX - startX
+            if (!moved && Math.abs(distance) < CHART_DRAG_THRESHOLD_PX) return
+
+            moved = true
+            chartDragging = true
+            scroller.scrollLeft = startScrollLeft - distance
+            event.preventDefault()
+        }
+
+        function handleMouseUp() {
+            stopDrag()
+        }
+
+        function handleClick(event: MouseEvent) {
+            if (performance.now() > suppressClickUntil) return
+            event.preventDefault()
+            event.stopPropagation()
+        }
+
+        node.addEventListener('mousedown', handleMouseDown, true)
+        node.addEventListener('click', handleClick, true)
+
+        return {
+            destroy() {
+                stopDrag()
+                node.removeEventListener('mousedown', handleMouseDown, true)
+                node.removeEventListener('click', handleClick, true)
+            },
+        }
+    }
 
     function showCumulativeActivity() {
         let mdTable = "| Type | Value |\n| --- | --- |\n"
@@ -178,15 +243,24 @@
         const bucketStart = hourly
             ? Math.floor(range.start / unitMs) * unitMs
             : startOfLocalDay(range.start)
+        const dayCount = hourly
+            ? 1
+            : Math.max(1, localDayOrdinal(range.end) - localDayOrdinal(bucketStart) + 1)
+        const daysPerBucket = hourly ? 1 : Math.max(1, Math.ceil(dayCount / MAX_CHART_BUCKETS))
         const count = hourly
             ? Math.max(1, Math.ceil((range.end - bucketStart) / unitMs))
-            : Math.max(1, localDayOrdinal(range.end) - localDayOrdinal(bucketStart) + 1)
+            : Math.ceil(dayCount / daysPerBucket)
         const buckets: UsageBucket[] = []
 
         for (let index = 0; index < count; index++) {
             const date = new Date(bucketStart)
             if (hourly) date.setTime(bucketStart + index * unitMs)
-            else date.setDate(date.getDate() + index)
+            else date.setDate(date.getDate() + index * daysPerBucket)
+            const bucketEnd = new Date(date)
+            if (!hourly && daysPerBucket > 1) {
+                bucketEnd.setDate(bucketEnd.getDate() + daysPerBucket - 1)
+                if (bucketEnd.getTime() > range.end) bucketEnd.setTime(range.end)
+            }
             const showLabel = hourly
                 ? index % 3 === 0
                 : count <= 7 || index === 0 || (index + 1) % 5 === 0
@@ -199,7 +273,9 @@
                     : '',
                 title: hourly
                     ? date.toLocaleString(locale, { month: 'short', day: 'numeric', hour: 'numeric' })
-                    : date.toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' }),
+                    : daysPerBucket === 1
+                        ? date.toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' })
+                        : `${date.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' })} – ${bucketEnd.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' })}`,
                 promptTokens: 0,
                 completionTokens: 0,
                 cachedTokens: 0,
@@ -211,7 +287,7 @@
         for (const entry of summaryEntries) {
             const index = hourly
                 ? Math.floor((entry.timestamp - bucketStart) / unitMs)
-                : localDayOrdinal(entry.timestamp) - localDayOrdinal(bucketStart)
+                : Math.floor((localDayOrdinal(entry.timestamp) - localDayOrdinal(bucketStart)) / daysPerBucket)
             if (index < 0 || index >= buckets.length) continue
             buckets[index].promptTokens += entry.promptTokens ?? 0
             buckets[index].completionTokens += entry.completionTokens ?? 0
@@ -398,31 +474,31 @@
 
     <SettingLayout variant="filter" title={language.systemLogsFilters} bind:open={filtersOpen}>
         {#snippet control()}
-            <ShButton variant="outline" size="sm" onclick={showCumulativeActivity}>
+            <Button variant="outline" size="sm" onclick={showCumulativeActivity}>
                 {language.cumulativeActivity}
-            </ShButton>
+            </Button>
         {/snippet}
         <div class="grid grid-cols-4 items-end gap-2 min-w-[40rem] overflow-x-auto pb-1">
             <div class="flex flex-col gap-1 text-xs text-subtext min-w-0">
                 <span>{language.usageDateFilter}</span>
-                <ShSelect bind:value={period} size="sm" onchange={(e) => {
+                <Select bind:value={period} size="sm" onchange={(e) => {
                     const next = e.currentTarget.value as UsagePeriod
                     if (next !== 'custom') setPeriod(next)
                 }}>
-                    <OptionInput value="day">{language.usagePeriodDay}</OptionInput>
-                    <OptionInput value="week">{language.usagePeriodWeek}</OptionInput>
-                    <OptionInput value="month">{language.usagePeriodMonth}</OptionInput>
-                    <OptionInput value="custom">{language.usagePeriodCustom}</OptionInput>
-                </ShSelect>
+                    <SelectOption value="day">{language.usagePeriodDay}</SelectOption>
+                    <SelectOption value="week">{language.usagePeriodWeek}</SelectOption>
+                    <SelectOption value="month">{language.usagePeriodMonth}</SelectOption>
+                    <SelectOption value="custom">{language.usagePeriodCustom}</SelectOption>
+                </Select>
             </div>
             <div class="col-span-3 grid grid-cols-2 gap-2 min-w-0">
                 <div class="flex flex-col gap-1 text-xs text-subtext min-w-0">
                     <span>{language.usageStartDate}</span>
-                    <ShInput className="h-8 min-h-8 text-sm" type="datetime-local" bind:value={rangeStart} oninput={() => period = 'custom'} />
+                    <DateTimeInput bind:value={rangeStart} onchange={() => period = 'custom'} />
                 </div>
                 <div class="flex flex-col gap-1 text-xs text-subtext min-w-0">
                     <span>{language.usageEndDate}</span>
-                    <ShInput className="h-8 min-h-8 text-sm" type="datetime-local" bind:value={rangeEnd} oninput={() => period = 'custom'} />
+                    <DateTimeInput bind:value={rangeEnd} onchange={() => period = 'custom'} />
                 </div>
             </div>
         </div>
@@ -456,17 +532,23 @@
             <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <div class="text-sm font-medium text-maintext">{language.usageChartTitle}</div>
                 <div class="flex flex-wrap items-center gap-3 text-xs text-subtext">
-                    <span><span class="inline-block size-2 rounded-sm bg-violet-500 mr-1"></span>{language.usageInputTokens}</span>
-                    <span><span class="inline-block size-2 rounded-sm bg-indigo-500 mr-1"></span>{language.usageCachedTokens}</span>
-                    <span><span class="inline-block size-2 rounded-sm bg-yellow-500 mr-1"></span>{language.usageOutputTokens}</span>
-                    <span><span class="inline-block size-2 rounded-sm bg-orange-400 mr-1"></span>{language.usageReasoningTokens}</span>
-                    <span><span class="inline-block size-2 rounded-full bg-rose-500 mr-1"></span>{language.usageEstimatedCost}</span>
+                    <span><span class="inline-block size-2 rounded-sm bg-palette-7 mr-1"></span>{language.usageInputTokens}</span>
+                    <span><span class="inline-block size-2 rounded-sm bg-palette-6 mr-1"></span>{language.usageCachedTokens}</span>
+                    <span><span class="inline-block size-2 rounded-sm bg-palette-3 mr-1"></span>{language.usageOutputTokens}</span>
+                    <span><span class="inline-block size-2 rounded-sm bg-palette-2 mr-1"></span>{language.usageReasoningTokens}</span>
+                    <span><span class="inline-block size-2 rounded-full bg-palette-1 mr-1"></span>{language.usageEstimatedCost}</span>
                 </div>
             </div>
-            <div class={chartScrollable ? 'overflow-x-auto' : 'overflow-x-hidden'}>
+            <div
+                class={chartScrollable ? 'overflow-x-auto pb-2 -mb-2' : 'overflow-x-hidden'}
+                style:touch-action="pan-x pan-y pinch-zoom"
+                role="region"
+                aria-label={language.usageChartTitle}
+            >
                 <div
-                    class="h-44 box-border px-4"
+                    class={`h-44 box-border px-4 ${chartScrollable ? 'cursor-grab' : ''} ${chartDragging ? '!cursor-grabbing select-none' : ''}`}
                     style:min-width={chartScrollable ? `${chartBuckets.length * 24}px` : '100%'}
+                    use:dragChart
                 >
                     <div class="relative h-40">
                         <svg
@@ -478,14 +560,14 @@
                             <polyline
                                 points={chartCostPolyline}
                                 fill="none"
-                                class="stroke-rose-500"
+                                class="stroke-palette-1"
                                 stroke-width="1"
                                 vector-effect="non-scaling-stroke"
                             />
                         </svg>
                         {#each chartCostPoints as point}
                             <span
-                                class="absolute z-10 size-1.5 rounded-full bg-rose-500 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+                                class="absolute z-10 size-1.5 rounded-full bg-palette-1 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
                                 style:left={`${point.x}%`}
                                 style:top={`${point.y}%`}
                             ></span>
@@ -498,11 +580,13 @@
                                 {@const visibleCompletionTokens = Math.max(0, bucket.completionTokens - effectiveReasoningTokens)}
                                 {@const bucketTotal = bucket.promptTokens + bucket.completionTokens}
                                 <div class="h-full flex-1 min-w-0 flex items-end justify-center">
-                                    <ShTooltip delayDuration={200} className="tabular-nums">
+                                    <Tooltip delayDuration={200} className="tabular-nums">
                                         {#snippet trigger(props)}
                                             <div
                                                 {...props}
-                                                class="w-full h-full flex items-end justify-center cursor-help"
+                                                class={`w-full h-full flex items-end justify-center ${chartScrollable
+                                                    ? chartDragging ? 'cursor-grabbing' : 'cursor-grab'
+                                                    : 'cursor-help'}`}
                                             >
                                                 <div
                                                     class="w-full max-w-4 flex flex-col rounded-t-sm overflow-hidden"
@@ -511,19 +595,19 @@
                                                         : '0%'}
                                                 >
                                                     <div
-                                                        class="w-full bg-yellow-500"
+                                                        class="w-full bg-palette-3"
                                                         style:height={bucketTotal > 0 ? `${visibleCompletionTokens / bucketTotal * 100}%` : '0%'}
                                                     ></div>
                                                     <div
-                                                        class="w-full bg-orange-400"
+                                                        class="w-full bg-palette-2"
                                                         style:height={bucketTotal > 0 ? `${effectiveReasoningTokens / bucketTotal * 100}%` : '0%'}
                                                     ></div>
                                                     <div
-                                                        class="w-full bg-violet-500"
+                                                        class="w-full bg-palette-7"
                                                         style:height={bucketTotal > 0 ? `${uncachedPromptTokens / bucketTotal * 100}%` : '0%'}
                                                     ></div>
                                                     <div
-                                                        class="w-full bg-indigo-500"
+                                                        class="w-full bg-palette-6"
                                                         style:height={bucketTotal > 0 ? `${effectiveCachedTokens / bucketTotal * 100}%` : '0%'}
                                                     ></div>
                                                 </div>
@@ -533,7 +617,7 @@
                                         <div>{language.usageInputTokens}: {number(bucket.promptTokens)} <span class="text-subtext">({number(effectiveCachedTokens)})</span></div>
                                         <div>{language.usageOutputTokens}: {number(bucket.completionTokens)} <span class="text-subtext">({number(effectiveReasoningTokens)})</span></div>
                                         <div>{language.usageEstimatedCost}: {formatCost(bucket.estimatedCostUsd)}</div>
-                                    </ShTooltip>
+                                    </Tooltip>
                                 </div>
                             {/each}
                         </div>
@@ -557,12 +641,12 @@
             </div>
 
             <SettingLayout variant="search">
-                <ShInput bind:value={entrySearch} placeholder={language.usageSearchPlaceholder} />
+                <Input bind:value={entrySearch} placeholder={language.usageSearchPlaceholder} />
                 {#snippet control()}
-                    <ShButton variant="destructive" size="default" onclick={clearUsage} disabled={loading || loadingMore}>
+                    <Button variant="destructive" size="default" onclick={clearUsage} disabled={loading || loadingMore}>
                         <Trash2Icon />
                         {language.systemLogsClearAll}
-                    </ShButton>
+                    </Button>
                 {/snippet}
             </SettingLayout>
 
@@ -619,9 +703,9 @@
 
             {#if hasMore}
                 <div class="flex justify-center mt-3">
-                    <ShButton variant="outline" size="sm" disabled={loadingMore} onclick={loadMoreUsage}>
+                    <Button variant="outline" size="sm" disabled={loadingMore} onclick={loadMoreUsage}>
                         {loadingMore ? language.systemLogsLoading : language.systemLogsLoadMore}
-                    </ShButton>
+                    </Button>
                 </div>
             {/if}
         </SettingLayout>

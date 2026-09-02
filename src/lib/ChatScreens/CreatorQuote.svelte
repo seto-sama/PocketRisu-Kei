@@ -11,8 +11,8 @@
 <script lang="ts">
     import { XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import MultiLangDisplay from "../UI/GUI/MultiLangDisplay.svelte";
-    import IconButton from "../UI/GUI/IconButton.svelte";
+    import MultiLangDisplay from "../UI/components/MultiLangDisplay.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
 
     interface Props {
         onRemove: () => void;

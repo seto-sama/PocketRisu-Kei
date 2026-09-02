@@ -12,8 +12,8 @@
     import { language } from "src/lang";
     import { CharConfigSubMenu, selectedCharID } from "src/ts/stores.svelte";
     import { DBState } from "src/ts/stores.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
 
     interface Props {
         devTool: boolean;

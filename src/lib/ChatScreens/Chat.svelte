@@ -45,7 +45,6 @@
 <script lang="ts">
     import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
     import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
-    import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
     import { getModelInfo } from "src/ts/model/modellist"
     import { runLuaButtonTrigger } from 'src/ts/process/scriptings'
@@ -65,7 +64,7 @@
     import { getCurrentCharacter, getCurrentChat, getStickyChatToolbarVariant, normalizeChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
-    import TextAreaInput from "../UI/GUI/TextAreaInput.svelte"
+    import Textarea from "../UI/components/Textarea.svelte"
     import ChatBody from './ChatBody.svelte'
     import { getParsedGuiHtml } from './guiHtmlRenderCache'
     import { observeWithinChatViewport } from 'src/ts/chatViewportObserver'
@@ -73,15 +72,15 @@
     import { createRevenantChatTranslationRecovery, type RevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from "src/ts/process/revenant/recovery";
     import { resolveRequestDiagnosticContext } from "src/ts/requestDiagnostics";
     import type { RevenantChatMessageTranslationTarget } from "src/ts/process/revenant";
-    import IconButton, { iconButtonSizeValues } from "../UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
+    import IconButton, { iconButtonSizeValues } from "../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";
     import { createSubscriber } from "svelte/reactivity";
     import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges, subscribeTranslationResume } from "./chatBodyRenderController.svelte";
     import type { ChatScrollController } from "./chatScroll";
     import ChatAdaptiveAction from "./ChatAdaptiveAction.svelte";
-    import ShDropdownMenuItem from "../UI/GUI/ShDropdownMenuItem.svelte";
-    import ShTooltip from "../UI/GUI/ShTooltip.svelte";
+    import { Item as DropdownMenuItem } from "../UI/components/dropdown-menu";
+    import Tooltip from "../UI/components/Tooltip.svelte";
     import AvatarFallback from "../UI/AvatarFallback.svelte";
     import {
         bookmarkKey,
@@ -1015,11 +1014,11 @@
 
 {#snippet textBox()}
     {#if editTranslationMode}
-        <TextAreaInput bind:value={editTranslationText} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
+        <Textarea bind:value={editTranslationText} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             saveTranslationEdit()
         }} />
     {:else if editMode}
-        <TextAreaInput bind:value={editDraft} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
+        <Textarea bind:value={editDraft} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             void cancelOriginalEdit()
         }} />
     {:else if isComment}
@@ -1061,7 +1060,6 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span class="text chat-width chattext prose minw-0"
-            class:prose-invert={$ColorSchemeTypeStore === 'dark'}
             bind:this={bodyRoot}
             onclick={async () => {
             if(DBState.db.clickToEdit && idx > -1 && !controlDisabled.partialEdit){
@@ -1529,23 +1527,23 @@
 {#snippet minorMenuItems()}
     {#if idx > -1}
         {#if isImageGeneration}
-            <ShDropdownMenuItem disabled={generationOwned || addingImageGenerationAsset} onSelect={addImageGenerationAsset}>
+            <DropdownMenuItem disabled={generationOwned || addingImageGenerationAsset} onSelect={addImageGenerationAsset}>
                 <ImagePlusIcon />
                 <span>{language.addInlayImageToAssets}</span>
-            </ShDropdownMenuItem>
+            </DropdownMenuItem>
         {:else}
-            <ShDropdownMenuItem disabled={generationOwned} onSelect={toggleMessageRole}>
+            <DropdownMenuItem disabled={generationOwned} onSelect={toggleMessageRole}>
                 <ArrowLeftRightIcon />
                 <span>{language.changeMessageRole}</span>
-            </ShDropdownMenuItem>
+            </DropdownMenuItem>
         {/if}
 
-        <ShDropdownMenuItem disabled={generationOwned} class={isBookmarked ? 'button-icon-bookmark text-primary' : 'button-icon-bookmark'} onSelect={toggleBookmark}>
+        <DropdownMenuItem disabled={generationOwned} class={isBookmarked ? 'button-icon-bookmark text-primary' : 'button-icon-bookmark'} onSelect={toggleBookmark}>
             <BookmarkIcon />
             <span>{language.bookmark}</span>
-        </ShDropdownMenuItem>
+        </DropdownMenuItem>
 
-    <ShDropdownMenuItem disabled={generationOwned} onSelect={async () => {
+    <DropdownMenuItem disabled={generationOwned} onSelect={async () => {
         const currentChat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage]
 
         if(DBState.db.createFolderOnBranch && !currentChat.folderId){
@@ -1582,9 +1580,9 @@
     }}>
         <SplitIcon />
         <span>{language.branch}</span>
-    </ShDropdownMenuItem>
+    </DropdownMenuItem>
 
-    <ShDropdownMenuItem disabled={generationOwned} onSelect={() => {
+    <DropdownMenuItem disabled={generationOwned} onSelect={() => {
         const currentMessage = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].disabled = !currentMessage.disabled
     }}>
@@ -1594,15 +1592,15 @@
             <MessageSquareOffIcon />
         {/if}
         <span>{disabled === true ? language.enableMessage : language.disableMessage}</span>
-    </ShDropdownMenuItem>
+    </DropdownMenuItem>
 
-    <ShDropdownMenuItem disabled={generationOwned} onSelect={() => {
+    <DropdownMenuItem disabled={generationOwned} onSelect={() => {
         const currentMessage = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].disabled = currentMessage.disabled === 'allBefore' ? false : 'allBefore'
     }}>
         <ScissorsIcon />
         <span>{language.disableAbove}</span>
-        <ShTooltip>
+        <Tooltip>
             {#snippet trigger(props)}
                 <button
                     {...props}
@@ -1620,8 +1618,8 @@
                 </button>
             {/snippet}
             {language.disableAboveHelp}
-        </ShTooltip>
-    </ShDropdownMenuItem>
+        </Tooltip>
+    </DropdownMenuItem>
     {/if}
 {/snippet}
 

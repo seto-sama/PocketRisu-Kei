@@ -1,6 +1,6 @@
 <script lang="ts">
     import { ChevronDownIcon, ChevronRightIcon, DownloadIcon, SearchIcon, TrashIcon, UploadIcon, XIcon } from "@lucide/svelte";
-    import OverlayPortal from "../UI/GUI/OverlayPortal.svelte";
+    import OverlayPortal from "../UI/components/overlay/OverlayPortal.svelte";
     import { language } from "src/lang";
     import { DBState, modelProfileReplaceTarget, openModelPresetEditId } from "src/ts/stores.svelte";
     import { alertConfirm, alertError, notifySuccess } from "src/ts/alert";
@@ -40,8 +40,8 @@
         pluginProfileDisplayId,
         pluginPresetAbilityDefaults,
     } from "src/ts/preset/pluginModels";
-    import TextInput from "../UI/GUI/TextInput.svelte";
-    import ShBadge from "../UI/GUI/ShBadge.svelte";
+    import Input from "../UI/components/Input.svelte";
+    import Badge from "../UI/components/Badge.svelte";
     import { v4 as uuidv4 } from "uuid";
     import { onMount } from "svelte";
 
@@ -336,7 +336,7 @@
 
         <div class="flex items-center gap-2 mb-3 shrink-0">
             <SearchIcon size={16} class="text-subtext shrink-0" />
-            <TextInput bind:value={query} placeholder={language.searchProfiles} fullwidth />
+            <Input bind:value={query} placeholder={language.searchProfiles} fullwidth />
         </div>
 
         {#if activeTab === 'custom'}
@@ -357,12 +357,12 @@
                     <div class="flex items-center gap-2">
                         <span class="text-sm text-maintext truncate">{localizeDisplayName(profile)}</span>
                         {#if profile.profileStatus !== 'current'}
-                            <ShBadge
+                            <Badge
                                 variant={profile.profileStatus === 'deprecated' ? 'destructive' : 'attention'}
                                 size="xs"
                             >
                                 {profile.profileStatus === 'deprecated' ? language.profileStatusDeprecated : language.profileStatusOutdated}
-                            </ShBadge>
+                            </Badge>
                         {/if}
                         {#if baseProvider}
                             <span class="text-xs text-subtext shrink-0">[{baseProvider.displayName}]</span>

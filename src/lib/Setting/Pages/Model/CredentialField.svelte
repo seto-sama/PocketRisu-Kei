@@ -5,8 +5,8 @@
     import { addApiKey, listApiKeys } from "src/ts/preset/apiKeyPool";
     import { untrack } from "svelte";
     import ApiKeyModeControl, { getInitialApiKeyInputMode, type ApiKeyInputMode } from "src/lib/Setting/ApiKeyModeControl.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import Dialog from "../../../UI/components/Dialog.svelte";
 
     interface Props {
         preset: ModelPreset;
@@ -102,7 +102,7 @@
     />
 </div>
 
-<ShDialog bind:open={showSaveDialog} size="sm">
+<Dialog bind:open={showSaveDialog} size="sm">
     {#snippet title()}{language.apiKeyNamePrompt}{/snippet}
     <input
         bind:this={nameInput}
@@ -113,7 +113,7 @@
         onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) confirmSave(); }}
     />
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => { showSaveDialog = false; pendingName = ''; }}>{language.cancel}</ShButton>
-        <ShButton variant="default" disabled={!pendingName.trim()} onclick={confirmSave}>{language.apiKeyFormSave}</ShButton>
+        <Button variant="outline" onclick={() => { showSaveDialog = false; pendingName = ''; }}>{language.cancel}</Button>
+        <Button variant="default" disabled={!pendingName.trim()} onclick={confirmSave}>{language.apiKeyFormSave}</Button>
     {/snippet}
-</ShDialog>
+</Dialog>

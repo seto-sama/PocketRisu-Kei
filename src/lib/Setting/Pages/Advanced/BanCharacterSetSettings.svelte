@@ -1,8 +1,8 @@
 <script lang="ts">
     import { DBState } from 'src/ts/stores.svelte';
     import { language } from "src/lang";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShAccordion from "src/lib/UI/GUI/ShAccordion.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import Accordion from "../../../UI/components/Accordion.svelte";
     import Help from "src/lib/Others/Help.svelte";
 
     const characterSets = [
@@ -22,10 +22,10 @@
     <Help key="banCharacterset" name={language.banCharacterset} />
 {/snippet}
 
-<ShAccordion name={language.banCharacterset} variant="card" class="mt-2" extras={helpExtras}>
+<Accordion name={language.banCharacterset} variant="card" class="mt-2" extras={helpExtras}>
     <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
         {#each characterSets as set}
-            <ShButton
+            <Button
                 className={`w-full justify-start whitespace-normal${DBState.db.banCharacterset.includes(set) ? '' : ' text-subtext'}`}
                 size="sm"
                 variant={DBState.db.banCharacterset.includes(set) ? 'primary' : "outline"}
@@ -38,7 +38,7 @@
                 }}
             >
                 {new Intl.DisplayNames([navigator.language, 'en'], { type: 'script' }).of(set)} ({characterSetsPreview[set]})
-            </ShButton>
+            </Button>
         {/each}
     </div>
-</ShAccordion>
+</Accordion>

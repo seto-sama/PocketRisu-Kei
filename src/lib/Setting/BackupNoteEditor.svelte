@@ -1,7 +1,7 @@
 <script lang="ts">
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
-    import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
+    import Button from '../UI/components/Button.svelte'
+    import Dialog from '../UI/components/Dialog.svelte'
+    import Input from '../UI/components/Input.svelte'
     import { language } from 'src/lang'
 
     interface Props {
@@ -56,7 +56,7 @@
     }
 </script>
 
-<ShDialog
+<Dialog
     bind:open
     size="sm"
     closeOnOutsideClick={!saving}
@@ -67,7 +67,7 @@
     {#snippet title()}{dialogTitle}{/snippet}
     {#snippet description()}{dialogDescription}{/snippet}
 
-    <ShInput
+    <Input
         bind:ref={noteInput}
         bind:value={draft}
         maxlength={200}
@@ -83,7 +83,7 @@
     {#if error}<p class="mt-2 text-sm text-danger">{language.backupNoteSaveFailed}: {error}</p>{/if}
 
     {#snippet footer()}
-        <ShButton variant="outline" disabled={saving} onclick={() => open = false}>{language.cancel}</ShButton>
-        <ShButton disabled={saving} onclick={save}>{language.confirm}</ShButton>
+        <Button variant="outline" disabled={saving} onclick={() => open = false}>{language.cancel}</Button>
+        <Button disabled={saving} onclick={save}>{language.confirm}</Button>
     {/snippet}
-</ShDialog>
+</Dialog>

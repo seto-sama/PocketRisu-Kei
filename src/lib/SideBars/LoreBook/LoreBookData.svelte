@@ -4,20 +4,20 @@
     import { language } from "../../../lang";
     import { getCurrentCharacter, getCurrentChat, type loreBook } from "../../../ts/storage/database.svelte";
     import { alertConfirm, alertMd } from "../../../ts/alert";
-    import ShSwitch from "../../UI/GUI/ShSwitch.svelte";
+    import Switch from "../../UI/components/Switch.svelte";
     import Help from "../../Others/Help.svelte";
-    import TextInput from "../../UI/GUI/TextInput.svelte";
-    import InlineEditableName from "../../UI/GUI/InlineEditableName.svelte";
-    import NumberInput from "../../UI/GUI/NumberInput.svelte";
-    import TextAreaInput from "../../UI/GUI/TextAreaInput.svelte";
+    import Input from "../../UI/components/Input.svelte";
+    import InlineEditableName from "../../UI/components/InlineEditableName.svelte";
+    import NumberInput from "../../UI/components/NumberInput.svelte";
+    import Textarea from "../../UI/components/Textarea.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import LoreBookList from "./LoreBookList.svelte";
-    import ShDisclosureList from "../../UI/GUI/ShDisclosureList.svelte";
-    import IconButton from "../../UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "../../UI/GUI/IconButtonGroup.svelte";
-    import TokenCount from "../../UI/GUI/TokenCount.svelte";
-    import InlineRenameAction from "../../UI/GUI/InlineRenameAction.svelte";
-    import { InlineEditableNameController } from "../../UI/GUI/inlineEditableNameController.svelte";
+    import DisclosureList from "../../UI/components/DisclosureList.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import TokenCount from "../../UI/components/TokenCount.svelte";
+    import InlineRenameAction from "../../UI/components/InlineRenameAction.svelte";
+    import { InlineEditableNameController } from "../../UI/components/InlineEditableNameController.svelte";
 
     interface Props {
         value: loreBook;
@@ -144,7 +144,7 @@
     }
 
 </script>
-<ShDisclosureList
+<DisclosureList
     variant="item"
     open={open}
     disclosure={value.mode !== 'child'}
@@ -271,19 +271,19 @@
                     <span>{language.name}<Help key="loreName"/></span>
                     <Help key="loreActivationMode" name={language.activationKeys}/>
                 </div>
-                <div data-disclosure-control><TextInput bind:value={value.comment}/></div>
+                <div data-disclosure-control><Input bind:value={value.comment}/></div>
             </div>
 
             {#if !value.alwaysActive}
                 <div data-disclosure-field>
                     <div data-disclosure-label>{language.activationKeys}<Help key="loreActivationKey"/></div>
-                    <div data-disclosure-control><TextInput bind:value={value.key}/></div>
+                    <div data-disclosure-control><Input bind:value={value.key}/></div>
                 </div>
 
                 {#if value.selective}
                     <div data-disclosure-field>
                         <div data-disclosure-label>{language.SecondaryKeys}<Help key="loreSelective"/></div>
-                        <div data-disclosure-control><TextInput bind:value={value.secondkey}/></div>
+                        <div data-disclosure-control><Input bind:value={value.secondkey}/></div>
                     </div>
                 {/if}
             {/if}
@@ -295,7 +295,7 @@
 
             <div data-disclosure-field>
                 <div data-disclosure-label>{language.prompt}</div>
-                <div data-disclosure-control><TextAreaInput autocomplete="off" bind:value={value.content} popupTitle={value.comment || language.prompt} /></div>
+                <div data-disclosure-control><Textarea autocomplete="off" bind:value={value.content} popupTitle={value.comment || language.prompt} /></div>
             </div>
             <TokenCount value={value.content} className="mb-2" />
 
@@ -318,7 +318,7 @@
             {#if !value.alwaysActive && getCurrentCharacter()?.globalLore?.includes(value) && DBState.db.localActivationInGlobalLorebook}
                 <div data-disclosure-row>
                     <span class="text-sm text-maintext">{language.alwaysActiveInChat}</span>
-                    <ShSwitch checked={isLocallyActivated(value)} onCheckedChange={(checked) => toggleLocalActive(checked, value)} />
+                    <Switch checked={isLocallyActivated(value)} onCheckedChange={(checked) => toggleLocalActive(checked, value)} />
                 </div>
             {/if}
             {#if !value.alwaysActive}
@@ -327,11 +327,11 @@
                         {language.useRegexLorebook}
                         <Help key="useRegexLorebook"/>
                     </span>
-                    <ShSwitch checked={value.useRegex} onCheckedChange={(checked) => {
+                    <Switch checked={value.useRegex} onCheckedChange={(checked) => {
                         value.useRegex = checked
                     }} />
                 </div>
             {/if}
         </div>
     {/if}
-</ShDisclosureList>
+</DisclosureList>

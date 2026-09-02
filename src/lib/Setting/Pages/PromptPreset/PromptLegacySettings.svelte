@@ -1,6 +1,6 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import ShAccordion from "src/lib/UI/GUI/ShAccordion.svelte";
+    import Accordion from "../../../UI/components/Accordion.svelte";
     import SettingRenderer from "../../SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
 
@@ -18,7 +18,7 @@
     ];
 </script>
 
-<ShAccordion>
+<Accordion>
     {#snippet trigger()}
         <span>{language.presetLegacySettings}</span>
     {/snippet}
@@ -26,4 +26,4 @@
     <div class="[&>*:first-child]:border-t-0">
         <SettingRenderer items={promptPresetLegacyItems} layout="row" />
     </div>
-</ShAccordion>
+</Accordion>

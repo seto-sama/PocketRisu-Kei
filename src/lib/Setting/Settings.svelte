@@ -22,8 +22,8 @@
     import PluginDefinedIcon from "../Others/PluginDefinedIcon.svelte";
     import DevPanel from "src/lib/_dev/DevPanel.svelte";
     import AddonSettings from "./Pages/AddonSettings.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
+    import SortableList from "../UI/components/SortableList.svelte";
     import SettingsSearch from "./SettingsSearch.svelte";
     import { getVisibleSettingsMenuOrder, mergeVisibleSettingsMenuOrder, normalizeSettingsMenuOrder, settingsMenuKey, SETTINGS_MENU_SEARCH } from "src/ts/settingsMenuOrder";
     import { SettingsRoute } from "src/ts/routing";
@@ -102,7 +102,7 @@
                     direction="vertical"
                     className="w-full gap-2 [&>button]:w-full [&>button]:rounded-md [&>button]:justify-start [&>button]:gap-[var(--icon-label-gap)] [&>div]:w-full"
                 >
-                <ShSortableList
+                <SortableList
                     className="w-full flex flex-col gap-2 [&>button]:w-full [&>button]:rounded-md [&>button]:justify-start [&>button]:gap-[var(--icon-label-gap)]"
                     onReorder={reorderSettingsMenu}
                     onDragStart={() => { suppressMenuClick = true }}
@@ -124,7 +124,7 @@
                             <span>{item.label}</span>
                         </button>
                     {/each}
-                </ShSortableList>
+                </SortableList>
                 {#if !$isLite}
                     {#if devPanelEnabled}
                         <button class="flex items-center risu-interactive-foreground"

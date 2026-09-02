@@ -1,20 +1,20 @@
 <script lang="ts">
     import { devToolAutopilotStore, requestPreviewOpen, selectedCharID } from "src/ts/stores.svelte";
-    import TextInput from "../UI/GUI/TextInput.svelte";
-    import NumberInput from "../UI/GUI/NumberInput.svelte";
+    import Input from "../UI/components/Input.svelte";
+    import NumberInput from "../UI/components/NumberInput.svelte";
     import { previewChatGuardToast, previewPersistFailureToast } from "src/ts/globalApi.svelte";
     import { alertConfirm, alertMd } from "src/ts/alert";
-    import Accordion from "../UI/Accordion.svelte";
-    import ShButton from "../UI/GUI/ShButton.svelte";
-    import IconButton from "../UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
+    import Accordion from "../UI/components/Accordion.svelte";
+    import Button from "../UI/components/Button.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import { getChatToken, tokenize } from "src/ts/tokenizer";
     import { tokenizePreset } from "src/ts/process/prompt";
     
     import { DBState } from 'src/ts/stores.svelte';
     import { language } from 'src/lang';
-    import ShSettings from "../UI/GUI/ShSettings.svelte";
-    import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
+    import SettingsList from "../UI/components/SettingsList.svelte";
+    import Textarea from "../UI/components/Textarea.svelte";
     import { ArrowDownIcon, ArrowUpIcon, BookOpenIcon, ChevronRightIcon, FileSearchIcon, UploadIcon, PlusIcon, SearchIcon, TrashIcon } from "@lucide/svelte";
     import { selectSingleFile } from "src/ts/util";
     import { doingChat, sendChat } from "src/ts/process/index.svelte";
@@ -103,17 +103,17 @@
 </script>
 
 {#snippet tokenRow(label: string, value: string)}
-    <ShSettings variant="row" size="compact">
+    <SettingsList variant="row" size="compact">
         <span class="min-w-0 flex-1 truncate text-base">{label}</span>
         <span class="shrink-0 text-sm leading-5 text-subtext tabular-nums">{value}</span>
-    </ShSettings>
+    </SettingsList>
 {/snippet}
 
-<Accordion styled name={language.chatVariables} topGap={false}>
-    <ShSettings spacing="none">
+<Accordion name={language.chatVariables}>
+    <SettingsList spacing="none">
         {#if DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate &&  Object.keys(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate).length > 0}
             {#each Object.keys(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate) as key}
-                <ShSettings
+                <SettingsList
                     variant="row"
                     size="compact"
                     layout="grid"
@@ -124,7 +124,7 @@
                         {#if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "object"}
                             <div class="text-center text-sm text-subtext">Object</div>
                         {:else if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "string"}
-                            <TextInput size="sm" className="box-border h-6 min-w-0 max-w-full w-full" bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] as string} />
+                            <Input size="sm" className="box-border h-6 min-w-0 max-w-full w-full" bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] as string} />
                         {:else if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "number"}
                             <NumberInput size="sm" className="box-border h-6 min-w-0 max-w-full w-full" bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] as number} />
                         {/if}
@@ -141,16 +141,16 @@
                     >
                         <TrashIcon size={16} />
                     </button>
-                </ShSettings>
+                </SettingsList>
             {/each}
         {:else}
             <div class="p-2 text-center text-subtext">No variables</div>
         {/if}
-    </ShSettings>
+    </SettingsList>
 </Accordion>
 
-<Accordion styled name={language.tokens}>
-    <ShSettings spacing="none">
+<Accordion class="mt-2" name={language.tokens}>
+    <SettingsList spacing="none">
         {#await getCharacterDescriptionToken()}
             {@render tokenRow(language.devToolTokens.characterProfile, language.devToolTokens.loading)}
         {:then token}
@@ -173,18 +173,18 @@
                 {@render tokenRow(language.devToolTokens.promptTemplate, `${token} ${language.tokens}`)}
             {/await}
         {/if}
-    </ShSettings>
+    </SettingsList>
     <span class="mt-2 block text-xs leading-4 text-subtext">{language.devToolTokens.estimateNotice}</span>
 </Accordion>
 
-<Accordion styled name={language.autopilot}>
+<Accordion class="mt-2" name={language.autopilot}>
     {#if $devToolAutopilotStore.length === 0}
         <span class="text-sm text-subtext">{language.noData}</span>
     {/if}
     {#each $devToolAutopilotStore as _, i}
         <div class="mt-2 flex items-center gap-1">
             <div class="min-w-0 flex-1">
-                <TextAreaInput bind:value={$devToolAutopilotStore[i]} commitMode="input" placeholder="..." fullwidth />
+                <Textarea bind:value={$devToolAutopilotStore[i]} commitMode="input" placeholder="..." fullwidth />
             </div>
             <IconButtonGroup size="sm" direction="vertical">
                 <IconButton
@@ -228,22 +228,22 @@
                 <UploadIcon />
             </IconButton>
         </IconButtonGroup>
-        <ShButton
+        <Button
             variant="outline"
             size="sm"
             disabled={$devToolAutopilotStore.length === 0 || $doingChat}
             onclick={runAutopilot}
         >
             {language.run}
-        </ShButton>
+        </Button>
     </div>
 </Accordion>
 
 
-<Accordion styled name={language.preview}>
-    <ShSettings spacing="none">
-        <ShSettings variant="row" className="px-0">
-            <ShButton
+<Accordion class="mt-2" name={language.preview}>
+    <SettingsList spacing="none">
+        <SettingsList variant="row" className="px-0">
+            <Button
                 variant="ghost"
                 className="w-full justify-start px-1"
                 onclick={() => requestPreviewOpen.set(true)}
@@ -251,10 +251,10 @@
                 <FileSearchIcon class="text-subtext" />
                 <span class="min-w-0 flex-1 truncate text-left">{language.devToolPreview.request}</span>
                 <ChevronRightIcon class="text-subtext" />
-            </ShButton>
-        </ShSettings>
-        <ShSettings variant="row" className="px-0">
-            <ShButton
+            </Button>
+        </SettingsList>
+        <SettingsList variant="row" className="px-0">
+            <Button
                 variant="ghost"
                 className="w-full justify-start px-1"
                 onclick={async () => {
@@ -270,10 +270,10 @@
                 <BookOpenIcon class="text-subtext" />
                 <span class="min-w-0 flex-1 truncate text-left">{language.devToolPreview.active}</span>
                 <ChevronRightIcon class="text-subtext" />
-            </ShButton>
-        </ShSettings>
-        <ShSettings variant="row" className="px-0">
-            <ShButton
+            </Button>
+        </SettingsList>
+        <SettingsList variant="row" className="px-0">
+            <Button
                 variant="ghost"
                 className="w-full justify-start px-1"
                 onclick={async () => {
@@ -302,7 +302,7 @@
                 <SearchIcon class="text-subtext" />
                 <span class="min-w-0 flex-1 truncate text-left">{language.devToolPreview.matches}</span>
                 <ChevronRightIcon class="text-subtext" />
-            </ShButton>
-        </ShSettings>
-    </ShSettings>
+            </Button>
+        </SettingsList>
+    </SettingsList>
 </Accordion>

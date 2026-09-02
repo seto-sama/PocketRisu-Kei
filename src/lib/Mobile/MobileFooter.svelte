@@ -3,7 +3,7 @@
   import { SettingsIcon, GlobeIcon, HouseIcon, Volume2Icon, BracesIcon, ActivityIcon, BookIcon, SmileIcon, UserIcon } from "@lucide/svelte";
   import { language } from "src/lang";
   import { CharConfigSubMenu, DBState, MobileGUIStack, MobileSideBar, selectedCharID } from "src/ts/stores.svelte";
-  import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+  import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
 
 </script>
 {#if $selectedCharID === -1}

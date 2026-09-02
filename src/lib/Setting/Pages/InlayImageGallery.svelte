@@ -2,10 +2,10 @@
   import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { AudioLinesIcon, CopyIcon, DownloadIcon, LoaderCircleIcon, Trash2Icon, VideoIcon } from '@lucide/svelte'
-  import OptionInput from "../../UI/GUI/OptionInput.svelte";
-  import CheckInput from '../../UI/GUI/CheckInput.svelte'
-  import ShButton from '../../UI/GUI/ShButton.svelte'
-  import ShSelect from '../../UI/GUI/ShSelect.svelte'
+  import SelectOption from "../../UI/components/SelectOption.svelte";
+  import Checkbox from '../../UI/components/Checkbox.svelte'
+  import Button from '../../UI/components/Button.svelte'
+  import Select from '../../UI/components/Select.svelte'
 
   import { language } from 'src/lang'
   import { InlayGallerySubmenuIndex } from 'src/ts/stores.svelte'
@@ -23,17 +23,18 @@
     type InlayExplorerItem,
     type InlayScanResult,
   } from 'src/ts/process/files/inlays'
-  import SettingPage from '../../UI/GUI/SettingPage.svelte'
+  import SettingPage from '../../UI/components/SettingPage.svelte'
   import SettingLayout from '../Wrappers/SettingLayout.svelte'
-  import SettingTabs from '../../UI/GUI/SettingTabs.svelte'
+  import SettingTabs from '../../UI/components/SettingTabs.svelte'
   import SettingRenderer from '../SettingRenderer.svelte'
   import { inlayImageSettingsItems } from 'src/ts/setting/inlayImageSettingsData'
-  import FullscreenImageViewer from '../../UI/GUI/FullscreenImageViewer.svelte'
-  import IconButton from '../../UI/GUI/IconButton.svelte'
-  import AssetViewerActions from '../../UI/GUI/AssetViewerActions.svelte'
-  import InlayViewerMetadata from '../../UI/GUI/InlayViewerMetadata.svelte'
+  import FullscreenImageViewer from '../../UI/components/FullscreenImageViewer.svelte'
+  import IconButton from '../../UI/components/IconButton.svelte'
+  import AssetViewerActions from '../../UI/components/AssetViewerActions.svelte'
+  import InlayViewerMetadata from '../../UI/components/InlayViewerMetadata.svelte'
   import { createIncrementalList } from '../../UI/incrementalList.svelte'
   import { copyInlayReference, downloadInlayAsset } from '../../UI/inlayViewerActions'
+  import { isEventFromInteractiveChild } from 'src/lib/utils'
 
   type SortKey = 'created-desc' | 'created-asc' | 'updated-desc' | 'updated-asc'
   type SpecialFilter = 'all' | 'meta-missing' | 'orphan-character' | 'orphan-chat' | 'orphan-message'
@@ -195,11 +196,12 @@
   }
 
   function handleCardClick(event: MouseEvent, id: string) {
-    if (event.target instanceof Element && event.target.closest('label')) return
+    if (isEventFromInteractiveChild(event)) return
     openViewer(id)
   }
 
   function handleCardKeydown(event: KeyboardEvent, id: string) {
+    if (event.target !== event.currentTarget) return
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
     openViewer(id)
@@ -328,12 +330,12 @@
         </span>
         <div class="flex gap-2 ml-auto">
           {#if hasSelection}
-            <ShButton onclick={deleteSelected} variant="destructive" size="sm">{language.inlayGallery.inlayDeleteSelected}</ShButton>
-            <ShButton onclick={deselectAll} variant="outline" size="sm">
+            <Button onclick={deleteSelected} variant="destructive" size="sm">{language.inlayGallery.inlayDeleteSelected}</Button>
+            <Button onclick={deselectAll} variant="outline" size="sm">
               {language.inlayGallery.inlayDeselectAll} ({selection.size})
-            </ShButton>
+            </Button>
           {:else if filteredItems.length > 0}
-            <ShButton onclick={selectAll} variant="outline" size="sm">{language.inlayGallery.inlaySelectAll}</ShButton>
+            <Button onclick={selectAll} variant="outline" size="sm">{language.inlayGallery.inlaySelectAll}</Button>
           {/if}
         </div>
       </div>
@@ -343,40 +345,40 @@
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
               <div class="flex flex-col gap-1 text-xs text-subtext">
                 <span>{language.inlayGallery.inlaySort}</span>
-                <ShSelect bind:value={sortKey} size="sm">
-                  <OptionInput value="updated-desc">{language.inlayGallery.inlaySortUpdatedDesc}</OptionInput>
-                  <OptionInput value="updated-asc">{language.inlayGallery.inlaySortUpdatedAsc}</OptionInput>
-                  <OptionInput value="created-desc">{language.inlayGallery.inlaySortCreatedDesc}</OptionInput>
-                  <OptionInput value="created-asc">{language.inlayGallery.inlaySortCreatedAsc}</OptionInput>
-                </ShSelect>
+                <Select bind:value={sortKey} size="sm">
+                  <SelectOption value="updated-desc">{language.inlayGallery.inlaySortUpdatedDesc}</SelectOption>
+                  <SelectOption value="updated-asc">{language.inlayGallery.inlaySortUpdatedAsc}</SelectOption>
+                  <SelectOption value="created-desc">{language.inlayGallery.inlaySortCreatedDesc}</SelectOption>
+                  <SelectOption value="created-asc">{language.inlayGallery.inlaySortCreatedAsc}</SelectOption>
+                </Select>
               </div>
               <div class="flex flex-col gap-1 text-xs text-subtext">
                 <span>{language.character}</span>
-                <ShSelect bind:value={characterFilter} size="sm">
-                  <OptionInput value="">{language.none}</OptionInput>
+                <Select bind:value={characterFilter} size="sm">
+                  <SelectOption value="">{language.none}</SelectOption>
                   {#each characterIndex as char (char.chaId)}
-                    <OptionInput value={char.chaId}>{char.name}</OptionInput>
+                    <SelectOption value={char.chaId}>{char.name}</SelectOption>
                   {/each}
-                </ShSelect>
+                </Select>
               </div>
               <div class="flex flex-col gap-1 text-xs text-subtext">
                 <span>{language.Chat}</span>
-                <ShSelect bind:value={chatFilter} size="sm">
-                  <OptionInput value="">{language.none}</OptionInput>
+                <Select bind:value={chatFilter} size="sm">
+                  <SelectOption value="">{language.none}</SelectOption>
                   {#each availableChats as chat (chat.id)}
-                    <OptionInput value={chat.id}>{chat.name}</OptionInput>
+                    <SelectOption value={chat.id}>{chat.name}</SelectOption>
                   {/each}
-                </ShSelect>
+                </Select>
               </div>
               <div class="flex flex-col gap-1 text-xs text-subtext">
                 <span>{language.inlayGallery.inlayFilter}</span>
-                <ShSelect bind:value={specialFilter} size="sm">
-                  <OptionInput value="all">{language.inlayGallery.inlayFilterAll}</OptionInput>
-                  <OptionInput value="meta-missing">{language.inlayGallery.inlayFilterMetaMissing}</OptionInput>
-                  <OptionInput value="orphan-character">{language.inlayGallery.inlayFilterOrphanCharacter}</OptionInput>
-                  <OptionInput value="orphan-chat">{language.inlayGallery.inlayFilterOrphanChat}</OptionInput>
-                  <OptionInput value="orphan-message">{language.inlayGallery.inlayFilterOrphanMessage}</OptionInput>
-                </ShSelect>
+                <Select bind:value={specialFilter} size="sm">
+                  <SelectOption value="all">{language.inlayGallery.inlayFilterAll}</SelectOption>
+                  <SelectOption value="meta-missing">{language.inlayGallery.inlayFilterMetaMissing}</SelectOption>
+                  <SelectOption value="orphan-character">{language.inlayGallery.inlayFilterOrphanCharacter}</SelectOption>
+                  <SelectOption value="orphan-chat">{language.inlayGallery.inlayFilterOrphanChat}</SelectOption>
+                  <SelectOption value="orphan-message">{language.inlayGallery.inlayFilterOrphanMessage}</SelectOption>
+                </Select>
               </div>
             </div>
         </SettingLayout>
@@ -442,25 +444,17 @@
                 </div>
               {/if}
 
-              {#if !selection.has(item.id)}
-                <span
-                  class="pointer-events-none absolute top-1.5 left-1.5 z-10 size-5 rounded bg-darkbg/50
-                    opacity-0 mix-blend-multiply transition-opacity group-hover:opacity-100"
-                  aria-hidden="true"
-                ></span>
-              {/if}
-
               <div
-                class="absolute top-1.5 left-1.5 z-10 transition-opacity
+                class="absolute top-1.5 left-1.5 z-10 size-5 transition-opacity
                   {selection.has(item.id) ? '' : 'opacity-0 group-hover:opacity-100'}"
                 title={selection.has(item.id) ? language.inlayGallery.inlayDeselectAll : language.inlayGallery.inlaySelectAll}
               >
-                <CheckInput
+                <Checkbox
                   card
-                  cardUncheckedFill={false}
                   check={selection.has(item.id)}
                   hiddenName
                   margin={false}
+                  className="size-5"
                   name={item.name}
                   onChange={() => toggleSelect(item.id)}
                 />

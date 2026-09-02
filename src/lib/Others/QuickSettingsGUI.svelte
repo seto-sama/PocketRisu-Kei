@@ -3,8 +3,8 @@
     import { QuickSettings } from "src/ts/stores.svelte";
     import OtherBotSettings from "../Setting/Pages/OtherBotSettings.svelte";
     import AddonSettings from "../Setting/Pages/AddonSettings.svelte";
-    import IconButton from "../UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import { language } from "src/lang";
 </script>
 

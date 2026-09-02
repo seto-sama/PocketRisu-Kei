@@ -1,11 +1,12 @@
 <script lang="ts">
     import type { Component, Snippet } from 'svelte';
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte';
-    import ShBadge from 'src/lib/UI/GUI/ShBadge.svelte';
+    import Button from '../../UI/components/Button.svelte';
+    import Badge from '../../UI/components/Badge.svelte';
     import { Collapsible } from 'bits-ui';
     import { ChevronDownIcon, FilterIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
     import SettingRow from './SettingRow.svelte';
+    import { isEventFromInteractiveChild } from 'src/lib/utils';
 
     let {
         variant,
@@ -78,6 +79,16 @@
         control?: Snippet;
         children?: Snippet;
     } = $props();
+
+    function handleInteractiveClick(event: MouseEvent) {
+        if (isEventFromInteractiveChild(event)) return;
+        onclick?.(event);
+    }
+
+    function handleInteractiveKeydown(event: KeyboardEvent) {
+        if (isEventFromInteractiveChild(event)) return;
+        onkeydown?.(event);
+    }
 </script>
 
 {#if variant === 'panel'}
@@ -91,8 +102,8 @@
             data-inline-rename-row={inlineRenameRow ? '' : undefined}
             role="button"
             tabindex="0"
-            {onclick}
-            {onkeydown}
+            onclick={handleInteractiveClick}
+            onkeydown={handleInteractiveKeydown}
         >
             {@render children?.()}
             {#if control}<div class="flex items-center gap-2 shrink-0">{@render control()}</div>{/if}
@@ -131,7 +142,7 @@
             <Collapsible.Trigger class="group flex items-center gap-1 text-subtext risu-interactive-foreground text-sm transition-colors">
                 <FilterIcon size={12} />
                 <span>{title}</span>
-                {#if activeCount > 0}<ShBadge variant="secondary" className="ml-1">{activeCount}</ShBadge>{/if}
+                {#if activeCount > 0}<Badge variant="secondary" className="ml-1">{activeCount}</Badge>{/if}
                 <ChevronDownIcon size={16} class="transition-transform group-data-[state=closed]:-rotate-90" />
             </Collapsible.Trigger>
             {#if (activeCount > 0 && clearLabel && onClear) || control}
@@ -166,23 +177,23 @@
             {:else if actions.length > 0}
                 <div class="flex items-center gap-2 flex-wrap justify-end">
                     {#each actions as action}
-                        <ShButton variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
+                        <Button variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
                             {#if action.icon}
                                 {@const ActionIcon = action.icon}
                                 <ActionIcon />
                             {/if}
                             {action.label}
-                        </ShButton>
+                        </Button>
                     {/each}
                 </div>
             {:else if actionLabel && onAction}
-                <ShButton variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
+                <Button variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
                     {#if actionIcon}
                         {@const ActionIcon = actionIcon}
                         <ActionIcon />
                     {/if}
                     {actionLabel}
-                </ShButton>
+                </Button>
             {/if}
         </div>
     </div>
@@ -201,23 +212,23 @@
             {:else if actions.length > 0}
                 <div class="flex items-center gap-2 flex-wrap justify-end">
                     {#each actions as action}
-                        <ShButton variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
+                        <Button variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
                             {#if action.icon}
                                 {@const ActionIcon = action.icon}
                                 <ActionIcon />
                             {/if}
                             {action.label}
-                        </ShButton>
+                        </Button>
                     {/each}
                 </div>
             {:else if actionLabel && onAction}
-                <ShButton variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
+                <Button variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
                     {#if actionIcon}
                         {@const ActionIcon = actionIcon}
                         <ActionIcon />
                     {/if}
                     {actionLabel}
-                </ShButton>
+                </Button>
             {/if}
         {/snippet}
     </SettingRow>

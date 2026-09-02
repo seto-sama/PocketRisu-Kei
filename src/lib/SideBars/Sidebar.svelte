@@ -46,10 +46,10 @@
     import { language } from "../../lang";
     import isEqual from "lodash/isEqual";
     import SidebarAvatar from "./SidebarAvatar.svelte";
-    import ShSwitch from "../UI/GUI/ShSwitch.svelte";
-    import ShSortableList from "../UI/GUI/ShSortableList.svelte";
+    import Switch from "../UI/components/Switch.svelte";
+    import Button from "../UI/components/Button.svelte";
+    import SortableList from "../UI/components/SortableList.svelte";
     import type { SortableEvent } from "sortablejs";
-    import BaseRoundedButton from "../UI/BaseRoundedButton.svelte";
     import { getCharacterIndexObject, makeAgoText, selectSingleFile } from "src/ts/util";
     import { v4 } from "uuid";
     import { checkCharOrder, getFileSrc, saveAsset } from "src/ts/globalApi.svelte";
@@ -72,9 +72,9 @@
   import CharConfigHeader from "./CharConfigHeader.svelte";
     import QuickSettingsGui from "../Others/QuickSettingsGUI.svelte";
     import PluginDefinedIcon from "../Others/PluginDefinedIcon.svelte";
-    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
-    import IconButton from "../UI/GUI/IconButton.svelte";
-    import ShInput from "../UI/GUI/ShInput.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
+    import Input from "../UI/components/Input.svelte";
     import CharacterMasonryIcon from "../UI/CharacterMasonryIcon.svelte";
     import HorizontalMasonry from "../UI/HorizontalMasonry.svelte";
     import { createIncrementalList } from "../UI/incrementalList.svelte";
@@ -170,6 +170,22 @@
     },
   })
   const sidebarSortableBehavior = sidebarDragController.sortableOptions
+  const sidebarRootSortableOptions = {
+    ...sidebarSortableBehavior,
+    group: {
+      name: SIDEBAR_SORTABLE_GROUP,
+      pull: true,
+      put: true,
+    },
+  }
+  const sidebarFolderSortableOptions = {
+    ...sidebarSortableBehavior,
+    group: {
+      name: SIDEBAR_SORTABLE_GROUP,
+      pull: true,
+      put: (_to: unknown, _from: unknown, dragged: HTMLElement) => dragged.dataset.sidebarKind === 'character',
+    },
+  }
   interface Props {
     openGrid?: any;
     onNavigate?: () => void;
@@ -273,6 +289,7 @@
 
   function toggleSidebarMenuEdit(event: MouseEvent) {
     event.preventDefault()
+    event.stopPropagation()
     if (menuMode !== 1) return
     editMode = !editMode
   }
@@ -391,10 +408,12 @@
 
   let suppressNextClick = false
 </script>
+
 <div
   class="sidebar-layout-slot h-full shrink-0"
   class:overflow-hidden={!editMode}
   class:overflow-visible={editMode}
+  class:sidebar-menu-edit-active={editMode}
   class:dynamic-sidebar-slot={$DynamicGUI}
   class:risu-sidebar-slot={!$sideBarClosing}
   class:risu-sidebar-slot-close={$sideBarClosing}
@@ -519,13 +538,25 @@
   <div class="sidebar-content relative flex min-h-0 w-full flex-1">
 
     {#if menuMode === 1}
-      <ShSortableList
+      <SortableList
         disabled={!editMode}
-        className="absolute left-0 w-20 min-w-20 flex max-h-full bg-lightbg flex-col items-center gap-2 z-20 py-4 overflow-x-hidden overflow-y-auto hamburger-menu"
+        className="absolute left-0 w-20 min-w-20 flex max-h-full bg-lightbg flex-col items-center gap-2 {editMode ? 'risu-layer-blocking' : 'z-20'} py-4 overflow-x-hidden overflow-y-auto hamburger-menu"
         draggable="[data-sidebar-menu-key]"
         dataAttribute="data-sidebar-menu-key"
         onReorder={reorderSidebarMenu}
       >
+          {#if editMode && DBState.db.hamburgerButtonBottom}
+            <div class="no-sort mt-1 flex items-center justify-center" data-sortable-no-scale>
+              <IconButton
+                size="default"
+                title={language.sidebarMenuAddDivider}
+                aria-label={language.sidebarMenuAddDivider}
+                onclick={addSidebarMenuDivider}
+              >
+                <PlusIcon />
+              </IconButton>
+            </div>
+          {/if}
           {#each displayedSidebarMenuOrder as menuKey (menuKey)}
             {#if isSidebarMenuDivider(menuKey)}
               <div
@@ -590,7 +621,7 @@
               </div>
             {/if}
           {/each}
-          {#if editMode}
+          {#if editMode && !DBState.db.hamburgerButtonBottom}
             <div class="no-sort mt-1 flex items-center justify-center" data-sortable-no-scale>
               <IconButton
                 size="default"
@@ -602,7 +633,7 @@
               </IconButton>
             </div>
           {/if}
-      </ShSortableList>
+      </SortableList>
     {/if}
 
     <div
@@ -610,21 +641,15 @@
       class="character-list flex min-h-0 w-full grow flex-col items-center overflow-x-hidden overflow-y-auto pr-0"
       class:max-xs:hidden={$leftBarCollapsed}
       role="list"
+      inert={editMode}
     >
-    <ShSortableList
+    <SortableList
       bind:element={sidebarSortElement}
       disabled={sidebarSortingDisabled}
-      className="sidebar-character-root flex w-full flex-col items-center gap-4 py-4"
+      className="sidebar-character-root flex w-full shrink-0 flex-col items-center gap-4 py-4"
       draggable="[data-sidebar-order-key]"
       dataAttribute="data-sidebar-order-key"
-      options={{
-        ...sidebarSortableBehavior,
-        group: {
-          name: SIDEBAR_SORTABLE_GROUP,
-          pull: true,
-          put: true,
-        },
-      }}
+      options={sidebarRootSortableOptions}
       onReorder={syncSidebarOrderUnlessDropping}
       onDragStart={startSidebarDrag}
       onDragEnd={finishSidebarDrag}
@@ -780,20 +805,13 @@
       {#if char.type === 'folder' && openFolders.includes(char.id)}
         {#key char.color}
         <div class="mt-1 flex flex-col items-center">
-          <ShSortableList
+          <SortableList
             containerKey={char.id}
             disabled={sidebarSortingDisabled}
             className="sidebar-folder-characters flex flex-col items-center gap-3 py-2"
             draggable="[data-sidebar-order-key]"
             dataAttribute="data-sidebar-order-key"
-            options={{
-              ...sidebarSortableBehavior,
-              group: {
-                name: SIDEBAR_SORTABLE_GROUP,
-                pull: true,
-                put: (_to, _from, dragged) => (dragged as HTMLElement).dataset.sidebarKind === 'character',
-              },
-            }}
+            options={sidebarFolderSortableOptions}
             onReorder={syncSidebarOrderUnlessDropping}
             onDragStart={startSidebarDrag}
             onDragEnd={finishSidebarDrag}
@@ -833,22 +851,22 @@
               </div>
             </div>
           {/each}
-          </ShSortableList>
+          </SortableList>
         </div>
         {/key}
       {/if}
       </div>
     {/each}
-    </ShSortableList>
-    <div class="flex flex-col items-center gap-2 px-2">
-      <BaseRoundedButton
-        rounded={IconRounded}
-        onClick={async () => {
-          addCharacter({reseter}) 
-        }}
+    </SortableList>
+    <div class="sidebar-character-add flex shrink-0 flex-col items-center gap-2 px-2">
+      <Button
+        variant="outline"
+        size="icon-lg"
+        className="size-14 border-dashed text-subtext opacity-75 {IconRounded ? 'rounded-full' : ''}"
+        onclick={() => addCharacter({reseter})}
       >
         <PlusIcon size={20} />
-      </BaseRoundedButton>
+      </Button>
     </div>
     </div>
   </div>
@@ -896,7 +914,7 @@
       <span class="block text-base font-semibold text-maintext mt-2">{language.recentChatsTitle}</span>
       <div class="flex items-center justify-between gap-2 mt-2">
         <span class="text-sm text-subtext">{language.hideRecentChats}</span>
-        <ShSwitch
+        <Switch
           checked={!!DBState.db.nodeOnlyHideRecentChats}
           onCheckedChange={(v) => (DBState.db.nodeOnlyHideRecentChats = v)}
         />
@@ -908,7 +926,7 @@
       {:else}
         <div class="relative mt-2">
           <SearchIcon class="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-subtext" />
-          <ShInput
+          <Input
             bind:value={recentSearchQuery}
             type="search"
             autocomplete="off"
@@ -996,7 +1014,7 @@
 </div>
 {#if editMode}
   <div
-    class="risu-modal-backdrop risu-layer-overlay"
+    class="risu-modal-backdrop risu-layer-overlay sidebar-menu-edit-backdrop"
     role="button"
     tabindex="0"
     aria-label={language.sidebarMenuExitEdit}
@@ -1254,7 +1272,13 @@
     scrollbar-width: none;
     overscroll-behavior: none;
   }
-  .rs-sidebar:not(.sidebar-menu-bottom) :global(.hamburger-menu),
+  .rs-sidebar {
+    --sidebar-menu-gap: 1rem;
+  }
+  .rs-sidebar:not(.sidebar-menu-bottom) :global(.hamburger-menu) {
+    top: calc(-1 * var(--sidebar-menu-gap));
+    padding-top: var(--sidebar-menu-gap);
+  }
   .rs-sidebar:not(.sidebar-menu-bottom) :global(.sidebar-character-root) {
     padding-top: 0;
   }
@@ -1272,12 +1296,18 @@
     width: 100%;
     flex-direction: column;
     align-items: center;
-    margin-bottom: 1rem;
+    margin-bottom: var(--sidebar-menu-gap);
     padding: var(--sidebar-control-edge-gap) 0 0;
+  }
+  .sidebar-menu-edit-backdrop {
+    width: 100vw;
+  }
+  .dynamic-sidebar-slot.sidebar-menu-edit-active {
+    overflow: visible;
   }
   .sidebar-menu-bottom .sidebar-controls {
     order: 9999;
-    margin: 1rem 0 0;
+    margin: var(--sidebar-menu-gap) 0 0;
     padding: 0 0 var(--sidebar-control-edge-gap);
   }
   :global(.sidebar-control-buttons) {
@@ -1288,12 +1318,16 @@
   }
   .sidebar-menu-bottom :global(.hamburger-menu) {
     top: auto;
-    bottom: 0;
-    padding-bottom: 0;
+    bottom: calc(-1 * var(--sidebar-menu-gap));
+    padding-bottom: var(--sidebar-menu-gap);
     border-radius: 0.375rem 0.375rem 0 0;
   }
   .sidebar-menu-bottom :global(.sidebar-character-root) {
     padding-bottom: 0;
+  }
+  .sidebar-menu-bottom .sidebar-character-add {
+    order: -1;
+    margin-top: auto;
   }
   :global(.sidebar-character-root:empty) {
     padding-block: 0;
@@ -1307,7 +1341,13 @@
   .rs-sidebar:not(.sidebar-menu-bottom) .character-list::after {
     content: '';
     width: 100%;
-    flex: 0 0 1rem;
+    flex: 0 0 var(--sidebar-menu-gap);
+  }
+  .sidebar-menu-bottom .character-list::before {
+    content: '';
+    order: -2;
+    width: 100%;
+    flex: 0 0 var(--sidebar-menu-gap);
   }
   .character-list::-webkit-scrollbar {
     display: none;

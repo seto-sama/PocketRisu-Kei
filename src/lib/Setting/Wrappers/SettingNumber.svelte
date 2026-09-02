@@ -2,8 +2,8 @@
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
     import { getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
-    import NumberInput from 'src/lib/UI/GUI/NumberInput.svelte';
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
+    import NumberInput from '../../UI/components/NumberInput.svelte';
+    import Switch from '../../UI/components/Switch.svelte';
     import Help from 'src/lib/Others/Help.svelte';
     import SettingItemRow from './SettingItemRow.svelte';
 
@@ -65,7 +65,7 @@
                     {#if item.options?.suffix}<span class="text-subtext text-xs shrink-0">{item.options.suffix}</span>{/if}
                 </div>
             {:else}
-                <ShSwitch checked={false} onCheckedChange={setNumberEnabled} />
+                <Switch checked={false} onCheckedChange={setNumberEnabled} />
             {/if}
         {/snippet}
     </SettingItemRow>

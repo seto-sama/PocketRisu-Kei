@@ -1,7 +1,7 @@
 <script lang="ts">
     import { language } from 'src/lang';
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte';
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte';
+    import Dialog from '../../../UI/components/Dialog.svelte';
+    import Button from '../../../UI/components/Button.svelte';
     import { bundledSoundIds, playSoundPreview } from 'src/ts/notificationSound';
     import { saveAsset } from 'src/ts/globalApi.svelte';
     import { selectSingleFile } from 'src/ts/util';
@@ -49,7 +49,7 @@
     }
 </script>
 
-<ShDialog bind:open size="default">
+<Dialog bind:open size="default">
     {#snippet title()}
         {language.selectNotificationSound}
     {/snippet}
@@ -94,9 +94,9 @@
     </div>
 
     {#snippet footer()}
-        <ShButton variant="outline" size="sm" onclick={uploadSound}>
+        <Button variant="outline" size="sm" onclick={uploadSound}>
             <UploadIcon />
             {language.uploadSound}
-        </ShButton>
+        </Button>
     {/snippet}
-</ShDialog>
+</Dialog>

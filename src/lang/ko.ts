@@ -847,7 +847,7 @@ export const languageKorean = {
   others: "기타",
   advancedRequestTab: "리퀘스트",
   dataDisplay: "데이터 표시",
-  developerSettings: "개발자 설정",
+  laboratory: "실험실",
   sectionInterface: "인터페이스",
   sectionHomeList: "홈 / 채팅 목록",
   sectionChatView: "채팅 화면",

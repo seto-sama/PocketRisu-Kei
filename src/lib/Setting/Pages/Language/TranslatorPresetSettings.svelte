@@ -2,10 +2,10 @@
     import { language } from "src/lang";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
-    import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
+    import PresetHeader from "../../../UI/components/PresetHeader.svelte";
     import SettingRenderer from "../../SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
-    import InlineEditableName from "src/lib/UI/GUI/InlineEditableName.svelte";
+    import InlineEditableName from "../../../UI/components/InlineEditableName.svelte";
     import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { DBState } from "src/ts/stores.svelte";
@@ -174,6 +174,7 @@
                     controller={renameController}
                     bind:value={DBState.db.translatorPresets[index].name}
                     size="default"
+                    editorLeadingInset="row"
                     placeholder="string"
                     onActivate={() => selectPreset(index)}
                 />

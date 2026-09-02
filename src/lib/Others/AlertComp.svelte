@@ -5,29 +5,24 @@
     import { ParseMarkdown } from '../../ts/parser/parser.svelte';
     import { ChevronRightIcon } from '@lucide/svelte';
     import { isCharacterHasAssets } from 'src/ts/characterCards';
-    import TextInput from '../UI/GUI/TextInput.svelte';
+    import Input from '../UI/components/Input.svelte';
     import { openURL, downloadFile } from 'src/ts/globalApi.svelte';
-    import ShButton from '../UI/GUI/ShButton.svelte';
-    import ShDialog from '../UI/GUI/ShDialog.svelte';
-    import ShAlertDialog from '../UI/GUI/ShAlertDialog.svelte';
-    import ShLoadingDialog from '../UI/GUI/ShLoadingDialog.svelte';
+    import Button from '../UI/components/Button.svelte';
+    import Dialog from '../UI/components/Dialog.svelte';
+    import AlertDialog from '../UI/components/AlertDialog.svelte';
+    import LoadingDialog from '../UI/components/LoadingDialog.svelte';
     import { XIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, TrashIcon, EllipsisVerticalIcon, RefreshCwIcon, PlusIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
-    import SelectInput from "../UI/GUI/SelectInput.svelte";
-    import OptionInput from "../UI/GUI/OptionInput.svelte";
+    import Select from "../UI/components/Select.svelte";
+    import SelectOption from "../UI/components/SelectOption.svelte";
     import { language } from 'src/lang';
     import { alertStore, selectedCharID, togglePresetsOpenStore } from "src/ts/stores.svelte";
-    import ShSwitch from "../UI/GUI/ShSwitch.svelte";
-    import ShDropdownMenu from '../UI/GUI/ShDropdownMenu.svelte';
-    import ShDropdownMenuTrigger from '../UI/GUI/ShDropdownMenuTrigger.svelte';
-    import ShDropdownMenuContent from '../UI/GUI/ShDropdownMenuContent.svelte';
-    import ShDropdownMenuItem from '../UI/GUI/ShDropdownMenuItem.svelte';
-    import ShDropdownMenuSeparator from '../UI/GUI/ShDropdownMenuSeparator.svelte';
+    import Switch from "../UI/components/Switch.svelte";
+    import * as DropdownMenu from '../UI/components/dropdown-menu';
     import { nodeOnlyVer } from "src/ts/storage/database.svelte";
-    import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
+    import Textarea from "../UI/components/Textarea.svelte";
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
-    import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme";
-    import IconButton from "../UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
     import Help from "./Help.svelte";
     import { getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
     import { alertInput, alertConfirm, alertError, alertNormalWait, notifySuccess } from "src/ts/alert";
@@ -37,9 +32,9 @@
     import { PRODUCT_NAME } from "src/ts/branding";
     import RequestDiagnosticsModal from "./RequestDiagnosticsModal.svelte";
     import { overlayLayer } from 'src/ts/gui/overlayStack';
-    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
-    import InlineRenameAction from "../UI/GUI/InlineRenameAction.svelte";
-    import { InlineEditableNameController } from "../UI/GUI/inlineEditableNameController.svelte";
+    import InlineEditableName from "../UI/components/InlineEditableName.svelte";
+    import InlineRenameAction from "../UI/components/InlineRenameAction.svelte";
+    import { InlineEditableNameController } from "../UI/components/InlineEditableNameController.svelte";
 
     let showDetails = $state(false);
     let translatedStackTrace = $state('');
@@ -242,34 +237,34 @@
             {/if}
             <div class="flex items-center flex-wrap mt-2">
                 {#if $alertStore.submsg === 'preset'}
-                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-subtext'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>Risupreset</ShButton>
+                    <Button variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-subtext'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>Risupreset</Button>
                 {:else if $alertStore.submsg === 'module'}
-                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-subtext'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>RisuM</ShButton>
+                    <Button variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-subtext'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>RisuM</Button>
                 {:else}
-                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-subtext'}" aria-pressed={cardExportType === ''} onclick={() => {
+                    <Button variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-subtext'}" aria-pressed={cardExportType === ''} onclick={() => {
                         cardExportType = ''
                         cardExportType2 = 'charxJpeg'
-                    }}>Character Card V3</ShButton>
-                    <ShButton variant={cardExportType === 'ccv2' ? 'primary' : 'outline'} className="ml-2 h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === 'ccv2' ? '' : 'text-subtext'}" aria-pressed={cardExportType === 'ccv2'} onclick={() => {cardExportType = 'ccv2'}}>Character Card V2</ShButton>
+                    }}>Character Card V3</Button>
+                    <Button variant={cardExportType === 'ccv2' ? 'primary' : 'outline'} className="ml-2 h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === 'ccv2' ? '' : 'text-subtext'}" aria-pressed={cardExportType === 'ccv2'} onclick={() => {cardExportType = 'ccv2'}}>Character Card V2</Button>
                 {/if}
             </div>
             {#if $alertStore.submsg === '' && cardExportType === ''}
                 <span class="text-maintext mt-4">{language.format}</span>
-                <SelectInput bind:value={cardExportType2} className="mt-2">
-                    <OptionInput value="charx">CHARX</OptionInput>
-                    <OptionInput value="charxJpeg">CHARX-JPEG</OptionInput>
-                    <OptionInput value="">PNG</OptionInput>
-                    <OptionInput value="json">JSON</OptionInput>
-                </SelectInput>
+                <Select bind:value={cardExportType2} className="mt-2">
+                    <SelectOption value="charx">CHARX</SelectOption>
+                    <SelectOption value="charxJpeg">CHARX-JPEG</SelectOption>
+                    <SelectOption value="">PNG</SelectOption>
+                    <SelectOption value="json">JSON</SelectOption>
+                </Select>
                 <div class="mt-4 flex items-center justify-between gap-4">
                     <div class="flex min-w-0 flex-col">
                         <span class="text-maintext">{language.imageCompression}</span>
                         <span class="text-subtext text-sm">{language.help.imageCompression}</span>
                     </div>
-                    <ShSwitch className="shrink-0" bind:checked={DBState.db.imageCompression} />
+                    <Switch className="shrink-0" bind:checked={DBState.db.imageCompression} />
                 </div>
             {/if}
-            <ShButton className="mt-4" onclick={() => {
+            <Button className="mt-4" onclick={() => {
                 alertStore.set({
                     type: 'none',
                     msg: JSON.stringify({
@@ -277,7 +272,7 @@
                         type2: cardExportType2
                     })
                 })
-            }}>{language.export}</ShButton>
+            }}>{language.export}</Button>
         </div>
     </div>
 
@@ -290,7 +285,7 @@
     }} />
 {/if}
 
-<ShDialog
+<Dialog
     open={$alertStore.type === 'addchar'}
     size="lg"
     closeOnEscape={true}
@@ -333,9 +328,9 @@
         </button>
 
     </div>
-</ShDialog>
+</Dialog>
 
-<ShDialog
+<Dialog
     open={$alertStore.type === 'error'}
     size="lg"
     onOpenChange={(v) => {
@@ -356,14 +351,14 @@
 
         {#if $alertStore.stackTrace}
             <div class="mt-2">
-                <ShButton variant="outline" size="sm" onclick={() => showDetails = !showDetails}>
+                <Button variant="outline" size="sm" onclick={() => showDetails = !showDetails}>
                     {showDetails ? language.hideErrorDetails : language.showErrorDetails}
                     {#if showDetails}
                         <XIcon class="inline ml-2" />
                     {:else}
                         <ChevronRightIcon class="inline ml-2" />
                     {/if}
-                </ShButton>
+                </Button>
                 {#if showDetails}
                     <div class="stack-trace-wrap">
                         <button
@@ -386,11 +381,11 @@
     </div>
 
     {#snippet footer()}
-        <ShButton onclick={() => alertStore.set({ type: 'none', msg: '' })}>{language.confirm}</ShButton>
+        <Button onclick={() => alertStore.set({ type: 'none', msg: '' })}>{language.confirm}</Button>
     {/snippet}
-</ShDialog>
+</Dialog>
 
-<ShDialog
+<Dialog
     open={$alertStore.type === 'normal'}
     onOpenChange={(v) => {
         if (!v && $alertStore.type === 'normal') {
@@ -406,15 +401,15 @@
     </div>
 
     {#snippet footer()}
-        <ShButton onclick={() => alertStore.set({ type: 'none', msg: '' })}>{language.confirm}</ShButton>
+        <Button onclick={() => alertStore.set({ type: 'none', msg: '' })}>{language.confirm}</Button>
     {/snippet}
-</ShDialog>
+</Dialog>
 
 {#snippet markdownFooter()}
-    <ShButton onclick={() => alertStore.set({ type: 'none', msg: '' })}>{language.confirm}</ShButton>
+    <Button onclick={() => alertStore.set({ type: 'none', msg: '' })}>{language.confirm}</Button>
 {/snippet}
 
-<ShDialog
+<Dialog
     open={$alertStore.type === 'markdown'}
     size="lg"
     footer={$alertStore.hideConfirm ? undefined : markdownFooter}
@@ -425,16 +420,16 @@
     }}
 >
     <div class="overflow-y-auto">
-        <span class="chattext prose chattext2" class:prose-invert={$ColorSchemeTypeStore === 'dark'}>
+        <span class="chattext prose chattext2">
             {#await ParseMarkdown($alertStore.msg) then msg}
                 {@html msg}
             {/await}
         </span>
     </div>
 
-</ShDialog>
+</Dialog>
 
-<ShAlertDialog
+<AlertDialog
     open={$alertStore.type === 'ask'}
     closeOnEscape={true}
     closeOnOutsideClick={true}
@@ -453,12 +448,12 @@
         {/if}
     </div>
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>{language.no}</ShButton>
-        <ShButton onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>{language.yes}</ShButton>
+        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>{language.no}</Button>
+        <Button onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>{language.yes}</Button>
     {/snippet}
-</ShAlertDialog>
+</AlertDialog>
 
-<ShAlertDialog
+<AlertDialog
     open={$alertStore.type === 'pluginconfirm'}
     closeOnEscape={true}
     closeOnOutsideClick={true}
@@ -492,12 +487,12 @@
         </div>
     {/if}
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>{language.no}</ShButton>
-        <ShButton variant="destructive" onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>{language.yes}</ShButton>
+        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>{language.no}</Button>
+        <Button variant="destructive" onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>{language.yes}</Button>
     {/snippet}
-</ShAlertDialog>
+</AlertDialog>
 
-<ShDialog
+<Dialog
     open={$alertStore.type === 'select'}
     closable={false}
     closeOnOutsideClick={$alertStore.closeOnOutsideClick ?? true}
@@ -519,20 +514,20 @@
             {/if}
             <div class="flex flex-col gap-2">
                 {#each options as label, i}
-                    <ShButton
+                    <Button
                         variant="outline"
                         className="w-full justify-start"
                         onclick={() => alertStore.set({ type: 'none', msg: i.toString() })}
                     >
                         {label}
-                    </ShButton>
+                    </Button>
                 {/each}
             </div>
         </div>
     {/if}
-</ShDialog>
+</Dialog>
 
-<ShAlertDialog
+<AlertDialog
     open={$alertStore.type === 'confirmMulti'}
     closeOnEscape={true}
     closeOnOutsideClick={true}
@@ -554,22 +549,22 @@
         {@const actions = $alertStore.actions ?? []}
         <div class="flex flex-col gap-2">
             {#each actions as action, i}
-                <ShButton
+                <Button
                     variant={action.variant ?? 'default'}
                     className="w-full"
                     onclick={() => alertStore.set({ type: 'none', msg: i.toString() })}
                 >
                     {action.label}
-                </ShButton>
+                </Button>
             {/each}
         </div>
     {/if}
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'cancel' })}>{language.cancel}</ShButton>
+        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'cancel' })}>{language.cancel}</Button>
     {/snippet}
-</ShAlertDialog>
+</AlertDialog>
 
-<ShDialog
+<Dialog
     open={$alertStore.type === 'input'}
     closable={false}
     closeOnOutsideClick={false}
@@ -582,7 +577,7 @@
         {#if $alertStore.msg}
             <p class="text-maintext whitespace-pre-wrap">{$alertStore.msg}</p>
         {/if}
-        <TextInput
+        <Input
             bind:value={input}
             id="alert-input"
             autocomplete="off"
@@ -615,19 +610,19 @@
         {/if}
     </div>
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => alertStore.set({ type: 'none', msg: '' })}>{language.cancel}</ShButton>
-        <ShButton onclick={() => submitAlertInput()}>{language.confirm}</ShButton>
+        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: '' })}>{language.cancel}</Button>
+        <Button onclick={() => submitAlertInput()}>{language.confirm}</Button>
     {/snippet}
-</ShDialog>
+</Dialog>
 
-<ShLoadingDialog
+<LoadingDialog
     open={$alertStore.type === 'wait' || $alertStore.type === 'wait2' || $alertStore.type === 'progress'}
     message={$alertStore.msg}
     submessage={$alertStore.type !== 'progress' ? ($alertStore.submsg ?? '') : ''}
     progress={$alertStore.type === 'progress' ? parseFloat($alertStore.submsg ?? '0') : null}
 />
 
-<ShAlertDialog
+<AlertDialog
     open={$alertStore.type === 'tos'}
     closeOnEscape={true}
     onCancel={() => alertStore.set({ type: 'none', msg: 'no' })}
@@ -646,12 +641,12 @@
         to continue.
     </div>
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>Do not Accept</ShButton>
-        <ShButton onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>Accept</ShButton>
+        <Button variant="outline" onclick={() => alertStore.set({ type: 'none', msg: 'no' })}>Do not Accept</Button>
+        <Button onclick={() => alertStore.set({ type: 'none', msg: 'yes' })}>Accept</Button>
     {/snippet}
-</ShAlertDialog>
+</AlertDialog>
 
-<ShDialog
+<Dialog
     open={$togglePresetsOpenStore}
     onOpenChange={(v) => { if (!v) closeTogglePresets() }}
 >
@@ -661,7 +656,7 @@
         {@const currentPromptPresetName = DBState.db.botPresets[DBState.db.botPresetsId]?.name}
         <div class="flex flex-col gap-3">
             <label class="flex items-center gap-2 text-sm text-subtext self-start cursor-pointer select-none">
-                <ShSwitch bind:checked={togglePresetShowAll} />
+                <Switch bind:checked={togglePresetShowAll} />
                 {language.togglePresetFilterShowAll}
             </label>
 
@@ -718,16 +713,16 @@
                                             <ChevronDownIcon />
                                         </IconButton>
                                     {/if}
-                                    <ShDropdownMenu>
-                                        <ShDropdownMenuTrigger>
+                                    <DropdownMenu.Root>
+                                        <DropdownMenu.Trigger>
                                             {#snippet child({ props })}
                                                 <IconButton {...props}>
                                                     <EllipsisVerticalIcon />
                                                 </IconButton>
                                             {/snippet}
-                                        </ShDropdownMenuTrigger>
-                                        <ShDropdownMenuContent class="min-w-40" align="end">
-                                            <ShDropdownMenuItem onSelect={async () => {
+                                        </DropdownMenu.Trigger>
+                                        <DropdownMenu.Content class="min-w-40" align="end">
+                                            <DropdownMenu.Item onSelect={async () => {
                                                 const idx = i
                                                 const presetName = DBState.db.togglePresets![idx].name
                                                 const confirmed = await alertConfirm((language.togglePresetOverwriteConfirm as any)(presetName))
@@ -741,8 +736,8 @@
                                             }}>
                                                 <RefreshCwIcon size={12} />
                                                 {language.togglePresetMenuOverwrite}
-                                            </ShDropdownMenuItem>
-                                            <ShDropdownMenuItem onSelect={() => {
+                                            </DropdownMenu.Item>
+                                            <DropdownMenu.Item onSelect={() => {
                                                 const copy = $state.snapshot(preset);
                                                 copy.name = preset.name + ' (Copy)';
                                                 DBState.db.togglePresets!.splice(i + 1, 0, copy);
@@ -751,17 +746,17 @@
                                             }}>
                                                 <CopyIcon size={12} />
                                                 {language.togglePresetMenuDuplicate}
-                                            </ShDropdownMenuItem>
-                                            <ShDropdownMenuItem onSelect={() => {
+                                            </DropdownMenu.Item>
+                                            <DropdownMenu.Item onSelect={() => {
                                                 const exportData = { name: preset.name, values: preset.values, promptPresetName: preset.promptPresetName }
                                                 downloadFile(`${preset.name}_toggle.json`, Buffer.from(JSON.stringify(exportData, null, 2), 'utf-8'))
                                                 notifySuccess((language.togglePresetExported as any)(preset.name))
                                             }}>
                                                 <DownloadIcon size={12} />
                                                 {language.togglePresetMenuExport}
-                                            </ShDropdownMenuItem>
-                                            <ShDropdownMenuSeparator />
-                                            <ShDropdownMenuItem variant="destructive" onSelect={async () => {
+                                            </DropdownMenu.Item>
+                                            <DropdownMenu.Separator />
+                                            <DropdownMenu.Item variant="destructive" onSelect={async () => {
                                                 const idx = i
                                                 const presetName = DBState.db.togglePresets![idx].name
                                                 const confirmed = await alertConfirm((language.togglePresetDeleteConfirm as any)(presetName))
@@ -773,9 +768,9 @@
                                             }}>
                                                 <TrashIcon size={12} />
                                                 {language.togglePresetMenuDelete}
-                                            </ShDropdownMenuItem>
-                                        </ShDropdownMenuContent>
-                                    </ShDropdownMenu>
+                                            </DropdownMenu.Item>
+                                        </DropdownMenu.Content>
+                                    </DropdownMenu.Root>
                                 </IconButtonGroup>
                             </div>
                         {/each}
@@ -788,7 +783,7 @@
                  closing the dialog. Mobile stacks vertically so the long
                  Korean labels don't wrap inside narrow flex-1 cells. -->
             <div class="flex flex-col sm:flex-row gap-2 mt-1">
-                <ShButton
+                <Button
                     variant="outline"
                     className="w-full sm:flex-1 sm:w-auto"
                     onclick={async () => {
@@ -807,8 +802,8 @@
                 >
                     <PlusIcon />
                     {language.togglePresetSaveNew}
-                </ShButton>
-                <ShButton
+                </Button>
+                <Button
                     variant="outline"
                     className="w-full sm:flex-1 sm:w-auto"
                     onclick={async () => {
@@ -844,11 +839,11 @@
                 >
                     <UploadIcon />
                     {language.togglePresetImport}
-                </ShButton>
+                </Button>
             </div>
         </div>
     {/if}
-</ShDialog>
+</Dialog>
 
 <style>
     .add-character-option {

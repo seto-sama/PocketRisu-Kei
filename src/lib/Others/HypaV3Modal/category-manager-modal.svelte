@@ -9,13 +9,13 @@
   import { DBState, selectedCharID } from "src/ts/stores.svelte";
   import type { CategoryManagerState, SearchState, FilterState } from "./types";
   import { createCategoryId, getCategoriesWithUnclassified } from "./utils";
-  import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
-  import ShInput from "src/lib/UI/GUI/ShInput.svelte";
-  import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-  import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-  import InlineEditableName from "src/lib/UI/GUI/InlineEditableName.svelte";
-  import InlineRenameAction from "src/lib/UI/GUI/InlineRenameAction.svelte";
-  import { InlineEditableNameController } from "src/lib/UI/GUI/inlineEditableNameController.svelte";
+  import Dialog from "../../UI/components/Dialog.svelte";
+  import Input from "../../UI/components/Input.svelte";
+  import IconButton from "../../UI/components/IconButton.svelte";
+  import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+  import InlineEditableName from "../../UI/components/InlineEditableName.svelte";
+  import InlineRenameAction from "../../UI/components/InlineRenameAction.svelte";
+  import { InlineEditableNameController } from "src/lib/UI/components/InlineEditableNameController.svelte";
 
   interface Props {
     categoryManagerState: CategoryManagerState;
@@ -108,7 +108,7 @@
 </script>
 
 <!-- Category Manager Modal -->
-<ShDialog
+<Dialog
   bind:open={categoryManagerState.isOpen}
   size="default"
   onOpenChange={(open) => {
@@ -144,7 +144,7 @@
               : 'bg-lightbg/50 risu-interactive-surface'}"
           >
             {#if categoryManagerState.editingCategory?.id === '' && category.id === ''}
-              <ShInput
+              <Input
                 className="h-8 min-h-8 flex-1 text-sm"
                 bind:value={categoryManagerState.editingCategory.name}
                 placeholder={language.hypaV3Modal.categoryName}
@@ -188,4 +188,4 @@
           </div>
         {/if}
   </div>
-</ShDialog>
+</Dialog>

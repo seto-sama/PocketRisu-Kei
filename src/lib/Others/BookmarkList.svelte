@@ -20,7 +20,7 @@
     import { language } from 'src/lang'
     import { togglePresetTag } from 'src/ts/preset/tags'
     import { bookmarkListOpen, DBState } from 'src/ts/stores.svelte'
-    import InlineEditableName from '../UI/GUI/InlineEditableName.svelte'
+    import InlineEditableName from '../UI/components/InlineEditableName.svelte'
     import PresetPickerLayout from '../UI/PresetPickerLayout.svelte'
 
     const close = () => $bookmarkListOpen = false

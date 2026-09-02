@@ -1,6 +1,6 @@
 <script lang="ts">
   import { hypaV3ProgressStore } from "src/ts/stores.svelte";
-  import OverlayPortal from "../UI/GUI/OverlayPortal.svelte";
+  import OverlayPortal from "../UI/components/overlay/OverlayPortal.svelte";
 
   let isExpanded = $state(false);
 

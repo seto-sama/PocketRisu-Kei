@@ -5,15 +5,12 @@
     import { language } from "src/lang";
     import RisuHubIcon from "./RealmHubIcon.svelte";
     import RealmPopUp from "./RealmPopUp.svelte";
-    import ShButton from "../GUI/ShButton.svelte";
-    import ShInput from "../GUI/ShInput.svelte";
-    import IconButton from "../GUI/IconButton.svelte";
-    import IconButtonGroup from "../GUI/IconButtonGroup.svelte";
-    import ShDialog from "../GUI/ShDialog.svelte";
-    import ShDropdownMenu from "../GUI/ShDropdownMenu.svelte";
-    import ShDropdownMenuContent from "../GUI/ShDropdownMenuContent.svelte";
-    import ShDropdownMenuItem from "../GUI/ShDropdownMenuItem.svelte";
-    import ShDropdownMenuTrigger from "../GUI/ShDropdownMenuTrigger.svelte";
+    import Button from "../components/Button.svelte";
+    import Input from "../components/Input.svelte";
+    import IconButton from "../components/IconButton.svelte";
+    import IconButtonGroup from "../components/IconButtonGroup.svelte";
+    import Dialog from "../components/Dialog.svelte";
+    import * as DropdownMenu from "../components/dropdown-menu";
     import { MobileGUIStack } from "src/ts/stores.svelte";
     import { filterMutedRealmCharacters, realmMuteStore } from "src/ts/realmMute";
     import RealmMuteManager from "./RealmMuteManager.svelte";
@@ -118,7 +115,7 @@
 
     getHub()
 </script>
-<ShDialog
+<Dialog
     bind:open
     size="xl"
     closeOnEscape
@@ -131,7 +128,7 @@
     {/snippet}
 
     <div class="mb-3 flex w-full items-stretch gap-2">
-        <ShInput
+        <Input
             bind:value={search}
             className="h-11 min-h-11 grow text-xl"
             onkeydown={(event) => {
@@ -141,7 +138,7 @@
                 }
             }}
         />
-        <ShButton
+        <Button
             disabled={importingUrl}
             variant="outline"
             size="icon-lg"
@@ -149,41 +146,41 @@
             aria-label={language.search}
         >
             <SearchIcon />
-        </ShButton>
-        <ShDropdownMenu>
-            <ShDropdownMenuTrigger>
+        </Button>
+        <DropdownMenu.Root>
+            <DropdownMenu.Trigger>
                 {#snippet child({ props })}
-                    <ShButton {...props} variant="outline" size="icon-lg" aria-label={language.menu} title={language.menu}>
+                    <Button {...props} variant="outline" size="icon-lg" aria-label={language.menu} title={language.menu}>
                         <MenuIcon />
-                    </ShButton>
+                    </Button>
                 {/snippet}
-            </ShDropdownMenuTrigger>
-            <ShDropdownMenuContent align="end" class="min-w-44">
-                <ShDropdownMenuItem onSelect={() => { muteManagerOpen = true }}>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Content align="end" class="min-w-44">
+                <DropdownMenu.Item onSelect={() => { muteManagerOpen = true }}>
                     <span>{language.realmMuteManagement}</span>
-                </ShDropdownMenuItem>
-                <ShDropdownMenuItem onSelect={toggleNsfw}>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={toggleNsfw}>
                     <span>NSFW {language.realmViewSuffix}</span>
                     {#if nsfw}<CheckIcon class="ml-auto text-primary" />{/if}
-                </ShDropdownMenuItem>
-                <ShDropdownMenuItem onSelect={() => selectSort('')}>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={() => selectSort('')}>
                     <span>{language.recent} {language.realmViewSuffix}</span>
                     {#if sort === ''}<CheckIcon class="ml-auto text-primary" />{/if}
-                </ShDropdownMenuItem>
-                <ShDropdownMenuItem onSelect={() => selectSort('trending')}>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={() => selectSort('trending')}>
                     <span>{language.trending} {language.realmViewSuffix}</span>
                     {#if sort === 'trending'}<CheckIcon class="ml-auto text-primary" />{/if}
-                </ShDropdownMenuItem>
-                <ShDropdownMenuItem onSelect={() => selectSort('downloads')}>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={() => selectSort('downloads')}>
                     <span>{language.downloads} {language.realmViewSuffix}</span>
                     {#if sort === 'downloads'}<CheckIcon class="ml-auto text-primary" />{/if}
-                </ShDropdownMenuItem>
-                <ShDropdownMenuItem onSelect={() => selectSort('random')}>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={() => selectSort('random')}>
                     <span>{language.random} {language.realmViewSuffix}</span>
                     {#if sort === 'random'}<CheckIcon class="ml-auto text-primary" />{/if}
-                </ShDropdownMenuItem>
-            </ShDropdownMenuContent>
-        </ShDropdownMenu>
+                </DropdownMenu.Item>
+            </DropdownMenu.Content>
+        </DropdownMenu.Root>
     </div>
 
     <div class="realm-results min-h-0 flex-1 overflow-y-auto">
@@ -213,7 +210,7 @@
             </div>
         {/if}
     </div>
-</ShDialog>
+</Dialog>
 
 {#if openedData}
     <RealmPopUp bind:openedData={openedData} onDownloaded={closeRealm} />

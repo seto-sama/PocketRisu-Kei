@@ -2,8 +2,8 @@
     import { language } from "src/lang";
     import ApiKeyModeControl, { getInitialApiKeyInputMode, type ApiKeyInputMode } from "src/lib/Setting/ApiKeyModeControl.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import Switch from "../../UI/components/Switch.svelte";
+    import Input from "../../UI/components/Input.svelte";
     import type { TTSApiKeyProvider } from "src/ts/storage/database.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import { listApiKeys } from "src/ts/preset/apiKeyPool";
@@ -64,11 +64,11 @@
     <SettingLayout variant="section" title="TTS" first>
         <div class="[&>*:first-child]:border-t-0">
             <SettingLayout variant="row" title={language.ttsEnable} description={language.help.ttsEnable}>
-                {#snippet control()}<ShSwitch bind:checked={DBState.db.ttsEnabled}/>{/snippet}
+                {#snippet control()}<Switch bind:checked={DBState.db.ttsEnabled}/>{/snippet}
             </SettingLayout>
             {#if DBState.db.ttsEnabled}
                 <SettingLayout variant="row" title={language.ttsAutoSpeech} description={language.help.ttsAutoSpeech}>
-                    {#snippet control()}<ShSwitch bind:checked={DBState.db.ttsAutoSpeech}/>{/snippet}
+                    {#snippet control()}<Switch bind:checked={DBState.db.ttsAutoSpeech}/>{/snippet}
                 </SettingLayout>
             {/if}
         </div>
@@ -90,7 +90,7 @@
                     {/snippet}
                 </SettingLayout>
                 <SettingLayout variant="row" title={language.ttsVoicevoxUrl} description={language.help.ttsVoicevoxUrl}>
-                    {#snippet control()}<TextInput commitMode="blur" className="w-48 text-sm" size="sm" bind:value={DBState.db.voicevoxUrl}/>{/snippet}
+                    {#snippet control()}<Input commitMode="blur" className="w-48 text-sm" size="sm" bind:value={DBState.db.voicevoxUrl}/>{/snippet}
                 </SettingLayout>
 
                 <SettingLayout variant="row" title={language.openAIApiKey} description={language.help.ttsOpenAIKey}>

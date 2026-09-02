@@ -23,7 +23,7 @@ export interface SettingContext {
      * 'block' is 'row' (label + inline help stacked left, control vertically
      * centered right, border-t divider rhythm) plus a full-width control line
      * below when width is needed: sliders put their enable switch in the row
-     * slot and the ShSlider (real units) underneath; numbers need no extra
+     * slot and the Slider (real units) underneath; numbers need no extra
      * width, so their block rendering IS the row rendering. Currently
      * implemented by SettingSlider / SettingNumber; others fall back to stacked. */
     layout?: 'stacked' | 'row' | 'block';
@@ -33,13 +33,13 @@ export interface SettingContext {
  * Supported setting input types
  */
 export type SettingType = 
-    | 'check'      // Checkbox (CheckInput)
-    | 'text'       // Text input (TextInput)
+    | 'check'      // Boolean switch
+    | 'text'       // Text input
     | 'number'     // Number input (NumberInput)
-    | 'textarea'   // Multiline text (TextAreaInput)
-    | 'slider'     // Slider (SliderInput)
-    | 'select'     // Dropdown (SelectInput)
-    | 'radio'      // Vertical single-choice group (ShChoiceGroup)
+    | 'textarea'   // Multiline text
+    | 'slider'     // Slider
+    | 'select'     // Select
+    | 'radio'      // Vertical single-choice group (ChoiceGroup)
     | 'segmented'  // Sliding segmented control (SegmentedControl)
     | 'color'      // Color picker (ColorInput)
     | 'header'     // Section header (h2, span, warning)

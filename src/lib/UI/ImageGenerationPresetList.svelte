@@ -10,10 +10,10 @@
     } from 'src/ts/imageGeneration/presets'
     import { openSettings, SettingsRoute } from 'src/ts/routing'
     import { DBState, OtherBotsSubmenuIndex } from 'src/ts/stores.svelte'
-    import IconButton from './GUI/IconButton.svelte'
-    import ShButton from './GUI/ShButton.svelte'
-    import ShDialog from './GUI/ShDialog.svelte'
-    import TextInput from './GUI/TextInput.svelte'
+    import IconButton from './components/IconButton.svelte'
+    import Button from './components/Button.svelte'
+    import Dialog from './components/Dialog.svelte'
+    import Input from './components/Input.svelte'
     import NovelAIImageCoreSettings from './NovelAIImageCoreSettings.svelte'
     import PresetBindingTrigger from './PresetBindingTrigger.svelte'
     import PresetPickerLayout from './PresetPickerLayout.svelte'
@@ -168,19 +168,19 @@
     state={selectedPreset ? 'selected' : 'warning'}
 />
 
-<ShDialog bind:open={editorOpen} size="default" closeOnEscape closeOnOutsideClick closable>
+<Dialog bind:open={editorOpen} size="default" closeOnEscape closeOnOutsideClick closable>
     {#snippet title()}{language.imageGenerationPreset} {language.edit}{/snippet}
     {#if editorSettings}
         <label class="flex items-center justify-between gap-3 pb-3 text-sm text-maintext">
             <span>{language.imageGenerationPresetName}</span>
-            <TextInput bind:value={editorName} commitMode="input" className="w-48 text-sm" size="sm" />
+            <Input bind:value={editorName} commitMode="input" className="w-48 text-sm" size="sm" />
         </label>
         <div class="[&>*:first-child]:border-t-0 border-t border-darkborderc">
             <NovelAIImageCoreSettings settings={editorSettings} />
         </div>
     {/if}
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => { editorOpen = false }}>{language.cancel}</ShButton>
-        <ShButton variant="primary" disabled={!editorName.trim()} onclick={saveEditor}>{language.confirm}</ShButton>
+        <Button variant="outline" onclick={() => { editorOpen = false }}>{language.cancel}</Button>
+        <Button variant="primary" disabled={!editorName.trim()} onclick={saveEditor}>{language.confirm}</Button>
     {/snippet}
-</ShDialog>
+</Dialog>

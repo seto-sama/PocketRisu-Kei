@@ -1,0 +1,21 @@
+export type ButtonVariant =
+    | 'default'
+    | 'outline'
+    | 'secondary'
+    | 'ghost'
+    | 'destructive'
+    | 'attention'
+    | 'warning'
+    | 'success'
+    | 'primary'
+    | 'link'
+
+export type ButtonSize =
+    | 'default'
+    | 'xs'
+    | 'sm'
+    | 'lg'
+    | 'icon'
+    | 'icon-xs'
+    | 'icon-sm'
+    | 'icon-lg'

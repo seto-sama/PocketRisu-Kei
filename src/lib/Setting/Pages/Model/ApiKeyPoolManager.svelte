@@ -18,12 +18,12 @@
         resolveProviderFilterHiddenIds,
     } from "src/ts/preset/registry";
     import { alertConfirm } from "src/ts/alert";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
-    import SecretInput from "src/lib/UI/GUI/SecretInput.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import Input from "../../../UI/components/Input.svelte";
+    import SecretInput from "../../../UI/components/SecretInput.svelte";
+    import Select from "../../../UI/components/Select.svelte";
+    import SelectOption from "../../../UI/components/SelectOption.svelte";
+    import SortableList from "../../../UI/components/SortableList.svelte";
 
     // Read straight off the reactive pool so the list reflects add/edit/delete.
     const entries = $derived(
@@ -113,27 +113,27 @@
         <div class="flex flex-col gap-3 border border-darkborderc rounded-md p-3">
             <div class="flex flex-col gap-1">
                 <span class="text-sm text-maintext">{language.apiKeyName}</span>
-                <TextInput bind:value={fName} placeholder={language.apiKeyName} fullwidth />
+                <Input bind:value={fName} placeholder={language.apiKeyName} fullwidth />
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-sm text-maintext">{language.apiKeyProvider}</span>
-                <SelectInput bind:value={fProvider}>
-                    <OptionInput value="">{language.apiKeyProviderUnset}</OptionInput>
+                <Select bind:value={fProvider}>
+                    <SelectOption value="">{language.apiKeyProviderUnset}</SelectOption>
                     {#if fProvider && !providerOptions.some(o => o.id === fProvider)}
-                        <OptionInput value={fProvider}>{providerLabel(fProvider)}</OptionInput>
+                        <SelectOption value={fProvider}>{providerLabel(fProvider)}</SelectOption>
                     {/if}
                     {#each providerOptions as opt (opt.id)}
-                        <OptionInput value={opt.id}>{opt.name}</OptionInput>
+                        <SelectOption value={opt.id}>{opt.name}</SelectOption>
                     {/each}
-                </SelectInput>
+                </Select>
             </div>
             <div class="flex flex-col gap-1">
                 <span class="text-sm text-maintext">{language.apiKeyValue}</span>
                 <SecretInput bind:value={fKey} fullwidth />
             </div>
             <div class="flex justify-end gap-2">
-                <ShButton variant="outline" size="sm" onclick={closeForm}>{language.cancel}</ShButton>
-                <ShButton variant="primary" size="sm" onclick={save}>{language.apiKeyFormSave}</ShButton>
+                <Button variant="outline" size="sm" onclick={closeForm}>{language.cancel}</Button>
+                <Button variant="primary" size="sm" onclick={save}>{language.apiKeyFormSave}</Button>
             </div>
         </div>
     {/snippet}
@@ -141,16 +141,16 @@
     {#if formOpen && editId === null}
         {@render apiKeyForm()}
     {:else}
-        <ShButton variant="outline" size="default" className="w-full" onclick={openAdd}>
+        <Button variant="outline" size="default" className="w-full" onclick={openAdd}>
             <PlusIcon />
             <span class="ml-1">{language.apiKeyAdd}</span>
-        </ShButton>
+        </Button>
     {/if}
 
     {#if entries.length === 0}
         <div class="text-subtext text-sm text-center py-6">{language.apiKeyPoolEmpty}</div>
     {:else}
-        <ShSortableList
+        <SortableList
             className="flex flex-col gap-3"
             disabled={formOpen}
             onReorder={(orderedIds) => reorderApiKeys(orderedIds)}
@@ -181,6 +181,6 @@
                     {@render apiKeyForm()}
                 {/if}
             {/each}
-        </ShSortableList>
+        </SortableList>
     {/if}
 </div>

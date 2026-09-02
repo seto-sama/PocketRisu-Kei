@@ -39,16 +39,13 @@
     processHypaV3Message,
     getCategoryName,
   } from "./utils";
-  import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-  import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-  import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-  import ShBadge from "src/lib/UI/GUI/ShBadge.svelte";
-  import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-  import ShDropdownMenu from "src/lib/UI/GUI/ShDropdownMenu.svelte";
-  import ShDropdownMenuContent from "src/lib/UI/GUI/ShDropdownMenuContent.svelte";
-  import ShDropdownMenuItem from "src/lib/UI/GUI/ShDropdownMenuItem.svelte";
-  import ShDropdownMenuTrigger from "src/lib/UI/GUI/ShDropdownMenuTrigger.svelte";
-  import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
+  import IconButton from "../../UI/components/IconButton.svelte";
+  import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+  import Textarea from "../../UI/components/Textarea.svelte";
+  import Badge from "../../UI/components/Badge.svelte";
+  import Button from "../../UI/components/Button.svelte";
+    import * as DropdownMenu from "../../UI/components/dropdown-menu";
+  import Checkbox from "../../UI/components/Checkbox.svelte";
 
   interface Props {
     summaryIndex: number;
@@ -379,7 +376,7 @@
     <div class="flex min-w-0 flex-wrap items-center gap-2">
       <!-- Bulk Edit Checkbox -->
       {#if resummarySelectionState.isEnabled}
-        <CheckInput
+        <Checkbox
           card
           check={isSelected()}
           hiddenName
@@ -399,10 +396,10 @@
         )}</span
       >
 
-      <ShDropdownMenu>
-        <ShDropdownMenuTrigger>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <ShButton
+            <Button
               {...props}
               size="xs"
               variant="secondary"
@@ -411,12 +408,12 @@
               <TagIcon />
               {getCategoryName(summary.categoryId, categories)}
               <CategoryChevronDownIcon />
-            </ShButton>
+            </Button>
           {/snippet}
-        </ShDropdownMenuTrigger>
-        <ShDropdownMenuContent align="start" class="min-w-40">
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content align="start" class="min-w-40">
           {#each categories as category}
-            <ShDropdownMenuItem
+            <DropdownMenu.Item
               onSelect={() => {
                 summary.categoryId = category.id || undefined;
               }}
@@ -426,32 +423,32 @@
               {#if (summary.categoryId || "") === category.id}
                 <CheckIcon class="text-primary" />
               {/if}
-            </ShDropdownMenuItem>
+            </DropdownMenu.Item>
           {/each}
-        </ShDropdownMenuContent>
-      </ShDropdownMenu>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
 
       {#if filterSelected && hypaV3Data.metrics}
         <div class="flex flex-wrap gap-1">
           {#if hypaV3Data.metrics.lastImportantSummaries.includes(summaryIndex)}
-            <ShBadge variant="info">
+            <Badge variant="info">
               Important
-            </ShBadge>
+            </Badge>
           {/if}
           {#if hypaV3Data.metrics.lastRecentSummaries.includes(summaryIndex)}
-            <ShBadge variant="secondary">
+            <Badge variant="secondary">
               Recent
-            </ShBadge>
+            </Badge>
           {/if}
           {#if hypaV3Data.metrics.lastSimilarSummaries.includes(summaryIndex)}
-            <ShBadge variant="success">
+            <Badge variant="success">
               Similar
-            </ShBadge>
+            </Badge>
           {/if}
           {#if hypaV3Data.metrics.lastRandomSummaries.includes(summaryIndex)}
-            <ShBadge variant="warning">
+            <Badge variant="warning">
               Random
-            </ShBadge>
+            </Badge>
           {/if}
         </div>
       {/if}
@@ -512,7 +509,7 @@
 
   <!-- Original Summary -->
   <div class="mt-3">
-    <TextAreaInput
+    <Textarea
       fullwidth
       actionBar
       commitMode="input"
@@ -534,7 +531,7 @@
         {language.hypaV3Modal.translationLabel}
       </div>
 
-      <TextAreaInput
+      <Textarea
         fullwidth
         actionBar
         className="bg-darkbg"
@@ -590,7 +587,7 @@
 
     <!-- Rerolled Summary -->
     <div class="mt-3">
-      <TextAreaInput
+      <Textarea
         fullwidth
         actionBar
         commitMode="input"
@@ -607,7 +604,7 @@
           {language.hypaV3Modal.rerolledTranslationLabel}
         </div>
 
-        <TextAreaInput
+        <Textarea
           fullwidth
           actionBar
           className="bg-darkbg"
@@ -693,7 +690,7 @@
             </div>
 
             <!-- Content -->
-            <TextAreaInput
+            <Textarea
               fullwidth
               actionBar
               className="bg-darkbg"
@@ -723,7 +720,7 @@
             {language.hypaV3Modal.connectedMessageTranslationLabel}
           </div>
 
-          <TextAreaInput
+          <Textarea
             fullwidth
             actionBar
             className="bg-darkbg"

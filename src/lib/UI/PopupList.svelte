@@ -2,7 +2,7 @@
     import { closePopup, popupStore } from "src/ts/stores.svelte";
     import { sleep } from "src/ts/util";
     import { onMount } from "svelte";
-    import OverlayPortal from "./GUI/OverlayPortal.svelte";
+    import OverlayPortal from "./components/overlay/OverlayPortal.svelte";
     import { getVisualViewportBounds } from "src/ts/gui/visualViewport";
 
     let viewport = $state(getVisualViewportBounds());

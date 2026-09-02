@@ -15,10 +15,10 @@
 <script lang="ts">
     import { KeyRoundIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import SecretInput from "src/lib/UI/GUI/SecretInput.svelte";
+    import Button from "../UI/components/Button.svelte";
+    import Select from "../UI/components/Select.svelte";
+    import SelectOption from "../UI/components/SelectOption.svelte";
+    import SecretInput from "../UI/components/SecretInput.svelte";
     import type { ApiKeyPoolEntry } from "src/ts/preset/types";
 
     interface Props {
@@ -61,7 +61,7 @@
 </script>
 
 <div class="flex shrink-0 items-start gap-2 self-end">
-    <ShButton
+    <Button
         variant={mode === 'pool' ? 'primary' : 'outline'}
         size="icon-sm"
         aria-label={language.apiKeyModePool}
@@ -70,22 +70,22 @@
         onclick={toggleMode}
     >
         <KeyRoundIcon />
-    </ShButton>
+    </Button>
 
     <div class="w-48">
         {#if mode === 'pool'}
             {#if entries.length === 0 && !danglingRef}
                 <div class="flex h-8 items-center text-xs text-subtext">{language.apiKeyPoolEmpty}</div>
             {:else}
-                <SelectInput className="w-48" size="sm" value={selectedId} onchange={(event) => onSelect(String(event.currentTarget.value))}>
-                    <OptionInput value="">{language.apiKeySelectNone}</OptionInput>
+                <Select className="w-48" size="sm" value={selectedId} onchange={(event) => onSelect(String(event.currentTarget.value))}>
+                    <SelectOption value="">{language.apiKeySelectNone}</SelectOption>
                     {#if danglingRef}
-                        <OptionInput value={selectedId}>{language.apiKeyDeletedOption}</OptionInput>
+                        <SelectOption value={selectedId}>{language.apiKeyDeletedOption}</SelectOption>
                     {/if}
                     {#each entries as entry (entry.id)}
-                        <OptionInput value={entry.id}>{entry.name}{showProvider && entry.provider ? ` (${entry.provider})` : ''}</OptionInput>
+                        <SelectOption value={entry.id}>{entry.name}{showProvider && entry.provider ? ` (${entry.provider})` : ''}</SelectOption>
                     {/each}
-                </SelectInput>
+                </Select>
             {/if}
         {:else}
             <SecretInput
@@ -96,9 +96,9 @@
             />
             {#if showSaveDirect}
                 <div class="flex justify-end mt-1">
-                    <ShButton variant="ghost" size="sm" onclick={onSaveDirect}>
+                    <Button variant="ghost" size="sm" onclick={onSaveDirect}>
                         {language.apiKeySave}
-                    </ShButton>
+                    </Button>
                 </div>
             {/if}
         {/if}

@@ -4,15 +4,15 @@
     import { language } from "../../../lang";
     import { DownloadIcon, UploadIcon, PlusIcon, SunIcon, LinkIcon, FolderPlusIcon } from "@lucide/svelte";
     import { addLorebook, addLorebookFolder, exportLoreBook, importLoreBook } from "../../../ts/process/lorebook.svelte";
-    import NumberInput from "../../UI/GUI/NumberInput.svelte";
-    import ShSettings from "../../UI/GUI/ShSettings.svelte";
-    import ShSwitch from "../../UI/GUI/ShSwitch.svelte";
+    import NumberInput from "../../UI/components/NumberInput.svelte";
+    import SettingsList from "../../UI/components/SettingsList.svelte";
+    import Switch from "../../UI/components/Switch.svelte";
     import LoreBookList from "./LoreBookList.svelte";
     import Help from "src/lib/Others/Help.svelte";
     import { selectedCharID } from "src/ts/stores.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-    import ShChoiceGroup from "src/lib/UI/GUI/ShChoiceGroup.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import ChoiceGroup from "../../UI/components/ChoiceGroup.svelte";
 
     let submenu = $state('character')
     let loreSubmenu = $derived(submenu === 'character' ? 0 : 1)
@@ -67,7 +67,7 @@
 </script>
 
 <div class="w-full shrink-0">
-<ShChoiceGroup
+<ChoiceGroup
     variant="pill"
     size="md"
     name="lorebookSubmenu"
@@ -93,33 +93,33 @@
 {#if submenu !== 'settings'}
     <LoreBookList submenu={loreSubmenu} />
 {:else}
-    <ShSettings spacing="none">
-        <ShSettings variant="row">
+    <SettingsList spacing="none">
+        <SettingsList variant="row">
             <span class="min-w-0 text-maintext">{language.useGlobalSettings}</span>
-            <ShSwitch
+            <Switch
                 checked={!DBState.db.characters[$selectedCharID].loreSettings}
                 onCheckedChange={setUseGlobalSettings}
             />
-        </ShSettings>
+        </SettingsList>
         {#if DBState.db.characters[$selectedCharID].loreSettings}
-            <ShSettings variant="row">
+            <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">{language.recursiveScanning}</span>
-                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].loreSettings.recursiveScanning}/>
-            </ShSettings>
-            <ShSettings variant="row">
+                <Switch bind:checked={DBState.db.characters[$selectedCharID].loreSettings.recursiveScanning}/>
+            </SettingsList>
+            <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">{language.fullWordMatching}</span>
-                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].loreSettings.fullWordMatching}/>
-            </ShSettings>
-            <ShSettings variant="row">
+                <Switch bind:checked={DBState.db.characters[$selectedCharID].loreSettings.fullWordMatching}/>
+            </SettingsList>
+            <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">{language.loreBookDepth}</span>
                 <NumberInput size="sm" className="w-24" min={0} max={20} bind:value={DBState.db.characters[$selectedCharID].loreSettings.scanDepth} />
-            </ShSettings>
-            <ShSettings variant="row">
+            </SettingsList>
+            <SettingsList variant="row">
                 <span class="min-w-0 text-maintext">{language.loreBookToken}</span>
                 <NumberInput size="sm" className="w-24" min={0} max={4096} bind:value={DBState.db.characters[$selectedCharID].loreSettings.tokenBudget} />
-            </ShSettings>
+            </SettingsList>
         {/if}
-    </ShSettings>
+    </SettingsList>
 {/if}
 {#if submenu !== 'settings'}
 

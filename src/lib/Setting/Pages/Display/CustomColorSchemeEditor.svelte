@@ -6,8 +6,8 @@
         importColorScheme,
         updateColorScheme,
     } from 'src/ts/gui/colorscheme';
-    import ColorInput from 'src/lib/UI/GUI/ColorInput.svelte';
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
+    import ColorInput from '../../../UI/components/ColorInput.svelte';
+    import Switch from '../../../UI/components/Switch.svelte';
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte';
     import { language } from 'src/lang';
     import { DownloadIcon, UploadIcon } from '@lucide/svelte';
@@ -36,7 +36,7 @@
 {#if DBState.db.colorSchemeName === 'custom'}
     <SettingLayout variant="row" title="Dark Mode">
         {#snippet control()}
-            <ShSwitch
+            <Switch
                 checked={DBState.db.colorScheme.type === 'dark'}
                 onCheckedChange={(checked) => changeColorSchemeType(checked ? 'dark' : 'light')}
             />

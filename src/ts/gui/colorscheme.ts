@@ -348,6 +348,17 @@ const colorShemes = {
 
 export const ColorSchemeTypeStore = writable('dark' as 'dark'|'light')
 
+const EARLY_COLOR_SCHEME_CACHE_KEY = 'risu-early-color-scheme'
+
+function cacheColorSchemeForNextLoad(colorScheme: ColorScheme) {
+    try {
+        localStorage.setItem(EARLY_COLOR_SCHEME_CACHE_KEY, JSON.stringify(colorScheme))
+    } catch (_) {
+        // The theme still works when storage is unavailable; only the early-load
+        // palette restoration in index.html is skipped.
+    }
+}
+
 export const colorSchemeList = Object.keys(colorShemes) as (keyof typeof colorShemes)[]
 
 // Non-legacy schemes: the app default, the new palette pack, and the still-kept
@@ -433,6 +444,7 @@ export function updateColorScheme(){
         document.documentElement.style.setProperty("--risu-theme-primary", colorScheme.primary);
         document.documentElement.style.setProperty("--risu-theme-accent", colorScheme.accent);
         document.documentElement.style.setProperty("--risu-theme-scoped", colorScheme.scoped);
+        cacheColorSchemeForNextLoad(colorScheme)
         ColorSchemeTypeStore.set(colorScheme.type)
     } catch (error) {}
 }

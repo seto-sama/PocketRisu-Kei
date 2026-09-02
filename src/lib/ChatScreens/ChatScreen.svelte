@@ -9,7 +9,7 @@
     import ChatList from "../Others/ChatList.svelte";
     import TransitionImage from "./TransitionImage.svelte";
     import BackgroundDom from "./BackgroundDom.svelte";
-    import SideBarArrow from "../UI/GUI/SideBarArrow.svelte";
+    import SidebarArrow from "../UI/components/SidebarArrow.svelte";
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
     import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR, getTextOutlineStyle } from 'src/ts/gui/textOutline';
     import { supportsCustomChatBackdrop } from 'src/ts/storage/database.svelte';
@@ -53,7 +53,7 @@
 
 {#if DBState.db.theme === 'waifu'}
     <div bind:this={localPortalTarget} class="grow h-full flex justify-center relative" style="{bgImg.length < 4 ? wallPaper : bgImg}">
-        <SideBarArrow />
+        <SidebarArrow />
         <BackgroundDom />
         {#if $selectedCharID >= 0}
             {#if DBState.db.characters[$selectedCharID].viewScreen !== 'none'}
@@ -68,7 +68,7 @@
     </div>
 {:else}
     <div bind:this={localPortalTarget} class="grow h-full min-w-0 relative justify-center flex">
-        <SideBarArrow />
+        <SidebarArrow />
         <BackgroundDom />
         <div style={defaultLayoutBackground} class="h-full w-full" class:max-w-6xl={DBState.db.classicMaxWidth}>
             {#if $selectedCharID >= 0}

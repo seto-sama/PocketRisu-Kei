@@ -2,8 +2,8 @@
     import { CreativeCommonsIcon } from "@lucide/svelte";
     import { CCLicenseData } from "src/ts/licenses";
     import { openURL } from "src/ts/globalApi.svelte";
-    import ShButton from "../GUI/ShButton.svelte";
-    import ShTooltip from "../GUI/ShTooltip.svelte";
+    import Button from "../components/Button.svelte";
+    import Tooltip from "../components/Tooltip.svelte";
 
     interface Props {
         license?: string;
@@ -13,9 +13,9 @@
 </script>
 
 {#if Object.keys(CCLicenseData).includes(license)}
-    <ShTooltip>
+    <Tooltip>
         {#snippet trigger(props)}
-            <ShButton
+            <Button
                 {...props}
                 variant="link"
                 size="sm"
@@ -26,8 +26,8 @@
             >
                 <CreativeCommonsIcon />
                 Licensed with {CCLicenseData[license][2]}
-            </ShButton>
+            </Button>
         {/snippet}
         {CCLicenseData[license][1]}. The license only applies to the text.
-    </ShTooltip>
+    </Tooltip>
 {/if}

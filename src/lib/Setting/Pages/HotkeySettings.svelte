@@ -3,11 +3,11 @@
     import { DBState, HotkeySubmenuIndex } from "src/ts/stores.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import SettingRenderer from "../SettingRenderer.svelte";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShInput from "src/lib/UI/GUI/ShInput.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
+    import SettingTabs from "../../UI/components/SettingTabs.svelte";
+    import Button from "../../UI/components/Button.svelte";
+    import Input from "../../UI/components/Input.svelte";
+    import Switch from "../../UI/components/Switch.svelte";
     import { hotkeyChatScreenItems } from "src/ts/setting/hotkeySettingsData";
     import { hotkeyActionGroups, isSupportedHotkey, type Hotkey } from "src/ts/defaulthotkeys";
 
@@ -39,7 +39,7 @@
                 {#snippet control()}
                     {#if hotkey.disabled}
                         <div class="flex h-8 items-center">
-                            <ShSwitch
+                            <Switch
                                 checked={false}
                                 ariaLabel={language.hotkeyDesc[hotkey.action] ?? hotkey.action}
                                 onCheckedChange={(checked) => hotkey.disabled = !checked}
@@ -47,31 +47,31 @@
                         </div>
                     {:else}
                         <div class="flex items-center gap-2">
-                            <ShButton
+                            <Button
                                 variant={hotkey.ctrl ? 'default' : 'outline'}
                                 size="sm"
                                 aria-pressed={hotkey.ctrl ?? false}
                                 onclick={() => hotkey.ctrl = !hotkey.ctrl}
                             >
                                 Ctrl
-                            </ShButton>
-                            <ShButton
+                            </Button>
+                            <Button
                                 variant={hotkey.shift ? 'default' : 'outline'}
                                 size="sm"
                                 aria-pressed={hotkey.shift ?? false}
                                 onclick={() => hotkey.shift = !hotkey.shift}
                             >
                                 Shift
-                            </ShButton>
-                            <ShButton
+                            </Button>
+                            <Button
                                 variant={hotkey.alt ? 'default' : 'outline'}
                                 size="sm"
                                 aria-pressed={hotkey.alt ?? false}
                                 onclick={() => hotkey.alt = !hotkey.alt}
                             >
                                 Alt
-                            </ShButton>
-                            <ShInput
+                            </Button>
+                            <Input
                                 value={formatHotkeyKey(hotkey.key)}
                                 readonly
                                 aria-label={`${language.hotkeyDesc[hotkey.action] ?? hotkey.action} ${language.hotkey}`}

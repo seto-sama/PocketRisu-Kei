@@ -11,11 +11,11 @@
     } from '@lucide/svelte'
     import { language } from 'src/lang'
     import RequestLogDetail from 'src/lib/UI/RequestLogDetail.svelte'
-    import SettingTabs from 'src/lib/UI/GUI/SettingTabs.svelte'
-    import ShAlert from 'src/lib/UI/GUI/ShAlert.svelte'
-    import ShBadge from 'src/lib/UI/GUI/ShBadge.svelte'
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
+    import SettingTabs from '../UI/components/SettingTabs.svelte'
+    import Alert from '../UI/components/Alert.svelte'
+    import Badge from '../UI/components/Badge.svelte'
+    import Button from '../UI/components/Button.svelte'
+    import Dialog from '../UI/components/Dialog.svelte'
     import { requestDiagnosticsTabs, type AlertGenerationInfoStoreData, type RequestDiagnosticsTab } from 'src/ts/alert'
     import { aiLawApplies, getFetchData } from 'src/ts/globalApi.svelte'
     import { resolveRequestDiagnosticContext } from 'src/ts/requestDiagnostics'
@@ -144,7 +144,7 @@
     })
 </script>
 
-<ShDialog
+<Dialog
     bind:open
     size="xl"
     closeOnEscape={true}
@@ -221,10 +221,10 @@
                     </div>
                 </section>
 
-                <ShAlert variant="info">
+                <Alert variant="info">
                     {#snippet icon()}<InfoIcon />{/snippet}
                     {language.tokenWarning}
-                </ShAlert>
+                </Alert>
 
                 {#if totalTiming > 0}
                     <section>
@@ -250,12 +250,12 @@
                     {language.systemLogsLoading}
                 </div>
             {:else if requestLogError}
-                <ShAlert variant="destructive">
+                <Alert variant="destructive">
                     {#snippet icon()}<ActivityIcon />{/snippet}
                     {#snippet title()}{language.requestDiagnostics.requestLogLoadFailed}{/snippet}
-                    {#snippet action()}<ShButton variant="outline" size="sm" onclick={() => loadRequestLog(true)}><RefreshCwIcon />{language.requestDiagnostics.retry}</ShButton>{/snippet}
+                    {#snippet action()}<Button variant="outline" size="sm" onclick={() => loadRequestLog(true)}><RefreshCwIcon />{language.requestDiagnostics.retry}</Button>{/snippet}
                     {requestLogError}
-                </ShAlert>
+                </Alert>
             {:else if !requestKey}
                 <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-lightbg/20 px-6 text-center">
                     <ScrollTextIcon size={40} class="mb-3 text-subtext opacity-60" />
@@ -291,10 +291,10 @@
                         {:else}
                             <div class="flex flex-wrap gap-2 rounded-md border border-darkborderc bg-lightbg/30 p-3">
                                 {#each promptInfo.promptToggles ?? [] as toggle}
-                                    <ShBadge variant="secondary" size="md" className="gap-3">
+                                    <Badge variant="secondary" size="md" className="gap-3">
                                         <span class="font-medium text-maintext">{toggle.key}</span>
                                         <span>{toggle.value}</span>
-                                    </ShBadge>
+                                    </Badge>
                                 {/each}
                             </div>
                         {/if}
@@ -307,4 +307,4 @@
             <div class="mt-4 text-sm italic text-subtext">{language.generatedByAIDisclaimer}</div>
         {/if}
     </div>
-</ShDialog>
+</Dialog>

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { language } from 'src/lang';
-    import ShAlert from 'src/lib/UI/GUI/ShAlert.svelte';
+    import Alert from '../../../UI/components/Alert.svelte';
     import { TriangleAlertIcon } from '@lucide/svelte';
 
     interface Props {
@@ -11,7 +11,7 @@
     let message = $derived((language as any)[messageKey] ?? '');
 </script>
 
-<ShAlert variant="warning" className="mt-2 mb-4">
+<Alert variant="warning" className="mt-2 mb-4">
     {#snippet icon()}<TriangleAlertIcon />{/snippet}
     {message}
-</ShAlert>
+</Alert>

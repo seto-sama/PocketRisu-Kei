@@ -2,7 +2,7 @@
     import { TriangleAlertIcon, FlaskConicalIcon, CircleQuestionMarkIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { parseMarkdownSafe } from "src/ts/parser/parser.svelte";
-    import ShTooltip from "src/lib/UI/GUI/ShTooltip.svelte";
+    import Tooltip from "../UI/components/Tooltip.svelte";
 
     interface Props {
         unrecommended?: boolean;
@@ -13,7 +13,7 @@
     let { unrecommended = false, key, name = '' }: Props = $props();
 </script>
 
-<ShTooltip className="[&_p]:m-0 [&_p+p]:mt-2 [&_ul]:my-2 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-2 [&_ol]:pl-4 [&_ol]:list-decimal [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_code]:break-words">
+<Tooltip className="[&_p]:m-0 [&_p+p]:mt-2 [&_ul]:my-2 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-2 [&_ol]:pl-4 [&_ol]:list-decimal [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_code]:break-words">
     {#snippet trigger(props)}
         <span
             {...props}
@@ -38,4 +38,4 @@
         </span>
     {/snippet}
     {@html parseMarkdownSafe(language.help[key])}
-</ShTooltip>
+</Tooltip>
