@@ -147,16 +147,16 @@
     onReorder={reorderPlugins}
 >
     {#if !DBState.db.plugins || DBState.db.plugins?.length === 0}
-        <div class="text-textcolor2 text-sm text-center py-8">{language.noPlugins}</div>
+        <div class="text-subtext text-sm text-center py-8">{language.noPlugins}</div>
     {/if}
     {#if DBState.db.plugins && DBState.db.plugins.length > 0 && visiblePlugins.length === 0}
-        <div class="text-textcolor2 text-sm text-center py-8">{language.noData}</div>
+        <div class="text-subtext text-sm text-center py-8">{language.noData}</div>
     {/if}
     {#each visiblePlugins as { plugin, index } (plugin.name)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
             data-sortable-key={pluginKey(plugin, index)}
-            class="mt-2 flex items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
+            class="mt-2 flex items-center text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
             role="button"
             tabindex="0"
             onclick={() => {
@@ -169,14 +169,14 @@
             }
         }}>
             <div class="flex flex-col min-w-0 grow">
-                <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
+                <span class="text-sm text-maintext truncate flex items-center gap-1.5">
                     <span class="truncate">{pluginTitle(plugin)}</span>
                 </span>
-                <span class="text-xs text-textcolor2 truncate">{pluginDescription(plugin)}</span>
+                <span class="text-xs text-subtext truncate">{pluginDescription(plugin)}</span>
             </div>
             <IconButtonGroup size="default" className="no-sort shrink-0 ml-2">
             {#if plugin.version === 2 || plugin.version === "2.1"}
-                <IconButton title={language.pluginV2WarningTitle} aria-label={language.pluginV2WarningTitle} className="text-yellow-400" onclick={(e) => {
+                <IconButton title={language.pluginV2WarningTitle} aria-label={language.pluginV2WarningTitle} className="text-warning" onclick={(e) => {
                     e.stopPropagation()
                     alertMd(language.pluginV2Warning);
                 }} >
@@ -191,7 +191,7 @@
                             href={link.link}
                             target="_blank"
                             rel="nofollow noopener noreferrer"
-                            class="inline-flex size-6 shrink-0 items-center justify-center text-textcolor2 risu-interactive-accent"
+                            class="inline-flex size-6 shrink-0 items-center justify-center text-subtext risu-interactive-accent"
                             title={link.hoverText ?? link.link}
                             aria-label={link.hoverText ?? link.link}
                             onclick={(e) => { e.stopPropagation() }}
@@ -208,7 +208,7 @@
                         <IconButton
                             title={language.updatePlugin}
                             aria-label={language.updatePlugin}
-                            className="text-green-400"
+                            className="text-success"
                             onclick={async (e) => {
                                 e.stopPropagation()
                                 const v = await alertConfirm(
@@ -313,7 +313,7 @@
             </IconButtonGroup>
         </div>
         {#if plugin.version === 1}
-            <span class="text-draculared text-xs">
+            <span class="text-danger text-xs">
                 {language.pluginVersionWarn
                     .replace("{{plugin_version}}", "API V1")
                     .replace("{{required_version}}", "API V3")}
@@ -338,7 +338,7 @@
                         {/if}
                         <span class="mb-2 mt-6">{plugin?.argMeta?.[arg]?.name || arg}</span>
                         {#if plugin?.argMeta?.[arg]?.description}
-                            <span class="mb-2 text-xs text-textcolor2">{plugin?.argMeta?.[arg]?.description}</span>
+                            <span class="mb-2 text-xs text-subtext">{plugin?.argMeta?.[arg]?.description}</span>
                         {/if}
                         {#if Array.isArray(plugin.arguments[arg])}
                             <SelectInput
@@ -428,7 +428,7 @@
     {/each}
 </ShSortableList>
 
-<span class="block text-draculared text-xs mt-4">{language.pluginWarn}</span>
+<span class="block text-danger text-xs mt-4">{language.pluginWarn}</span>
 {/snippet}
 
 {#if embedded}

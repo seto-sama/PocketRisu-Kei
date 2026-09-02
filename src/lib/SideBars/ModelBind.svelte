@@ -41,7 +41,7 @@
 </script>
 
 <div class="flex flex-col gap-1 mt-4">
-    <div class="text-[11px] text-textcolor2 px-1">{language.modelPresetBindingTitle}</div>
+    <div class="text-[11px] text-subtext px-1">{language.modelPresetBindingTitle}</div>
 
     {#if currentChat?.modelBinding}
         <ModelPresetList showConfigure warnIfEmpty bind:value={currentChat.modelBinding.main} />
@@ -59,13 +59,13 @@
                     <span class="min-w-0">{language.seperateModelsForAxModels}</span>
                     <ShSwitch className="shrink-0" bind:checked={currentChat.modelBinding.separateAux} />
                 </div>
-                <div class="text-[11px] text-textcolor2 px-1">{language.axModelMemory}</div>
+                <div class="text-[11px] text-subtext px-1">{language.axModelMemory}</div>
                 <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.memory} />
-                <div class="text-[11px] text-textcolor2 px-1">{language.axModelTranslate}</div>
+                <div class="text-[11px] text-subtext px-1">{language.axModelTranslate}</div>
                 <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.translate} />
-                <div class="text-[11px] text-textcolor2 px-1">{language.axModelEmotion}</div>
+                <div class="text-[11px] text-subtext px-1">{language.axModelEmotion}</div>
                 <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.emotion} />
-                <div class="text-[11px] text-textcolor2 px-1">{language.axModelOther}</div>
+                <div class="text-[11px] text-subtext px-1">{language.axModelOther}</div>
                 <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.otherAx} />
             </div>
         {/if}

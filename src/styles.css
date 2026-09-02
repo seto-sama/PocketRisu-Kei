@@ -21,15 +21,25 @@
 @theme {
   --breakpoint-xs: 25rem;
 
-  --color-bgcolor: var(--risu-theme-bgcolor);
+  --color-lightbg: var(--risu-theme-lightbg);
   --color-darkbg: var(--risu-theme-darkbg);
-  --color-borderc: var(--risu-theme-borderc);
+  --color-lightborderc: var(--risu-theme-lightborderc);
   --color-selected: var(--risu-theme-selected);
-  --color-draculared: var(--risu-theme-draculared);
-  --color-textcolor: var(--risu-theme-textcolor);
-  --color-textcolor2: var(--risu-theme-textcolor2);
+  --color-danger: var(--risu-theme-danger);
+  --color-maintext: var(--risu-theme-maintext);
+  --color-subtext: var(--risu-theme-subtext);
+  --color-themewhite: var(--risu-theme-white);
+  --color-themeblack: var(--risu-theme-black);
   --color-darkborderc: var(--risu-theme-darkborderc);
-  --color-darkbutton: var(--risu-theme-darkbutton);
+  --color-button: var(--risu-theme-button);
+
+  /* Legacy utility aliases for plugins and custom markup. */
+  --color-bgcolor: var(--risu-theme-lightbg);
+  --color-borderc: var(--risu-theme-lightborderc);
+  --color-darkbutton: var(--risu-theme-button);
+  --color-textcolor: var(--risu-theme-maintext);
+  --color-textcolor2: var(--risu-theme-subtext);
+  --color-draculared: var(--risu-theme-danger);
   --color-success: var(--risu-theme-success);
   --color-primary: var(--risu-theme-primary);
   --color-warning: var(--risu-theme-warning);
@@ -46,66 +56,11 @@
   --color-syntax-depth-4: var(--risu-theme-accent);
 
   /* Non-nesting syntax roles reuse the same theme hues. */
-  --color-syntax-comment: var(--risu-theme-textcolor2);
+  --color-syntax-comment: var(--risu-theme-subtext);
   --color-syntax-type: var(--risu-theme-primary);
   --color-syntax-keyword: var(--risu-theme-accent);
   --color-syntax-variable: var(--risu-theme-highlight);
   --color-syntax-literal: var(--risu-theme-scoped);
-
-  --color-primary-50: var(--risu-theme-primary-50);
-  --color-primary-100: var(--risu-theme-primary-100);
-  --color-primary-200: var(--risu-theme-primary-200);
-  --color-primary-300: var(--risu-theme-primary-300);
-  --color-primary-400: var(--risu-theme-primary-400);
-  --color-primary-500: var(--risu-theme-primary-500);
-  --color-primary-600: var(--risu-theme-primary-600);
-  --color-primary-700: var(--risu-theme-primary-700);
-  --color-primary-800: var(--risu-theme-primary-800);
-  --color-primary-900: var(--risu-theme-primary-900);
-
-  --color-secondary-50: var(--risu-theme-secondary-50);
-  --color-secondary-100: var(--risu-theme-secondary-100);
-  --color-secondary-200: var(--risu-theme-secondary-200);
-  --color-secondary-300: var(--risu-theme-secondary-300);
-  --color-secondary-400: var(--risu-theme-secondary-400);
-  --color-secondary-500: var(--risu-theme-secondary-500);
-  --color-secondary-600: var(--risu-theme-secondary-600);
-  --color-secondary-700: var(--risu-theme-secondary-700);
-  --color-secondary-800: var(--risu-theme-secondary-800);
-  --color-secondary-900: var(--risu-theme-secondary-900);
-
-  --color-danger-50: var(--risu-theme-danger-50);
-  --color-danger-100: var(--risu-theme-danger-100);
-  --color-danger-200: var(--risu-theme-danger-200);
-  --color-danger-300: var(--risu-theme-danger-300);
-  --color-danger-400: var(--risu-theme-danger-400);
-  --color-danger-500: var(--risu-theme-danger-500);
-  --color-danger-600: var(--risu-theme-danger-600);
-  --color-danger-700: var(--risu-theme-danger-700);
-  --color-danger-800: var(--risu-theme-danger-800);
-  --color-danger-900: var(--risu-theme-danger-900);
-
-  --color-neutral-50: var(--risu-theme-neutral-50);
-  --color-neutral-100: var(--risu-theme-neutral-100);
-  --color-neutral-200: var(--risu-theme-neutral-200);
-  --color-neutral-300: var(--risu-theme-neutral-300);
-  --color-neutral-400: var(--risu-theme-neutral-400);
-  --color-neutral-500: var(--risu-theme-neutral-500);
-  --color-neutral-600: var(--risu-theme-neutral-600);
-  --color-neutral-700: var(--risu-theme-neutral-700);
-  --color-neutral-800: var(--risu-theme-neutral-800);
-  --color-neutral-900: var(--risu-theme-neutral-900);
-
-  --color-success-50: var(--risu-theme-success-50);
-  --color-success-100: var(--risu-theme-success-100);
-  --color-success-200: var(--risu-theme-success-200);
-  --color-success-300: var(--risu-theme-success-300);
-  --color-success-400: var(--risu-theme-success-400);
-  --color-success-500: var(--risu-theme-success-500);
-  --color-success-600: var(--risu-theme-success-600);
-  --color-success-700: var(--risu-theme-success-700);
-  --color-success-800: var(--risu-theme-success-800);
-  --color-success-900: var(--risu-theme-success-900);
 
   --min-width-2: 0.5rem;
   --min-width-5: 1.25rem;
@@ -155,7 +110,7 @@
   --height-124: 32rem;
   --height-138: 36rem;
 
-  --default-ring-color: var(--color-borderc);
+  --default-ring-color: var(--color-lightborderc);
 }
 
 /*
@@ -233,11 +188,11 @@
 }
 
 @utility risu-interactive-foreground {
-  @apply hover:text-textcolor;
+  @apply hover:text-maintext;
 }
 
 @utility risu-interactive-danger {
-  @apply hover:text-draculared;
+  @apply hover:text-danger;
 }
 
 @utility risu-interactive-surface {
@@ -286,11 +241,11 @@
 }
 
 @utility risu-interactive-border {
-  @apply hover:border-borderc;
+  @apply hover:border-lightborderc;
 }
 
 @utility risu-interactive-border-subtle {
-  @apply hover:border-borderc/30;
+  @apply hover:border-lightborderc/30;
 }
 
 @utility risu-interactive-reveal {
@@ -317,21 +272,14 @@
   max-height: calc(100dvh - 2rem);
 }
 
-/*
-  The default border color has changed to `currentcolor` in Tailwind CSS v4,
-  so we've added these compatibility styles to make sure everything still
-  looks the same as it did with Tailwind CSS v3.
-
-  If we ever want to remove these styles, we need to add an explicit border
-  color utility to any element that depends on these defaults.
-*/
+/* Keep unqualified border utilities aligned with the active theme. */
 @layer base {
   *,
   ::after,
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: var(--color-gray-200, currentcolor);
+    border-color: var(--risu-theme-darkborderc);
   }
 
   button:not(:disabled),
@@ -341,7 +289,7 @@
 
   input::placeholder,
   textarea::placeholder {
-    color: var(--risu-theme-textcolor2);
+    color: var(--risu-theme-subtext);
   }
 
   /* Keep the chat composer placeholder on a single line: the textarea height is
@@ -376,7 +324,7 @@ body {
   margin: 0;
   padding: 0;
   margin-top: 0px;
-  background-color: var(--risu-theme-bgcolor);
+  background-color: var(--risu-theme-lightbg);
   overflow-y: hidden;
   overflow-x: hidden;
 }
@@ -389,15 +337,24 @@ body {
   --FontColorQuote1: #8c8d93;
   --FontColorQuote2: #8c8d93;
   --risu-animation-speed: 0.2s;
-  --risu-theme-bgcolor: #282a36;
+  --risu-theme-lightbg: #282a36;
   --risu-theme-darkbg: #21222c;
-  --risu-theme-borderc: #6272a4;
+  --risu-theme-lightborderc: #6272a4;
   --risu-theme-selected: #44475a;
   --risu-theme-darkborderc: #4b5563;
-  --risu-theme-darkbutton: #374151;
-  --risu-theme-textcolor: #f5f5f5;
-  --risu-theme-textcolor2: #64748b;
-  --risu-theme-draculared: #ef4444;
+  --risu-theme-button: #374151;
+  --risu-theme-maintext: #f5f5f5;
+  --risu-theme-subtext: #64748b;
+  /* Legacy CSS variable aliases. */
+  --risu-theme-bgcolor: var(--risu-theme-lightbg);
+  --risu-theme-borderc: var(--risu-theme-lightborderc);
+  --risu-theme-darkbutton: var(--risu-theme-button);
+  --risu-theme-textcolor: var(--risu-theme-maintext);
+  --risu-theme-textcolor2: var(--risu-theme-subtext);
+  --risu-theme-draculared: var(--risu-theme-danger);
+  --risu-theme-white: #ffffff;
+  --risu-theme-black: #000000;
+  --risu-theme-danger: #ef4444;
   --risu-theme-highlight: #f59e0b;
   --risu-theme-warning: #ffca1e;
   --risu-theme-success: #4ade80;
@@ -408,8 +365,8 @@ body {
   --risu-theme-accent: #7581ff;
   --risu-theme-scoped: #a470ff;
   --risu-black-50: rgb(0 0 0 / 50%);
-  --risu-status-danger-bg: color-mix(in srgb, var(--risu-theme-draculared) 15%, var(--risu-theme-darkbg));
-  --risu-status-danger-border: color-mix(in srgb, var(--risu-theme-draculared) 45%, var(--risu-theme-darkborderc));
+  --risu-status-danger-bg: color-mix(in srgb, var(--risu-theme-danger) 15%, var(--risu-theme-darkbg));
+  --risu-status-danger-border: color-mix(in srgb, var(--risu-theme-danger) 45%, var(--risu-theme-darkborderc));
   --risu-status-warning-bg: color-mix(in srgb, var(--risu-theme-warning) 15%, var(--risu-theme-darkbg));
   --risu-status-warning-border: color-mix(in srgb, var(--risu-theme-warning) 45%, var(--risu-theme-darkborderc));
   --risu-status-info-bg: color-mix(in srgb, var(--risu-theme-accent) 15%, var(--risu-theme-darkbg));
@@ -418,66 +375,12 @@ body {
   --risu-status-success-border: color-mix(in srgb, var(--risu-theme-success) 45%, var(--risu-theme-darkborderc));
   --risu-font-family: Arial, sans-serif, serif;
 
-  --risu-theme-neutral-50: #f9fafb;
-  --risu-theme-neutral-100: #f3f4f6;
-  --risu-theme-neutral-200: #e5e7eb;
-  --risu-theme-neutral-300: #d1d5db;
-  --risu-theme-neutral-400: #9ca3af;
-  --risu-theme-neutral-500: #6b7280;
-  --risu-theme-neutral-600: #4b5563;
-  --risu-theme-neutral-700: #374151;
-  --risu-theme-neutral-800: #1f2937;
-  --risu-theme-neutral-900: #111827;
-
-  --risu-theme-primary-50: #eff6ff;
-  --risu-theme-primary-100: #dbeafe;
-  --risu-theme-primary-200: #bfdbfe;
-  --risu-theme-primary-300: #93c5fd;
-  --risu-theme-primary-400: #60a5fa;
-  --risu-theme-primary-500: #3b82f6;
-  --risu-theme-primary-600: #2563eb;
-  --risu-theme-primary-700: #1d4ed8;
-  --risu-theme-primary-800: #1e40af;
-  --risu-theme-primary-900: #1e3a8a;
-
-  --risu-theme-secondary-50: #f5f3ff;
-  --risu-theme-secondary-100: #ede9fe;
-  --risu-theme-secondary-200: #ddd6fe;
-  --risu-theme-secondary-300: #c4b5fd;
-  --risu-theme-secondary-400: #a78bfa;
-  --risu-theme-secondary-500: #8b5cf6;
-  --risu-theme-secondary-600: #7c3aed;
-  --risu-theme-secondary-700: #6d28d9;
-  --risu-theme-secondary-800: #5b21b6;
-  --risu-theme-secondary-900: #4c1d95;
-
-  --risu-theme-danger-50: #fef2f2;
-  --risu-theme-danger-100: #fee2e2;
-  --risu-theme-danger-200: #fecaca;
-  --risu-theme-danger-300: #fca5a5;
-  --risu-theme-danger-400: #f87171;
-  --risu-theme-danger-500: #ef4444;
-  --risu-theme-danger-600: #dc2626;
-  --risu-theme-danger-700: #b91c1c;
-  --risu-theme-danger-800: #991b1b;
-  --risu-theme-danger-900: #7f1d1d;
-
-  --risu-theme-success-50: #f0fdf4;
-  --risu-theme-success-100: #dcfce7;
-  --risu-theme-success-200: #bbf7d0;
-  --risu-theme-success-300: #86efac;
-  --risu-theme-success-400: #4ade80;
-  --risu-theme-success-500: #22c55e;
-  --risu-theme-success-600: #16a34a;
-  --risu-theme-success-700: #15803d;
-  --risu-theme-success-800: #166534;
-  --risu-theme-success-900: #14532d;
 }
 
 .risu-status-danger {
   background: var(--risu-status-danger-bg);
   border-color: var(--risu-status-danger-border);
-  color: var(--risu-theme-draculared);
+  color: var(--risu-theme-danger);
 }
 
 .risu-status-warning {
@@ -500,7 +403,7 @@ body {
 
 .risu-toaster {
   --normal-bg: var(--risu-theme-darkbg) !important;
-  --normal-text: var(--risu-theme-textcolor) !important;
+  --normal-text: var(--risu-theme-maintext) !important;
   --normal-border: var(--risu-theme-darkborderc) !important;
   --success-bg: var(--risu-status-success-bg) !important;
   --success-text: var(--risu-theme-success) !important;
@@ -512,7 +415,7 @@ body {
   --warning-text: var(--risu-theme-warning) !important;
   --warning-border: var(--risu-status-warning-border) !important;
   --error-bg: var(--risu-status-danger-bg) !important;
-  --error-text: var(--risu-theme-draculared) !important;
+  --error-text: var(--risu-theme-danger) !important;
   --error-border: var(--risu-status-danger-border) !important;
   font-family: inherit;
   /* bits-ui dialogs disable pointer events on body while modal. Sonner is a
@@ -545,7 +448,7 @@ body {
 }
 
 .chattext2 pre {
-  background-color: var(--risu-theme-bgcolor);
+  background-color: var(--risu-theme-lightbg);
   padding: 0.5rem;
   overflow-x: auto;
 }
@@ -635,18 +538,18 @@ body {
 
 /* Hovering any scrollable area (hover bubbles to ancestors) reveals the thumb. */
 *:hover::-webkit-scrollbar-thumb {
-  background-color: color-mix(in srgb, var(--color-textcolor2) 35%, transparent);
+  background-color: color-mix(in srgb, var(--color-subtext) 35%, transparent);
 }
 
 /* Stronger when pointing directly at the thumb. */
 ::-webkit-scrollbar-thumb:hover {
-  background-color: color-mix(in srgb, var(--color-textcolor2) 55%, transparent);
+  background-color: color-mix(in srgb, var(--color-subtext) 55%, transparent);
 }
 
 /* Firefox: thin neutral scrollbar (inherits from root; no per-element auto-hide). */
 html {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--color-textcolor2) 35%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--color-subtext) 35%, transparent) transparent;
 }
 
 * {
@@ -675,7 +578,7 @@ html {
 }
 
 .risu-field-border:focus-within {
-  border-color: var(--risu-theme-borderc);
+  border-color: var(--risu-theme-lightborderc);
 }
 
 .x-risu-risu-file {
@@ -691,7 +594,7 @@ html {
 }
 
 .x-risu-button-default {
-  @apply border text-textcolor rounded-md shadow-xs transition-colors duration-200 border-darkborderc px-4 py-2 bg-darkbutton hover:bg-borderc;
+  @apply border text-maintext rounded-md shadow-xs transition-colors duration-200 border-darkborderc px-4 py-2 bg-button hover:bg-lightborderc;
 }
 
 .loadmove {
@@ -700,14 +603,14 @@ html {
   border: 0.4rem solid transparent;
   width: 1rem;
   height: 1rem;
-  border-top: 0.4rem solid var(--risu-theme-borderc);
-  border-left: 0.4rem solid var(--risu-theme-borderc);
+  border-top: 0.4rem solid var(--risu-theme-lightborderc);
+  border-left: 0.4rem solid var(--risu-theme-lightborderc);
   /* transition colors */
   transition: border-color 0.5s;
 }
 
 .x-risu-risu-comment {
-  @apply border border-darkborderc bg-darkbg text-textcolor rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0;
+  @apply border border-darkborderc bg-darkbg text-maintext rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0;
 }
 
 .prose pre {
@@ -748,12 +651,15 @@ html {
   margin-block: 0;
 }
 
-.x-risu-risu-inlay-image img {
-  @apply rounded-lg max-w-80 w-full;
-  margin: 0;
-  max-width: 100%;
+:is(.x-risu-risu-inlay-image img, .root-loaded-image) {
   filter: drop-shadow(0 0 0.5rem var(--risu-black-50));
   border-radius: 0.5rem;
+}
+
+.x-risu-risu-inlay-image img {
+  @apply max-w-80 w-full;
+  margin: 0;
+  max-width: 100%;
   cursor: zoom-in;
 }
 
@@ -771,7 +677,7 @@ html {
 }
 
 .x-risu-risu-inlay-missing {
-  @apply w-full max-w-80 mx-auto rounded-lg border border-darkborderc/70 bg-darkbg text-textcolor2 flex flex-col items-center justify-center text-center px-4 py-6 gap-1;
+  @apply w-full max-w-80 mx-auto rounded-lg border border-darkborderc/70 bg-darkbg text-subtext flex flex-col items-center justify-center text-center px-4 py-6 gap-1;
   min-height: 120px;
   margin-block: 0;
 }
@@ -786,19 +692,11 @@ html {
 }
 
 .x-risu-risu-inlay-missing-title {
-  @apply text-sm font-semibold text-textcolor;
+  @apply text-sm font-semibold text-maintext;
 }
 
 .x-risu-risu-inlay-missing-subtitle {
   @apply text-[11px] opacity-70 break-all;
-}
-
-.x-risu-risu-error {
-  @apply border-2 border-red-700 bg-red-500 text-white rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0 wrap-break-word;
-}
-
-.x-risu-risu-error h1 {
-  @apply text-xl mb-2;
 }
 
 .saving-animation {
@@ -837,13 +735,25 @@ html {
   display: none;
 }
 
+/*
+  Custom HTML themes can contain paint-heavy animations on every message.
+  Pause distant effects without applying layout containment: custom cards have
+  arbitrary heights, so estimated intrinsic sizes would shift scroll geometry.
+*/
+.risu-chat[data-risu-custom-html-visible="false"],
+.risu-chat[data-risu-custom-html-visible="false"] *,
+.risu-chat[data-risu-custom-html-visible="false"] *::before,
+.risu-chat[data-risu-custom-html-visible="false"] *::after {
+  animation-play-state: paused !important;
+}
+
 .chat-message-container:last-of-type .dyna-icon,
 .chat-message-container .dyna-icon.force-show {
   display: block;
 }
 
 .x-risu-tool-call {
-  @apply border border-darkborderc bg-darkbg text-textcolor rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0;
+  @apply border border-darkborderc bg-darkbg text-maintext rounded-md shadow-xs transition-colors duration-200 px-4 py-2 min-w-0;
 }
 
 .root-loaded-image {
@@ -855,8 +765,6 @@ html {
   width: calc(100% - 1rem);
   max-width: 20rem;
   height: auto;
-  border-radius: 0.5rem;
-  box-shadow: 0 2px 4px rgba(137, 137, 137, 0.1);
 }
 
 .root-loaded-image-dynamic {

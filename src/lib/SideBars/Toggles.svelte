@@ -106,10 +106,13 @@
         return norm(current) !== norm(savedVal)
     }
 
-    function toggleRowClass(key: string): string {
+    const toggleRowClass = 'rounded-md gap-0 px-0'
+    const dirtyToggleControlClass = '!border-danger/40 !bg-danger/20 hover:!bg-danger/30 [&_[data-icon-button]]:!text-danger [&_svg]:!text-danger'
+
+    function toggleControlClass(key: string, baseClass = ''): string {
         return isToggleDirty(key)
-            ? 'rounded-md bg-red-900 bg-opacity-15 gap-0 px-0'
-            : 'rounded-md gap-0 px-0'
+            ? `${baseClass} ${dirtyToggleControlClass}`
+            : baseClass
     }
 
 
@@ -157,32 +160,32 @@
                 </ShAccordion>
             </div>
         {:else if toggle.type === 'select'}
-            <ShSettings variant="row" className={toggleRowClass(toggle.key)}>
+            <ShSettings variant="row" className={toggleRowClass}>
                 {#if toggle.value?.trim()}
                     <span class="min-w-0 wrap-break-word pl-1 pr-2">{toggle.value}</span>
                 {/if}
-                <SelectInput className="flex-1 min-w-0" bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]}>
+                <SelectInput className={toggleControlClass(toggle.key, 'flex-1 min-w-0')} bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]}>
                     {#each toggle.options as option, i}
                         <OptionInput value={i.toString()}>{option}</OptionInput>
                     {/each}
                 </SelectInput>
             </ShSettings>
         {:else if toggle.type === 'text'}
-            <ShSettings variant="row" className={toggleRowClass(toggle.key)}>
+            <ShSettings variant="row" className={toggleRowClass}>
                 {#if toggle.value?.trim()}
                     <span class="min-w-0 wrap-break-word pl-1 pr-2">{toggle.value}</span>
                 {/if}
-                <TextInput className="flex-1 min-w-0" bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]} />
+                <TextInput className={toggleControlClass(toggle.key, 'flex-1 min-w-0')} bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]} />
             </ShSettings>
         {:else if toggle.type === 'textarea'}
-            <ShSettings variant="row" align="start" className={toggleRowClass(toggle.key)}>
+            <ShSettings variant="row" align="start" className={toggleRowClass}>
                 {#if toggle.value?.trim()}
                     <span class="min-w-0 wrap-break-word mt-1.5 pl-1 pr-2">{toggle.value}</span>
                 {/if}
-                <TextAreaInput className="flex-1 min-w-0" height='20' bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]} />
+                <TextAreaInput className={toggleControlClass(toggle.key, 'flex-1 min-w-0')} height='20' bind:value={DBState.db.globalChatVariables[`toggle_${toggle.key}`]} />
             </ShSettings>
         {:else if toggle.type === 'caption'}
-            <div class="w-full mt-1 pl-1 text-xs text-textcolor2">
+            <div class="w-full mt-1 pl-1 text-xs text-subtext">
                 {toggle.value}
             </div>
         {:else if toggle.type === 'divider'}
@@ -196,12 +199,12 @@
                 </div>
             {/if}
         {:else}
-            <ShSettings variant="row" className={toggleRowClass(toggle.key)}>
+            <ShSettings variant="row" className={toggleRowClass}>
                 {#if toggle.value?.trim()}
                     <span class="min-w-0 wrap-break-word pl-1 pr-2">{toggle.value}</span>
                 {/if}
                 <ShSwitch
-                    className="shrink-0"
+                    className={toggleControlClass(toggle.key, 'shrink-0')}
                     checked={DBState.db.globalChatVariables[`toggle_${toggle.key}`] === '1'}
                     onCheckedChange={(checked) => {
                         DBState.db.globalChatVariables[`toggle_${toggle.key}`] = checked ? '1' : '0'
@@ -213,7 +216,7 @@
 {/snippet}
 
 {#if !DBState.db.disableToggleBinding}
-<div class="text-[11px] text-textcolor2 mt-4 px-1">{language.toggleBindingLabel}</div>
+<div class="text-[11px] text-subtext mt-4 px-1">{language.toggleBindingLabel}</div>
 <div class="flex gap-1 mt-1 items-stretch">
     {#if isPinned}
         <span use:tooltip={language.togglePinRemove}>

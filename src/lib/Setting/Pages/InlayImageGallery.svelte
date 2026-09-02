@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { AudioLinesIcon, CopyIcon, DownloadIcon, Trash2Icon, VideoIcon } from '@lucide/svelte'
+  import { AudioLinesIcon, CopyIcon, DownloadIcon, LoaderCircleIcon, Trash2Icon, VideoIcon } from '@lucide/svelte'
   import OptionInput from "../../UI/GUI/OptionInput.svelte";
   import CheckInput from '../../UI/GUI/CheckInput.svelte'
   import ShButton from '../../UI/GUI/ShButton.svelte'
@@ -321,9 +321,9 @@
   {#if $InlayGallerySubmenuIndex === 2}
     <SettingRenderer items={inlayImageSettingsItems} layout="row" />
   {:else}
-    <header class="shrink-0 flex flex-col gap-3 bg-bgcolor pb-4">
+    <header class="shrink-0 flex flex-col gap-3 bg-lightbg pb-4">
       <div class="flex flex-wrap gap-3 items-center">
-        <span class="text-textcolor2 text-sm">
+        <span class="text-subtext text-sm">
           {language.inlayGallery.inlayTotalAssets.replace('{count}', filteredItems.length.toString())}
         </span>
         <div class="flex gap-2 ml-auto">
@@ -341,7 +341,7 @@
       {#if tabItems.length > 0}
         <SettingLayout variant="filter" title={language.systemLogsFilters} bind:open={filtersOpen} activeCount={activeFilterCount}>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
-              <div class="flex flex-col gap-1 text-xs text-textcolor2">
+              <div class="flex flex-col gap-1 text-xs text-subtext">
                 <span>{language.inlayGallery.inlaySort}</span>
                 <ShSelect bind:value={sortKey} size="sm">
                   <OptionInput value="updated-desc">{language.inlayGallery.inlaySortUpdatedDesc}</OptionInput>
@@ -350,7 +350,7 @@
                   <OptionInput value="created-asc">{language.inlayGallery.inlaySortCreatedAsc}</OptionInput>
                 </ShSelect>
               </div>
-              <div class="flex flex-col gap-1 text-xs text-textcolor2">
+              <div class="flex flex-col gap-1 text-xs text-subtext">
                 <span>{language.character}</span>
                 <ShSelect bind:value={characterFilter} size="sm">
                   <OptionInput value="">{language.none}</OptionInput>
@@ -359,7 +359,7 @@
                   {/each}
                 </ShSelect>
               </div>
-              <div class="flex flex-col gap-1 text-xs text-textcolor2">
+              <div class="flex flex-col gap-1 text-xs text-subtext">
                 <span>{language.Chat}</span>
                 <ShSelect bind:value={chatFilter} size="sm">
                   <OptionInput value="">{language.none}</OptionInput>
@@ -368,7 +368,7 @@
                   {/each}
                 </ShSelect>
               </div>
-              <div class="flex flex-col gap-1 text-xs text-textcolor2">
+              <div class="flex flex-col gap-1 text-xs text-subtext">
                 <span>{language.inlayGallery.inlayFilter}</span>
                 <ShSelect bind:value={specialFilter} size="sm">
                   <OptionInput value="all">{language.inlayGallery.inlayFilterAll}</OptionInput>
@@ -386,11 +386,11 @@
     <div bind:this={galleryScrollContainer} class="flex-1 min-h-0 overflow-y-auto pr-1 pb-4">
       {#if loading}
         <div class="min-h-full flex flex-col items-center justify-center gap-4">
-          <div class="w-12 h-12 border-4 border-darkborderc border-t-borderc rounded-full animate-spin"></div>
-          <p class="text-textcolor2 text-sm">{language.inlayGallery.inlayLoadingMore}</p>
+          <LoaderCircleIcon class="size-12 animate-spin text-primary" />
+          <p class="text-subtext text-sm">{language.inlayGallery.inlayLoadingMore}</p>
         </div>
       {:else if filteredItems.length === 0}
-        <div class="min-h-full flex flex-col items-center justify-center text-center text-textcolor2">
+        <div class="min-h-full flex flex-col items-center justify-center text-center text-subtext">
           <p class="text-lg">{language.inlayGallery.inlayEmpty}</p>
           <p class="text-sm mt-2">
             {$InlayGallerySubmenuIndex === 0
@@ -405,7 +405,7 @@
             {@const characterName = getCharacterName(item)}
             <div
               class="relative group aspect-[2/3] rounded-lg overflow-hidden bg-darkbg border cursor-pointer select-none transition-colors
-                {selection.has(item.id) ? 'border-borderc' : 'border-darkborderc risu-interactive-border/70'}"
+                {selection.has(item.id) ? 'border-lightborderc' : 'border-darkborderc hover:border-lightborderc/70'}"
               role="button"
               tabindex="0"
               onclick={(event) => handleCardClick(event, item.id)}
@@ -421,7 +421,7 @@
                 />
               {:else if item.type === 'video'}
                 {#if failedVideoThumbnails.has(item.id)}
-                  <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-textcolor2/60">
+                  <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-subtext/60">
                     <VideoIcon size={36} />
                     <span class="text-[10px]">{language.inlayGallery.inlayVideoAsset}</span>
                   </div>
@@ -436,7 +436,7 @@
                   />
                 {/if}
               {:else}
-                <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-textcolor2/60">
+                <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-subtext/60">
                   <AudioLinesIcon size={36} />
                   <span class="text-[10px]">{language.inlayGallery.inlayAudioAsset}</span>
                 </div>
@@ -477,16 +477,16 @@
 
               <div
                 class="absolute inset-x-0 bottom-0 pt-8 pb-2 px-2
-                  bg-gradient-to-t from-black from-[-25%] to-transparent
+                  bg-gradient-to-t from-themeblack from-[-25%] to-transparent
                   opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex flex-col"
               >
-                <p class="text-white text-xs font-medium truncate leading-tight">{item.name}</p>
+                <p class="text-themewhite text-xs font-medium truncate leading-tight">{item.name}</p>
                 {#if characterName}
-                  <p class="text-white/60 text-[10px] truncate leading-tight">{characterName}</p>
+                  <p class="text-themewhite/50 text-[10px] truncate leading-tight">{characterName}</p>
                 {/if}
                 <div class="flex justify-between items-end mt-1.5">
                   <button
-                    class="w-6 h-6 rounded bg-selected/70 hover:bg-borderc flex items-center justify-center text-textcolor transition-colors"
+                    class="w-6 h-6 rounded bg-selected/70 hover:bg-lightborderc flex items-center justify-center text-maintext transition-colors"
                     onclick={(e) => { e.stopPropagation(); copyInlayReference(item.id) }}
                     title={language.copy}
                   >
@@ -494,14 +494,14 @@
                   </button>
                   <div class="flex gap-1.5 justify-end">
                     <button
-                      class="w-6 h-6 rounded bg-selected/70 hover:bg-borderc flex items-center justify-center text-textcolor transition-colors"
+                      class="w-6 h-6 rounded bg-selected/70 hover:bg-lightborderc flex items-center justify-center text-maintext transition-colors"
                       onclick={(e) => { e.stopPropagation(); downloadInlayAsset(item.id) }}
                       title={language.download}
                     >
                       <DownloadIcon size={12} />
                     </button>
                     <button
-                      class="w-6 h-6 rounded bg-draculared/30 hover:bg-draculared/70 flex items-center justify-center text-white transition-colors"
+                      class="w-6 h-6 rounded bg-danger/30 hover:bg-danger/70 flex items-center justify-center text-themewhite transition-colors"
                       onclick={(e) => { e.stopPropagation(); deleteAsset(item.id, item.name) }}
                       title={language.inlayGallery.inlayDelete}
                     >
@@ -516,7 +516,7 @@
 
         {#if hasMore}
           <div use:observePagingSentinel={sortedItems.length} class="flex items-center justify-center py-10">
-            <div class="w-7 h-7 border-4 border-darkborderc border-t-borderc rounded-full animate-spin"></div>
+            <LoaderCircleIcon class="size-7 animate-spin text-primary" />
           </div>
         {/if}
       {/if}
@@ -561,7 +561,7 @@
       ></video>
     {:else if currentViewerItem?.type === 'audio'}
       <div class="flex w-full max-w-xl flex-col items-center gap-6 rounded-lg border border-darkborderc bg-darkbg p-8">
-        <AudioLinesIcon size={64} class="text-textcolor2" />
+        <AudioLinesIcon size={64} class="text-subtext" />
         <audio src={viewerUrl} controls class="w-full"></audio>
       </div>
     {:else}

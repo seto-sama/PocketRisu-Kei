@@ -52,7 +52,7 @@
         <div class="flex max-w-fit flex-wrap items-center gap-2 px-1 pb-1">
             {#if sortedLangs.priority}
                 {#if sortedLangs.priority !== 'xx' || Object.keys(valueObject).length === 1}
-                    <ShButton size="sm" variant={selectedLang === sortedLangs.priority ? 'primary' : 'outline'} className={selectedLang === sortedLangs.priority ? '' : 'text-textcolor2'} aria-pressed={selectedLang === sortedLangs.priority} onclick={(e) => {
+                    <ShButton size="sm" variant={selectedLang === sortedLangs.priority ? 'primary' : 'outline'} className={selectedLang === sortedLangs.priority ? '' : 'text-subtext'} aria-pressed={selectedLang === sortedLangs.priority} onclick={(e) => {
                         e.stopPropagation()
                         selectedLang = sortedLangs.priority
                     }}>{toLangName(sortedLangs.priority)}</ShButton>
@@ -63,7 +63,7 @@
             {/if}
             {#each sortedLangs.rest as lang}
                 {#if lang !== 'xx' || Object.keys(valueObject).length === 1}
-                    <ShButton size="sm" variant={selectedLang === lang ? 'primary' : 'outline'} className={selectedLang === lang ? '' : 'text-textcolor2'} aria-pressed={selectedLang === lang} onclick={(e) => {
+                    <ShButton size="sm" variant={selectedLang === lang ? 'primary' : 'outline'} className={selectedLang === lang ? '' : 'text-subtext'} aria-pressed={selectedLang === lang} onclick={(e) => {
                         e.stopPropagation()
                         selectedLang = lang
                     }}>{toLangName(lang)}</ShButton>

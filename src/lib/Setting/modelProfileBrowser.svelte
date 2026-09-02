@@ -314,10 +314,10 @@
 <OverlayPortal>
 <div class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-124 max-h-full overflow-hidden">
-        <div class="flex items-center text-textcolor mb-4 shrink-0">
+        <div class="flex items-center text-maintext mb-4 shrink-0">
             <h2 class="mt-0 mb-0">{language.selectProfile}</h2>
             <div class="grow flex justify-end">
-                <button class="text-textcolor2 risu-interactive-accent mr-2 cursor-pointer items-center" onclick={close}>
+                <button class="text-subtext risu-interactive-accent mr-2 cursor-pointer items-center" onclick={close}>
                     <XIcon size={20}/>
                 </button>
             </div>
@@ -325,23 +325,23 @@
 
         <div class="shrink-0 flex w-full rounded-md border border-selected mb-3">
             <button
-                class="p-1.5 flex-1 text-sm transition-colors {activeTab === 'official' ? 'bg-selected text-textcolor' : 'text-textcolor2 risu-interactive-foreground'}"
+                class="p-1.5 flex-1 text-sm transition-colors {activeTab === 'official' ? 'bg-selected text-maintext' : 'text-subtext risu-interactive-foreground'}"
                 onclick={() => { activeTab = 'official' }}
             >{language.profileTabOfficial}</button>
             <button
-                class="p-1.5 flex-1 text-sm transition-colors {activeTab === 'custom' ? 'bg-selected text-textcolor' : 'text-textcolor2 risu-interactive-foreground'}"
+                class="p-1.5 flex-1 text-sm transition-colors {activeTab === 'custom' ? 'bg-selected text-maintext' : 'text-subtext risu-interactive-foreground'}"
                 onclick={() => { activeTab = 'custom' }}
             >{language.profileTabCustom}</button>
         </div>
 
         <div class="flex items-center gap-2 mb-3 shrink-0">
-            <SearchIcon size={16} class="text-textcolor2 shrink-0" />
+            <SearchIcon size={16} class="text-subtext shrink-0" />
             <TextInput bind:value={query} placeholder={language.searchProfiles} fullwidth />
         </div>
 
         {#if activeTab === 'custom'}
             <button
-                class="shrink-0 w-full flex items-center justify-center gap-2 mb-3 p-2 rounded-md border border-darkborderc bg-darkbutton risu-interactive-surface-solid text-sm"
+                class="shrink-0 w-full flex items-center justify-center gap-2 mb-3 p-2 rounded-md border border-darkborderc bg-button risu-interactive-surface-solid text-sm"
                 onclick={importProfile}
             >
                 <UploadIcon size={16} class="shrink-0" />
@@ -352,10 +352,10 @@
         {#snippet profileCard(entry: Entry)}
             {@const { profile, baseProvider } = entry}
             {@const localizedDesc = localizeDescription(profile)}
-            <div class="flex items-start text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors">
+            <div class="flex items-start text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors">
                 <button class="flex flex-col min-w-0 grow cursor-pointer text-left" onclick={() => selectProfile(entry)}>
                     <div class="flex items-center gap-2">
-                        <span class="text-sm text-textcolor truncate">{localizeDisplayName(profile)}</span>
+                        <span class="text-sm text-maintext truncate">{localizeDisplayName(profile)}</span>
                         {#if profile.profileStatus !== 'current'}
                             <ShBadge
                                 variant={profile.profileStatus === 'deprecated' ? 'destructive' : 'attention'}
@@ -365,28 +365,28 @@
                             </ShBadge>
                         {/if}
                         {#if baseProvider}
-                            <span class="text-xs text-textcolor2 shrink-0">[{baseProvider.displayName}]</span>
+                            <span class="text-xs text-subtext shrink-0">[{baseProvider.displayName}]</span>
                         {/if}
                     </div>
-                    <span class="text-xs text-textcolor2 truncate">
+                    <span class="text-xs text-subtext truncate">
                         {entry.transientPlugin ? pluginProfileDisplayId(profile.modelId) : profile.id}
                     </span>
                     {#if profile.updatedAt}
-                        <span class="text-xs text-textcolor2">{language.profileUpdatedAtLabel}: {new Date(profile.updatedAt).toLocaleDateString()}</span>
+                        <span class="text-xs text-subtext">{language.profileUpdatedAtLabel}: {new Date(profile.updatedAt).toLocaleDateString()}</span>
                     {/if}
                     {#if localizedDesc}
-                        <span class="text-xs text-textcolor2 mt-1 truncate">{localizedDesc}</span>
+                        <span class="text-xs text-subtext mt-1 truncate">{localizedDesc}</span>
                     {/if}
                     {#if profile.statusReason}
-                        <span class="text-xs text-textcolor2 mt-1 truncate">{profile.statusReason}</span>
+                        <span class="text-xs text-subtext mt-1 truncate">{profile.statusReason}</span>
                     {/if}
                 </button>
                 <div class="flex gap-2 shrink-0 ml-2">
-                    <button class="text-textcolor2 risu-interactive-accent cursor-pointer" title={language.profileExport} onclick={() => exportProfile(profile, baseProvider)}>
+                    <button class="text-subtext risu-interactive-accent cursor-pointer" title={language.profileExport} onclick={() => exportProfile(profile, baseProvider)}>
                         <DownloadIcon size={18}/>
                     </button>
                     {#if activeTab === 'custom'}
-                        <button class="text-textcolor2 risu-interactive-danger cursor-pointer" title={language.profileDelete} onclick={() => deleteCustom(profile)}>
+                        <button class="text-subtext risu-interactive-danger cursor-pointer" title={language.profileDelete} onclick={() => deleteCustom(profile)}>
                             <TrashIcon size={18}/>
                         </button>
                     {/if}
@@ -396,14 +396,14 @@
 
         <div class="flex flex-col gap-1 overflow-y-auto">
             {#if filtered.length === 0}
-                <div class="text-textcolor2 text-sm text-center py-8">
+                <div class="text-subtext text-sm text-center py-8">
                     {activeTab === 'custom' ? language.customProfileEmpty : language.noProfileMatch}
                 </div>
             {:else}
                 {#each groupedByProvider as group (group.id)}
                     <section class="flex flex-col gap-1 mt-2 first:mt-0">
                         <button
-                            class="flex items-center gap-1.5 px-1 py-1 text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
+                            class="flex items-center gap-1.5 px-1 py-1 text-subtext risu-interactive-foreground transition-colors cursor-pointer"
                             onclick={() => toggleProvider(group.id)}
                         >
                             {#if isProviderExpanded(group.id)}

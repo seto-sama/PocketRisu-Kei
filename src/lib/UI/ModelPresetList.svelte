@@ -151,7 +151,7 @@
         {#snippet listFooter()}
             {#if blankable}
                 <button
-                    class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-textcolor2 {!value ? '' : 'risu-interactive-surface'}"
+                    class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-subtext {!value ? '' : 'risu-interactive-surface'}"
                     class:bg-selected={!value}
                     onclick={() => pick('')}
                 >

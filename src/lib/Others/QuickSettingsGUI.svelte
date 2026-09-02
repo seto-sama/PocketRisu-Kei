@@ -27,7 +27,7 @@
     </IconButton>
 </IconButtonGroup>
 
-<div class="relative flex flex-col text-textcolor rs-setting-cont-5">
+<div class="relative flex flex-col text-maintext rs-setting-cont-5">
     {#if QuickSettings.index === 0}
         <OtherBotSettings embedded />
     {:else if QuickSettings.index === 1}

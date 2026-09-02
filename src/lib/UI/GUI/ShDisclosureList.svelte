@@ -64,7 +64,7 @@
     const bodyClasses = $derived(cn(
         'mt-2 w-full flex flex-col',
         '[&_[data-disclosure-field]]:mt-2 [&_[data-disclosure-field]]:flex [&_[data-disclosure-field]]:flex-col',
-        '[&_[data-disclosure-label]]:flex [&_[data-disclosure-label]]:items-center [&_[data-disclosure-label]]:text-textcolor',
+        '[&_[data-disclosure-label]]:flex [&_[data-disclosure-label]]:items-center [&_[data-disclosure-label]]:text-maintext',
         '[&_[data-disclosure-control]]:mt-2 [&_[data-disclosure-control]]:mb-2 [&_[data-disclosure-control]]:flex [&_[data-disclosure-control]]:w-full [&_[data-disclosure-control]]:flex-col',
         '[&_[data-disclosure-row]]:mt-2 [&_[data-disclosure-row]]:mb-2 [&_[data-disclosure-row]]:flex [&_[data-disclosure-row]]:items-center [&_[data-disclosure-row]]:justify-between',
         bodyPadded && 'p-1',
@@ -80,7 +80,7 @@
 
         const preview = document.createElement('div');
         preview.textContent = name;
-        preview.className = 'risu-layer-overlay absolute -top-96 -left-96 px-4 py-2 bg-darkbg text-textcolor2 rounded-sm text-sm whitespace-nowrap shadow-lg pointer-events-none';
+        preview.className = 'risu-layer-overlay absolute -top-96 -left-96 px-4 py-2 bg-darkbg text-subtext rounded-sm text-sm whitespace-nowrap shadow-lg pointer-events-none';
         document.body.appendChild(preview);
         event.dataTransfer.setDragImage(preview, 10, 10);
         setTimeout(() => preview.remove(), 0);
@@ -157,7 +157,7 @@
     }
 
     :global([data-disclosure-action="delete"]) {
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
     }
 
     :global([data-disclosure-divider-tone="muted"] > [data-disclosure-header] > [data-disclosure-actions] > button:not([data-disclosure-action="delete"]):is(:hover, :focus-visible)) {
@@ -166,6 +166,6 @@
 
     :global([data-disclosure-action="delete"]:is(:hover, :focus-visible)),
     :global([data-disclosure-divider-tone="muted"] > [data-disclosure-header] > [data-disclosure-actions] > [data-disclosure-action="delete"]:is(:hover, :focus-visible)) {
-        color: var(--risu-theme-draculared);
+        color: var(--risu-theme-danger);
     }
 </style>

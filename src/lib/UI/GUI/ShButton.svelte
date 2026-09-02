@@ -39,21 +39,19 @@
         "[&_svg]:shrink-0 [&_svg]:pointer-events-none";
 
     const variantClasses: Record<ShButtonVariant, string> = {
-        default:     'bg-darkbutton text-textcolor border border-darkborderc risu-interactive-surface-solid',
-        outline:     'bg-transparent text-textcolor border border-darkborderc risu-interactive-surface',
-        secondary:   'bg-darkbg text-textcolor border border-darkborderc risu-interactive-surface-solid',
-        ghost:       'bg-transparent text-textcolor border border-transparent risu-interactive-surface',
-        destructive: 'bg-draculared/20 text-draculared border border-draculared/40 hover:bg-draculared/30',
+        default:     'bg-button text-maintext border border-darkborderc risu-interactive-surface-solid',
+        outline:     'bg-transparent text-maintext border border-darkborderc risu-interactive-surface',
+        secondary:   'bg-darkbg text-maintext border border-darkborderc risu-interactive-surface-solid',
+        ghost:       'bg-transparent text-maintext border border-transparent risu-interactive-surface',
+        destructive: 'bg-danger/20 text-danger border border-danger/40 hover:bg-danger/30',
         attention:   'bg-highlight/20 text-highlight border border-highlight/40 hover:bg-highlight/30',
         warning:     'bg-warning/20 text-warning border border-warning/40 hover:bg-warning/30',
         success:     'bg-success/20 text-success border border-success/40 hover:bg-success/30',
         // Primary: filled-solid (shadcn vega original pattern, NOT muted).
         // Pairs with ShSwitch checked-track which is also a full bg-primary fill,
-        // so the visual weight matches when both appear in the same form. text
-        // uses textcolor; primary hues per theme are picked dark enough that the
-        // theme textcolor (mostly off-white) stays readable.
-        primary:     'bg-primary text-textcolor border border-transparent risu-interactive-primary',
-        link:        'bg-transparent text-textcolor2 border border-transparent underline-offset-4 hover:underline',
+        // so the visual weight matches when both appear in the same form.
+        primary:     'bg-primary text-themewhite border border-transparent risu-interactive-primary',
+        link:        'bg-transparent text-subtext border border-transparent underline-offset-4 hover:underline',
     };
 
     const sizeClasses: Record<ShButtonSize, string> = {

@@ -104,12 +104,12 @@
             {#if title || description}
                 <div class="flex flex-col gap-1">
                     {#if title}
-                        <AlertDialog.Title class="text-lg font-semibold text-textcolor leading-tight">
+                        <AlertDialog.Title class="text-lg font-semibold text-maintext leading-tight">
                             {@render title()}
                         </AlertDialog.Title>
                     {/if}
                     {#if description}
-                        <AlertDialog.Description class="text-sm text-textcolor2">
+                        <AlertDialog.Description class="text-sm text-subtext">
                             {@render description()}
                         </AlertDialog.Description>
                     {/if}
@@ -123,7 +123,7 @@
             {/if}
 
             {#if children}
-                <div class="text-textcolor wrap-break-word">
+                <div class="text-maintext wrap-break-word">
                     {@render children()}
                 </div>
             {/if}

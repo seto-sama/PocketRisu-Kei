@@ -6,7 +6,7 @@
     }
 
     export function restoreSortableDragOrigin(origin: SortableDragOrigin | null) {
-        if (!origin || origin.item.parentElement !== origin.parent) return;
+        if (!origin || !origin.item.isConnected || !origin.parent.isConnected) return;
         const { item, parent, nextSibling } = origin;
         parent.insertBefore(item, nextSibling?.parentNode === parent ? nextSibling : null);
     }
@@ -100,7 +100,7 @@
         if (previewText) {
             preview.className += ' px-4 py-2 rounded-sm text-sm whitespace-nowrap shadow-lg';
             preview.style.background = 'var(--risu-theme-darkbg)';
-            preview.style.color = 'var(--risu-theme-textcolor2)';
+            preview.style.color = 'var(--risu-theme-subtext)';
         } else {
             const computedStyle = getComputedStyle(previewSource);
             preview.style.backgroundImage = 'none';
@@ -153,9 +153,9 @@
                 } finally {
                     // Sortable mutates the DOM before Svelte updates the keyed list. Restore Svelte's
                     // expected pre-drag DOM so its next reconciliation applies the data order cleanly.
-                    // An external drop target may update the backing data before dragend,
-                    // causing Svelte to detach this item from the keyed list. Re-inserting
-                    // that stale node would resurrect it as an untracked DOM duplicate.
+                    // Cross-list drops must also return the moved node; otherwise it remains in the
+                    // destination beside the new node rendered from the updated backing data. If a
+                    // synchronous update already detached either side, leave the stale node alone.
                     restoreSortableDragOrigin(dragOrigin);
                     keysBeforeDrag = [];
                     dragOrigin = null;

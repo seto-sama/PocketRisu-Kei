@@ -27,6 +27,7 @@ describe('BackupNoteEditor', () => {
         const input = dialog?.querySelector<HTMLInputElement>('input')
         expect(dialog?.parentElement).toBe(document.body)
         expect(input?.value).toBe('Before')
+        expect(document.activeElement).toBe(input)
 
         input!.value = 'After'
         input!.dispatchEvent(new InputEvent('input', { bubbles: true }))
@@ -36,5 +37,25 @@ describe('BackupNoteEditor', () => {
         await tick()
 
         expect(onSave).toHaveBeenCalledWith('After')
+    })
+
+    it('focuses the note input so Enter submits an empty note when the dialog opens', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const onSave = vi.fn().mockResolvedValue(undefined)
+        const component = mount(BackupNoteEditor, {
+            target,
+            props: { open: true, value: '', onSave },
+        })
+        mounted.push(component)
+        await tick()
+
+        const input = document.querySelector<HTMLInputElement>('[role="dialog"] input')
+        expect(document.activeElement).toBe(input)
+
+        input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+        await tick()
+
+        expect(onSave).toHaveBeenCalledWith('')
     })
 })

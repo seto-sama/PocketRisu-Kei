@@ -41,7 +41,7 @@
         onclick={onManage}
     >
         <span class="truncate text-sm grow text-left">{activeName}</span>
-        <ChevronRightIcon class="shrink-0 text-textcolor2" />
+        <ChevronRightIcon class="shrink-0 text-subtext" />
     </ShButton>
 {:else}
     <div
@@ -53,9 +53,9 @@
         class="w-full flex items-center gap-3 bg-darkbg border border-darkborderc rounded-md px-3 py-2.5 mb-4 cursor-pointer risu-interactive-surface transition-colors"
     >
         <div class="flex flex-col min-w-0 grow">
-            <span class="text-xs text-textcolor2">{label}</span>
-            <span class="text-sm text-textcolor truncate">{activeName}</span>
+            <span class="text-xs text-subtext">{label}</span>
+            <span class="text-sm text-maintext truncate">{activeName}</span>
         </div>
-        <ChevronRightIcon size={18} class="shrink-0 text-textcolor2" />
+        <ChevronRightIcon size={18} class="shrink-0 text-subtext" />
     </div>
 {/if}

@@ -7,6 +7,12 @@
     import RealmTagList from "./RealmTagList.svelte";
     import { tooltip } from "src/ts/gui/tooltip";
     import CharacterMasonryIcon from "../CharacterMasonryIcon.svelte";
+    import { language } from "src/lang";
+    import ShContextMenu from "../GUI/ShContextMenu.svelte";
+    import ShContextMenuContent from "../GUI/ShContextMenuContent.svelte";
+    import ShContextMenuItem from "../GUI/ShContextMenuItem.svelte";
+    import ShContextMenuTrigger from "../GUI/ShContextMenuTrigger.svelte";
+    import { muteRealmCharacter, muteRealmCreator } from "src/ts/realmMute";
 
     interface Props {
         onClick?: () => void;
@@ -20,39 +26,51 @@
 
 </script>
 
-{#if iconOnly}
-    <CharacterMasonryIcon
-        src={`${hubURL}/resource/` + chara.img}
-        name={chara.name}
-        hideImage={DBState.db.hideAllImages}
-        onclick={onClick}
-    />
-{:else}
-<ShButton variant="secondary" className="relative h-auto w-full flex-col items-start justify-start whitespace-normal p-4 text-left font-normal" onclick={onClick}>
-    <div class="flex gap-2 w-full">
-    {#if DBState.db.hideAllImages}
-        <div class="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md bg-darkbutton flex items-center justify-center text-textcolor2">
-            <span class="text-4xl">?</span>
-        </div>
-    {:else}
-        <img class="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md object-top object-cover" alt={chara.name} src={`${hubURL}/resource/` + chara.img}>
-    {/if}
-    <div class="flex flex-col grow min-w-0">
-        <span class="text-textcolor text-lg min-w-0 max-w-full text-ellipsis whitespace-nowrap overflow-hidden text-start">{chara.name}</span>
-        <span class="text-textcolor2 text-xs min-w-0 max-w-full text-ellipsis wrap-break-word max-h-8 whitespace-nowrap overflow-hidden text-start">{description}</span>
-        <RealmTagList tags={chara.tags} limit={4} className="mt-1" />
-        <div class="grow"></div>
-        <div class="flex flex-wrap w-full flex-row-reverse gap-1">
-            {#if chara.hasEmotion}
-                <span class="inline-flex text-textcolor2" use:tooltip={'This character includes emotion images'}><SmileIcon /></span>
-            {/if}
-            {#if chara.hasAsset}
-                <span class="inline-flex text-textcolor2" use:tooltip={'This character includes additional assets'}><ImageIcon /></span>
-            {/if}
-            {#if chara.hasLore}
-                <span class="inline-flex text-textcolor2" use:tooltip={'This character includes lorebook'}><BookIcon /></span>
-            {/if}
-        </div>
-    </div>
-</div></ShButton>
-{/if}
+<ShContextMenu>
+    <ShContextMenuTrigger class="block w-full">
+        {#if iconOnly}
+            <CharacterMasonryIcon
+                src={`${hubURL}/resource/` + chara.img}
+                name={chara.name}
+                hideImage={DBState.db.hideAllImages}
+                onclick={onClick}
+            />
+        {:else}
+            <ShButton variant="secondary" className="relative h-auto w-full flex-col items-start justify-start whitespace-normal p-4 text-left font-normal" onclick={onClick}>
+                <div class="flex gap-2 w-full">
+                {#if DBState.db.hideAllImages}
+                    <div class="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md bg-button flex items-center justify-center text-subtext">
+                        <span class="text-4xl">?</span>
+                    </div>
+                {:else}
+                    <img class="w-20 min-w-20 h-20 sm:h-28 sm:w-28 rounded-md object-top object-cover" alt={chara.name} src={`${hubURL}/resource/` + chara.img}>
+                {/if}
+                <div class="flex flex-col grow min-w-0">
+                    <span class="text-maintext text-lg min-w-0 max-w-full text-ellipsis whitespace-nowrap overflow-hidden text-start">{chara.name}</span>
+                    <span class="text-subtext text-xs min-w-0 max-w-full text-ellipsis wrap-break-word max-h-8 whitespace-nowrap overflow-hidden text-start">{description}</span>
+                    <RealmTagList tags={chara.tags} limit={4} className="mt-1" />
+                    <div class="grow"></div>
+                    <div class="flex flex-wrap w-full flex-row-reverse gap-1">
+                        {#if chara.hasEmotion}
+                            <span class="inline-flex text-subtext" use:tooltip={'This character includes emotion images'}><SmileIcon /></span>
+                        {/if}
+                        {#if chara.hasAsset}
+                            <span class="inline-flex text-subtext" use:tooltip={'This character includes additional assets'}><ImageIcon /></span>
+                        {/if}
+                        {#if chara.hasLore}
+                            <span class="inline-flex text-subtext" use:tooltip={'This character includes lorebook'}><BookIcon /></span>
+                        {/if}
+                    </div>
+                </div>
+            </div></ShButton>
+        {/if}
+    </ShContextMenuTrigger>
+    <ShContextMenuContent class="min-w-40">
+        <ShContextMenuItem onSelect={() => muteRealmCharacter(chara)}>
+            {language.realmMuteCharacter}
+        </ShContextMenuItem>
+        <ShContextMenuItem disabled={!chara.creator?.trim()} onSelect={() => muteRealmCreator(chara)}>
+            {language.realmMuteCreator}
+        </ShContextMenuItem>
+    </ShContextMenuContent>
+</ShContextMenu>

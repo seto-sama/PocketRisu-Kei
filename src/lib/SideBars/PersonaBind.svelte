@@ -56,12 +56,12 @@
     }
 </script>
 
-<div class="text-[11px] text-textcolor2 mt-4 px-1">{language.personaBindingLabel}</div>
+<div class="text-[11px] text-subtext mt-4 px-1">{language.personaBindingLabel}</div>
 <div class="flex gap-1 mt-1 items-stretch">
     <ShButton
         className={`flex-1 min-w-0 justify-start ${isPersonaBound
-            ? 'border-selected text-textcolor'
-            : 'text-textcolor2 opacity-75 risu-interactive-reveal'}`}
+            ? 'border-selected text-maintext'
+            : 'text-subtext opacity-75 risu-interactive-reveal'}`}
         onclick={handlePersonaBindClick}
     >
         {#if isPersonaBound}

@@ -129,8 +129,8 @@
     <div class="py-3 border-t border-darkborderc">
         <div class="flex items-center justify-between gap-3">
             <div class="flex flex-col min-w-0">
-                <span class="text-sm text-textcolor {item.classes ?? ''}">{getLabel(item)}</span>
-                {#if blockHelpText}<p class="text-xs text-textcolor2 mt-0.5">{blockHelpText}</p>{/if}
+                <span class="text-sm text-maintext {item.classes ?? ''}">{getLabel(item)}</span>
+                {#if blockHelpText}<p class="text-xs text-subtext mt-0.5">{blockHelpText}</p>{/if}
             </div>
             {#if item.options?.disableable}
                 <div class="shrink-0">
@@ -150,7 +150,7 @@
         {/if}
     </div>
 {:else}
-    <span class="text-textcolor {item.classes ?? ''}" data-setting-id={item.id}>
+    <span class="text-maintext {item.classes ?? ''}" data-setting-id={item.id}>
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>

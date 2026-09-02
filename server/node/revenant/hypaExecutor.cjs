@@ -9,27 +9,18 @@ const REMOTE_HYPA_MODELS = new Set([
     'voyage4large', 'voyageContext3', 'voyageContext4',
 ]);
 const TOKENIZER_FILES = Object.freeze({
-    mistral: ['sentencepiece', 'public/token/mistral/tokenizer.model'],
-    novelai: ['sentencepiece', 'public/token/nai/nerdstash_v2.model'],
-    claude: ['json', 'public/token/claude/claude.json'],
-    llama: ['sentencepiece', 'public/token/llama/llama.model'],
-    llama3: ['json', 'public/token/llama/llama3.json'],
-    novellist: ['sentencepiece', 'public/token/trin/spiece.model'],
-    gemma: ['sentencepiece', 'public/token/gemma/tokenizer.model'],
-    cohere: ['json', 'public/token/cohere/tokenizer.json'],
-    deepseek: ['json', 'public/token/deepseek/tokenizer.json'],
+    claude: 'public/token/claude/claude.json',
+    llama3: 'public/token/llama/llama3.json',
+    gemma: 'public/token/gemma/tokenizer.json',
+    deepseek: 'public/token/deepseek/tokenizer.json',
 });
+const LEGACY_TOKENIZERS = new Set(['mistral', 'novelai', 'llama', 'novellist']);
 
 const tokenizerPromises = new Map();
 let tikTokenizer;
-let webTokenizerModule;
-
-function exactArrayBuffer(buffer) {
-    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-}
 
 async function getRegistryTokenizer(type) {
-    if (type === 'tik') {
+    if (type === 'tik' || LEGACY_TOKENIZERS.has(type)) {
         tikTokenizer ??= get_encoding('cl100k_base');
         return tikTokenizer;
     }
@@ -38,23 +29,12 @@ async function getRegistryTokenizer(type) {
     let pending = tokenizerPromises.get(type);
     if (!pending) {
         pending = (async () => {
-            // The package declares ESM but publishes a UMD bundle; Node's ESM
-            // loader therefore exposes an empty namespace. Evaluate that UMD
-            // bundle with its intended CommonJS bindings instead.
-            if (!webTokenizerModule) {
-                const entry = require.resolve('@mlc-ai/web-tokenizers');
-                const source = await fs.promises.readFile(entry, 'utf8');
-                const loaded = { exports: {} };
-                new Function('exports', 'module', source)(loaded.exports, loaded);
-                webTokenizerModule = loaded.exports;
-            }
-            const { Tokenizer } = webTokenizerModule;
-            const bytes = exactArrayBuffer(await fs.promises.readFile(
-                path.join(process.cwd(), definition[1]),
+            const { Tokenizer } = await import('@huggingface/tokenizers');
+            const config = JSON.parse(await fs.promises.readFile(
+                path.join(process.cwd(), definition),
+                'utf8',
             ));
-            return definition[0] === 'json'
-                ? Tokenizer.fromJSON(bytes)
-                : Tokenizer.fromSentencePiece(bytes);
+            return new Tokenizer(config, {});
         })();
         tokenizerPromises.set(type, pending);
         pending.catch(() => tokenizerPromises.delete(type));
@@ -65,7 +45,13 @@ async function getRegistryTokenizer(type) {
 async function createSummaryTokenCounter(spec) {
     const tokenizer = await getRegistryTokenizer(spec.tokenizer);
     const additional = Math.max(0, Number(spec.chatAdditionalTokens) || 0);
-    return async content => tokenizer.encode(String(content)).length + additional;
+    const usesJsonTokenizer = Boolean(TOKENIZER_FILES[spec.tokenizer]);
+    return async content => {
+        const encoded = usesJsonTokenizer
+            ? tokenizer.encode(String(content), { add_special_tokens: false }).ids
+            : tokenizer.encode(String(content));
+        return encoded.length + additional;
+    };
 }
 
 function splitBySeparator(text, separator) {

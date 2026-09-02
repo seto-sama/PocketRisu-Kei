@@ -168,7 +168,7 @@
 <ShDialog bind:open={editorOpen} size="default" closeOnEscape closeOnOutsideClick closable>
     {#snippet title()}{language.imageGenerationPreset} {language.edit}{/snippet}
     {#if editorSettings}
-        <label class="flex items-center justify-between gap-3 pb-3 text-sm text-textcolor">
+        <label class="flex items-center justify-between gap-3 pb-3 text-sm text-maintext">
             <span>{language.imageGenerationPresetName}</span>
             <TextInput bind:value={editorName} commitMode="input" className="w-48 text-sm" size="sm" />
         </label>

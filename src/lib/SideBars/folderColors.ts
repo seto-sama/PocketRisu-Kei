@@ -9,7 +9,7 @@ const defaultFolderColorStyle: FolderColorStyle = {
 };
 
 export const folderColorStyles: Readonly<Record<string, FolderColorStyle>> = {
-    red: { fill: 'bg-draculared/20', border: 'border-draculared/40' },
+    red: { fill: 'bg-danger/20', border: 'border-danger/40' },
     orange: { fill: 'bg-highlight/20', border: 'border-highlight/40' },
     yellow: { fill: 'bg-warning/20', border: 'border-warning/40' },
     green: { fill: 'bg-success/20', border: 'border-success/40' },

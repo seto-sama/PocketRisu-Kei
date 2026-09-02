@@ -1,5 +1,5 @@
 <!-- <input
-    class="text-textcolor bg-transparent input-text"
+    class="text-maintext bg-transparent input-text"
     class:mb-4={marginBottom}
     type="range"
     min={min}
@@ -19,7 +19,7 @@
     aria-valuetext={displayText}
     class="relative w-full h-8 border-darkborderc border rounded-full cursor-pointer"
     style:background={
-      `linear-gradient(to right, var(--risu-theme-darkbutton) 0%, var(--risu-theme-darkbutton) ${sliderPercent}%, var(--risu-theme-darkbg) ${sliderPercent}%, var(--risu-theme-darkbg) 100%)`
+      `linear-gradient(to right, var(--risu-theme-button) 0%, var(--risu-theme-button) ${sliderPercent}%, var(--risu-theme-darkbg) ${sliderPercent}%, var(--risu-theme-darkbg) 100%)`
     }
     onpointerdown={(event) => {
       mouseDown = true;
@@ -44,12 +44,12 @@
     bind:this={slider}
   >
     <!-- <div 
-      class="absolute top-0 left-0 h-8 rounded-full bg-borderc transition-width duration-200"
+      class="absolute top-0 left-0 h-8 rounded-full bg-lightborderc transition-width duration-200"
       style="width: {(value - min) / (max - min) * 100}%;"
     >
     </div> -->
     <span 
-      class="absolute top-0 left-4 h-8 rounded-full items-center justify-center flex text-textcolor text-sm"
+      class="absolute top-0 left-4 h-8 rounded-full items-center justify-center flex text-maintext text-sm"
     >
       {displayText}
     </span>

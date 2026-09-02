@@ -1,5 +1,5 @@
 <div class="creator-quote-container flex w-full justify-center mt-4 max-w-100vw">
-    <div class="creator-quote w-5/6 max-w-80vw bg-darkbg rounded-md p-3 text-textcolor text-sm">
+    <div class="creator-quote w-5/6 max-w-80vw bg-darkbg rounded-md p-3 text-maintext text-sm">
         <h1 class="font-bold mb-2">{language.creatorNotes}
             <IconButton size="lg" className="float-right" onclick={onRemove}>
                 <XIcon />

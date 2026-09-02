@@ -398,8 +398,8 @@
         {#if popUpEditorStore.metadata.length > 0}
             <div class="flex flex-wrap gap-x-6 gap-y-1 text-xs">
                 {#each popUpEditorStore.metadata as item (item.label)}
-                    <span class="text-textcolor2">
-                        {item.label}: <span class="font-mono text-textcolor">{item.value}</span>
+                    <span class="text-subtext">
+                        {item.label}: <span class="font-mono text-maintext">{item.value}</span>
                     </span>
                 {/each}
             </div>
@@ -407,25 +407,25 @@
 
         {#if previewing}
             <div class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,7fr)_minmax(0,3fr)] gap-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.42fr)] md:grid-rows-[minmax(0,1fr)] md:gap-2">
-                <div class="relative min-h-0 overflow-hidden rounded-md border border-darkborderc bg-bgcolor">
+                <div class="relative min-h-0 overflow-hidden rounded-md border border-darkborderc bg-lightbg">
                     {#if previewSearchOpen}
                         <div class="absolute top-1.5 right-1.5 z-10 flex w-[min(22rem,calc(100%-0.75rem))] items-center gap-0.5 overflow-hidden rounded-md border border-darkborderc bg-darkbg p-1 shadow-lg">
                             <div class="relative min-w-0 flex-1">
-                                <SearchIcon class="pointer-events-none absolute left-1.5 top-1/2 z-10 size-3.5 -translate-y-1/2 text-textcolor2" />
+                                <SearchIcon class="pointer-events-none absolute left-1.5 top-1/2 z-10 size-3.5 -translate-y-1/2 text-subtext" />
                                 <ShInput
                                     bind:ref={previewSearchInput}
                                     bind:value={previewSearchQuery}
                                     type="search"
                                     autocomplete="off"
                                     enterkeyhint="search"
-                                    className="h-[1.625rem] min-h-[1.625rem] border-0 bg-bgcolor py-0 pl-6 pr-1.5 text-xs shadow-none outline-none"
+                                    className="h-[1.625rem] min-h-[1.625rem] border-0 bg-lightbg py-0 pl-6 pr-1.5 text-xs shadow-none outline-none"
                                     placeholder={language.search}
                                     aria-label={language.search}
                                     oninput={handlePreviewSearchInput}
                                     onkeydown={handlePreviewSearchKeydown}
                                 />
                             </div>
-                            <span class="ml-1 shrink-0 text-xs tabular-nums text-textcolor2" aria-live="polite">
+                            <span class="ml-1 shrink-0 text-xs tabular-nums text-subtext" aria-live="polite">
                                 {language.popupEditorSearchCount(
                                     previewSearchMatches.length === 0 ? 0 : previewSearchIndex + 1,
                                     previewSearchMatches.length,
@@ -433,7 +433,7 @@
                             </span>
                             <IconButtonGroup size="sm" className="shrink-0 gap-0.5">
                                 <IconButton
-                                    className="text-textcolor"
+                                    className="text-maintext"
                                     title={language.popupEditorPreviousMatch}
                                     aria-label={language.popupEditorPreviousMatch}
                                     onclick={() => movePreviewSearchMatch(-1)}
@@ -441,7 +441,7 @@
                                     <ChevronUpIcon />
                                 </IconButton>
                                 <IconButton
-                                    className="text-textcolor"
+                                    className="text-maintext"
                                     title={language.popupEditorNextMatch}
                                     aria-label={language.popupEditorNextMatch}
                                     onclick={() => movePreviewSearchMatch(1)}
@@ -449,7 +449,7 @@
                                     <ChevronDownIcon />
                                 </IconButton>
                                 <IconButton
-                                    className="text-textcolor"
+                                    className="text-maintext"
                                     title={language.close}
                                     aria-label={language.close}
                                     onclick={closePreviewSearch}
@@ -461,12 +461,12 @@
                     {/if}
                     <div bind:this={previewPane} class="h-full overflow-auto p-3">
                         {#if previewError}
-                            <p class="text-sm text-draculared">{previewError}</p>
+                            <p class="text-sm text-danger">{previewError}</p>
                         {:else if !previewText}
-                            <p class="text-sm text-textcolor2">{language.popupEditorPreviewEmpty}</p>
+                            <p class="text-sm text-subtext">{language.popupEditorPreviewEmpty}</p>
                         {:else}
                             <pre
-                                class="m-0 font-mono leading-relaxed text-textcolor"
+                                class="m-0 font-mono leading-relaxed text-maintext"
                                 class:text-xs={$textAreaTextSize === 0}
                                 class:text-sm={$textAreaTextSize === 1}
                                 class:text-md={$textAreaTextSize === 2}
@@ -485,22 +485,22 @@
                         {/if}
                     </div>
                 </div>
-                <aside class="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto rounded-md border border-darkborderc bg-bgcolor p-2 md:p-3">
-                    <h3 class="mb-1 text-xs font-semibold text-textcolor md:mb-3 md:text-sm">{language.popupEditorPreviewVariables}</h3>
+                <aside class="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto rounded-md border border-darkborderc bg-lightbg p-2 md:p-3">
+                    <h3 class="mb-1 text-xs font-semibold text-maintext md:mb-3 md:text-sm">{language.popupEditorPreviewVariables}</h3>
                     {#if previewVariables.length === 0}
-                        <p class="text-xs text-textcolor2 md:text-sm">{language.popupEditorPreviewNoVariables}</p>
+                        <p class="text-xs text-subtext md:text-sm">{language.popupEditorPreviewNoVariables}</p>
                     {:else}
                         <ShSettings spacing="none" className="gap-1 md:gap-2">
                             {#each previewVariables as variable, index (variable.id)}
                                 <ShSettings variant="row" size="compact" align={variable.toggle?.type === 'textarea' ? 'start' : 'center'} layout="grid" className="min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-1 px-0 md:gap-2">
                                     <div class="min-w-0 flex-1 pl-1 pr-1 md:pr-2">
                                         <span
-                                            class="block truncate whitespace-nowrap text-xs leading-tight text-textcolor"
+                                            class="block truncate whitespace-nowrap text-xs leading-tight text-maintext"
                                             title={variable.label}
                                         >{variable.label}</span>
                                         {#if variable.kind !== 'expression'}
                                             <code
-                                                class="block truncate whitespace-nowrap text-[9px] leading-tight text-textcolor2 md:text-[10px]"
+                                                class="block truncate whitespace-nowrap text-[9px] leading-tight text-subtext md:text-[10px]"
                                                 title={`${variable.kind}: ${variable.key}`}
                                             >{variable.kind}: {variable.key}</code>
                                         {/if}
@@ -580,7 +580,7 @@
             <textarea
                 bind:value={popUpEditorStore.value}
                 wrap={wordWrap ? 'soft' : 'off'}
-                class="risu-field-border min-h-0 w-full flex-1 resize-none overflow-auto rounded-md bg-bgcolor p-3 font-mono leading-relaxed text-textcolor outline-none"
+                class="risu-field-border min-h-0 w-full flex-1 resize-none overflow-auto rounded-md bg-lightbg p-3 font-mono leading-relaxed text-maintext outline-none"
                 class:text-xs={$textAreaTextSize === 0}
                 class:text-sm={$textAreaTextSize === 1}
                 class:text-md={$textAreaTextSize === 2}

@@ -348,7 +348,7 @@
                     <div class="flex items-center gap-2">
                         {#if settings.NAIImgConfig.character_image}
                             {#await getCharImage(settings.NAIImgConfig.character_image, 'plain')}
-                                <div class="h-8 w-8 rounded border border-darkborderc bg-darkbutton animate-pulse"></div>
+                                <div class="h-8 w-8 rounded border border-darkborderc bg-button animate-pulse"></div>
                             {:then image}
                                 <img src={image} class="h-8 w-8 rounded object-cover border border-darkborderc" alt={language.imageSettings.imagePreview}/>
                             {/await}
@@ -429,16 +429,16 @@
                         delete settings.NAIImgConfig.base64image
                     }}>
                         {#if !settings.NAIImgConfig.image || settings.NAIImgConfig.image === ''}
-                            <div class="rounded-md h-20 w-20 shadow-lg bg-textcolor2 cursor-pointer risu-interactive-accent flex items-center justify-center">
+                            <div class="rounded-md h-20 w-20 shadow-lg bg-subtext cursor-pointer risu-interactive-accent flex items-center justify-center">
                                 <span class="text-sm">{language.imageSettings.uploadImage}</span>
                             </div>
                         {:else}
                             {#await getCharImage(settings.NAIImgConfig.image, 'plain')}
-                                <div class="rounded-md h-20 w-20 shadow-lg bg-textcolor2 cursor-pointer risu-interactive-accent flex items-center justify-center">
+                                <div class="rounded-md h-20 w-20 shadow-lg bg-subtext cursor-pointer risu-interactive-accent flex items-center justify-center">
                                     <span class="text-sm">{language.imageSettings.uploadingImage}</span>
                                 </div>
                             {:then im}
-                                <img src={im} class="rounded-md h-40 shadow-lg bg-textcolor2 cursor-pointer risu-interactive-accent" alt={language.imageSettings.imagePreview}/>
+                                <img src={im} class="rounded-md h-40 shadow-lg bg-subtext cursor-pointer risu-interactive-accent" alt={language.imageSettings.imagePreview}/>
                             {/await}
                         {/if}
                     </button>

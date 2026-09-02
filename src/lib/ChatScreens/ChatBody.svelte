@@ -3,7 +3,7 @@
     import { DBState } from 'src/ts/stores.svelte'
     import { alertError } from "../../ts/alert"
     import { onDestroy, tick } from 'svelte'
-    import { addMetadataToElement, getDistance, isChatImagePreloadingEnabled, prepareMarkdownSource, preloadInlayAssetsWhenNear, preloadRenderedChatImages, renderPreparedMarkdown, resolveInlayPlaceholders, trimMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
+    import { addMetadataToElement, getDistance, isChatImagePreloadingEnabled, prepareMarkdownSource, preloadInlayAssets, preloadInlayAssetsWhenNear, preloadRenderedChatImages, renderPreparedMarkdown, resolveInlayPlaceholders, trimMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { getModuleAssets } from "src/ts/process/modules";
     import { getCurrentCharacter } from "src/ts/storage/database.svelte";
     import { getFileSrc } from "src/ts/globalApi.svelte";
@@ -13,6 +13,7 @@
     import { getChatBodyRenderCache, setChatBodyRenderCache, waitForChatBodyRenderCacheCommit } from "./chatBodyRenderCache";
     import { createLatestTaskQueue } from "./latestTaskQueue";
     import { StreamingMarkdownBlockRenderer, type StreamingMarkdownRender } from "./streamingMarkdownBlocks";
+    import { isRenderedTextLikelyDifferentFromUiLanguage } from "src/ts/translator/textLanguage";
 
     interface Props {
         character?: simpleCharacterArgument|string|null
@@ -36,7 +37,7 @@
         revenantTranslationRecoverySnapshot: RevenantChatTranslationRecoverySnapshot
         translationPending?: boolean
         autoTranslationSuppressed?: boolean
-        lastOutputAutoTranslationEligible?: boolean
+        lastOutputAutoTranslationCandidate?: boolean
         adjacentSwipeMessages?: readonly string[]
     }
 
@@ -61,7 +62,7 @@
         revenantTranslationRecoverySnapshot,
         translationPending = false,
         autoTranslationSuppressed = false,
-        lastOutputAutoTranslationEligible = false,
+        lastOutputAutoTranslationCandidate = false,
         adjacentSwipeMessages = [],
     }: Props =  $props()
 
@@ -112,7 +113,7 @@
         firstMessage: boolean
         allowCachedTranslationStateRestore: boolean
         autoTranslationSuppressed: boolean
-        lastOutputAutoTranslationEligible: boolean
+        lastOutputAutoTranslationCandidate: boolean
         postRenderStateUpdates?: Array<() => void>
         streamingRender?: StreamingMarkdownRender
     }
@@ -133,16 +134,22 @@
         (cancel) => onTranslationCancelAvailabilityChange(cancel),
     )
     const streamingBlockRenderer = new StreamingMarkdownBlockRenderer()
-    const runMarkParsingRequest = async (request: MarkParsingRequest): Promise<ChatBodyRenderResult> => ({
-        html: await markParsing(
-            request.data,
-            request.charArg,
-            request.chatId,
-            undefined,
-            request,
-        ),
-        streamingRender: request.streamingRender,
-    })
+    const runMarkParsingRequest = async (request: MarkParsingRequest): Promise<ChatBodyRenderResult> => {
+        const preloadImages = isChatImagePreloadingEnabled() && !request.streaming
+        if (preloadImages) await preloadInlayAssets(request.data)
+        const result: ChatBodyRenderResult = {
+            html: await markParsing(
+                request.data,
+                request.charArg,
+                request.chatId,
+                undefined,
+                request,
+            ),
+            streamingRender: request.streamingRender,
+        }
+        if (preloadImages) await preloadRenderedChatImages(result.html)
+        return result
+    }
     const markParsingQueue = createLatestTaskQueue<
         MarkParsingRequest,
         ChatBodyRenderResult
@@ -207,8 +214,8 @@
         }
         const requestAutoTranslationSuppressed = requestContext?.autoTranslationSuppressed
             ?? autoTranslationSuppressed
-        const requestLastOutputAutoTranslationEligible = requestContext?.lastOutputAutoTranslationEligible
-            ?? lastOutputAutoTranslationEligible
+        const requestLastOutputAutoTranslationCandidate = requestContext?.lastOutputAutoTranslationCandidate
+            ?? lastOutputAutoTranslationCandidate
         const currentTranslationTaskKey = requestContext?.translationTaskKey ?? translationTaskKey
         const activeTranslationCacheKey = renderController.getActiveTranslationCacheKey(currentTranslationTaskKey)
         const translationRecoveryPending = !requestAutoTranslationSuppressed
@@ -301,6 +308,7 @@
         let renderResultReady = false
         let translatedStateUpdate:boolean|null = null
         let mode = 'notrim' as const
+        let parsedOriginalForLanguageDetection: string | null = null
         try {
             if((!isEqual(lastCharArg, charArg))
                 || (chatID !== lastChatId)
@@ -310,6 +318,19 @@
                 || renderPass.invalidated){
                 lastParsedQueue = ''
                 try {
+                    let effectiveLastOutputAutoTranslationEligible = false
+                    if (
+                        requestLastOutputAutoTranslationCandidate
+                        && !requestTranslated
+                        && !requestAutoTranslationSuppressed
+                    ) {
+                        parsedOriginalForLanguageDetection = await parseMessageMarkdown(data, mode)
+                        effectiveLastOutputAutoTranslationEligible =
+                            isRenderedTextLikelyDifferentFromUiLanguage(
+                                trimMarkdown(parsedOriginalForLanguageDetection),
+                                DBState.db.language,
+                            )
+                    }
                     const translateText =
                         await revenantTranslationRecovery.shouldDisplayTranslation(
                             recoverySnapshot,
@@ -320,7 +341,7 @@
                                         && activeTranslationCacheKey !== null),
                                 streaming: requestStreaming,
                                 autoTranslationSuppressed: requestAutoTranslationSuppressed,
-                                lastOutputAutoTranslationEligible: requestLastOutputAutoTranslationEligible,
+                                lastOutputAutoTranslationEligible: effectiveLastOutputAutoTranslationEligible,
                                 parseMarkdown: parseMessageMarkdown,
                             },
                         )
@@ -434,10 +455,16 @@
                 }
                 else {
                     if (requestContext) requestContext.streamingRender = undefined
-                    marked = await streamingBlockRenderer.renderFinal(
-                        data,
-                        source => parseMessageMarkdown(source, mode),
-                    )
+                    if (parsedOriginalForLanguageDetection !== null) {
+                        streamingBlockRenderer.reset()
+                        marked = parsedOriginalForLanguageDetection
+                    }
+                    else {
+                        marked = await streamingBlockRenderer.renderFinal(
+                            data,
+                            source => parseMessageMarkdown(source, mode),
+                        )
+                    }
                 }
                 lastParsedQueue = marked
                 currentParsedTranslated = false
@@ -622,7 +649,7 @@
             firstMessage,
             allowCachedTranslationStateRestore,
             autoTranslationSuppressed,
-            lastOutputAutoTranslationEligible,
+            lastOutputAutoTranslationCandidate,
         }
         if (
             currentMarkParsingPromise
@@ -659,7 +686,7 @@
             && currentMarkParsingRequest.role === request.role
             && currentMarkParsingRequest.firstMessage === request.firstMessage
             && currentMarkParsingRequest.autoTranslationSuppressed === request.autoTranslationSuppressed
-            && currentMarkParsingRequest.lastOutputAutoTranslationEligible === request.lastOutputAutoTranslationEligible
+            && currentMarkParsingRequest.lastOutputAutoTranslationCandidate === request.lastOutputAutoTranslationCandidate
         ) {
             return currentMarkParsingPromise
         }
@@ -679,7 +706,7 @@
             && currentMarkParsingRequest.role === request.role
             && currentMarkParsingRequest.firstMessage === request.firstMessage
             && currentMarkParsingRequest.autoTranslationSuppressed === request.autoTranslationSuppressed
-            && currentMarkParsingRequest.lastOutputAutoTranslationEligible === request.lastOutputAutoTranslationEligible
+            && currentMarkParsingRequest.lastOutputAutoTranslationCandidate === request.lastOutputAutoTranslationCandidate
         ) {
             // A global display reload can arrive in the same tick as a room
             // switch. The render already observes the newly selected room's
@@ -723,25 +750,20 @@
     $effect(() => {
         const root = bodyRoot
         const swipeMessages = adjacentSwipeMessages
-        const inlayPreloadMessages = msgDisplay
-            ? [msgDisplay, ...swipeMessages]
-            : swipeMessages
         stopInlayPreloadObservation()
         stopInlayPreloadObservation = root
-            ? preloadInlayAssetsWhenNear(root, inlayPreloadMessages)
+            ? preloadInlayAssetsWhenNear(root, swipeMessages)
             : () => {}
     })
 
     $effect(() => {
         const promise = markParsingResult
-        const preloadImages = isChatImagePreloadingEnabled() && !isStreamingDisplay
         stopInlayPlaceholderObservation()
         stopInlayPlaceholderObservation = () => {}
         committedRenderPromise = promise
         checkImg()
         void promise.then(async (result) => {
             if (committedRenderPromise !== promise) return
-            if (preloadImages) void preloadRenderedChatImages(result.html)
             committedRender = result
             await tick()
             if (committedRenderPromise !== promise) return

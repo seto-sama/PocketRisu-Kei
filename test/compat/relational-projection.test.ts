@@ -218,4 +218,75 @@ describe('relational projection boundary (real server)', () => {
     expect(hydrated.chat.name).toBe('renamed while cached')
     expect(hydrated.chat.message[0].data).toBe('A0')
   })
+
+  test('a newly imported character can persist its chat after the metadata row exists', async () => {
+    const { clients } = await bootClients(1)
+    const [client] = clients
+    expect((await initialize(client)).status).toBe(200)
+
+    const startup = await (await client.fetch('/api/database')).json() as any
+    const patched = await client.fetch('/api/database', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        expectedHash: calculateHash(startup.database).toString(16),
+        patch: [{
+          op: 'add',
+          path: '/characters/-',
+          value: {
+            chaId: 'realm-character',
+            name: 'Realm Character',
+            chats: [{ id: 'realm-chat', name: 'Chat 1', _stub: true }],
+          },
+        }],
+      }),
+    })
+    const patchBody = await patched.text()
+    expect(patched.status, patchBody).toBe(200)
+
+    const baselineResponse = await client.fetch('/api/chat-content/realm-character/0', {
+      headers: { 'x-chat-id': 'realm-chat' },
+    })
+    expect(baselineResponse.status).toBe(200)
+    const baselineEtag = baselineResponse.headers.get('x-chat-etag')!
+
+    const saved = await client.fetch('/api/chat-content/realm-character/0', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-chat-id': 'realm-chat',
+        'x-chat-if-match': baselineEtag,
+      },
+      body: JSON.stringify({
+        id: 'realm-chat',
+        name: 'Chat 1',
+        note: 'imported note',
+        localLore: [],
+        message: [],
+      }),
+    })
+    expect(saved.status, await saved.text()).toBe(200)
+
+    const persisted = await client.fetch('/api/chat-content/realm-character/0', {
+      headers: { 'x-chat-id': 'realm-chat' },
+    })
+    expect(persisted.status).toBe(200)
+    expect(decodeRisuDat(Buffer.from(await persisted.arrayBuffer()))).toMatchObject({
+      id: 'realm-chat',
+      note: 'imported note',
+    })
+
+    // The canonical projection returned after the chat commit must remain a
+    // valid baseline for the next metadata PATCH.
+    const afterChat = await (await client.fetch('/api/database')).json() as any
+    const followUpPatch = await client.fetch('/api/database', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        expectedHash: calculateHash(afterChat.database).toString(16),
+        patch: [{ op: 'replace', path: '/owner', value: 'after-realm-import' }],
+      }),
+    })
+    expect(followUpPatch.status, await followUpPatch.text()).toBe(200)
+  })
 })

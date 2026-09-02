@@ -43,9 +43,7 @@ export async function exportModule(module:RisuModule, arg:{
 
     const char = convertModuleToCharacter(module)
     if(!char.image){
-        const res = await fetch('/none.webp')
-        const data = new Uint8Array(await res.arrayBuffer())
-        char.image = await saveAsset(data)
+        char.image = await saveAsset(await readDefaultAvatarImage())
         char.extentions ??= {}
         char.extentions['moduleNoneImage'] = true
     }

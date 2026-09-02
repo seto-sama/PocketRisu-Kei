@@ -294,14 +294,14 @@
     onclick={(e) => e.stopPropagation()}
 >
     <div class="p-4 pb-0">
-        <div class="flex items-center text-textcolor mb-4">
+        <div class="flex items-center text-maintext mb-4">
             <h2 class="mt-0 mb-0">{title}</h2>
             {#if titleHelp}
                 <ShTooltip>
                     {#snippet trigger(props)}
                         <button
                             {...props}
-                            class="ml-1 inline-flex size-5 shrink-0 items-center justify-center text-textcolor2 cursor-help risu-interactive-accent"
+                            class="ml-1 inline-flex size-5 shrink-0 items-center justify-center text-subtext cursor-help risu-interactive-accent"
                             aria-label={`${title} ${language.showHelp}`}
                         >
                             <CircleQuestionMarkIcon size={12}/>
@@ -337,7 +337,7 @@
                             name: organizationKind === 'tag' ? language.presetUntagged : language.presetUncategorized,
                         }] : []),
                     ] as folder}
-                        <button class="risu-selectable-row w-full h-10 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor"
+                        <button class="risu-selectable-row w-full h-10 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
                             data-selected={selectedFolder === folder.id}
                             class:folder-drop-target={itemDropTarget === folder.id}
                             ondragover={(e) => dragItemOverFolder(folder.id, e)}
@@ -350,7 +350,7 @@
                                 <FolderIcon size={18} class="shrink-0"/>
                             {/if}
                             <span class="truncate grow text-left">{folder.name}</span>
-                            <span class="text-xs text-textcolor2">{folderCount(folder.id)}</span>
+                            <span class="text-xs text-subtext">{folderCount(folder.id)}</span>
                         </button>
                     {/each}
                 </div>
@@ -372,7 +372,7 @@
                     onDragEnd={() => { draggingFolderId = null }}
                 >
                 {#each folders as folder (folder.id)}
-                    <div class="risu-selectable-row group w-full h-10 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor"
+                    <div class="risu-selectable-row group w-full h-10 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
                         data-sortable-key={folder.sortable === false ? undefined : folder.id}
                         data-sortable-no-scale
                         data-selected={selectedFolder === folder.id}
@@ -394,7 +394,7 @@
                             <FolderIcon size={18} class="shrink-0"/>
                         {/if}<span class="truncate grow">{folder.name}</span>
                         {#if folderEditable}
-                            <span class="text-xs text-textcolor2 group-hover:hidden">{folderCount(folder.id)}</span>
+                            <span class="text-xs text-subtext group-hover:hidden">{folderCount(folder.id)}</span>
                             <IconButtonGroup size="sm" className="no-sort hidden shrink-0 group-hover:flex">
                                 <IconButton
                                     title={folderRenamePrompt}
@@ -411,7 +411,7 @@
                                 </IconButton>
                             </IconButtonGroup>
                         {:else}
-                            <span class="text-xs text-textcolor2">{folderCount(folder.id)}</span>
+                            <span class="text-xs text-subtext">{folderCount(folder.id)}</span>
                         {/if}
                     </div>
                 {/each}
@@ -421,7 +421,7 @@
                 <div class="shrink-0 mt-2 flex items-center gap-1">
                     {#if showCreateFolder}
                         <button
-                            class="min-w-0 grow flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor2 risu-interactive-accent risu-interactive-surface"
+                            class="min-w-0 grow flex items-center gap-2 rounded-md px-2 py-2 text-sm text-subtext risu-interactive-accent risu-interactive-surface"
                             class:opacity-50={createFolderDisabled}
                             disabled={createFolderDisabled}
                             onclick={createFolder}
@@ -436,9 +436,9 @@
         <section class="min-w-0 min-h-0 grow flex flex-col p-3">
             <SettingLayout variant="search" className="mb-2">
                 <div class="risu-field-border flex items-center gap-2 rounded-md px-2.5">
-                    <SearchIcon size={18} class="text-textcolor2 shrink-0"/>
+                    <SearchIcon size={18} class="text-subtext shrink-0"/>
                     <input bind:value={searchQuery} placeholder={searchPlaceholder}
-                        class="w-full py-2 bg-transparent text-textcolor outline-none"/>
+                        class="w-full py-2 bg-transparent text-maintext outline-none"/>
                 </div>
             </SettingLayout>
             {#if itemContent && onSelectItem}
@@ -470,7 +470,7 @@
                             data-sortable-key={String(index)}
                             data-sortable-no-scale
                             data-inline-rename-row={itemRenameable ? '' : undefined}
-                            class="risu-selectable-row preset-picker-item w-full h-10 min-w-0 flex items-center rounded-md text-left text-textcolor px-2"
+                            class="risu-selectable-row preset-picker-item w-full h-10 min-w-0 flex items-center rounded-md text-left text-maintext px-2"
                             data-selected={index === selectedItemIndex}
                             class:cursor-grab={!itemReadOnly && (!!onMoveItem || allowFolderAssignmentDrag)}
                             onclick={() => onSelectItem(index)}
@@ -489,7 +489,7 @@
                             {/if}
                         </div>
                     {:else}
-                        <div class="h-full min-h-32 flex items-center justify-center text-textcolor2 text-sm">{emptyMessage}</div>
+                        <div class="h-full min-h-32 flex items-center justify-center text-subtext text-sm">{emptyMessage}</div>
                     {/each}
                     {@render listFooter?.()}
                 </ShSortableList>
@@ -505,12 +505,12 @@
     /* CSS draws text-overflow ellipses using the truncating element's own
        color. When an item combines a primary label with secondary details,
        keep the label primary but make the generated ellipsis secondary too. */
-    .preset-picker-item :global(.truncate:has(> .text-textcolor2)) {
-        color: var(--risu-theme-textcolor2);
+    .preset-picker-item :global(.truncate:has(> .text-subtext)) {
+        color: var(--risu-theme-subtext);
     }
 
-    .preset-picker-item :global(.truncate:has(> .text-textcolor2) > :not(.text-textcolor2):not(.isModuleGlobal)) {
-        color: var(--risu-theme-textcolor);
+    .preset-picker-item :global(.truncate:has(> .text-subtext) > :not(.text-subtext):not(.isModuleGlobal)) {
+        color: var(--risu-theme-maintext);
     }
 
     .folder-drop-target {

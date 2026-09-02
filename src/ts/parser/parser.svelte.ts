@@ -10,7 +10,7 @@ import { get } from 'svelte/store';
 import css, { type CssAtRuleAST, type CssDeclarationAST } from '@adobe/css-tools'
 import { selectedCharID } from '../stores.svelte';
 import { calcString } from '../process/infunctions';
-import { createFrameScheduler, findCharacterbyId, getPersonaPrompt, getUserIcon, getUserName, pickHashRand, replaceAsync} from '../util';
+import { findCharacterbyId, getPersonaPrompt, getUserIcon, getUserName, pickHashRand, replaceAsync} from '../util';
 
 import { getInlayAssetUrl, getInlayInfosBatch, type InlayAsset } from '../process/files/inlays';
 import { INLAY_VIEWER_ID_ATTRIBUTE, inlayTokenRegex } from '../util/inlayTokens';
@@ -22,6 +22,11 @@ import katex from 'katex'
 import { getGenerationModelMetadata, getGenerationModelString } from '../process/models/modelString';
 import { registerCBS, type matcherArg, type RegisterCallback } from '../cbs';
 import cssSelectorParser from 'postcss-selector-parser'
+import {
+    CHAT_SCROLL_ROOT_SELECTOR,
+    CHAT_VIEWPORT_MARGIN_MULTIPLIER,
+    observeWithinChatViewport,
+} from '../chatViewportObserver'
 
 const markdownItOptions = {
     html: true,
@@ -436,10 +441,6 @@ async function renderHighlightableMarkdown(data:string) {
                     }
                     break
                 }
-                case 'risuerror':{
-                    lang = 'error'
-                    break
-                }
                 default:{
                     lang = 'none'
                 }
@@ -449,9 +450,6 @@ async function renderHighlightableMarkdown(data:string) {
             }
             if(lang === 'none'){
                 rendered = rendered.replace(placeholder, `<pre><code>${md.utils.escapeHtml(code)}</code></pre>`)
-            }
-            else if(lang === 'error'){
-                rendered = rendered.replace(placeholder, `<div class="risu-error"><h1>${language.error}</h1>${md.utils.escapeHtml(code)}</div>`)
             }
             else{
                 const highlighted = hljs.highlight(code, {
@@ -761,8 +759,6 @@ const imageDecodeQueue: QueuedImageDecode[] = []
 let imageDecodeRunning = false
 const inlayImageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif']
 const INLAY_ID_ATTRIBUTE = 'data-inlay-id'
-const CHAT_SCROLL_ROOT_SELECTOR = '[data-chat-scroll-root]'
-const INLAY_PRELOAD_VIEWPORTS = 1
 const CHAT_IMAGE_PRELOAD_TIMEOUT_MS = 10_000
 const IMAGE_PRELOAD_CACHE_MAX = 512
 const IMAGE_DECODE_QUEUE_MAX = 10
@@ -1232,98 +1228,6 @@ export function preloadInlayAssets(
     return preloadInlayAssetIds(getInlayIds(data).slice(0, limit))
 }
 
-type InlayViewportCallback = (target: Element) => void
-type InlayViewportObserverRecord = {
-    callbacks: Map<Element, InlayViewportCallback>
-    observer: IntersectionObserver | null
-    observedHeight: number
-    removeResizeListeners: () => void
-}
-
-const inlayViewportObservers = new WeakMap<HTMLElement, InlayViewportObserverRecord>()
-
-function observeWithinChatViewport(
-    targets: readonly Element[],
-    onIntersect: InlayViewportCallback,
-): () => void {
-    if (targets.length === 0) return () => {}
-    const chatRoot = targets[0].closest(CHAT_SCROLL_ROOT_SELECTOR) as HTMLElement | null
-    if (!chatRoot) {
-        const callbacks = new Map(targets.map(target => [target, onIntersect]))
-        const viewportHeight = Math.max(1, globalThis.innerHeight ?? 1) * INLAY_PRELOAD_VIEWPORTS
-        const observer = new IntersectionObserver((entries) => {
-            for (const entry of entries) {
-                if (!entry.isIntersecting) continue
-                const callback = callbacks.get(entry.target)
-                if (!callback) continue
-                callbacks.delete(entry.target)
-                observer.unobserve(entry.target)
-                callback(entry.target)
-            }
-        }, { rootMargin: `${viewportHeight}px 0px` })
-        for (const target of targets) observer.observe(target)
-        return () => observer.disconnect()
-    }
-
-    let record = inlayViewportObservers.get(chatRoot)
-    if (!record) {
-        record = {
-            callbacks: new Map(),
-            observer: null,
-            observedHeight: -1,
-            removeResizeListeners: () => {},
-        }
-        const activeRecord = record
-        const rebuildObserver = () => {
-            const viewportHeight = Math.max(1, chatRoot.clientHeight) * INLAY_PRELOAD_VIEWPORTS
-            if (activeRecord.observer && activeRecord.observedHeight === viewportHeight) return
-            activeRecord.observer?.disconnect()
-            activeRecord.observedHeight = viewportHeight
-            activeRecord.observer = new IntersectionObserver((entries) => {
-                for (const entry of entries) {
-                    if (!entry.isIntersecting) continue
-                    const callback = activeRecord.callbacks.get(entry.target)
-                    if (!callback) continue
-                    activeRecord.callbacks.delete(entry.target)
-                    activeRecord.observer?.unobserve(entry.target)
-                    callback(entry.target)
-                }
-            }, {
-                root: chatRoot,
-                rootMargin: `${viewportHeight}px 0px`,
-            })
-            for (const target of activeRecord.callbacks.keys()) {
-                activeRecord.observer.observe(target)
-            }
-        }
-        const scheduler = createFrameScheduler(rebuildObserver)
-        window.addEventListener('resize', scheduler.schedule)
-        globalThis.visualViewport?.addEventListener('resize', scheduler.schedule)
-        activeRecord.removeResizeListeners = () => {
-            window.removeEventListener('resize', scheduler.schedule)
-            globalThis.visualViewport?.removeEventListener('resize', scheduler.schedule)
-            scheduler.cancel()
-        }
-        inlayViewportObservers.set(chatRoot, activeRecord)
-        rebuildObserver()
-    }
-    for (const target of targets) {
-        record.callbacks.set(target, onIntersect)
-        record.observer?.observe(target)
-    }
-
-    return () => {
-        for (const target of targets) {
-            record?.callbacks.delete(target)
-            record?.observer?.unobserve(target)
-        }
-        if (record?.callbacks.size !== 0 || inlayViewportObservers.get(chatRoot) !== record) return
-        record.observer?.disconnect()
-        record.removeResizeListeners()
-        inlayViewportObservers.delete(chatRoot)
-    }
-}
-
 function isWithinInlayPreloadRange(root: HTMLElement): boolean {
     const chatRoot = root.closest(CHAT_SCROLL_ROOT_SELECTOR) as HTMLElement | null
     const targetRect = root.getBoundingClientRect()
@@ -1331,7 +1235,7 @@ function isWithinInlayPreloadRange(root: HTMLElement): boolean {
     const viewportHeight = Math.max(1, chatRoot?.clientHeight ?? globalThis.innerHeight ?? 1)
     const viewportTop = viewportRect?.top ?? 0
     const viewportBottom = viewportRect?.bottom ?? (globalThis.innerHeight ?? viewportHeight)
-    const margin = viewportHeight * INLAY_PRELOAD_VIEWPORTS
+    const margin = viewportHeight * CHAT_VIEWPORT_MARGIN_MULTIPLIER
     return targetRect.bottom >= viewportTop - margin
         && targetRect.top <= viewportBottom + margin
 }
@@ -1352,7 +1256,7 @@ export function preloadInlayAssetsWhenNear(
     }
     const stopObserving = isWithinInlayPreloadRange(root)
         ? (retainImages(), () => {})
-        : observeWithinChatViewport([root], retainImages)
+        : observeWithinChatViewport([root], retainImages, { once: true })
 
     return () => {
         stopObserving()
@@ -1413,7 +1317,7 @@ function parseThoughtsAndTools(data:string, inlineThoughts = false){
                 const thoughts = data.substring(i + 10, j - 1)
                 result += inlineThoughts
                     ? renderInlineThoughts(thoughts)
-                    : `<details><summary>${language.cot}</summary>${thoughts}</details>`
+                    : `<details class="x-risu-thoughts"><summary>${language.cot}</summary>${thoughts}</details>`
                 i = j + 10
                 continue
             }

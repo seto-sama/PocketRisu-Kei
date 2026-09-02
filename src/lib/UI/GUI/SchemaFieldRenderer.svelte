@@ -177,12 +177,12 @@
          capability/compatibility groups such as Developer > Custom Flags. -->
     <div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
         <div class="flex flex-col min-w-0">
-            <span class="text-sm text-textcolor">
+            <span class="text-sm text-maintext">
                 {localizedLabel}
-                {#if schemaField.required}<span class="text-draculared">*</span>{/if}
+                {#if schemaField.required}<span class="text-danger">*</span>{/if}
             </span>
             {#if localizedDescription}
-                <span class="text-xs text-textcolor2 mt-0.5">{localizedDescription}</span>
+                <span class="text-xs text-subtext mt-0.5">{localizedDescription}</span>
             {/if}
         </div>
         <ShSwitch
@@ -197,12 +197,12 @@
          input on the right. -->
     <div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
         <div class="flex flex-col min-w-0">
-            <span class="text-sm text-textcolor">
+            <span class="text-sm text-maintext">
                 {localizedLabel}
-                {#if schemaField.required}<span class="text-draculared">*</span>{/if}
+                {#if schemaField.required}<span class="text-danger">*</span>{/if}
             </span>
             {#if localizedDescription}
-                <span class="text-xs text-textcolor2 mt-0.5">{localizedDescription}</span>
+                <span class="text-xs text-subtext mt-0.5">{localizedDescription}</span>
             {/if}
         </div>
         <div class="shrink-0">
@@ -244,12 +244,12 @@
          label/help) while stacking the editor below. TextAreaInput's default
          height/size follows Sound & Display → textarea size settings. -->
     <div class="py-3 border-t border-darkborderc">
-        <span class="text-sm text-textcolor">
+        <span class="text-sm text-maintext">
             {localizedLabel}
-            {#if schemaField.required}<span class="text-draculared">*</span>{/if}
+            {#if schemaField.required}<span class="text-danger">*</span>{/if}
         </span>
         {#if localizedDescription}
-            <p class="text-xs text-textcolor2 mt-0.5">{localizedDescription}</p>
+            <p class="text-xs text-subtext mt-0.5">{localizedDescription}</p>
         {/if}
         {#if uiField.widget === 'textarea'}
             <TextAreaInput
@@ -280,12 +280,12 @@
          copy on the left, a fixed w-48 small control on the right. -->
     <div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
         <div class="flex flex-col min-w-0">
-            <span class="text-sm text-textcolor">
+            <span class="text-sm text-maintext">
                 {localizedLabel}
-                {#if schemaField.required}<span class="text-draculared">*</span>{/if}
+                {#if schemaField.required}<span class="text-danger">*</span>{/if}
             </span>
             {#if localizedDescription}
-                <span class="text-xs text-textcolor2 mt-0.5">{localizedDescription}</span>
+                <span class="text-xs text-subtext mt-0.5">{localizedDescription}</span>
             {/if}
         </div>
         <div class="w-48 shrink-0">
@@ -348,14 +348,14 @@
 {:else}
 <div class="flex flex-col gap-1">
     <div class="flex items-center justify-between gap-2">
-        <span class="text-sm text-textcolor flex items-center gap-1">
+        <span class="text-sm text-maintext flex items-center gap-1">
             {localizedLabel}
-            {#if schemaField.required}<span class="text-draculared">*</span>{/if}
+            {#if schemaField.required}<span class="text-danger">*</span>{/if}
         </span>
         {#if showReset}
             <button
                 type="button"
-                class="text-textcolor2 risu-interactive-danger transition-colors flex items-center gap-1 text-xs"
+                class="text-subtext risu-interactive-danger transition-colors flex items-center gap-1 text-xs"
                 title={language.reset}
                 onclick={resetField}
             >
@@ -365,7 +365,7 @@
         {/if}
     </div>
     {#if localizedDescription}
-        <span class="text-xs text-textcolor2">{localizedDescription}</span>
+        <span class="text-xs text-subtext">{localizedDescription}</span>
     {/if}
 
     {#if uiField.widget === 'text'}
@@ -422,7 +422,7 @@
     {:else if uiField.widget === 'combobox'}
         <input
             type="text"
-            class="risu-field-border bg-darkbg rounded-md px-2.5 py-2 text-textcolor"
+            class="risu-field-border bg-darkbg rounded-md px-2.5 py-2 text-maintext"
             bind:value={userValues[fieldKey] as string}
             placeholder={uiField.placeholder ?? ''}
         />
@@ -455,7 +455,7 @@
             height="32"
         />
         {#if jsonError}
-            <span class="text-xs text-draculared">{jsonError}</span>
+            <span class="text-xs text-danger">{jsonError}</span>
         {/if}
     {/if}
 </div>

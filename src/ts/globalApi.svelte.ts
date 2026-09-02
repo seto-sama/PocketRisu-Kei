@@ -12,7 +12,7 @@ import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
 import { decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
-import { getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag } from "./storage/chatStorage";
+import { fetchChatFromServer, getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag } from "./storage/chatStorage";
 import {
     acknowledgeProjectionOnlyChatConflict,
     cloneChatValue,
@@ -23,6 +23,7 @@ import {
     markChatWorkingCopyDirty,
     markChatSyncApplied,
     observeChatGenerationProjection,
+    rebaseChatWorkingCopy,
     shouldPersistTrackedChat,
 } from './storage/chatWorkingCopy';
 import { preparePatchConflictRebase } from "./storage/patchRebase";
@@ -993,22 +994,54 @@ export async function saveDb() {
             return 'noop'
         }
 
+        // A new relational character has no chat rows until its projection
+        // patch is accepted. Defer those chat bodies until after the metadata
+        // phase; established characters retain the normal chat-first order.
+        const newCharacterIds = new Set(
+            toSave.character.filter(chaId =>
+                db.characters.some(character => character?.chaId === chaId)
+                && !knownChatIdsByCharacter.has(chaId)
+            )
+        )
+        const trackedChats = collectChatsToPersist(db, toSave)
+        const deferredNewCharacterChats = isNodeServer
+            ? trackedChats.filter(([chaId]) => newCharacterIds.has(chaId))
+            : []
+        const chatsBeforeProjection = deferredNewCharacterChats.length > 0
+            ? trackedChats.filter(([chaId]) => !newCharacterIds.has(chaId))
+            : trackedChats
+
         // ── Save changed chat content to server ─────────────────────────
         const failedChats: [string, string][] = []
-        for (const [chaId, chatId] of collectChatsToPersist(db, toSave)) {
+        const persistChat = async (
+            chaId: string,
+            chatId: string,
+            options?: { establishServerBaseline?: boolean },
+        ) => {
             const char = db.characters.find(c => c.chaId === chaId)
-            if (!char) continue
+            if (!char) return
             const chatIndex = char.chats.findIndex(c => c.id === chatId)
-            if (chatIndex === -1) continue
+            if (chatIndex === -1) return
             const chat = char.chats[chatIndex]
             // Skip placeholders — they have no real data to save
-            if (!chat || chat._placeholder) continue
+            if (!chat || chat._placeholder) return
             // A debounced edit save can wake after reroll has replaced the
             // edited body with its temporary placeholder. Once that edit has
             // already been acknowledged, never persist the clean projection
             // as an ordinary whole-chat write.
-            if (!shouldPersistTrackedChat(chaId, chat)) continue
+            if (!shouldPersistTrackedChat(chaId, chat)) return
             try {
+                if (options?.establishServerBaseline) {
+                    const serverChat = await fetchChatFromServer(chaId, chatIndex, chatId)
+                    if (!serverChat) {
+                        throw new Error(`New chat metadata was not created for ${chaId}/${chatId}`)
+                    }
+                    rebaseChatWorkingCopy(
+                        chaId,
+                        chatId,
+                        getChatServerEtag(chaId, chatId),
+                    )
+                }
                 await saveChatToServer(chaId, chatIndex, chatId, chat)
             } catch (e) {
                 if (
@@ -1017,11 +1050,15 @@ export async function saveDb() {
                 ) {
                     if (e.currentEtag) setChatServerEtag(chaId, chatId, e.currentEtag)
                     window.dispatchEvent(new Event('risu-sync-refresh-requested'))
-                    continue
+                    return
                 }
                 console.error(`[Save] Failed to save chat ${chaId}/${chatId}:`, e)
                 failedChats.push([chaId, chatId])
             }
+        }
+
+        for (const [chaId, chatId] of chatsBeforeProjection) {
+            await persistChat(chaId, chatId)
         }
         if (failedChats.length > 0) {
             throw new Error(`Failed to save ${failedChats.length} chat${failedChats.length === 1 ? '' : 's'}`)
@@ -1292,11 +1329,21 @@ export async function saveDb() {
             }
         }
 
-        updateKnownChatsAfterSuccessfulSave(db, toSave)
-
         if (isNodeServer) {
+            // The projection is now acknowledged even if a deferred chat body
+            // later fails in transport. Imported chats already own stable ids,
+            // so the patcher's normalized local projection is the server shape.
             acceptedPatchBaseline = safeStructuredClone(db) as Database
         }
+
+        for (const [chaId, chatId] of deferredNewCharacterChats) {
+            await persistChat(chaId, chatId, { establishServerBaseline: true })
+        }
+        if (failedChats.length > 0) {
+            throw new Error(`Failed to save ${failedChats.length} chat${failedChats.length === 1 ? '' : 's'}`)
+        }
+
+        updateKnownChatsAfterSuccessfulSave(db, toSave)
 
         if (newEtag) {
             forageStorage.setDbEtag(newEtag)

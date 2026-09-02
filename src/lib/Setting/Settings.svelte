@@ -90,12 +90,12 @@
     }
 
 </script>
-<div class="h-full w-full flex justify-center rs-setting-cont" class:bg-bgcolor={$MobileGUI} class:setting-bg={!$MobileGUI}>
+<div class="h-full w-full flex justify-center rs-setting-cont" class:bg-lightbg={$MobileGUI} class:setting-bg={!$MobileGUI}>
     <div class="h-full max-w-4xl w-full flex relative rs-setting-cont-2">
         {#if (window.innerWidth >= 700 && !$MobileGUI) || $SettingsMenuIndex === -1}
             <div class="flex h-full flex-col p-4 pt-8 gap-2 overflow-y-auto relative rs-setting-cont-3 shrink-0"
                 class:w-full={window.innerWidth < 700 || $MobileGUI}
-                class:bg-darkbg={!$MobileGUI} class:bg-bgcolor={$MobileGUI}
+                class:bg-darkbg={!$MobileGUI} class:bg-lightbg={$MobileGUI}
             >
                 <IconButtonGroup
                     size="lg"
@@ -112,8 +112,8 @@
                         <button
                             data-sortable-key={item.key}
                             class="flex items-center risu-interactive-foreground"
-                            class:text-textcolor={$SettingsMenuIndex === item.index}
-                            class:text-textcolor2={$SettingsMenuIndex !== item.index}
+                            class:text-maintext={$SettingsMenuIndex === item.index}
+                            class:text-subtext={$SettingsMenuIndex !== item.index}
                             onclick={() => {
                                 if (suppressMenuClick) return;
                                 if (item.index === null) searchOpen = true;
@@ -128,8 +128,8 @@
                 {#if !$isLite}
                     {#if devPanelEnabled}
                         <button class="flex items-center risu-interactive-foreground"
-                            class:text-textcolor={$SettingsMenuIndex === 99}
-                            class:text-textcolor2={$SettingsMenuIndex !== 99}
+                            class:text-maintext={$SettingsMenuIndex === 99}
+                            class:text-subtext={$SettingsMenuIndex !== 99}
                             onclick={() => {
                             $SettingsMenuIndex = 99
                         }}>
@@ -139,11 +139,11 @@
                     {/if}
                     {#if additionalSettingsMenu.length > 0}
                         <div class="border-t border-selected mt-2 pt-2">
-                            <span class="text-textcolor2 text-xs ml-1">{language.plugin}</span>
+                            <span class="text-subtext text-xs ml-1">{language.plugin}</span>
                         </div>
                     {/if}
                     {#each additionalSettingsMenu as menu}
-                        <button class="flex items-center risu-interactive-foreground text-textcolor2"
+                        <button class="flex items-center risu-interactive-foreground text-subtext"
                             onclick={() => {
                                 menu.callback()
                         }}>
@@ -151,11 +151,10 @@
                             <span>{menu.name}</span>
                         </button>
                     {/each}
-
                 {/if}
                 </IconButtonGroup>
                 {#if window.innerWidth < 700 && !$MobileGUI}
-                    <button class="absolute top-2 right-2 risu-interactive-accent text-textcolor" onclick={() => {
+                    <button class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
                         settingsOpen.set(false)
                     }}> <CircleXIcon size={DBState.db.settingsCloseButtonSize} /> </button>
                 {/if}
@@ -163,7 +162,7 @@
         {/if}
         {#if (window.innerWidth >= 700 && !$MobileGUI) || $SettingsMenuIndex !== -1}
             {#key $SettingsMenuIndex}
-                <div class="grow py-6 px-4 bg-bgcolor flex flex-col text-textcolor overflow-y-auto relative rs-setting-cont-4 min-w-0">
+                <div class="grow py-6 px-4 bg-lightbg flex flex-col text-maintext overflow-y-auto relative rs-setting-cont-4 min-w-0">
                     <div class="w-full max-w-2xl mx-auto flex flex-col">
                         {#if $SettingsMenuIndex === 2}
                             <OtherBotSettings />
@@ -206,7 +205,7 @@
             </div>
             {/key}
             {#if !$MobileGUI}
-                <button class="absolute top-2 right-2 risu-interactive-accent text-textcolor" onclick={() => {
+                <button class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
                     if(window.innerWidth >= 700){
                         settingsOpen.set(false)
                     }
@@ -223,7 +222,7 @@
 <SettingsSearch bind:open={searchOpen} />
 <style>
     .setting-bg{
-        background: linear-gradient(to right, var(--risu-theme-darkbg) 50%, var(--risu-theme-bgcolor) 50%);
+        background: linear-gradient(to right, var(--risu-theme-darkbg) 50%, var(--risu-theme-lightbg) 50%);
 
     }
 </style>

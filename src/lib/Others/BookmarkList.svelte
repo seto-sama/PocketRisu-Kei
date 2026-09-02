@@ -146,21 +146,21 @@
                 {#snippet display()}
                     <span>{bookmark.name}</span>
                     {#if bookmark.characterName}
-                        <span class="text-textcolor2"> / {bookmark.characterName}</span>
+                        <span class="text-subtext"> / {bookmark.characterName}</span>
                     {/if}
                     {#if bookmark.chatName}
-                        <span class="text-textcolor2"> / {bookmark.chatName}</span>
+                        <span class="text-subtext"> / {bookmark.chatName}</span>
                     {/if}
                 {/snippet}
             </InlineEditableName>
             {#if busyKey === bookmarkKey(bookmark)}
-                <LoaderCircleIcon class="ml-2 shrink-0 animate-spin text-textcolor2" size={18} />
+                <LoaderCircleIcon class="ml-2 shrink-0 animate-spin text-subtext" size={18} />
             {/if}
         {/if}
     {/snippet}
     {#snippet listFooter()}
         {#if $bookmarkCatalogLoading}
-            <div class="flex items-center justify-center gap-2 py-3 text-sm text-textcolor2">
+            <div class="flex items-center justify-center gap-2 py-3 text-sm text-subtext">
                 <LoaderCircleIcon class="animate-spin" size={16} />
                 <span>{language.loading}</span>
             </div>

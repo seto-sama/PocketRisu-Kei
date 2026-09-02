@@ -107,16 +107,16 @@
 </script>
 
 <div class="flex flex-col gap-3">
-    <p class="text-xs text-textcolor2">{language.help.apiKeyManagerDesc}</p>
+    <p class="text-xs text-subtext">{language.help.apiKeyManagerDesc}</p>
 
     {#snippet apiKeyForm()}
         <div class="flex flex-col gap-3 border border-darkborderc rounded-md p-3">
             <div class="flex flex-col gap-1">
-                <span class="text-sm text-textcolor">{language.apiKeyName}</span>
+                <span class="text-sm text-maintext">{language.apiKeyName}</span>
                 <TextInput bind:value={fName} placeholder={language.apiKeyName} fullwidth />
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-sm text-textcolor">{language.apiKeyProvider}</span>
+                <span class="text-sm text-maintext">{language.apiKeyProvider}</span>
                 <SelectInput bind:value={fProvider}>
                     <OptionInput value="">{language.apiKeyProviderUnset}</OptionInput>
                     {#if fProvider && !providerOptions.some(o => o.id === fProvider)}
@@ -128,7 +128,7 @@
                 </SelectInput>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-sm text-textcolor">{language.apiKeyValue}</span>
+                <span class="text-sm text-maintext">{language.apiKeyValue}</span>
                 <SecretInput bind:value={fKey} fullwidth />
             </div>
             <div class="flex justify-end gap-2">
@@ -148,7 +148,7 @@
     {/if}
 
     {#if entries.length === 0}
-        <div class="text-textcolor2 text-sm text-center py-6">{language.apiKeyPoolEmpty}</div>
+        <div class="text-subtext text-sm text-center py-6">{language.apiKeyPoolEmpty}</div>
     {:else}
         <ShSortableList
             className="flex flex-col gap-3"
@@ -163,16 +163,16 @@
                     role="listitem"
                 >
                     <div class="flex flex-col min-w-0 grow">
-                        <span class="text-sm text-textcolor truncate">{entry.name}</span>
-                        <span class="text-xs text-textcolor2 truncate">
+                        <span class="text-sm text-maintext truncate">{entry.name}</span>
+                        <span class="text-xs text-subtext truncate">
                             {#if entry.provider}{providerLabel(entry.provider)} · {/if}••••{entry.key.slice(-4)}
                         </span>
                     </div>
                     <div class="no-sort flex gap-2 shrink-0">
-                        <button class="text-textcolor2 risu-interactive-accent" title={language.edit} onclick={() => openEdit(entry.id)}>
+                        <button class="text-subtext risu-interactive-accent" title={language.edit} onclick={() => openEdit(entry.id)}>
                             <SquarePenIcon size={18} />
                         </button>
-                        <button class="text-textcolor2 risu-interactive-danger" title={language.remove} onclick={() => remove(entry.id, entry.name)}>
+                        <button class="text-subtext risu-interactive-danger" title={language.remove} onclick={() => remove(entry.id, entry.name)}>
                             <TrashIcon size={18} />
                         </button>
                     </div>

@@ -21,7 +21,6 @@ import {
     resolveChatModelBinding,
 } from "../request/modelPresetBinding";
 import { compileModelPreset } from "src/ts/preset/runtime/compilePreset";
-import { chatCompletion, unloadEngine } from "../webllm";
 import { hypaV3ProgressStore } from "src/ts/stores.svelte";
 import { type ChatTokenizer } from "src/ts/tokenizer";
 import { inlayTokenRegex } from "src/ts/util/inlayTokens";
@@ -438,12 +437,6 @@ export async function hypaMemoryV3(
         }
 
         throw new Error(`${logPrefix} ${errorMessage}`);
-    } finally {
-        if (settings.summarizationModel !== "subModel") {
-            try {
-                await unloadEngine();
-            } catch { }
-        }
     }
 }
 
@@ -663,7 +656,7 @@ async function hypaMemoryV3MainExp(
         const tokenizerSpec = tokenizer.getRevenantSpec();
         const serverTokenizers = new Set([
             'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
-            'novellist', 'gemma', 'cohere', 'deepseek',
+            'novellist', 'gemma', 'deepseek',
         ]);
         if (
             !options?.workflowId
@@ -771,16 +764,18 @@ async function hypaMemoryV3MainExp(
         const operationIds = toSummarizeArray.map(() => uuidv4());
         const summarizationTasks = toSummarizeArray.map(
             (item, index) => (onRegistered?: () => void) => summarize(item, false, {
-                characterId: char.chaId,
-                roomId: room.id,
-                batchId,
-                operationId: operationIds[index],
-                chatMemos: item.map(chat => chat.memo).filter((memo): memo is string => !!memo),
-                dispatchPolicy: useDurableDispatch ? {
-                    maxConcurrent: settings.summarizationMaxConcurrent,
-                    requestsPerMinute: settings.summarizationRequestsPerMinute,
-                } : undefined,
-                onJobCreated: onRegistered,
+                revenantTarget: {
+                    characterId: char.chaId,
+                    roomId: room.id,
+                    batchId,
+                    operationId: operationIds[index],
+                    chatMemos: item.map(chat => chat.memo).filter((memo): memo is string => !!memo),
+                    dispatchPolicy: useDurableDispatch ? {
+                        maxConcurrent: settings.summarizationMaxConcurrent,
+                        requestsPerMinute: settings.summarizationRequestsPerMinute,
+                    } : undefined,
+                    onJobCreated: onRegistered,
+                },
             })
         );
         const prepareRemoteExecution = useDurableDispatch
@@ -1568,10 +1563,12 @@ async function hypaMemoryV3Main(
 
             try {
                 const summarizeResult = await summarize(toSummarize, false, {
-                    characterId: char.chaId,
-                    roomId: room.id,
-                    batchId: uuidv4(),
-                    chatMemos: toSummarize.map(chat => chat.memo).filter((memo): memo is string => !!memo),
+                    revenantTarget: {
+                        characterId: char.chaId,
+                        roomId: room.id,
+                        batchId: uuidv4(),
+                        chatMemos: toSummarize.map(chat => chat.memo).filter((memo): memo is string => !!memo),
+                    },
                 });
 
                 data.summaries.push({
@@ -2103,9 +2100,7 @@ function sanitizeSummaryContent(content: string): string {
     return content.replace(inlayTokenRegex, "[Image]");
 }
 
-export async function summarize(
-    oaiMessages: OpenAIChat[],
-    isResummarize: boolean = false,
+export interface HypaV3SummarizeOptions {
     revenantTarget?: {
         characterId: string;
         roomId: string;
@@ -2114,10 +2109,18 @@ export async function summarize(
         chatMemos: string[];
         dispatchPolicy?: { maxConcurrent: number; requestsPerMinute: number };
         onJobCreated?: () => void;
-    },
+    };
+    signal?: AbortSignal;
+    onRequestStatusActivate?: () => void;
+}
+
+export async function summarize(
+    oaiMessages: OpenAIChat[],
+    isResummarize: boolean = false,
+    options: HypaV3SummarizeOptions = {},
 ): Promise<string> {
-    const db = getDatabase();
     const settings = getCurrentHypaV3Preset().settings;
+    const { revenantTarget, signal, onRequestStatusActivate } = options;
 
     const strMessages = oaiMessages
         .map((chat) => `${chat.role}: ${sanitizeSummaryContent(chat.content)}`)
@@ -2142,83 +2145,52 @@ export async function summarize(
             },
         ];
 
-    // API
-    if (settings.summarizationModel === "subModel") {
-        const currentCharacter = getCurrentCharacter()
-        const currentRoom = currentCharacter?.chats[currentCharacter.chatPage]
-        const subBinding = resolveChatModelBinding(currentRoom, 'submodel')
-        const subModelName = subBinding.kind === 'modelPreset' ? subBinding.preset.name : ''
-        console.log(logPrefix, `Using ax model ${subModelName} for summarization.`);
+    const currentCharacter = getCurrentCharacter()
+    const currentRoom = currentCharacter?.chats[currentCharacter.chatPage]
+    const subBinding = resolveChatModelBinding(currentRoom, 'submodel')
+    const subModelName = subBinding.kind === 'modelPreset' ? subBinding.preset.name : ''
+    console.log(logPrefix, `Using ax model ${subModelName} for summarization.`);
 
-        const response = await requestChatData(
-            {
-                formated,
-                bias: {},
-                currentChar: getCurrentCharacter(),
-                useStreaming: false,
-                noMultiGen: true,
-                revenantOperationContext: revenantTarget ? createRevenantOperation({
-                    kind: 'hypav3-summary',
-                    operationId: revenantTarget.operationId,
-                    characterId: revenantTarget.characterId,
-                    roomId: revenantTarget.roomId,
-                    batchId: revenantTarget.batchId,
-                    chatMemos: revenantTarget.chatMemos,
-                }) : undefined,
-                revenantDispatchPolicy: revenantTarget?.dispatchPolicy,
-                onRevenantJobCreated: revenantTarget?.onJobCreated,
-            },
-            "memory"
-        );
-
-        if (response.type === "streaming" || response.type === "multiline") {
-            throw new Error("Unexpected response type");
-        }
-
-        if (response.type === "fail") {
-            throw new Error(response.result);
-        }
-
-        if (!response.result || response.result.trim().length === 0) {
-            throw new Error("Empty summary returned");
-        }
-
-        // Remove thoughts content for API
-        const thoughtsRegex = /<Thoughts>[\s\S]*?<\/Thoughts>/g;
-        const result = response.result.replace(thoughtsRegex, "").trim();
-
-        if (result.length === 0) {
-            throw new Error("Empty summary after removing thoughts content");
-        }
-
-        return result;
-    }
-
-    // Local — ensure system message comes first for WebLLM models
-    const firstSystemIndex = formated.findIndex(m => m.role === 'system');
-    if (firstSystemIndex > 0) {
-        const [system] = formated.splice(firstSystemIndex, 1);
-        formated.unshift(system);
-    }
-
-    const content = await chatCompletion(formated, settings.summarizationModel, {
-        max_tokens: 8192,
-        temperature: 0,
-        extra_body: {
-            enable_thinking: false,
+    const response = await requestChatData(
+        {
+            formated,
+            bias: {},
+            currentChar: getCurrentCharacter(),
+            useStreaming: false,
+            noMultiGen: true,
+            revenantOperationContext: revenantTarget ? createRevenantOperation({
+                kind: 'hypav3-summary',
+                operationId: revenantTarget.operationId,
+                characterId: revenantTarget.characterId,
+                roomId: revenantTarget.roomId,
+                batchId: revenantTarget.batchId,
+                chatMemos: revenantTarget.chatMemos,
+            }) : undefined,
+            revenantDispatchPolicy: revenantTarget?.dispatchPolicy,
+            onRevenantJobCreated: revenantTarget?.onJobCreated,
+            onRequestStatusActivate,
         },
-    });
+        "memory",
+        signal
+    );
 
-    if (!content || content.trim().length === 0) {
+    if (response.type === "streaming" || response.type === "multiline") {
+        throw new Error("Unexpected response type");
+    }
+
+    if (response.type === "fail") {
+        throw new Error(response.result);
+    }
+
+    if (!response.result || response.result.trim().length === 0) {
         throw new Error("Empty summary returned");
     }
 
-    // Remove think content
-    const thinkRegex = /<think>[\s\S]*?<\/think>/g;
-    const result = content.replace(thinkRegex, "").trim();
+    const thoughtsRegex = /<Thoughts>[\s\S]*?<\/Thoughts>/g;
+    const result = response.result.replace(thoughtsRegex, "").trim();
 
     if (result.length === 0) {
-        throw new Error("Empty summary after removing think content");
+        throw new Error("Empty summary after removing thoughts content");
     }
 
     return result;

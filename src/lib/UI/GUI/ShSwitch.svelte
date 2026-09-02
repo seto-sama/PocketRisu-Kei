@@ -5,13 +5,13 @@
     //   - shadcn semantic tokens → RisuAI theme tokens
     //       bg-primary → bg-primary (RisuAI's primary token — dynamic per theme,
     //         maps to ColorScheme.primary; carries the "on/active" fill role),
-    //       bg-input → bg-darkbutton (brighter than dialog background darkbg
+    //       bg-input → bg-button (brighter than dialog background darkbg
     //         so the inactive track stays visible against panel surfaces),
-    //       border-ring/ring-ring → border-borderc/ring-borderc,
-    //       border-destructive/ring-destructive → border-draculared/ring-draculared,
-    //       bg-background → bg-white (thumb is a light disc on the track —
+    //       border-ring/ring-ring → border-lightborderc/ring-lightborderc,
+    //       border-destructive/ring-destructive → border-danger/ring-danger,
+    //       bg-background → bg-themewhite (thumb is a light disc on the track —
     //         standard toggle UX has thumb always near-white regardless of
-    //         theme; mapping bg-background → bg-textcolor would render a black
+    //         theme; mapping bg-background → bg-maintext would render a black
     //         thumb in light/monokai-light themes which is jarring and unlike
     //         any platform toggle convention)
     //   - data-checked: / data-unchecked: → data-[state=checked]: / data-[state=unchecked]:
@@ -66,9 +66,9 @@
         'peer group/switch relative inline-flex items-center transition-all ' +
         'after:absolute after:-inset-x-3 after:-inset-y-2 ' +
         'data-disabled:cursor-not-allowed data-disabled:opacity-50 ' +
-        'data-[state=checked]:bg-primary data-[state=unchecked]:bg-darkbutton ' +
+        'data-[state=checked]:bg-primary data-[state=unchecked]:bg-button ' +
         'hover:brightness-110 ' +
-        'aria-invalid:ring-draculared/20 aria-invalid:border-draculared ' +
+        'aria-invalid:ring-danger/20 aria-invalid:border-danger ' +
         'shrink-0 rounded-full border border-transparent shadow-xs ' +
         'aria-invalid:ring-3 ' +
         'data-[size=default]:h-[18.4px] data-[size=default]:w-[32px] ' +
@@ -81,7 +81,7 @@
         class={
             'pointer-events-none block ring-0 transition-transform ' +
             'rtl:data-[state=checked]:translate-x-[calc(-100%)] ' +
-            'bg-white rounded-full ' +
+            'bg-themewhite rounded-full ' +
             'group-data-[size=default]/switch:size-4 group-data-[size=sm]/switch:size-3 ' +
             'group-data-[size=default]/switch:data-[state=checked]:translate-x-[calc(100%-2px)] ' +
             'group-data-[size=sm]/switch:data-[state=checked]:translate-x-[calc(100%-2px)] ' +

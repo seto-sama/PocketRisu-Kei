@@ -203,7 +203,7 @@ function scrollToSettingAnchor(itemId: string, attempt = 0): void {
     if (element) {
         element.scrollIntoView({ block: 'center' });
         element.animate?.([
-            { boxShadow: '0 0 0 3px var(--risu-theme-primary, #fbbf24)' },
+            { boxShadow: '0 0 0 3px var(--risu-theme-primary)' },
             { boxShadow: '0 0 0 3px transparent' },
         ], { duration: 1600, easing: 'ease-out' });
     } else if (attempt < 40) {

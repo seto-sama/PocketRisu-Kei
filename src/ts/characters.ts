@@ -73,11 +73,12 @@ export async function getCharImage(loc:string, type:'plain'|'css'|'contain'|'lgc
     if(type === 'plain'){
         return filesrc
     }
-    else if(type ==='css'){
-        return `background: url("${filesrc}");background-size: cover;`
+    const coverBackground = `background: url("${filesrc}");background-size: cover;background-repeat: no-repeat;`
+    if(type ==='css'){
+        return coverBackground
     }
     else if(type === 'lgcss'){
-        return `background: url("${filesrc}");background-size: cover;height: 10.66rem;`
+        return `${coverBackground}height: 10.66rem;`
 
     }
 
@@ -155,12 +156,12 @@ function getCurrentExportTheme() {
     const read = (token:string) => styles.getPropertyValue(token).trim()
 
     return {
-        background: read('--risu-theme-bgcolor'),
+        background: read('--risu-theme-lightbg'),
         surface: read('--risu-theme-darkbg'),
-        text: read('--risu-theme-textcolor'),
-        mutedText: read('--risu-theme-textcolor2'),
+        text: read('--risu-theme-maintext'),
+        mutedText: read('--risu-theme-subtext'),
         border: read('--risu-theme-darkborderc'),
-        accentBorder: read('--risu-theme-borderc'),
+        accentBorder: read('--risu-theme-lightborderc'),
         primary: read('--risu-theme-primary'),
     }
 }

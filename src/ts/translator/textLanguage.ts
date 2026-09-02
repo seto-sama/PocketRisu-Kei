@@ -4,6 +4,18 @@ const LETTER_PATTERN = /\p{Letter}/u
 const HANGUL_PATTERN = /\p{Script=Hangul}/u
 const HAN_PATTERN = /\p{Script=Han}/u
 const LATIN_PATTERN = /\p{Script=Latin}/u
+const NON_LANGUAGE_CONTENT_SELECTOR = [
+    '.x-risu-thoughts',
+    '.x-risu-streaming-thoughts',
+    'thoughts',
+    'think',
+    'img',
+    'picture',
+    'script',
+    'style',
+    'noscript',
+    'template',
+].join(',')
 
 function getUiLanguageScriptPattern(language: string): RegExp {
     if (language === 'ko') return HANGUL_PATTERN
@@ -67,4 +79,30 @@ export function isTextLikelyDifferentFromUiLanguage(text: string, uiLanguage: st
     }
 
     return otherScriptLetters > uiScriptLetters
+}
+
+/**
+ * Extracts the text a user can actually read from fully rendered chat HTML.
+ * Media metadata and chain-of-thought containers must not influence language
+ * detection even though they can contain a large amount of foreign text.
+ */
+export function getRenderedTextForLanguageDetection(html: string): string {
+    const withoutRawThoughts = stripDisplayedThoughts(html)
+    if (typeof DOMParser === 'undefined') {
+        return withoutRawThoughts.replace(/<[^>]*>/gu, ' ')
+    }
+
+    const document = new DOMParser().parseFromString(withoutRawThoughts, 'text/html')
+    document.querySelectorAll(NON_LANGUAGE_CONTENT_SELECTOR).forEach(element => element.remove())
+    return document.body.textContent ?? ''
+}
+
+export function isRenderedTextLikelyDifferentFromUiLanguage(
+    html: string,
+    uiLanguage: string,
+): boolean {
+    return isTextLikelyDifferentFromUiLanguage(
+        getRenderedTextForLanguageDetection(html),
+        uiLanguage,
+    )
 }

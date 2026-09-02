@@ -427,15 +427,6 @@ export const displayOtherAdvancedItems: SettingItem[] = [
     },
     { id: 'display.menuSideBar', type: 'check', labelKey: 'menuSideBar', helpKey: 'menuSideBar', bindKey: 'menuSideBar', keywords: ['menu', 'sidebar'] },
     { id: 'display.betaMobileGUI', type: 'check', labelKey: 'betaMobileGUI', helpKey: 'betaMobileGUI', bindKey: 'betaMobileGUI', keywords: ['beta', 'mobile', 'gui'] },
-    {
-        id: 'display.useChatSticker',
-        type: 'check',
-        labelKey: 'useChatSticker',
-        helpKey: 'unrecommendedChatSticker',
-        helpUnrecommended: true,
-        bindKey: 'useChatSticker',
-        keywords: ['chat', 'sticker'],
-    },
 ];
 
 export const displaySettingsItems: SettingItem[] = [

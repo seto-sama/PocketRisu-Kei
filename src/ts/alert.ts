@@ -24,10 +24,10 @@ export interface AlertSelectOptions {
 }
 
 export interface alertData{
-    type: 'error'|'normal'|'none'|'ask'|'wait'|'selectChar'
-            |'input'|'wait2'|'markdown'|'select'|'login'
+    type: 'error'|'normal'|'none'|'ask'|'wait'
+            |'input'|'wait2'|'markdown'|'select'
             |'tos'|'cardexport'|'requestdata'|'addchar'|'selectModule'
-            |'pukmakkurit'|'progress'|'pluginconfirm'
+            |'progress'|'pluginconfirm'
             |'confirmMulti',
     msg: string,
     submsg?: string
@@ -168,16 +168,6 @@ export async function alertAddCharacter() {
     return get(alertStoreImported).msg
 }
 
-export async function alertLogin(){
-    alertStoreImported.set({
-        'type': 'login',
-        'msg': 'login'
-    })
-    await waitAlert()
-
-    return get(alertStoreImported).msg
-}
-
 /** Returns the selected option index as a string, or "-1" when dismissed. */
 export async function alertSelect(msg:string[], options?:string|AlertSelectOptions){
     const display = typeof options === 'string' ? options : options?.display
@@ -292,17 +282,6 @@ export function alertClear(){
         'type': 'none',
         'msg': ''
     })
-}
-
-export async function alertSelectChar(){
-    alertStoreImported.set({
-        'type': 'selectChar',
-        'msg': ''
-    })
-
-    await waitAlert()
-
-    return get(alertStoreImported).msg
 }
 
 export async function alertConfirm(msg:string, description?:string){

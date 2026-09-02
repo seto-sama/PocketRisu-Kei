@@ -98,7 +98,7 @@
         <div>
             <div class="flex flex-col gap-2">
                 <div class="flex min-h-8 items-center justify-between gap-3">
-                    <span class="text-sm text-textcolor">{language.translationPrompt}</span>
+                    <span class="text-sm text-maintext">{language.translationPrompt}</span>
                     <TranslatorPresetList
                         compact
                         bind:value={DBState.db.translationDialogPromptPresetId}
@@ -107,7 +107,7 @@
                     />
                 </div>
                 <div class="flex min-h-8 items-center justify-between gap-3">
-                    <span class="text-sm text-textcolor">{language.modelPresetMenu}</span>
+                    <span class="text-sm text-maintext">{language.modelPresetMenu}</span>
                     <ModelPresetList
                         compact
                         bind:value={DBState.db.translationDialogModelPresetId}
@@ -117,7 +117,7 @@
                     />
                 </div>
                 <div class="flex min-h-8 items-center justify-between gap-3">
-                    <span class="min-w-0 text-sm text-textcolor">
+                    <span class="min-w-0 text-sm text-maintext">
                         {language.translationDialogClearAfterConfirm}<Help
                             key="translationDialogClearAfterConfirm"
                             name={language.translationDialogClearAfterConfirm}
@@ -140,14 +140,14 @@
                         draftStore.schedule({ input })
                     }}
                     placeholder={language.translationInputPlaceholder}
-                    contentClassName="placeholder:text-textcolor2"
+                    contentClassName="placeholder:text-subtext"
                 />
             </div>
         </div>
 
         {#if translating}
-            <div class="min-h-24 flex items-center justify-center text-textcolor2">
-                <LoaderCircleIcon class="size-8 animate-spin" />
+            <div class="min-h-24 flex items-center justify-center">
+                <LoaderCircleIcon class="size-8 animate-spin text-primary" />
             </div>
         {:else if output}
             {#snippet resultActionBar(copyOutput: () => Promise<void>, copied: boolean)}

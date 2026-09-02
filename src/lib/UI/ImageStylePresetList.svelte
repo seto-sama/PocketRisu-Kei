@@ -424,7 +424,7 @@
             {@const item = presets[index]}
             <span class="grow min-w-0 truncate">
                 <span>{item.name}</span>
-                {#if item.moduleName}<span class="text-textcolor2"> / {item.moduleName}</span>{/if}
+                {#if item.moduleName}<span class="text-subtext"> / {item.moduleName}</span>{/if}
             </span>
         {/snippet}
         {#snippet itemActions(index)}
@@ -435,7 +435,7 @@
         {/snippet}
         {#snippet listFooter()}
             <button
-                class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-textcolor2 {!DBState.db.imageStylePresetId ? '' : 'risu-interactive-surface'}"
+                class="w-full h-10 flex items-center gap-2 rounded-md text-left px-3 text-sm text-subtext {!DBState.db.imageStylePresetId ? '' : 'risu-interactive-surface'}"
                 class:bg-selected={!DBState.db.imageStylePresetId}
                 onclick={selectNone}
             >
@@ -457,15 +457,15 @@
 <ShDialog bind:open={editorOpen} size="default" closeOnEscape closeOnOutsideClick closable>
     {#snippet title()}{editingPresetId ? `${language.imageStylePreset} ${language.edit}` : language.imageStylePresetNew}{/snippet}
     <div class="flex flex-col gap-3">
-        <label class="flex items-center justify-between gap-3 text-sm text-textcolor">
+        <label class="flex items-center justify-between gap-3 text-sm text-maintext">
             <span>{language.imageStylePresetName}</span>
             <TextInput bind:value={editorName} commitMode="input" className="w-48 text-sm" size="sm" />
         </label>
-        <label class="flex flex-col gap-1 text-sm text-textcolor">
+        <label class="flex flex-col gap-1 text-sm text-maintext">
             <span>{language.imageStylePresetPositive}</span>
             <TextAreaInput bind:value={editorPositive} commitMode="input" fullwidth />
         </label>
-        <label class="flex flex-col gap-1 text-sm text-textcolor">
+        <label class="flex flex-col gap-1 text-sm text-maintext">
             <span>{language.imageStylePresetNegative}</span>
             <TextAreaInput bind:value={editorNegative} commitMode="input" fullwidth />
         </label>

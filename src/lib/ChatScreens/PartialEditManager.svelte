@@ -885,13 +885,13 @@
         width: var(--partial-edit-cell-size);
         height: var(--partial-edit-cell-size);
         padding: 0;
-        background: var(--risu-theme-textcolor);
-        border: 1px solid var(--risu-theme-textcolor);
+        background: var(--risu-theme-maintext);
+        border: 1px solid var(--risu-theme-maintext);
         border-radius: 6px;
         cursor: pointer;
-        box-shadow: 0 2px 8px color-mix(in srgb, var(--risu-theme-textcolor) 15%, transparent);
+        box-shadow: 0 2px 8px color-mix(in srgb, var(--risu-theme-maintext) 15%, transparent);
         transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
-        color: var(--risu-theme-bgcolor);
+        color: var(--risu-theme-lightbg);
     }
 
     :global(.partial-edit-btn svg) {
@@ -900,19 +900,19 @@
     }
 
     :global(.partial-edit-btn-edit:is(:hover, :focus-visible)) {
-        background: color-mix(in srgb, var(--risu-theme-primary) 15%, var(--risu-theme-textcolor));
+        background: color-mix(in srgb, var(--risu-theme-primary) 15%, var(--risu-theme-maintext));
         border-color: var(--risu-theme-primary);
         color: var(--risu-theme-primary);
     }
 
     :global(.partial-edit-btn-delete:is(:hover, :focus-visible)) {
-        background: color-mix(in srgb, var(--risu-theme-draculared) 15%, var(--risu-theme-textcolor));
-        border-color: var(--risu-theme-draculared);
-        color: var(--risu-theme-draculared);
+        background: color-mix(in srgb, var(--risu-theme-danger) 15%, var(--risu-theme-maintext));
+        border-color: var(--risu-theme-danger);
+        color: var(--risu-theme-danger);
     }
 
     .partial-match-failed-modal {
-        background: var(--risu-theme-bgcolor);
+        background: var(--risu-theme-lightbg);
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 6px;
         padding: 16px;
@@ -933,18 +933,18 @@
     .partial-match-failed-title {
         font-weight: 600;
         font-size: 16px;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
     }
 
     .partial-match-failed-message {
         font-size: 14px;
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
         margin: 0;
         line-height: 1.5;
     }
 
     .partial-delete-modal {
-        background: var(--risu-theme-bgcolor);
+        background: var(--risu-theme-lightbg);
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 6px;
         padding: 16px;
@@ -965,12 +965,12 @@
     .partial-delete-title {
         font-weight: 600;
         font-size: 16px;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
     }
 
     .partial-delete-message {
         font-size: 14px;
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
         margin: 0;
     }
 
@@ -980,7 +980,7 @@
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 8px;
         font-size: 13px;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
         max-height: 100px;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -1048,9 +1048,9 @@
     }
 
     .partial-match-confidence.low-confidence {
-        background: color-mix(in srgb, var(--risu-theme-draculared) 20%, var(--risu-theme-darkbg));
-        border-color: color-mix(in srgb, var(--risu-theme-draculared) 45%, var(--risu-theme-darkborderc));
-        color: var(--risu-theme-draculared);
+        background: color-mix(in srgb, var(--risu-theme-danger) 20%, var(--risu-theme-darkbg));
+        border-color: color-mix(in srgb, var(--risu-theme-danger) 45%, var(--risu-theme-darkborderc));
+        color: var(--risu-theme-danger);
     }
 
     .partial-edit-buttons {
@@ -1061,7 +1061,7 @@
 
     /* Match Selection Modal */
     .partial-match-selection-modal {
-        background: var(--risu-theme-bgcolor);
+        background: var(--risu-theme-lightbg);
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 6px;
         padding: 16px;
@@ -1085,7 +1085,7 @@
     .match-selection-title {
         font-weight: 600;
         font-size: 16px;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
     }
 
     .match-count {
@@ -1094,7 +1094,7 @@
         padding: 4px 10px;
         border-radius: 12px;
         background: var(--risu-theme-darkbg);
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
     }
 
     .match-list {
@@ -1119,8 +1119,8 @@
     }
 
     .match-item:is(:hover, :focus-visible) {
-        background: var(--risu-theme-bgcolor);
-        border-color: var(--risu-theme-borderc);
+        background: var(--risu-theme-lightbg);
+        border-color: var(--risu-theme-lightborderc);
         box-shadow: 0 2px 8px color-mix(in srgb, var(--risu-theme-primary) 20%, transparent);
         transform: translateY(-1px);
     }
@@ -1135,8 +1135,8 @@
     .match-line {
         font-size: 12px;
         font-weight: 500;
-        color: var(--risu-theme-textcolor);
-        background: var(--risu-theme-bgcolor);
+        color: var(--risu-theme-maintext);
+        background: var(--risu-theme-lightbg);
         padding: 2px 8px;
         border-radius: 4px;
     }
@@ -1162,17 +1162,17 @@
     }
 
     .match-confidence.low-confidence {
-        background: color-mix(in srgb, var(--risu-theme-draculared) 20%, var(--risu-theme-darkbg));
-        border-color: color-mix(in srgb, var(--risu-theme-draculared) 45%, var(--risu-theme-darkborderc));
-        color: var(--risu-theme-draculared);
+        background: color-mix(in srgb, var(--risu-theme-danger) 20%, var(--risu-theme-darkbg));
+        border-color: color-mix(in srgb, var(--risu-theme-danger) 45%, var(--risu-theme-darkborderc));
+        color: var(--risu-theme-danger);
     }
 
     .match-context-before,
     .match-context-after {
         font-size: 12px;
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
         padding: 8px 12px;
-        background: var(--risu-theme-bgcolor);
+        background: var(--risu-theme-lightbg);
         border-radius: 6px;
         border-left: 3px solid var(--risu-theme-darkborderc);
         line-height: 1.5;
@@ -1182,9 +1182,9 @@
 
     .match-text {
         font-size: 13px;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
         padding: 10px 12px;
-        background: var(--risu-theme-bgcolor);
+        background: var(--risu-theme-lightbg);
         border-radius: 6px;
         border-left: 3px solid var(--risu-theme-primary);
         line-height: 1.5;

@@ -166,7 +166,7 @@
     {/snippet}
 
     {#if fields.length === 0}
-        <span class="py-2 text-sm text-textcolor2">{language.noConfig}</span>
+        <span class="py-2 text-sm text-subtext">{language.noConfig}</span>
     {/if}
 
     {#each fields as field}

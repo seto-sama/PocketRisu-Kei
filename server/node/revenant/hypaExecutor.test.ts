@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import executorPkg from './hypaExecutor.cjs'
 
-const { createRemoteEmbedder, selectHypaMemory } = executorPkg as {
+const { createRemoteEmbedder, createSummaryTokenCounter, selectHypaMemory } = executorPkg as {
     createRemoteEmbedder: (
         config: Record<string, unknown>,
         deps: Record<string, unknown>,
@@ -9,6 +9,9 @@ const { createRemoteEmbedder, selectHypaMemory } = executorPkg as {
         documents: (items: Array<{ content: string, summaryIndex: number }>) => Promise<number[][]>
         queries: (items: string[]) => Promise<number[][]>
     }
+    createSummaryTokenCounter: (
+        spec: { tokenizer: string, chatAdditionalTokens: number },
+    ) => Promise<(content: string) => Promise<number>>
     selectHypaMemory: (
         recipe: Record<string, any>,
         summaries: Array<Record<string, any>>,
@@ -42,6 +45,15 @@ function recipe() {
 }
 
 describe('server HypaV3 selection executor', () => {
+    it('counts JSON-tokenizer prompts without the removed MLC WASM runtime', async () => {
+        const countTokens = await createSummaryTokenCounter({
+            tokenizer: 'claude',
+            chatAdditionalTokens: 3,
+        })
+
+        expect(await countTokens('Hello world')).toBe(5)
+    })
+
     it('selects important and semantically similar summaries and creates a resumable checkpoint', async () => {
         const summaries = [
             { text: 'important', chatMemos: ['a'], isImportant: true },

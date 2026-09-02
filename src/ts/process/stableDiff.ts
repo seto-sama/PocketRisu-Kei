@@ -946,9 +946,10 @@ export async function generateAIImageInlay(
     currentChar: character,
     negativePrompt = '',
     target?: { characterId: string, chatId: string },
+    requestedSeed?: number,
 ): Promise<string | false> {
     const provider = getCurrentImageGenerationPreset(getDatabase()).settings.sdProvider
-    const seed = createImageGenerationSeed(provider)
+    const seed = requestedSeed ?? createImageGenerationSeed(provider)
     const generated = await generateAIImage(prompt, currentChar, negativePrompt, 'inlay', seed)
     if(!generated) return false
 

@@ -2,7 +2,7 @@
     import { BookIcon, FlagIcon, ImageIcon, PaperclipIcon, SmileIcon, TrashIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { alertConfirm, alertInput, alertNormal, notifyInfo } from "src/ts/alert";
-    import { hubURL, type hubType, downloadRisuHub, getRealmInfo } from "src/ts/characterCards";
+    import { hubURL, realmURL, type hubType, downloadRisuHub, getRealmInfo } from "src/ts/characterCards";
     
     import { DBState } from 'src/ts/stores.svelte';
     import RealmLicense from "./RealmLicense.svelte";
@@ -16,10 +16,12 @@
 
     interface Props {
         openedData: hubType;
+        onDownloaded?: () => void;
     }
 
-    let { openedData = $bindable() }: Props = $props();
+    let { openedData = $bindable(), onDownloaded = () => {} }: Props = $props();
     let open = $state(true)
+    let downloading = $state(false)
 
     function close() {
         open = false
@@ -38,7 +40,7 @@
         <span class="flex min-w-0 flex-col gap-0.5">
             <span class="block truncate text-2xl">{openedData.name}</span>
             {#if openedData.authorname}
-                <span class="truncate text-sm font-normal text-textcolor2">Made by {openedData.authorname}</span>
+                <span class="truncate text-sm font-normal text-subtext">Made by {openedData.authorname}</span>
             {/if}
         </span>
     {/snippet}
@@ -53,7 +55,7 @@
         {/if}
         <div class="mt-4 flex min-h-36 flex-1 items-start justify-start gap-4 overflow-hidden max-sm:flex-col">
             {#if DBState.db.hideAllImages}
-                <div class="flex h-36 w-36 shrink-0 items-center justify-center rounded-md bg-darkbutton text-textcolor2">
+                <div class="flex h-36 w-36 shrink-0 items-center justify-center rounded-md bg-button text-subtext">
                     <span class="text-4xl">?</span>
                 </div>
             {:else}
@@ -87,7 +89,7 @@
                         }} aria-label="Lorebook"><BookIcon /></IconButton>
                     {/if}
                 </IconButtonGroup>
-                <span class="whitespace-nowrap text-textcolor2" use:tooltip={language.popularityLevelDesc}>
+                <span class="whitespace-nowrap text-subtext" use:tooltip={language.popularityLevelDesc}>
                     {language.popularityLevel.replace('{}', openedData.download.toString())}
                 </span>
             </div>
@@ -95,15 +97,23 @@
     </div>
 
     <div class="flex shrink-0 gap-2">
-        <ShButton variant="primary" className="grow" onclick={() => {
-            downloadRisuHub(openedData.id)
-            close()
+        <ShButton disabled={downloading} variant="primary" className="grow" onclick={async () => {
+            if (downloading) return
+            downloading = true
+            try {
+                if (await downloadRisuHub(openedData.id)) {
+                    close()
+                    onDownloaded()
+                }
+            } finally {
+                downloading = false
+            }
         }}>
-            Download
+            {downloading ? language.loading : language.download}
         </ShButton>
         <IconButtonGroup size="xl">
             <IconButton aria-label="Copy Realm link" onclick={(async () => {
-                    await navigator.clipboard.writeText(`https://realm.risuai.net/character/${openedData.id}`)
+                    await navigator.clipboard.writeText(`${realmURL}/character/${openedData.id}`)
                     notifyInfo(language.clipboardSuccess)
             })}>
                 <PaperclipIcon />

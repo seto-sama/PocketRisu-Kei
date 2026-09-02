@@ -147,7 +147,7 @@
                             $ReloadGUIPointer += 1
                         }
                     }}
-                    class="chat-folder-header flex min-w-0 items-center text-textcolor border-0 p-2 cursor-pointer rounded-md {folderColorStyle.fill}"
+                    class="chat-folder-header flex min-w-0 items-center text-maintext border-0 p-2 cursor-pointer rounded-md {folderColorStyle.fill}"
                 >
                     <InlineEditableName
                         controller={renameController}
@@ -201,7 +201,7 @@
                 </div>
                 <!-- chats in folder -->
                 <ShSortableList
-                    className="risu-chat flex flex-col w-full text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md {folder.folded ? 'hidden' : ''}"
+                    className="risu-sidebar-chat-list flex flex-col w-full text-maintext border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md {folder.folded ? 'hidden' : ''}"
                     draggable="[data-sortable-chat-id]"
                     dataAttribute="data-sortable-chat-id"
                     dragPreviewText={(chatId) => chara.chats.find(chat => chat.id === chatId)?.name}
@@ -209,7 +209,7 @@
                     onReorder={syncChatOrderFromDom}
                 >
                     {#if chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id).length == 0}
-                    <span class="no-sort flex justify-center text-textcolor2">Empty</span>
+                    <span class="no-sort flex justify-center text-subtext">Empty</span>
                     <div></div>
                     {:else}
                     {#each chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id) as chat (chat.id)}
@@ -220,7 +220,7 @@
                             event.preventDefault()
                             changeChatTo(chatIdx)
                         }
-                    }} class="risu-selectable-row risu-chats flex min-w-0 items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md" data-selected={chatIdx === chara.chatPage && !$chatDeselected}>
+                    }} class="risu-selectable-row risu-chats flex min-w-0 items-center text-maintext border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md" data-selected={chatIdx === chara.chatPage && !$chatDeselected}>
                         <InlineEditableName controller={renameController} bind:value={chat.name} onActivate={() => changeChatTo(chatIdx)} />
                         <IconButtonGroup className="no-sort ml-3 shrink-0" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
                             <InlineRenameAction controller={renameController} />
@@ -276,7 +276,7 @@
         </ShSortableList>
         <!-- chat without folder div -->
         <ShSortableList
-            className="risu-chat flex flex-col"
+            className="risu-sidebar-chat-list flex flex-col"
             draggable="[data-sortable-chat-id]"
             dataAttribute="data-sortable-chat-id"
             dragPreviewText={(chatId) => chara.chats.find(chat => chat.id === chatId)?.name}
@@ -292,7 +292,7 @@
                     changeChatTo(i)
                 }
             }}
-            class="risu-selectable-row flex min-w-0 items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
+            class="risu-selectable-row flex min-w-0 items-center text-maintext border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
             data-selected={i === chara.chatPage && !$chatDeselected}>
                 <InlineEditableName controller={renameController} bind:value={chara.chats[i].name} onActivate={() => changeChatTo(i)} />
                 <IconButtonGroup className="no-sort ml-3 shrink-0" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>

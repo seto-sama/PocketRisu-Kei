@@ -31,6 +31,6 @@
             emptyMessage={language.cbsDocumentationEmpty}
         />
     {:else}
-        <p class="text-sm text-textcolor2">{language.loading}</p>
+        <p class="text-sm text-subtext">{language.loading}</p>
     {/if}
 </ShDialog>

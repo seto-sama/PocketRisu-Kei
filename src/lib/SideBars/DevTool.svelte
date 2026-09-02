@@ -105,7 +105,7 @@
 {#snippet tokenRow(label: string, value: string)}
     <ShSettings variant="row" size="compact">
         <span class="min-w-0 flex-1 truncate text-base">{label}</span>
-        <span class="shrink-0 text-sm leading-5 text-textcolor2 tabular-nums">{value}</span>
+        <span class="shrink-0 text-sm leading-5 text-subtext tabular-nums">{value}</span>
     </ShSettings>
 {/snippet}
 
@@ -122,7 +122,7 @@
                     <span class="min-w-0 truncate pl-1 text-sm">{key}</span>
                     <div class="min-w-0 flex-1">
                         {#if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "object"}
-                            <div class="text-center text-sm text-textcolor2">Object</div>
+                            <div class="text-center text-sm text-subtext">Object</div>
                         {:else if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "string"}
                             <TextInput size="sm" className="box-border h-6 min-w-0 max-w-full w-full" bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] as string} />
                         {:else if typeof DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate[key] === "number"}
@@ -131,7 +131,7 @@
                     </div>
                     <button
                         type="button"
-                        class="relative flex size-6 shrink-0 items-center justify-center text-textcolor2 transition-colors after:absolute after:-inset-1 risu-interactive-danger"
+                        class="relative flex size-6 shrink-0 items-center justify-center text-subtext transition-colors after:absolute after:-inset-1 risu-interactive-danger"
                         aria-label={language.remove}
                         title={language.remove}
                         onclick={async () => {
@@ -144,7 +144,7 @@
                 </ShSettings>
             {/each}
         {:else}
-            <div class="p-2 text-center text-textcolor2">No variables</div>
+            <div class="p-2 text-center text-subtext">No variables</div>
         {/if}
     </ShSettings>
 </Accordion>
@@ -174,12 +174,12 @@
             {/await}
         {/if}
     </ShSettings>
-    <span class="mt-2 block text-xs leading-4 text-textcolor2">{language.devToolTokens.estimateNotice}</span>
+    <span class="mt-2 block text-xs leading-4 text-subtext">{language.devToolTokens.estimateNotice}</span>
 </Accordion>
 
 <Accordion styled name={language.autopilot}>
     {#if $devToolAutopilotStore.length === 0}
-        <span class="text-sm text-textcolor2">{language.noData}</span>
+        <span class="text-sm text-subtext">{language.noData}</span>
     {/if}
     {#each $devToolAutopilotStore as _, i}
         <div class="mt-2 flex items-center gap-1">
@@ -248,9 +248,9 @@
                 className="w-full justify-start px-1"
                 onclick={() => requestPreviewOpen.set(true)}
             >
-                <FileSearchIcon class="text-textcolor2" />
+                <FileSearchIcon class="text-subtext" />
                 <span class="min-w-0 flex-1 truncate text-left">{language.devToolPreview.request}</span>
-                <ChevronRightIcon class="text-textcolor2" />
+                <ChevronRightIcon class="text-subtext" />
             </ShButton>
         </ShSettings>
         <ShSettings variant="row" className="px-0">
@@ -267,9 +267,9 @@
                     alertMd(html)
                 }}
             >
-                <BookOpenIcon class="text-textcolor2" />
+                <BookOpenIcon class="text-subtext" />
                 <span class="min-w-0 flex-1 truncate text-left">{language.devToolPreview.active}</span>
-                <ChevronRightIcon class="text-textcolor2" />
+                <ChevronRightIcon class="text-subtext" />
             </ShButton>
         </ShSettings>
         <ShSettings variant="row" className="px-0">
@@ -299,9 +299,9 @@
                     alertMd(html)
                 }}
             >
-                <SearchIcon class="text-textcolor2" />
+                <SearchIcon class="text-subtext" />
                 <span class="min-w-0 flex-1 truncate text-left">{language.devToolPreview.matches}</span>
-                <ChevronRightIcon class="text-textcolor2" />
+                <ChevronRightIcon class="text-subtext" />
             </ShButton>
         </ShSettings>
     </ShSettings>

@@ -86,7 +86,7 @@
                 <button class="shrink-0 risu-interactive-accent" onclick={() => playSoundPreview(s.path, volume)} aria-label={language.preview}>
                     <PlayIcon size={18} />
                 </button>
-                <button class="shrink-0 text-textcolor2 risu-interactive-danger" onclick={() => removeCustom(s)} aria-label={language.remove}>
+                <button class="shrink-0 text-subtext risu-interactive-danger" onclick={() => removeCustom(s)} aria-label={language.remove}>
                     <Trash2Icon size={18} />
                 </button>
             </div>

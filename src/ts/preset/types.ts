@@ -201,7 +201,6 @@ export type RegistryTokenizer =
     | 'llama3'
     | 'novellist'
     | 'gemma'
-    | 'cohere'
     | 'deepseek'
 
 export interface ModelProfile {

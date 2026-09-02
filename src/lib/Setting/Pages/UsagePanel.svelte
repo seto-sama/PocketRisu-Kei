@@ -394,7 +394,7 @@
 </script>
 
 <div class="flex flex-col gap-4">
-    <p class="text-textcolor2 text-sm m-0">{language.usageDesc}</p>
+    <p class="text-subtext text-sm m-0">{language.usageDesc}</p>
 
     <SettingLayout variant="filter" title={language.systemLogsFilters} bind:open={filtersOpen}>
         {#snippet control()}
@@ -403,7 +403,7 @@
             </ShButton>
         {/snippet}
         <div class="grid grid-cols-4 items-end gap-2 min-w-[40rem] overflow-x-auto pb-1">
-            <div class="flex flex-col gap-1 text-xs text-textcolor2 min-w-0">
+            <div class="flex flex-col gap-1 text-xs text-subtext min-w-0">
                 <span>{language.usageDateFilter}</span>
                 <ShSelect bind:value={period} size="sm" onchange={(e) => {
                     const next = e.currentTarget.value as UsagePeriod
@@ -416,11 +416,11 @@
                 </ShSelect>
             </div>
             <div class="col-span-3 grid grid-cols-2 gap-2 min-w-0">
-                <div class="flex flex-col gap-1 text-xs text-textcolor2 min-w-0">
+                <div class="flex flex-col gap-1 text-xs text-subtext min-w-0">
                     <span>{language.usageStartDate}</span>
                     <ShInput className="h-8 min-h-8 text-sm" type="datetime-local" bind:value={rangeStart} oninput={() => period = 'custom'} />
                 </div>
-                <div class="flex flex-col gap-1 text-xs text-textcolor2 min-w-0">
+                <div class="flex flex-col gap-1 text-xs text-subtext min-w-0">
                     <span>{language.usageEndDate}</span>
                     <ShInput className="h-8 min-h-8 text-sm" type="datetime-local" bind:value={rangeEnd} oninput={() => period = 'custom'} />
                 </div>
@@ -430,32 +430,32 @@
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
         <div class="rounded-md border border-darkborderc bg-darkbg/30 p-3">
-            <div class="text-xs text-textcolor2">{language.usageRequests}</div>
-            <div class="text-xl text-textcolor font-semibold tabular-nums">{number(totals.requests)}</div>
+            <div class="text-xs text-subtext">{language.usageRequests}</div>
+            <div class="text-xl text-maintext font-semibold tabular-nums">{number(totals.requests)}</div>
         </div>
         <div class="rounded-md border border-darkborderc bg-darkbg/30 p-3">
-            <div class="text-xs text-textcolor2">{language.usageInputTokens}</div>
-            <div class="text-xl text-textcolor font-semibold tabular-nums">{number(totals.promptTokens)}</div>
+            <div class="text-xs text-subtext">{language.usageInputTokens}</div>
+            <div class="text-xl text-maintext font-semibold tabular-nums">{number(totals.promptTokens)}</div>
         </div>
         <div class="rounded-md border border-darkborderc bg-darkbg/30 p-3">
-            <div class="text-xs text-textcolor2">{language.usageOutputTokens}</div>
-            <div class="text-xl text-textcolor font-semibold tabular-nums">{number(totals.completionTokens)}</div>
+            <div class="text-xs text-subtext">{language.usageOutputTokens}</div>
+            <div class="text-xl text-maintext font-semibold tabular-nums">{number(totals.completionTokens)}</div>
         </div>
         <div class="rounded-md border border-darkborderc bg-darkbg/30 p-3">
-            <div class="text-xs text-textcolor2">{language.usageCachedTokens}</div>
-            <div class="text-xl text-textcolor font-semibold tabular-nums">{number(totals.cachedTokens + totals.cacheReadTokens)}</div>
+            <div class="text-xs text-subtext">{language.usageCachedTokens}</div>
+            <div class="text-xl text-maintext font-semibold tabular-nums">{number(totals.cachedTokens + totals.cacheReadTokens)}</div>
         </div>
     </div>
 
     {#if loading}
-        <div class="text-textcolor2 text-sm">{language.systemLogsLoading}</div>
+        <div class="text-subtext text-sm">{language.systemLogsLoading}</div>
     {:else if loadError}
-        <div class="text-draculared text-sm">{language.systemLogsFailedLoad}: {loadError}</div>
+        <div class="text-danger text-sm">{language.systemLogsFailedLoad}: {loadError}</div>
     {:else}
         <div class="border border-darkborderc rounded-md bg-darkbg/30 p-3">
             <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <div class="text-sm font-medium text-textcolor">{language.usageChartTitle}</div>
-                <div class="flex flex-wrap items-center gap-3 text-xs text-textcolor2">
+                <div class="text-sm font-medium text-maintext">{language.usageChartTitle}</div>
+                <div class="flex flex-wrap items-center gap-3 text-xs text-subtext">
                     <span><span class="inline-block size-2 rounded-sm bg-violet-500 mr-1"></span>{language.usageInputTokens}</span>
                     <span><span class="inline-block size-2 rounded-sm bg-indigo-500 mr-1"></span>{language.usageCachedTokens}</span>
                     <span><span class="inline-block size-2 rounded-sm bg-yellow-500 mr-1"></span>{language.usageOutputTokens}</span>
@@ -530,8 +530,8 @@
                                             </div>
                                         {/snippet}
                                         <div class="font-medium">{bucket.title}</div>
-                                        <div>{language.usageInputTokens}: {number(bucket.promptTokens)} <span class="text-textcolor2">({number(effectiveCachedTokens)})</span></div>
-                                        <div>{language.usageOutputTokens}: {number(bucket.completionTokens)} <span class="text-textcolor2">({number(effectiveReasoningTokens)})</span></div>
+                                        <div>{language.usageInputTokens}: {number(bucket.promptTokens)} <span class="text-subtext">({number(effectiveCachedTokens)})</span></div>
+                                        <div>{language.usageOutputTokens}: {number(bucket.completionTokens)} <span class="text-subtext">({number(effectiveReasoningTokens)})</span></div>
                                         <div>{language.usageEstimatedCost}: {formatCost(bucket.estimatedCostUsd)}</div>
                                     </ShTooltip>
                                 </div>
@@ -540,7 +540,7 @@
                     </div>
                     <div class="h-4 flex">
                         {#each chartBuckets as bucket (bucket.key)}
-                            <div class="flex-1 min-w-0 text-[10px] leading-4 text-center whitespace-nowrap text-textcolor2 tabular-nums">{bucket.label}</div>
+                            <div class="flex-1 min-w-0 text-[10px] leading-4 text-center whitespace-nowrap text-subtext tabular-nums">{bucket.label}</div>
                         {/each}
                     </div>
                 </div>
@@ -549,7 +549,7 @@
 
         <SettingLayout variant="panel" className="!mb-0">
             <div class="flex items-center gap-2 mb-3">
-                <div class="flex items-center gap-1 text-textcolor font-medium">
+                <div class="flex items-center gap-1 text-maintext font-medium">
                     <SearchIcon size={16} />
                     <span>{language.usageEntries}</span>
                     <Help key="usageEntryTokens" />
@@ -570,8 +570,8 @@
 
             {#if displayedEntries.length === 0}
                 <div class="flex flex-col items-center justify-center text-center py-12 bg-darkbg/30">
-                    <ChartNoAxesColumnIcon size={40} class="text-textcolor2 mb-3 opacity-50" />
-                    <div class="text-textcolor font-medium">{language.usageEmpty}</div>
+                    <ChartNoAxesColumnIcon size={40} class="text-subtext mb-3 opacity-50" />
+                    <div class="text-maintext font-medium">{language.usageEmpty}</div>
                 </div>
             {:else}
                 <SettingLayout variant="list">
@@ -579,34 +579,34 @@
                         <SettingLayout variant="item" className="gap-2">
                             <div class="flex flex-1 min-w-0 flex-col gap-1">
                                 <div class="flex min-w-0 items-center gap-2">
-                                    <span class="text-xs text-textcolor2 tabular-nums shrink-0">{formatTime(entry.timestamp)}</span>
+                                    <span class="text-xs text-subtext tabular-nums shrink-0">{formatTime(entry.timestamp)}</span>
                                     <span class="flex min-w-0 flex-1 items-center gap-2">
-                                        <span class="min-w-0 truncate text-sm font-medium text-textcolor">{entry.model ?? entry.provider ?? language.usageUnknownModel}</span>
+                                        <span class="min-w-0 truncate text-sm font-medium text-maintext">{entry.model ?? entry.provider ?? language.usageUnknownModel}</span>
                                         {#if entry.provider && entry.model}
-                                            <span class="hidden shrink-0 text-xs text-textcolor2 sm:inline">{entry.provider}</span>
+                                            <span class="hidden shrink-0 text-xs text-subtext sm:inline">{entry.provider}</span>
                                         {/if}
                                     </span>
                                 </div>
-                                <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-textcolor2 tabular-nums">
+                                <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-subtext tabular-nums">
                                     <span>
                                         {language.usageInputTokens}:
-                                        <span class="text-textcolor">{number(entry.promptTokens)}</span>
-                                        (<span class="text-textcolor2/70">{number((entry.cachedTokens ?? 0) + (entry.cacheReadTokens ?? 0))}{#if entry.cacheCreationTokens}|{number(entry.cacheCreationTokens)}{/if}</span>)
+                                        <span class="text-maintext">{number(entry.promptTokens)}</span>
+                                        (<span class="text-subtext/70">{number((entry.cachedTokens ?? 0) + (entry.cacheReadTokens ?? 0))}{#if entry.cacheCreationTokens}|{number(entry.cacheCreationTokens)}{/if}</span>)
                                     </span>
                                     <span>
                                         {language.usageOutputTokens}:
-                                        <span class="text-textcolor">{number(entry.completionTokens)}</span>
-                                        (<span class="text-textcolor2/70">{number(entry.reasoningTokens)}</span>)
+                                        <span class="text-maintext">{number(entry.completionTokens)}</span>
+                                        (<span class="text-subtext/70">{number(entry.reasoningTokens)}</span>)
                                     </span>
                                 </div>
                             </div>
                             {#if entry.estimatedCostUsd !== undefined && entry.estimatedCostUsd !== null}
-                                <span class="shrink-0 whitespace-nowrap text-xs text-textcolor2 tabular-nums">
-                                    {language.usageEstimatedCost}: <span class="text-textcolor">{formatCost(entry.estimatedCostUsd)}</span>
+                                <span class="shrink-0 whitespace-nowrap text-xs text-subtext tabular-nums">
+                                    {language.usageEstimatedCost}: <span class="text-maintext">{formatCost(entry.estimatedCostUsd)}</span>
                                 </span>
                             {/if}
                             {#snippet control()}<button
-                                class="shrink-0 p-1 text-textcolor2 risu-interactive-danger transition-colors cursor-pointer"
+                                class="shrink-0 p-1 text-subtext risu-interactive-danger transition-colors cursor-pointer"
                                 onclick={() => deleteEntry(entry)}
                                 aria-label={language.remove}
                             >
@@ -619,7 +619,7 @@
 
             {#if hasMore}
                 <div class="flex justify-center mt-3">
-                    <ShButton variant="outline" size="default" disabled={loadingMore} onclick={loadMoreUsage}>
+                    <ShButton variant="outline" size="sm" disabled={loadingMore} onclick={loadMoreUsage}>
                         {loadingMore ? language.systemLogsLoading : language.systemLogsLoadMore}
                     </ShButton>
                 </div>

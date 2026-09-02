@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { UserRoundIcon } from "@lucide/svelte";
   import { tooltipRight } from "src/ts/gui/tooltip";
   import { getFolderColorStyle } from "./folderColors";
   import SelectionParticles from "../UI/SelectionParticles.svelte";
+  import AvatarFallback from "../UI/AvatarFallback.svelte";
 
   interface Props {
     rounded: boolean;
@@ -66,7 +66,7 @@
     {#if src === "slot"}
       {#await backgroundimg}
         <div
-        class="bg-skin-border sidebar-avatar avatar-tile folder-avatar-tile sidebar-touch-target rounded-md bg-top flex items-center justify-center text-textcolor {folderColorStyle.fill}"
+        class="bg-skin-border sidebar-avatar avatar-tile folder-avatar-tile sidebar-touch-target rounded-md bg-top flex items-center justify-center text-maintext {folderColorStyle.fill}"
         style:width={size + "px"}
         style:height={size + "px"}
         style:min-width={size + "px"}
@@ -74,7 +74,7 @@
       ></div>
       {:then resolvedBgImg}
       <div
-        class="bg-skin-border sidebar-avatar avatar-tile folder-avatar-tile sidebar-touch-target rounded-md bg-top flex items-center justify-center text-textcolor {folderColorStyle.fill}"
+        class="bg-skin-border sidebar-avatar avatar-tile folder-avatar-tile sidebar-touch-target rounded-md bg-top flex items-center justify-center text-maintext {folderColorStyle.fill}"
         style:width={size + "px"}
         style:height={size + "px"}
         style:min-width={size + "px"}
@@ -111,13 +111,16 @@
     {/if}
   {:else}
     <div
-      class="sidebar-avatar avatar-tile sidebar-touch-target rounded-md bg-darkbg flex items-center justify-center text-textcolor"
+      class="sidebar-avatar avatar-tile sidebar-touch-target rounded-md"
       style:width={size + "px"}
       style:height={size + "px"}
       style:min-width={size + "px"}
       class:rounded-md={!rounded} class:rounded-full={rounded} 
     >
-      <UserRoundIcon size={Number(size) * 0.55} aria-hidden="true" />
+      <AvatarFallback
+        className="h-full w-full {rounded ? 'rounded-full' : 'rounded-md'}"
+        iconSize={Number(size) * 0.55}
+      />
     </div>
   {/if}
   {#if selected}

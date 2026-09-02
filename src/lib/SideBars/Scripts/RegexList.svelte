@@ -97,7 +97,7 @@
 {#key sorted}
     <ShDisclosureList className={embedded ? '' : 'mt-2'} bind:element={ele}>
         {#if scriptGroups.length === 0 || !scriptGroups.some(matchesSearch)}
-            <div class="text-textcolor2 text-sm px-3 py-8 text-center">No Scripts</div>
+            <div class="text-subtext text-sm px-3 py-8 text-center">No Scripts</div>
         {/if}
         {#each scriptGroups as group}
             {@const customscript = group.scripts[0]}

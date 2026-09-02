@@ -182,16 +182,16 @@
 </script>
 
 {#if loading}
-    <p class="text-textcolor2 text-sm">{language.serverBackupLoading}</p>
+    <p class="text-subtext text-sm">{language.serverBackupLoading}</p>
 {:else if backups.length === 0}
-    <p class="text-textcolor2 text-sm">{language.serverBackupEmpty}</p>
+    <p class="text-subtext text-sm">{language.serverBackupEmpty}</p>
 {:else}
     <SettingLayout variant="list">
         {#each displayedBackups as backup (backup.filename)}
-            <SettingLayout variant="item" inlineRenameRow className="text-textcolor">
+            <SettingLayout variant="item" inlineRenameRow className="text-maintext">
                 <div class="flex flex-col min-w-0 flex-1">
-                    <span class="truncate text-sm text-textcolor">{backup.note || language.backupNoteEmpty}</span>
-                    <span class="flex flex-wrap items-center gap-x-1 text-xs text-textcolor2 tabular-nums">
+                    <span class="truncate text-sm text-maintext">{backup.note || language.backupNoteEmpty}</span>
+                    <span class="flex flex-wrap items-center gap-x-1 text-xs text-subtext tabular-nums">
                         <span>{new Date(backup.createdAt).toLocaleString(getCurrentLocale())}</span>
                         <span aria-hidden="true">·</span>
                         <span>{formatBytes(backup.size)}</span>
@@ -219,7 +219,7 @@
     </SettingLayout>
     {#if remaining > 0}
         <div class="flex justify-center mt-3">
-            <ShButton variant="outline" size="default" onclick={() => shown += PAGE_SIZE}>
+            <ShButton variant="outline" size="sm" onclick={() => shown += PAGE_SIZE}>
                 {language.systemLogsLoadMore}
             </ShButton>
         </div>

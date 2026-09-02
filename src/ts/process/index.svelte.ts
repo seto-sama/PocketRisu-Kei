@@ -192,8 +192,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     chatProcessStage.set(0)
     const abortSignal = arg.signal ?? (new AbortController()).signal
     
-    // NOTE: `throwError()` can be called before these are populated (e.g. HypaV3 early validation errors).
-    // Keep them declared up-front to avoid TDZ ReferenceErrors in production builds.
     let selectedChar = -1
     let selectedChat = -1
     let currentChar:character
@@ -272,56 +270,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     function throwError(error:string){
-        if(!DBState?.db?.inlayErrorResponse){
-            alertError(error)
-            return
-        }
-
-        try{
-            const db = DBState.db
-
-            // Prefer already-resolved selection, but fall back to current store/db pointers.
-            const sc = selectedChar >= 0 ? selectedChar : get(selectedCharID)
-            const charRoom = db.characters?.[sc]
-            if(!charRoom){
-                alertError(error)
-                return
-            }
-            const st = selectedChat >= 0 ? selectedChat : charRoom.chatPage
-            const chatRoom = charRoom.chats?.[st]
-            if(!chatRoom || !Array.isArray(chatRoom.message)){
-                alertError(error)
-                return
-            }
-
-            const messages = chatRoom.message
-            const last = messages[messages.length - 1]
-            const suffix = `\n\`\`\`risuerror\n${error}\n\`\`\``
-
-            if(last?.role === 'char'){
-                last.data += suffix
-                return
-            }
-
-            const m:Message = {
-                role: 'char',
-                data: `\`\`\`risuerror\n${error}\n\`\`\``,
-                time: Date.now(),
-            }
-            if(currentChar?.chaId){
-                m.saying = currentChar.chaId
-            }
-            if(generationInfo){
-                m.generationInfo = generationInfo
-            }
-            messages.push(m)
-            return
-        }
-        catch(e){
-            console.error(e)
-            alertError(error)
-            return
-        }
+        alertError(error)
     }
 
     async function setWorkflowStep(

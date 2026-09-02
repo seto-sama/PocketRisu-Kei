@@ -126,8 +126,8 @@
 
 <div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
     <div class="flex flex-col gap-0.5 min-w-0">
-        <span class="text-sm text-textcolor">{language.presets}</span>
-        <span class="text-xs text-textcolor2">{language.help.translatorPreset}</span>
+        <span class="text-sm text-maintext">{language.presets}</span>
+        <span class="text-xs text-subtext">{language.help.translatorPreset}</span>
     </div>
     <PresetHeader
         compact

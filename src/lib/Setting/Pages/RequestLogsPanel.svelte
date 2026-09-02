@@ -227,7 +227,7 @@
 </script>
 
 <div class="flex flex-col gap-3 mb-4">
-    <p class="text-textcolor2 text-sm m-0">{language.requestLogsDesc}</p>
+    <p class="text-subtext text-sm m-0">{language.requestLogsDesc}</p>
     <SettingLayout variant="search">
         <ShInput bind:value={requestSearch} placeholder={language.requestLogsSearchPlaceholder} />
         {#snippet control()}
@@ -244,9 +244,9 @@
 
 {#if displayedRequestLogs.length === 0}
     <div class="flex flex-col items-center justify-center text-center py-16 border border-darkborderc rounded-md bg-darkbg/30">
-        <ScrollTextIcon size={48} class="text-textcolor2 mb-3 opacity-50" />
-        <div class="text-textcolor font-medium mb-1">{language.noRequestLogs}</div>
-        <div class="text-textcolor2 text-sm">{language.requestLogsEmptyDesc}</div>
+        <ScrollTextIcon size={48} class="text-subtext mb-3 opacity-50" />
+        <div class="text-maintext font-medium mb-1">{language.noRequestLogs}</div>
+        <div class="text-subtext text-sm">{language.requestLogsEmptyDesc}</div>
     </div>
 {:else}
     <Tooltip.Provider delayDuration={300}>
@@ -259,41 +259,41 @@
                     <Collapsible.Trigger class="w-full text-left group">
                         <SettingLayout variant="item" className="risu-interactive-surface group-focus-visible:bg-selected/30">
                         <div class="grid w-full min-w-0 grid-cols-[2.75rem_5rem_minmax(0,1fr)_1rem] items-center gap-2 sm:grid-cols-[2.75rem_5rem_minmax(0,1fr)_4rem_7rem_1rem]">
-                            <span class="inline-flex justify-self-start items-center rounded-md border px-1.5 py-0.5 text-xs font-medium font-mono {log.success ? 'bg-success/20 text-success border-success/40' : 'bg-draculared/20 text-draculared border-draculared/40'}">
+                            <span class="inline-flex justify-self-start items-center rounded-md border px-1.5 py-0.5 text-xs font-medium font-mono {log.success ? 'bg-success/20 text-success border-success/40' : 'bg-danger/20 text-danger border-danger/40'}">
                                 {log.status ?? (log.success ? 'OK' : 'ERR')}
                             </span>
                             <Tooltip.Root>
                                 <Tooltip.Trigger>
                                     {#snippet child({ props })}
-                                        <span {...props} class="min-w-0 truncate whitespace-nowrap text-xs text-textcolor2 tabular-nums cursor-help">
+                                        <span {...props} class="min-w-0 truncate whitespace-nowrap text-xs text-subtext tabular-nums cursor-help">
                                             {log.date}
                                         </span>
                                     {/snippet}
                                 </Tooltip.Trigger>
                                 <Tooltip.Content
-                                    class="risu-layer-overlay bg-darkbg border border-darkborderc rounded-md px-2 py-1 text-xs text-textcolor shadow-lg"
+                                    class="risu-layer-overlay bg-darkbg border border-darkborderc rounded-md px-2 py-1 text-xs text-maintext shadow-lg"
                                     sideOffset={4}
                                 >
                                     {formatRequestLogTime(log)}
                                 </Tooltip.Content>
                             </Tooltip.Root>
                             <span class="flex min-w-0 items-center gap-2">
-                                <span class="min-w-0 truncate text-sm text-textcolor font-medium">{requestModel(log)}</span>
+                                <span class="min-w-0 truncate text-sm text-maintext font-medium">{requestModel(log)}</span>
                                 {#if log.model && log.provider}
-                                    <span class="shrink-0 hidden sm:inline text-xs text-textcolor2">{log.provider}</span>
+                                    <span class="shrink-0 hidden sm:inline text-xs text-subtext">{log.provider}</span>
                                 {/if}
                             </span>
-                            <span class="hidden whitespace-nowrap text-right text-xs text-textcolor2 tabular-nums sm:block">
+                            <span class="hidden whitespace-nowrap text-right text-xs text-subtext tabular-nums sm:block">
                                 {formatDuration(log.responseDurationMs)}
                             </span>
                             <span
-                                class="hidden grid-cols-2 gap-2 whitespace-nowrap text-right text-xs text-textcolor2 tabular-nums sm:grid"
+                                class="hidden grid-cols-2 gap-2 whitespace-nowrap text-right text-xs text-subtext tabular-nums sm:grid"
                                 aria-label={`${language.usageInputTokens} ${number(log.promptTokens)}, ${language.usageOutputTokens} ${number(log.completionTokens)}`}
                             >
                                 <span>{number(log.promptTokens)}</span>
                                 <span>{number(log.completionTokens)}</span>
                             </span>
-                            <ChevronDownIcon size={16} class="justify-self-end text-textcolor2 transition-transform group-data-[state=open]:rotate-180" />
+                            <ChevronDownIcon size={16} class="justify-self-end text-subtext transition-transform group-data-[state=open]:rotate-180" />
                         </div>
                         </SettingLayout>
                     </Collapsible.Trigger>
@@ -301,13 +301,13 @@
                     <Collapsible.Content class="bg-darkbg/60">
                         {@const detail = requestLogDetails[log.id]}
                         {#if requestDetailLoading[log.id]}
-                            <div class="p-4 text-sm text-textcolor2">{language.systemLogsLoading}</div>
+                            <div class="p-4 text-sm text-subtext">{language.systemLogsLoading}</div>
                         {:else if requestDetailErrors[log.id]}
-                            <div class="p-4 text-sm text-draculared">
+                            <div class="p-4 text-sm text-danger">
                                 {language.systemLogsFailedLoad}: {requestDetailErrors[log.id]}
                             </div>
                         {:else if detail}
-                        <div class="p-3 text-xs text-textcolor2 space-y-4">
+                        <div class="p-3 text-xs text-subtext space-y-4">
                             <RequestLogDetail log={detail} />
                             <div class="pt-1 flex gap-2">
                                 <ShButton variant="outline" size="sm" onclick={() => copyRequestLog(detail)}>
@@ -330,7 +330,7 @@
 
 {#if requestLogsHasMore}
     <div class="flex justify-center mt-3">
-        <ShButton variant="outline" size="default" disabled={requestLogsLoadingMore} onclick={loadMoreServerRequestLogs}>
+        <ShButton variant="outline" size="sm" disabled={requestLogsLoadingMore} onclick={loadMoreServerRequestLogs}>
             {requestLogsLoadingMore ? language.systemLogsLoading : language.systemLogsLoadMore}
         </ShButton>
     </div>

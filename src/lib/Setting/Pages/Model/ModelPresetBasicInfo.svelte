@@ -195,7 +195,7 @@
 </script>
 
 <div>
-    <h3 class="text-base font-bold mt-4 mb-1 text-textcolor">{language.profileSection}</h3>
+    <h3 class="text-base font-bold mt-4 mb-1 text-maintext">{language.profileSection}</h3>
 
     <section>
         <SettingRenderer items={basicInfoItems} target={preset} layout="row" />
@@ -222,7 +222,7 @@
 
     <div class="flex flex-col gap-1 p-3 mt-8 rounded-md border border-darkborderc bg-darkbg/40">
         <div class="flex items-center justify-between gap-2">
-            <span class="text-sm text-textcolor truncate">{profileDisplayId}</span>
+            <span class="text-sm text-maintext truncate">{profileDisplayId}</span>
             {#if updateStatus === 'updatable'}
                 <ShButton variant="attention" size="xs" onclick={applyUpdate}>{language.profileUpdateAvailable}</ShButton>
             {:else if updateStatus === 'missing'}
@@ -230,33 +230,33 @@
             {/if}
         </div>
         {#if description}
-            <div class="text-xs text-textcolor2">{description}</div>
+            <div class="text-xs text-subtext">{description}</div>
         {/if}
-        <div class="text-xs text-textcolor2">
+        <div class="text-xs text-subtext">
             {language.profileProviderLabel}: {preset.profileSnapshot.providerBaseId}
         </div>
         {#if showDefaultModel}
-            <div class="text-xs text-textcolor2">Default model: {preset.profileSnapshot.modelId}</div>
+            <div class="text-xs text-subtext">Default model: {preset.profileSnapshot.modelId}</div>
         {/if}
         {#if installedLabel}
-            <div class="text-xs text-textcolor2">
+            <div class="text-xs text-subtext">
                 {language.profileUpdatedAtLabel}: {installedLabel}{#if updateStatus === 'updatable' && latestLabel && latestLabel !== installedLabel}{' '}({language.profileLatestVersionLabel}: {latestLabel}){/if}
             </div>
         {/if}
         {#if modelReleaseDate}
-            <div class="text-xs text-textcolor2">
+            <div class="text-xs text-subtext">
                 {language.profileModelReleaseDateLabel}: {modelReleaseDate}
             </div>
         {/if}
         {#if dataCutoff}
-            <div class="text-xs text-textcolor2">
+            <div class="text-xs text-subtext">
                 {language.profileDataCutoffLabel}: {dataCutoff}
             </div>
         {/if}
         {#if preset.profileSnapshot.capabilities && preset.profileSnapshot.capabilities.length > 0}
             <div class="flex flex-wrap gap-1 mt-1">
                 {#each preset.profileSnapshot.capabilities as cap}
-                    <span class="text-xs px-2 py-0.5 rounded border border-darkborderc text-textcolor2">{cap}</span>
+                    <span class="text-xs px-2 py-0.5 rounded border border-darkborderc text-subtext">{cap}</span>
                 {/each}
             </div>
         {/if}

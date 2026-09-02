@@ -309,11 +309,11 @@
 
 <div class="flex flex-col w-full">
     <SettingLayout variant="panel" className="mt-5">
-        <div class="flex items-center gap-2 text-textcolor mb-3">
+        <div class="flex items-center gap-2 text-maintext mb-3">
             <ArrowDownUpIcon size={16}/>
             <span class="font-medium">{language.translationCacheManagement}</span>
         </div>
-        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.translationCacheManagementDesc}</p>
+        <p class="text-subtext text-sm leading-relaxed mb-3">{language.translationCacheManagementDesc}</p>
         <div class="flex flex-col gap-3">
             {#each [
                 { title: language.exportTranslationCache, desc: language.exportTranslationCacheDesc, icon: DownloadIcon, action: exportCache, variant: "outline" as const },
@@ -333,7 +333,7 @@
         </div>
     </SettingLayout>
     <SettingLayout variant="panel" className="!mb-0">
-        <div class="flex items-center gap-2 text-textcolor font-medium mb-3">
+        <div class="flex items-center gap-2 text-maintext font-medium mb-3">
             <SearchIcon size={16} />
             <span>{language.translationCacheEntries}</span>
             <Help key="translationCacheSearchLimit" />
@@ -361,15 +361,15 @@
                     >
                         <Collapsible.Trigger class="w-full text-left group">
                             <SettingLayout variant="item" className="gap-2 risu-interactive-surface group-focus-visible:bg-selected/30">
-                            <span class="flex-1 min-w-0 truncate text-sm text-textcolor">{entry.key}</span>
-                            <ChevronDownIcon size={16} class="shrink-0 text-textcolor2 transition-transform group-data-[state=open]:rotate-180" />
+                            <span class="flex-1 min-w-0 truncate text-sm text-maintext">{entry.key}</span>
+                            <ChevronDownIcon size={16} class="shrink-0 text-subtext transition-transform group-data-[state=open]:rotate-180" />
                             </SettingLayout>
                         </Collapsible.Trigger>
 
                         <Collapsible.Content class="bg-darkbg/60">
-                            <div class="p-3 text-xs text-textcolor2 space-y-3">
+                            <div class="p-3 text-xs text-subtext space-y-3">
                                 {#if originalVisibleCacheEntries[entry.key]}
-                                    <pre class="overflow-auto whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded px-4 py-2 text-textcolor font-mono" style:height={cacheEditorHeight}>{entry.key}</pre>
+                                    <pre class="overflow-auto whitespace-pre-wrap break-all bg-lightbg/50 border border-darkborderc/50 rounded px-4 py-2 text-maintext font-mono" style:height={cacheEditorHeight}>{entry.key}</pre>
                                 {/if}
                                 {#if editingCacheKey === entry.key}
                                     <TextAreaInput
@@ -377,12 +377,12 @@
                                         commitMode="input"
                                         fullwidth
                                         actionBar={true}
-                                        className="bg-bgcolor/50"
+                                        className="bg-lightbg/50"
                                         contentClassName="font-mono whitespace-pre-wrap break-all"
                                         style={`height:${cacheEditorHeight};min-height:${cacheEditorHeight}`}
                                     />
                                 {:else}
-                                    <pre class="overflow-auto whitespace-pre-wrap break-all bg-bgcolor/50 border border-darkborderc/50 rounded px-4 py-2 text-textcolor font-mono" style:height={cacheEditorHeight}>{entry.value}</pre>
+                                    <pre class="overflow-auto whitespace-pre-wrap break-all bg-lightbg/50 border border-darkborderc/50 rounded px-4 py-2 text-maintext font-mono" style:height={cacheEditorHeight}>{entry.value}</pre>
                                 {/if}
                                 <div class="flex items-center justify-between gap-2">
                                     <div class="flex flex-wrap gap-2">
@@ -435,14 +435,14 @@
             </SettingLayout>
         {:else}
             <div class="flex flex-col items-center justify-center text-center py-16 bg-darkbg/30">
-                <ScrollTextIcon size={48} class="text-textcolor2 mb-3 opacity-50" />
-                <div class="text-textcolor font-medium mb-1">{cacheIsPending ? language.loading : cacheSearch.trim() ? language.noData : language.exportTranslationCacheEmpty}</div>
+                <ScrollTextIcon size={48} class="text-subtext mb-3 opacity-50" />
+                <div class="text-maintext font-medium mb-1">{cacheIsPending ? language.loading : cacheSearch.trim() ? language.noData : language.exportTranslationCacheEmpty}</div>
             </div>
         {/if}
 
         {#if cacheHasMore}
             <div class="flex justify-center mt-3">
-                <ShButton variant="outline" size="default" disabled={cacheLoadingMore} onclick={loadMoreTranslationCacheEntries}>
+                <ShButton variant="outline" size="sm" disabled={cacheLoadingMore} onclick={loadMoreTranslationCacheEntries}>
                     {cacheLoadingMore ? language.systemLogsLoading : language.systemLogsLoadMore}
                 </ShButton>
             </div>

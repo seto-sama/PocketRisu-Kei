@@ -102,9 +102,9 @@
     ariaLabel={language.devToolPreview.request}
 >
     <div class="flex flex-wrap items-center gap-3 border-b border-darkborderc px-4 py-3">
-        <h2 class="shrink-0 text-lg font-semibold text-textcolor">{language.devToolPreview.request}</h2>
+        <h2 class="shrink-0 text-lg font-semibold text-maintext">{language.devToolPreview.request}</h2>
 
-        <span class="text-xs text-textcolor2">{language.promptDiff.viewMode}</span>
+        <span class="text-xs text-subtext">{language.promptDiff.viewMode}</span>
         <ShChoiceGroup
             variant="pill"
             name="request-preview-type"
@@ -120,21 +120,21 @@
 
     <div class="relative min-h-80 flex-1 overflow-y-auto px-3 py-4">
         {#if loading}
-            <div class="absolute inset-0 z-10 flex min-h-72 items-center justify-center bg-darkbg/60 text-sm text-textcolor2 backdrop-blur-[1px]">
+            <div class="absolute inset-0 z-10 flex min-h-72 items-center justify-center bg-darkbg/60 text-sm text-subtext backdrop-blur-[1px]">
                 {language.devToolTokens.loading}
             </div>
         {/if}
         {#if error}
-            <div class="rounded-md border border-draculared/50 bg-draculared/10 p-3 text-sm text-draculared">{error}</div>
+            <div class="rounded-md border border-danger/50 bg-danger/10 p-3 text-sm text-danger">{error}</div>
         {:else if displayedMode === 'json' && requestJson !== null}
-            <pre class="max-w-full overflow-auto whitespace-pre-wrap rounded-xl border border-darkborderc bg-bgcolor p-3 text-sm text-textcolor"><code>{requestJson}</code></pre>
+            <pre class="max-w-full overflow-auto whitespace-pre-wrap rounded-xl border border-darkborderc bg-lightbg p-3 text-sm text-maintext"><code>{requestJson}</code></pre>
         {:else if displayedMode === 'chatml' && chatml !== null}
-            <pre class="max-w-full overflow-auto whitespace-pre-wrap rounded-xl border border-darkborderc bg-bgcolor p-3 text-sm text-textcolor"><code>{chatml}</code></pre>
+            <pre class="max-w-full overflow-auto whitespace-pre-wrap rounded-xl border border-darkborderc bg-lightbg p-3 text-sm text-maintext"><code>{chatml}</code></pre>
         {:else if displayedMode === 'chat' && messages !== null}
             <div class="grid gap-3">
                 {#each messages as message, index (index)}
-                    <article class="rounded-xl border border-darkborderc bg-bgcolor p-3">
-                        <div class="mb-2 flex flex-wrap items-center gap-2 text-xs text-textcolor2">
+                    <article class="rounded-xl border border-darkborderc bg-lightbg p-3">
+                        <div class="mb-2 flex flex-wrap items-center gap-2 text-xs text-subtext">
                             <span class="rounded-md bg-darkbg px-2 py-1 font-medium uppercase">{message.role}</span>
                             {#if message.multimodals?.length}
                                 <span>{message.multimodals.length} non-text</span>
@@ -143,17 +143,17 @@
                                 <span>{message.thoughts.length} thought</span>
                             {/if}
                         </div>
-                        <pre class="max-w-full overflow-auto whitespace-pre-wrap text-sm text-textcolor"><code>{message.content}</code></pre>
+                        <pre class="max-w-full overflow-auto whitespace-pre-wrap text-sm text-maintext"><code>{message.content}</code></pre>
                     </article>
                     {#if message.cachePoint}
-                        <div class="rounded-xl border border-dashed border-darkborderc bg-darkbg/40 px-3 py-2 text-xs font-medium text-textcolor2">
+                        <div class="rounded-xl border border-dashed border-darkborderc bg-darkbg/40 px-3 py-2 text-xs font-medium text-subtext">
                             {language.cachePoint}
                         </div>
                     {/if}
                 {/each}
             </div>
         {:else}
-            <div class="flex min-h-72 items-center justify-center text-sm text-textcolor2">
+            <div class="flex min-h-72 items-center justify-center text-sm text-subtext">
                 {language.devToolPreview.request}
             </div>
         {/if}

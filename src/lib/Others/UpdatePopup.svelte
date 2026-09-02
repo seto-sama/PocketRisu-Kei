@@ -64,16 +64,16 @@
             <span class="inline-flex items-center gap-2.5">
                 {#if isUpdating}
                     {#if progress?.step === 'error'}
-                        <span class="p-2 rounded-full bg-draculared/20" aria-hidden="true">
-                            <XCircleIcon size={20} class="text-draculared" />
+                        <span class="p-2 rounded-full bg-danger/20" aria-hidden="true">
+                            <XCircleIcon size={20} class="text-danger" />
                         </span>
                     {:else if progress?.step === 'done'}
                         <span class="p-2 rounded-full bg-success/20" aria-hidden="true">
                             <CheckCircleIcon size={20} class="text-success" />
                         </span>
                     {:else}
-                        <span class="p-2 rounded-full bg-borderc/20" aria-hidden="true">
-                            <LoaderIcon size={20} class="text-borderc animate-spin" />
+                        <span class="p-2 rounded-full bg-primary/20" aria-hidden="true">
+                            <LoaderIcon size={20} class="text-primary animate-spin" />
                         </span>
                     {/if}
                 {:else if info.severity === 'optional'}
@@ -81,8 +81,8 @@
                         <ArrowUpCircleIcon size={20} class="text-success" />
                     </span>
                 {:else}
-                    <span class="p-2 rounded-full bg-draculared/20" aria-hidden="true">
-                        <AlertTriangleIcon size={20} class="text-draculared" />
+                    <span class="p-2 rounded-full bg-danger/20" aria-hidden="true">
+                        <AlertTriangleIcon size={20} class="text-danger" />
                     </span>
                 {/if}
                 <span>
@@ -98,30 +98,30 @@
         {/snippet}
 
         {#if isUpdating}
-            <p class="text-sm text-textcolor2 leading-relaxed">{progress?.message}</p>
+            <p class="text-sm text-subtext leading-relaxed">{progress?.message}</p>
             {#if progress?.step === 'done'}
-                <p class="mt-2 text-sm text-textcolor2">{language.selfUpdateReloadHint}</p>
+                <p class="mt-2 text-sm text-subtext">{language.selfUpdateReloadHint}</p>
             {/if}
             {#if progress?.step === 'downloading' && progress.progress != null}
                 <div class="mt-3 w-full bg-selected rounded-full h-2 overflow-hidden">
-                    <div class="h-full bg-borderc rounded-full transition-all duration-300"
+                    <div class="h-full bg-lightborderc rounded-full transition-all duration-300"
                         style="width: {progress.progress}%"></div>
                 </div>
-                <p class="mt-1 text-xs text-textcolor2 text-right">{progress.progress}%</p>
+                <p class="mt-1 text-xs text-subtext text-right">{progress.progress}%</p>
             {/if}
         {:else}
-            <p class="text-sm text-textcolor2 leading-relaxed">
+            <p class="text-sm text-subtext leading-relaxed">
                 {@html language.updatePopupDesc
                     .replace('{{latest}}', info.latestVersion)
                     .replace('{{current}}', info.currentVersion)}
             </p>
 
             {#if info.releaseName}
-                <p class="mt-2 text-sm text-textcolor">{info.releaseName}</p>
+                <p class="mt-2 text-sm text-maintext">{info.releaseName}</p>
             {/if}
 
             {#if info.popupMessage}
-                <div class="mt-3 text-sm text-textcolor2 leading-relaxed whitespace-pre-line border-t border-darkborderc pt-3">
+                <div class="mt-3 text-sm text-subtext leading-relaxed whitespace-pre-line border-t border-darkborderc pt-3">
                     {info.popupMessage}
                 </div>
             {/if}

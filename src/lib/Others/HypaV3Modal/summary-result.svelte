@@ -6,14 +6,14 @@
     XIcon,
   } from "@lucide/svelte";
   import { language } from "src/lang";
-  import type { BulkResummaryState } from "./types";
+  import type { SummaryResultState } from "./types";
   import { handleDualAction } from "./utils";
   import IconButton from "src/lib/UI/GUI/IconButton.svelte";
   import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
   import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
 
   interface Props {
-    bulkResummaryState: BulkResummaryState | null;
+    summaryResultState: SummaryResultState | null;
     title?: string;
     processingTitle?: string;
     fillHeight?: boolean;
@@ -24,7 +24,7 @@
   }
 
   let {
-    bulkResummaryState,
+    summaryResultState,
     title = language.hypaV3Modal.reSummarizeResult,
     processingTitle = language.hypaV3Modal.reSummarizing,
     fillHeight = false,
@@ -37,11 +37,11 @@
 </script>
 
 <!-- Bulk Resummarize Result Section -->
-{#if bulkResummaryState}
+{#if summaryResultState}
   <div class="{fillHeight ? 'flex-1 min-h-0 overflow-hidden' : 'shrink-0'} border-t border-darkborderc pt-4">
     <div class="flex flex-col gap-3 {fillHeight ? 'h-full min-h-0' : ''}">
       <div class="flex shrink-0 justify-between items-center">
-        <h3 class="text-sm font-medium text-textcolor">{title}</h3>
+        <h3 class="text-sm font-medium text-maintext">{title}</h3>
         <IconButtonGroup size="xl" style="--icon-size:16px">
           <!-- Translate Button -->
           <span
@@ -52,7 +52,7 @@
             }}
           >
             <IconButton
-              disabled={bulkResummaryState.isProcessing || !bulkResummaryState.result}
+              disabled={summaryResultState.isProcessing || !summaryResultState.result}
               title={language.hypaV3Modal.translate}
             >
               <LanguagesIcon />
@@ -62,7 +62,7 @@
           <!-- Reroll Button -->
           <IconButton
             onclick={onReroll}
-            disabled={bulkResummaryState.isProcessing}
+            disabled={summaryResultState.isProcessing}
             title={language.hypaV3Modal.retry}
           >
             <RefreshCwIcon />
@@ -73,7 +73,7 @@
             active
             activeColor="primary"
             onclick={onApply}
-            disabled={bulkResummaryState.isProcessing || !bulkResummaryState.result}
+            disabled={summaryResultState.isProcessing || !summaryResultState.result}
             title={language.apply}
           >
             <CheckIcon />
@@ -90,15 +90,15 @@
       </div>
       
       <!-- Result Content -->
-      {#if bulkResummaryState.isProcessing}
-        <div class="py-4 text-center text-textcolor2">
+      {#if summaryResultState.isProcessing}
+        <div class="py-4 text-center text-subtext">
           <RefreshCwIcon class="mr-2 inline animate-spin" />
           {processingTitle}
         </div>
-      {:else if bulkResummaryState.result}
+      {:else if summaryResultState.result}
         <div
           class={fillHeight
-            ? `grid min-h-0 flex-1 gap-3 ${bulkResummaryState.translation ? "grid-rows-2" : "grid-rows-1"}`
+            ? `grid min-h-0 flex-1 gap-3 ${summaryResultState.translation ? "grid-rows-2" : "grid-rows-1"}`
             : ""}
         >
           <div class={fillHeight ? "min-h-0" : ""}>
@@ -108,14 +108,14 @@
               className="bg-darkbg"
               height={fillHeight ? "full" : "32"}
               readonly
-              bind:value={bulkResummaryState.result}
+              bind:value={summaryResultState.result}
             />
           </div>
 
           <!-- Translation Result -->
-          {#if bulkResummaryState.translation}
+          {#if summaryResultState.translation}
             <div class="{fillHeight ? 'flex min-h-0 flex-col' : 'mt-3'}">
-              <div class="mb-2 shrink-0 text-sm text-textcolor2">
+              <div class="mb-2 shrink-0 text-sm text-subtext">
                 {language.hypaV3Modal.translationLabel}
               </div>
               <div class={fillHeight ? "min-h-0 flex-1" : ""}>
@@ -125,7 +125,7 @@
                   className="bg-darkbg"
                   height={fillHeight ? "full" : "32"}
                   readonly
-                  bind:value={bulkResummaryState.translation}
+                  bind:value={summaryResultState.translation}
                 />
               </div>
             </div>

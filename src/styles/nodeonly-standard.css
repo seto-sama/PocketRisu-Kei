@@ -3,8 +3,8 @@
  * RisuAI 색상 변수를 사용하여 설정 연동 유지
  *
  * 색상 구조:
- *   메시지 카드 / 제작자 코멘트 = bgcolor (밝은 쪽)
- *   바깥 배경 / 입력창           = bgcolor 25% + darkbg (거의 darkbg)
+ *   메시지 카드 / 제작자 코멘트 = lightbg (밝은 쪽)
+ *   바깥 배경 / 입력창           = lightbg 25% + darkbg (거의 darkbg)
  *   사이드바                     = darkbg (가장 어두움)
  */
 
@@ -12,7 +12,7 @@
 :root {
   --no-chat-background: color-mix(
     in srgb,
-    var(--risu-theme-bgcolor) 25%,
+    var(--risu-theme-lightbg) 25%,
     var(--risu-theme-darkbg)
   );
 }
@@ -45,7 +45,7 @@
 }
 
 .nodeonly-standard .creator-quote {
-  background-color: var(--risu-theme-bgcolor) !important;
+  background-color: var(--risu-theme-lightbg) !important;
   width: 100%;
   max-width: var(--no-chat-max-width);
   margin-inline: auto;

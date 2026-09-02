@@ -62,7 +62,7 @@
                         debounceMs={item.options?.debounceMs}
                         onCommit={commitValue}
                     />
-                    {#if item.options?.suffix}<span class="text-textcolor2 text-xs shrink-0">{item.options.suffix}</span>{/if}
+                    {#if item.options?.suffix}<span class="text-subtext text-xs shrink-0">{item.options.suffix}</span>{/if}
                 </div>
             {:else}
                 <ShSwitch checked={false} onCheckedChange={setNumberEnabled} />
@@ -70,7 +70,7 @@
         {/snippet}
     </SettingItemRow>
 {:else}
-    <span class="text-textcolor {item.classes ?? ''}" data-setting-id={item.id}>
+    <span class="text-maintext {item.classes ?? ''}" data-setting-id={item.id}>
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>

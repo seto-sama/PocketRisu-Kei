@@ -242,35 +242,3 @@ export function isGuidLike(str: string): boolean {
   if (strTrimed.length < 4) return false;
   return /^[0-9a-f]{4,12}(-[0-9a-f]{4,12}){0,4}-?$/i.test(strTrimed);
 }
-
-export function parseSelectionInput(input: string, totalCount: number): Set<number> {
-  const newSelection = new Set<number>();
-  const parts = input.split(',').map(s => s.trim()).filter(s => s);
-
-  for (const part of parts) {
-    if (part.includes('-')) {
-      const [startStr, endStr] = part.split('-').map(s => s.trim());
-      const start = parseInt(startStr);
-      const end = parseInt(endStr);
-
-      if (!isNaN(start) && !isNaN(end) && start <= end) {
-        for (let i = start; i <= end; i++) {
-          const index = i - 1;
-          if (index >= 0 && index < totalCount) {
-            newSelection.add(index);
-          }
-        }
-      }
-    } else {
-      const num = parseInt(part);
-      if (!isNaN(num)) {
-        const index = num - 1;
-        if (index >= 0 && index < totalCount) {
-          newSelection.add(index);
-        }
-      }
-    }
-  }
-
-  return newSelection;
-}

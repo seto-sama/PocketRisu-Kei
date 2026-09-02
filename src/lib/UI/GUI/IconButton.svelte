@@ -1,7 +1,7 @@
 <script lang="ts" module>
     export type IconButtonSize = 'xs' | 'sm' | 'default' | 'lg' | 'xl';
     export type IconButtonTone = 'default' | 'destructive';
-    export type IconButtonActiveColor = 'textcolor' | 'primary';
+    export type IconButtonActiveColor = 'maintext' | 'primary';
     export const iconButtonSizeValues: Record<IconButtonSize, {
         icon: number;
         cell: number;
@@ -35,7 +35,7 @@
         size,
         tone = 'default',
         active = false,
-        activeColor = 'textcolor',
+        activeColor = 'maintext',
         expanded = false,
         class: classAttr = '',
         className = '',
@@ -46,9 +46,9 @@
     }: Props = $props();
 
     const classes = $derived(cn(
-        'inline-flex shrink-0 items-center justify-center rounded-md border border-transparent text-textcolor2 transition-colors disabled:pointer-events-none disabled:opacity-30',
+        'inline-flex shrink-0 items-center justify-center rounded-md border border-transparent text-subtext transition-colors disabled:pointer-events-none disabled:opacity-30',
         tone === 'destructive' ? 'risu-interactive-danger' : 'risu-interactive-accent',
-        active && (activeColor === 'primary' ? 'text-primary' : 'text-textcolor'),
+        active && (activeColor === 'primary' ? 'text-primary' : 'text-maintext'),
         classAttr,
         className,
     ));

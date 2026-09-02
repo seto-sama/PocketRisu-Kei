@@ -18,7 +18,7 @@
     }: Props = $props();
 
     const classes = $derived(cn(
-        'risu-field-border w-full min-w-0 bg-transparent py-1 text-textcolor shadow-xs',
+        'risu-field-border w-full min-w-0 bg-transparent py-1 text-maintext shadow-xs',
         size === 'compact'
             ? 'h-6 min-h-6 rounded-sm px-2'
             : 'h-8 min-h-8 rounded-md px-2.5',

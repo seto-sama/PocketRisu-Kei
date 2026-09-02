@@ -102,7 +102,7 @@
         if (hasPersonaEnabledModule(rmodule.id)) return "cursor-pointer text-scoped"
         if (DBState.db.enabledModules.includes(rmodule.id)) return "cursor-pointer text-primary"
         if (isModuleIntegrated(rmodule)) return "text-highlight risu-interactive-accent cursor-pointer"
-        return "text-textcolor2 risu-interactive-accent cursor-pointer"
+        return "text-subtext risu-interactive-accent cursor-pointer"
     }
 
     function setModuleModelBinding(moduleId: string, presetId: string) {
@@ -322,7 +322,7 @@
                 <UploadIcon />
             </IconButton>
             <IconButton
-                className={modelBindingMode ? 'text-primary' : 'text-textcolor2'}
+                className={modelBindingMode ? 'text-primary' : 'text-subtext'}
                 title={language.moduleModelBindingEnable}
                 aria-label={language.moduleModelBindingEnable}
                 onclick={() => {
@@ -352,16 +352,16 @@
         onReorder={reorderModules}
     >
         {#if managedModuleCount === 0}
-            <div class="text-textcolor2 text-sm text-center py-8">{view === 'mcp' ? language.noData : language.noModules}</div>
+            <div class="text-subtext text-sm text-center py-8">{view === 'mcp' ? language.noData : language.noModules}</div>
         {:else}
             {#if visibleModules.length === 0}
-                <div class="text-textcolor2 text-sm text-center py-8">{language.noData}</div>
+                <div class="text-subtext text-sm text-center py-8">{language.noData}</div>
             {/if}
             {#each visibleModules as { rmodule, index } (rmodule.id)}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
                     data-sortable-key={rmodule.id}
-                    class={`mt-2 flex ${modelBindingMode ? 'flex-wrap' : ''} items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing`}
+                    class={`mt-2 flex ${modelBindingMode ? 'flex-wrap' : ''} items-center text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing`}
                     role="button"
                     tabindex="0"
                     onclick={() => editModule(rmodule)}
@@ -372,13 +372,13 @@
                     }}
                 >
                     <div class={`flex flex-col min-w-0 grow ${modelBindingMode ? 'basis-full sm:basis-0' : ''}`}>
-                        <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
+                        <span class="text-sm text-maintext truncate flex items-center gap-1.5">
                             {#if rmodule.mcp}
-                                <WaypointsIcon size={16} class="shrink-0 text-textcolor2" />
+                                <WaypointsIcon size={16} class="shrink-0 text-subtext" />
                             {/if}
                             <span class="truncate">{rmodule.name}</span>
                         </span>
-                        <span class="text-xs text-textcolor2 truncate">{rmodule.description || 'No description provided'}</span>
+                        <span class="text-xs text-subtext truncate">{rmodule.description || 'No description provided'}</span>
                     </div>
                     <div
                         role="toolbar"
@@ -475,16 +475,18 @@
         >
             {#snippet itemContent(index)}
                 {@const persona = DBState.db.personas[index]}
-                <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md bg-textcolor2">
+                <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md">
                     {#if persona.icon}
                         {#await getCharImage(persona.icon, 'css') then imageStyle}
                             <div class="h-full w-full bg-cover bg-center" style={imageStyle}></div>
                         {/await}
+                    {:else}
+                        <AvatarFallback className="h-full w-full" iconSize={16} />
                     {/if}
                 </div>
                 <div class="min-w-0 grow truncate">
                     <span>{persona.name}</span>
-                    {#if persona.note}<span class="text-textcolor2"> / {persona.note}</span>{/if}
+                    {#if persona.note}<span class="text-subtext"> / {persona.note}</span>{/if}
                 </div>
                 <ShSwitch
                     checked={!!persona.id && personaModuleSelection.includes(persona.id)}
@@ -522,7 +524,7 @@
         <IconButtonGroup size="xl">
             {#if tempModule.name !== ''}
                 <IconButton
-                    className="text-textcolor2"
+                    className="text-subtext"
                     title={language.convertToCharacter}
                     aria-label={language.convertToCharacter}
                     onclick={async () => {
@@ -538,7 +540,7 @@
                 </IconButton>
             {/if}
             <IconButton
-                className="text-textcolor2"
+                className="text-subtext"
                 title={language.backToList}
                 aria-label={language.backToList}
                 onclick={finishEditingModule}
@@ -557,7 +559,7 @@
 
     <div class="flex flex-col gap-4">
         <div class="flex flex-col gap-1.5">
-            <span class="text-sm text-textcolor2">{language.mcpImport.source}</span>
+            <span class="text-sm text-subtext">{language.mcpImport.source}</span>
             <ShSelect bind:value={mcpImportSource}>
                 {#each builtInMCPIds as id}
                     <OptionInput value={id}>{builtInMCPLabel(id)} ({id})</OptionInput>
@@ -568,7 +570,7 @@
 
         {#if mcpImportSource === 'custom'}
             <label class="flex flex-col gap-1.5">
-                <span class="text-sm text-textcolor2">{language.mcpImport.address}</span>
+                <span class="text-sm text-subtext">{language.mcpImport.address}</span>
                 <TextInput
                     bind:value={customMCPAddress}
                     placeholder={language.mcpImport.addressPlaceholder}

@@ -18,7 +18,7 @@
 
 <div
     bind:this={containerRef}
-    class={"risu-field-border risu-local-stack risu-local-stack-focus relative flex flex-col n-scroll rounded-md shadow-xs text-textcolor focus-within:outline-hidden"
+    class={"risu-field-border risu-local-stack risu-local-stack-focus relative flex flex-col n-scroll rounded-md shadow-xs text-maintext focus-within:outline-hidden"
         + (margin === 'top' ? ' mt-4' : margin === 'bottom' ? ' mb-4' : margin === 'both' ? ' mt-2 mb-2' : '')
         + ((className) ? (' ' + className) : '')}
     class:text-sm={size === 'sm' || (size === 'default' && $textAreaTextSize === 1)}

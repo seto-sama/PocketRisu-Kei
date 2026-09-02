@@ -40,7 +40,7 @@ export interface ChatMemoSearchResult {
   memoIndex: number;
 }
 
-export interface BulkResummaryState {
+export interface SummaryResultState {
     isProcessing: boolean;
     result: string | null;
     selectedIndices: number[];
@@ -60,12 +60,10 @@ export interface CategoryManagerState {
     editingCategory: Category | null;
 }
 
-// Bulk Edit Types
-export interface BulkEditState {
+// Re-summary selection state
+export interface ResummarySelectionState {
     isEnabled: boolean;
     selectedSummaries: Set<number>;
-    selectedCategory: string;
-    bulkSelectInput: string;
 }
 
 // Filter States

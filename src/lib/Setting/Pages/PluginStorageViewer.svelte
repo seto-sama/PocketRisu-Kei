@@ -340,19 +340,19 @@
     })
 </script>
 
-<p class="text-textcolor2 text-sm mb-4">{language.pluginStorageDesc}</p>
+<p class="text-subtext text-sm mb-4">{language.pluginStorageDesc}</p>
 
 <div class="flex flex-col gap-3 mb-4">
     <SettingLayout variant="filter" title={language.systemLogsFilters} bind:open={filtersOpen} activeCount={activeFilterCount}>
         <div class="flex flex-nowrap items-start gap-2 overflow-x-auto pb-1">
-            <div class="flex flex-col gap-1 text-xs text-textcolor2 min-w-32 flex-1">
+            <div class="flex flex-col gap-1 text-xs text-subtext min-w-32 flex-1">
                 <span>{language.pluginStorageLocation}</span>
                 <ShSelect value={backendIndex} size="sm" onchange={(e) => backendIndex = Number(e.currentTarget.value)}>
                     {#each BACKENDS as b, i (b.id)}<OptionInput value={i}>{b.label()}</OptionInput>{/each}
                 </ShSelect>
                 <span class="leading-relaxed opacity-70">{BACKENDS[backendIndex].desc()}</span>
             </div>
-            <div class="flex flex-col gap-1 text-xs text-textcolor2 min-w-32 flex-1">
+            <div class="flex flex-col gap-1 text-xs text-subtext min-w-32 flex-1">
                 <span>{language.pluginStorageOwner}</span>
                 <ShSelect bind:value={ownerFilter} size="sm">
                     <OptionInput value="">{language.inlayGallery.inlayFilterAll}</OptionInput>
@@ -386,7 +386,7 @@
 <!-- List -->
 <SettingLayout variant="list">
     {#if loading}
-        <div class="flex flex-col items-center gap-3 text-textcolor2 text-sm py-12">
+        <div class="flex flex-col items-center gap-3 text-subtext text-sm py-12">
             <RefreshCwIcon size={20} class="animate-spin" />
             <span class="tabular-nums">{loadTotal > 0 ? `${loadProgress} / ${loadTotal}` : language.systemLogsLoading}</span>
             {#if loadTotal > 0}
@@ -396,12 +396,12 @@
             {/if}
         </div>
     {:else if loadError}
-        <div class="text-textcolor2 text-sm text-center py-12">
+        <div class="text-subtext text-sm text-center py-12">
             {language.pluginStorageLoadError}<br />
             <span class="text-xs opacity-60">{loadError}</span>
         </div>
     {:else if displayed.length === 0}
-        <div class="text-textcolor2 text-sm text-center py-12">{language.pluginStorageEmpty}</div>
+        <div class="text-subtext text-sm text-center py-12">{language.pluginStorageEmpty}</div>
     {:else}
         {#each displayed as entry (entry.key)}
             <SettingLayout variant="item" interactive
@@ -409,8 +409,8 @@
                 onkeydown={(e) => { if (e.key === 'Enter') openEditor(entry) }}
             >
                 <div class="flex flex-1 min-w-0 flex-col gap-1">
-                    <span class="font-mono text-sm text-textcolor truncate" title={entry.key}>{entry.key}</span>
-                    <div class="flex items-center gap-2 min-w-0 text-xs text-textcolor2">
+                    <span class="font-mono text-sm text-maintext truncate" title={entry.key}>{entry.key}</span>
+                    <div class="flex items-center gap-2 min-w-0 text-xs text-subtext">
                         <span class="truncate">{entry.owner ?? language.pluginStorageOwnerUnknown}</span>
                         <span aria-hidden="true">·</span>
                         <span class="uppercase tracking-wide shrink-0">{entry.type}</span>
@@ -419,7 +419,7 @@
                     </div>
                 </div>
                 {#snippet control()}<button
-                    class="shrink-0 p-1 text-textcolor2 risu-interactive-danger transition-colors cursor-pointer"
+                    class="shrink-0 p-1 text-subtext risu-interactive-danger transition-colors cursor-pointer"
                     aria-label={language.remove}
                     onclick={(e) => { e.stopPropagation(); removeEntry(entry) }}
                 >

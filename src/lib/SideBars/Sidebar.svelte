@@ -86,6 +86,7 @@
       SIDEBAR_MENU_SETTINGS,
       appendNewPluginMenuItems,
       dividerSidebarMenuKey,
+      getSidebarMenuDisplayOrder,
       getVisibleSidebarMenuOrder,
       isSidebarMenuDivider,
       mergeVisibleSidebarMenuOrder,
@@ -152,6 +153,9 @@
   let sidebarMenuPluginKeys = $derived([...sidebarMenuPluginsByKey.keys()])
   let visibleSidebarMenuOrder = $derived(
     getVisibleSidebarMenuOrder(sidebarMenuOrder, sidebarMenuPluginKeys, editMode, sidebarMenuHidden)
+  )
+  let displayedSidebarMenuOrder = $derived(
+    getSidebarMenuDisplayOrder(visibleSidebarMenuOrder, !!DBState.db.hamburgerButtonBottom)
   )
   let openFolders:string[] = $state([])
   let characterListElement: HTMLDivElement | undefined = $state()
@@ -238,7 +242,8 @@
   }
 
   function reorderSidebarMenu(orderedKeys: string[]) {
-    DBState.db.sidebarMenuOrder = mergeVisibleSidebarMenuOrder(sidebarMenuOrder, orderedKeys)
+    const storedDirection = getSidebarMenuDisplayOrder(orderedKeys, !!DBState.db.hamburgerButtonBottom)
+    DBState.db.sidebarMenuOrder = mergeVisibleSidebarMenuOrder(sidebarMenuOrder, storedDirection)
   }
 
   function addSidebarMenuDivider() {
@@ -409,13 +414,13 @@
 >
 {#if DBState.db.menuSideBar}
 <div
-  class="risu-layer-chrome h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative rs-sidebar"
+  class="risu-layer-chrome h-full w-20 min-w-20 flex-col items-center bg-lightbg text-maintext shadow-lg relative rs-sidebar"
   class:flex={!hidden}
 >
 <IconButtonGroup size="xl" direction="vertical" className="mt-4 w-full">
 <button
   class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-textcolor2={!(
+  class:text-subtext={!(
     $selectedCharID < 0 &&
     !$settingsOpen
   )}
@@ -430,7 +435,7 @@
 </button>
 <button
   class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-textcolor2={!(
+  class:text-subtext={!(
     $selectedCharID >= 0
   )}
   onclick={() => {
@@ -454,7 +459,7 @@
 </button>
 <button
   class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-textcolor2={!$settingsOpen}
+  class:text-subtext={!$settingsOpen}
   onclick={() => {
     if ($settingsOpen) {
       reseter();
@@ -472,7 +477,7 @@
 </div>
 {:else}
 <div
-  class="h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative rs-sidebar"
+  class="h-full w-20 min-w-20 flex-col items-center bg-lightbg text-maintext shadow-lg relative rs-sidebar"
   class:risu-layer-chrome={!editMode}
   class:sidebar-menu-bottom={DBState.db.hamburgerButtonBottom}
   class:max-xs:hidden={$leftBarCollapsed}
@@ -481,11 +486,11 @@
   <div
     class="sidebar-controls"
     class:risu-layer-blocking={editMode}
-    class:bg-bgcolor={editMode}
+    class:bg-lightbg={editMode}
   >
     <IconButtonGroup size="xl" direction="vertical" className="sidebar-control-buttons w-full">
       <button
-        class="flex h-8 min-h-8 w-14 min-w-14 text-white items-center justify-center rounded-md bg-textcolor2 transition-colors hover:bg-primary"
+        class="flex h-8 min-h-8 w-14 min-w-14 text-themewhite items-center justify-center rounded-md bg-subtext transition-colors hover:bg-lightborderc"
         class:cursor-pointer={!editMode}
         class:cursor-default={editMode}
         class:max-xs:hidden={$leftBarCollapsed}
@@ -501,7 +506,7 @@
 
       {#if !DBState.db.hideLeftBarCollapseButton}
         <button
-          class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer items-center justify-center rounded-md border border-borderc text-textcolor transition-colors hover:border-primary risu-interactive-accent"
+          class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer items-center justify-center rounded-md border border-darkborderc text-maintext transition-colors risu-interactive-border"
           aria-label="Collapse sidebar"
           onclick={() => leftBarCollapsed.set(true)}
         >
@@ -516,12 +521,12 @@
     {#if menuMode === 1}
       <ShSortableList
         disabled={!editMode}
-        className="absolute left-0 w-20 min-w-20 flex max-h-full bg-bgcolor flex-col items-center gap-2 z-20 py-4 overflow-x-hidden overflow-y-auto hamburger-menu"
+        className="absolute left-0 w-20 min-w-20 flex max-h-full bg-lightbg flex-col items-center gap-2 z-20 py-4 overflow-x-hidden overflow-y-auto hamburger-menu"
         draggable="[data-sidebar-menu-key]"
         dataAttribute="data-sidebar-menu-key"
         onReorder={reorderSidebarMenu}
       >
-          {#each visibleSidebarMenuOrder as menuKey (menuKey)}
+          {#each displayedSidebarMenuOrder as menuKey (menuKey)}
             {#if isSidebarMenuDivider(menuKey)}
               <div
                 class="flex h-3 min-h-3 w-full shrink-0 items-center justify-center"
@@ -851,7 +856,7 @@
 {/if}
 
 <div
-  class="setting-area risu-layer-chrome h-full max-xs:relative flex-col overflow-y-auto overflow-x-hidden bg-darkbg py-6 text-textcolor max-h-full"
+  class="setting-area risu-layer-chrome h-full max-xs:relative flex-col overflow-y-auto overflow-x-hidden bg-darkbg py-6 text-maintext max-h-full"
   bind:this={sidebarScrollElement}
   class:w-96={$sideBarSize === 0}
   class:w-110={$sideBarSize === 1}
@@ -867,7 +872,7 @@
   class:flex={!hidden}
 >
   <button
-    class="flex w-full justify-end text-textcolor"
+    class="flex w-full justify-end text-maintext"
     onclick={async () => {
       if($sideBarClosing){
         return
@@ -875,11 +880,11 @@
       $sideBarClosing = true;
     }}
   >
-    <!-- <button class="border-none bg-transparent p-0 text-textcolor"><X /></button> -->
+    <!-- <button class="border-none bg-transparent p-0 text-maintext"><X /></button> -->
   </button>
   {#if $leftBarCollapsed}
     <button
-      class="hidden max-xs:flex absolute top-3 left-0 h-12 w-12 border-r border-b border-t border-darkborderc rounded-r-md bg-darkbg risu-interactive-border transition-colors items-center justify-center text-textcolor opacity-50 hover:opacity-90 z-20"
+      class="hidden max-xs:flex absolute top-3 left-0 h-12 w-12 border-r border-b border-t border-darkborderc rounded-r-md bg-darkbg risu-interactive-border transition-colors items-center justify-center text-maintext opacity-50 hover:opacity-90 z-20"
       aria-label="Expand sidebar"
       onclick={() => leftBarCollapsed.set(false)}
     >
@@ -888,9 +893,9 @@
   {/if}
   {#if sideBarMode === 0}
     {#if $selectedCharID < 0 || $settingsOpen}
-      <span class="block text-base font-semibold text-textcolor mt-2">{language.recentChatsTitle}</span>
+      <span class="block text-base font-semibold text-maintext mt-2">{language.recentChatsTitle}</span>
       <div class="flex items-center justify-between gap-2 mt-2">
-        <span class="text-sm text-textcolor2">{language.hideRecentChats}</span>
+        <span class="text-sm text-subtext">{language.hideRecentChats}</span>
         <ShSwitch
           checked={!!DBState.db.nodeOnlyHideRecentChats}
           onCheckedChange={(v) => (DBState.db.nodeOnlyHideRecentChats = v)}
@@ -899,10 +904,10 @@
       {#if DBState.db.nodeOnlyHideRecentChats}
         <!-- list hidden by user preference -->
       {:else if recentChars.length === 0}
-        <span class="block text-sm text-textcolor2 mt-2">{language.noRecentChatsDesc}</span>
+        <span class="block text-sm text-subtext mt-2">{language.noRecentChatsDesc}</span>
       {:else}
         <div class="relative mt-2">
-          <SearchIcon class="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-textcolor2" />
+          <SearchIcon class="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-subtext" />
           <ShInput
             bind:value={recentSearchQuery}
             type="search"
@@ -913,7 +918,7 @@
           />
         </div>
         {#if filteredRecentChars.length === 0}
-          <span class="block text-sm text-textcolor2 mt-2">{language.noRecentChatsSearchResults}</span>
+          <span class="block text-sm text-subtext mt-2">{language.noRecentChatsSearchResults}</span>
         {:else}
         <HorizontalMasonry itemCount={displayedRecentChars.length} className="mt-2">
           {#snippet children(index)}
@@ -1066,7 +1071,7 @@
     gap: 0.4rem;
     padding: 0 0.5rem;
     border: 0;
-    color: var(--risu-theme-textcolor2);
+    color: var(--risu-theme-subtext);
     font-size: 0.8rem;
     font-weight: 500;
     line-height: 1;
@@ -1075,11 +1080,11 @@
   }
 
   .sidebar-mode-button:is(:hover, :focus-visible):not(.active) {
-    color: var(--risu-theme-textcolor);
+    color: var(--risu-theme-maintext);
   }
 
   .sidebar-mode-button.active {
-    color: var(--risu-theme-textcolor);
+    color: var(--risu-theme-maintext);
     background: linear-gradient(
       to top,
       color-mix(in srgb, var(--risu-theme-primary) 16%, transparent) 0%,
@@ -1249,6 +1254,10 @@
     scrollbar-width: none;
     overscroll-behavior: none;
   }
+  .rs-sidebar:not(.sidebar-menu-bottom) :global(.hamburger-menu),
+  .rs-sidebar:not(.sidebar-menu-bottom) :global(.sidebar-character-root) {
+    padding-top: 0;
+  }
   :global(.sidebar-menu-edit-item) {
     cursor: grab;
   }
@@ -1263,10 +1272,12 @@
     width: 100%;
     flex-direction: column;
     align-items: center;
+    margin-bottom: 1rem;
     padding: var(--sidebar-control-edge-gap) 0 0;
   }
   .sidebar-menu-bottom .sidebar-controls {
     order: 9999;
+    margin: 1rem 0 0;
     padding: 0 0 var(--sidebar-control-edge-gap);
   }
   :global(.sidebar-control-buttons) {
@@ -1278,7 +1289,14 @@
   .sidebar-menu-bottom :global(.hamburger-menu) {
     top: auto;
     bottom: 0;
+    padding-bottom: 0;
     border-radius: 0.375rem 0.375rem 0 0;
+  }
+  .sidebar-menu-bottom :global(.sidebar-character-root) {
+    padding-bottom: 0;
+  }
+  :global(.sidebar-character-root:empty) {
+    padding-block: 0;
   }
   :global(.hamburger-menu::-webkit-scrollbar) {
     display: none;

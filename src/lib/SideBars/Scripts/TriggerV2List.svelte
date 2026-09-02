@@ -336,7 +336,7 @@
         const type = effect.type
 
         if(!checkSupported(type, triggerIndex)){
-            return `<span class="text-draculared">${language.triggerDesc.v2UnsupportedTriggerDesc}</span>`
+            return `<span class="text-danger">${language.triggerDesc.v2UnsupportedTriggerDesc}</span>`
         }
 
         const txt = (language.triggerDesc[type + 'Desc'] as string || type).replace(/{{(.+?)}}/g, (match, p1) => {
@@ -378,7 +378,7 @@
             return `<div class="text-syntax-comment italic line-clamp-4" style="margin-left:${(effect as triggerEffectV2).indent}rem; word-break: break-all; overflow-wrap: break-word;">// ${txt}</div>`
         }
 
-        return `<div class="text-textcolor line-clamp-4" style="margin-left:${(effect as triggerEffectV2).indent}rem; word-break: break-all; overflow-wrap: break-word;">${txt}</div>`
+        return `<div class="text-maintext line-clamp-4" style="margin-left:${(effect as triggerEffectV2).indent}rem; word-break: break-all; overflow-wrap: break-word;">${txt}</div>`
     }
     
     onMount(createTriggerListSortable)
@@ -395,7 +395,7 @@
 {#key triggerListKey}
     <ShDisclosureList className="mt-2" bind:element={triggerListElement}>
         {#if value.length <= 1}
-            <div class="px-3 py-8 text-center text-sm text-textcolor2">No Scripts</div>
+            <div class="px-3 py-8 text-center text-sm text-subtext">No Scripts</div>
         {/if}
         {#each value as trigger, i}
             {#if i > 0}
@@ -410,7 +410,7 @@
                     {#snippet header()}
                         <div class="flex min-w-0 flex-1 items-center gap-2">
                             <span class="min-w-0 flex-1 truncate">{trigger.comment || 'Unnamed Trigger'}</span>
-                            <span class="hidden shrink-0 text-xs text-textcolor2 sm:inline">
+                            <span class="hidden shrink-0 text-xs text-subtext sm:inline">
                                 {getTriggerTypeLabel(trigger.type)}
                             </span>
                         </div>
@@ -456,7 +456,7 @@
                     </div>
 
                     <div class="mt-2 mb-2 flex items-center justify-between">
-                        <span class="text-sm text-textcolor">{language.action} {language.list}</span>
+                        <span class="text-sm text-maintext">{language.action} {language.list}</span>
                         <IconButton aria-label={language.add} onclick={(event) => {
                             event.stopPropagation()
                             selectedIndex = i
@@ -506,7 +506,7 @@
 
                     <ShDisclosureList background={false} className="border-darkborderc p-2">
                         {#if trigger.effect.length === 0}
-                            <div class="px-3 py-6 text-center text-sm text-textcolor2">{language.noEffect}</div>
+                            <div class="px-3 py-6 text-center text-sm text-subtext">{language.noEffect}</div>
                         {/if}
                         <ShSortableList
                             className="w-full"
@@ -548,7 +548,7 @@
                                     divider={topLevelDividerIndexes.has(effectIndex)}
                                     {triggerNames}
                                     titleHtml={effect.type === 'v2EndIndent'
-                                        ? `<span class="text-xs text-textcolor2" style="margin-left:${(effect as triggerEffectV2).indent}rem">${language.triggerInputLabels.blockEnd}</span>`
+                                        ? `<span class="text-xs text-subtext" style="margin-left:${(effect as triggerEffectV2).indent}rem">${language.triggerInputLabels.blockEnd}</span>`
                                         : formatEffectDisplay(effect, i)}
                                     onToggle={() => {
                                         if (effect.type !== 'v2EndIndent') toggleEffect(i, effect)

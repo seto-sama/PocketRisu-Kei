@@ -184,7 +184,7 @@
     <span class="mt-4">{language.customPromptTemplateToggle}<Help key='customPromptTemplateToggle' /></span>
     <TextAreaInput commitMode="debounce" className="mt-2 mb-4" bind:value={currentModule.customModuleToggle}/>
     <div class="mt-2 flex min-h-10 w-full items-center justify-between gap-2 px-1">
-        <span class="min-w-0 text-textcolor">{language.hideChatIcon}<Help key="moduleHideChatIcon" /></span>
+        <span class="min-w-0 text-maintext">{language.hideChatIcon}<Help key="moduleHideChatIcon" /></span>
         <ShSwitch bind:checked={currentModule.hideIcon}/>
     </div>
 {/if}
@@ -238,7 +238,7 @@
 
 {#if submenu === 'trigger' && (Array.isArray(currentModule.trigger))}
     <div class="mt-2 flex min-h-10 w-full items-center justify-between gap-2 px-1">
-        <span class="min-w-0 text-textcolor">{language.lowLevelAccess}<Help key="lowLevelAccess" name={language.lowLevelAccess}/></span>
+        <span class="min-w-0 text-maintext">{language.lowLevelAccess}<Help key="lowLevelAccess" name={language.lowLevelAccess}/></span>
         <ShSwitch bind:checked={currentModule.lowLevelAccess}/>
     </div>
 

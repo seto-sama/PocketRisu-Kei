@@ -25,17 +25,17 @@
 </script>
 
 {#if onCopy}
-    <IconButton onclick={() => runAction('copy', onCopy)} title={copyLabel} aria-label={copyLabel} className="text-textcolor">
+    <IconButton onclick={() => runAction('copy', onCopy)} title={copyLabel} aria-label={copyLabel} className="text-maintext">
         <CopyIcon />
     </IconButton>
 {/if}
 {#if onDownload}
-    <IconButton onclick={() => runAction('download', onDownload)} title={downloadLabel} aria-label={downloadLabel} className="text-textcolor">
+    <IconButton onclick={() => runAction('download', onDownload)} title={downloadLabel} aria-label={downloadLabel} className="text-maintext">
         <DownloadIcon />
     </IconButton>
 {/if}
 {#if onDelete}
-    <IconButton tone="destructive" onclick={() => runAction('delete', onDelete)} title={deleteLabel} aria-label={deleteLabel} className="text-textcolor">
+    <IconButton tone="destructive" onclick={() => runAction('delete', onDelete)} title={deleteLabel} aria-label={deleteLabel} className="text-maintext">
         <Trash2Icon />
     </IconButton>
 {/if}

@@ -431,7 +431,7 @@
                 <div class="lorebook-drop-pad" data-risu-drop-index={getStartDropIndex(externalLoreBooks)} aria-hidden="true"></div>
             {/if}
             {#if externalLoreBooks.length === 0}
-                <span class="text-textcolor2">No Lorebook</span>
+                <span class="text-subtext">No Lorebook</span>
             {:else}
                 {#each externalLoreBooks as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}
@@ -470,7 +470,7 @@
                 <div class="lorebook-drop-pad" data-risu-drop-index={getStartDropIndex(DBState.db.characters[$selectedCharID].globalLore)} aria-hidden="true"></div>
             {/if}
             {#if DBState.db.characters[$selectedCharID].globalLore.length === 0}
-                <span class="text-textcolor2">No Lorebook</span>
+                <span class="text-subtext">No Lorebook</span>
             {:else}
                 {#each DBState.db.characters[$selectedCharID].globalLore as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}
@@ -510,7 +510,7 @@
                 <div class="lorebook-drop-pad" data-risu-drop-index={getStartDropIndex(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore)} aria-hidden="true"></div>
             {/if}
             {#if DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore.length === 0}
-                <span class="text-textcolor2">No Lorebook</span>
+                <span class="text-subtext">No Lorebook</span>
             {:else}
                 {#each DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}

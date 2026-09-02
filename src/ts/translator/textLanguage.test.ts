@@ -1,5 +1,11 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from 'vitest'
-import { isTextLikelyDifferentFromUiLanguage } from './textLanguage'
+import {
+    getRenderedTextForLanguageDetection,
+    isRenderedTextLikelyDifferentFromUiLanguage,
+    isTextLikelyDifferentFromUiLanguage,
+} from './textLanguage'
 
 describe('isTextLikelyDifferentFromUiLanguage', () => {
     it('compares Korean and Latin messages with the Korean UI', () => {
@@ -64,5 +70,20 @@ describe('isTextLikelyDifferentFromUiLanguage', () => {
             '{{#when::1::is::1}}Visible English response{{/when}}',
             'ko',
         )).toBe(true)
+    })
+
+    it('uses only visible final HTML text and excludes images and parsed thoughts', () => {
+        const rendered = [
+            '<details class="x-risu-thoughts"><summary>Chain of thought</summary>',
+            'A very long English reasoning section that must not affect detection.',
+            '</details>',
+            '<img src="english-status-panel.png" alt="Date Location Weather Status">',
+            '<p>안녕하세요. 오늘도 반가워요.</p>',
+        ].join('')
+
+        expect(getRenderedTextForLanguageDetection(rendered)).toContain('안녕하세요')
+        expect(getRenderedTextForLanguageDetection(rendered)).not.toContain('reasoning')
+        expect(getRenderedTextForLanguageDetection(rendered)).not.toContain('Date')
+        expect(isRenderedTextLikelyDifferentFromUiLanguage(rendered, 'ko')).toBe(false)
     })
 })

@@ -75,7 +75,7 @@
     <div class="w-48">
         {#if mode === 'pool'}
             {#if entries.length === 0 && !danglingRef}
-                <div class="flex h-8 items-center text-xs text-textcolor2">{language.apiKeyPoolEmpty}</div>
+                <div class="flex h-8 items-center text-xs text-subtext">{language.apiKeyPoolEmpty}</div>
             {:else}
                 <SelectInput className="w-48" size="sm" value={selectedId} onchange={(event) => onSelect(String(event.currentTarget.value))}>
                     <OptionInput value="">{language.apiKeySelectNone}</OptionInput>

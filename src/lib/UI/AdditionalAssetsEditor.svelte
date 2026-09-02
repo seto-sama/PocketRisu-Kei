@@ -261,7 +261,7 @@
 
 <div class="w-full max-w-full max-h-full overflow-x-hidden overflow-y-auto border border-selected rounded-md mt-2">
     {#if assets.length === 0}
-        <div class="min-h-20 flex items-center justify-center px-3 py-4 text-sm text-textcolor2">
+        <div class="min-h-20 flex items-center justify-center px-3 py-4 text-sm text-subtext">
             {language.noData}
         </div>
     {:else}
@@ -269,7 +269,7 @@
             {@const extension = extensionOf(asset)}
             <div class="flex min-w-0 items-start gap-2 p-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
                 <div
-                    class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-textcolor2"
+                    class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-subtext"
                     use:lazyLoadAssetPreview={{ path: asset[1], enabled: DBState.db.useAdditionalAssetsPreview }}
                 >
                     {#if assetFilePaths[asset[1]] && DBState.db.useAdditionalAssetsPreview}
@@ -314,7 +314,7 @@
                         placeholder="..."
                         className="h-9 min-h-9"
                     />
-                    <span class="mt-1 block truncate text-[10px] leading-3 uppercase text-textcolor2">{extension}</span>
+                    <span class="mt-1 block truncate text-[10px] leading-3 uppercase text-subtext">{extension}</span>
                 </div>
 
                 <IconButtonGroup direction="vertical" size="sm" className="self-center">
@@ -378,8 +378,8 @@
     {#snippet metadataOverlay()}
         {#if previewAsset}
             <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-                <dt class="text-textcolor2">{language.extensionInfo}</dt>
-                <dd class="text-textcolor">
+                <dt class="text-subtext">{language.extensionInfo}</dt>
+                <dd class="text-maintext">
                     {previewAsset[2]?.toUpperCase() ?? ''}{#if previewAsset[2] && previewDimensions}{', '}{/if}{#if previewDimensions}{previewDimensions.width} × {previewDimensions.height}px{/if}
                 </dd>
             </dl>

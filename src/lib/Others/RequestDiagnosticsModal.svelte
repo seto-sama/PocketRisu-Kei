@@ -162,11 +162,11 @@
         {#if selectedTab === requestDiagnosticsTabs.overview}
             <div class="flex flex-col gap-4">
                 <section>
-                    <h2 class="mb-2 mt-0 flex items-center gap-2 text-sm font-semibold text-textcolor">
+                    <h2 class="mb-2 mt-0 flex items-center gap-2 text-sm font-semibold text-maintext">
                         <InfoIcon size={16} />
                         {language.requestDiagnostics.metadata}
                     </h2>
-                    <dl class="m-0 overflow-hidden rounded-md border border-darkborderc bg-bgcolor/30 py-0.5">
+                    <dl class="m-0 overflow-hidden rounded-md border border-darkborderc bg-lightbg/30 py-0.5">
                         {#each [
                             [language.requestDiagnostics.messageIndex, String(info?.idx ?? '—')],
                             [language.requestDiagnostics.model, generationInfo.model ?? '—'],
@@ -177,13 +177,13 @@
                                 : '—'],
                         ] as item}
                             <div class="grid grid-cols-[minmax(8rem,auto)_minmax(0,1fr)] items-start gap-4 px-3 py-1.5 text-sm">
-                                <dt class="text-left text-textcolor2">{item[0]}</dt>
-                                <dd class="m-0 break-all text-right font-mono text-textcolor">{item[1]}</dd>
+                                <dt class="text-left text-subtext">{item[0]}</dt>
+                                <dd class="m-0 break-all text-right font-mono text-maintext">{item[1]}</dd>
                             </div>
                         {/each}
                         <div class="grid grid-cols-[minmax(8rem,auto)_minmax(0,1fr)] items-start gap-4 px-3 py-1.5 text-sm">
-                            <dt class="text-left text-textcolor2">{language.requestDiagnostics.contentTokens}</dt>
-                            <dd class="m-0 text-right font-mono text-textcolor">
+                            <dt class="text-left text-subtext">{language.requestDiagnostics.contentTokens}</dt>
+                            <dd class="m-0 text-right font-mono text-maintext">
                                 {#if message}
                                     {#await tokenize(message.data)}…{:then count}{count.toLocaleString()}{:catch}—{/await}
                                 {:else}—{/if}
@@ -194,11 +194,11 @@
 
                 <section>
                     <div class="mb-3 flex items-center justify-between gap-3">
-                        <h2 class="m-0 flex items-center gap-2 text-sm font-semibold text-textcolor">
+                        <h2 class="m-0 flex items-center gap-2 text-sm font-semibold text-maintext">
                             <GaugeIcon size={16} />
                             {language.requestDiagnostics.contextUsage}
                         </h2>
-                        <span class="text-xs tabular-nums text-textcolor2">
+                        <span class="text-xs tabular-nums text-subtext">
                             {language.requestDiagnostics.responseLimit}: {generationInfo.outputTokens?.toLocaleString() ?? '?'}
                         </span>
                     </div>
@@ -206,17 +206,17 @@
                         <span class="bg-primary" style:width={`${inputPercent}%`}></span>
                     </div>
                     <div class="mt-4 grid gap-2 sm:grid-cols-3">
-                        <div class="rounded-md border border-darkborderc bg-bgcolor/30 p-3">
-                            <div class="text-xs text-textcolor2">{language.maxContextSize}</div>
-                            <div class="mt-1 text-xl font-semibold tabular-nums text-textcolor">{generationInfo.maxContext?.toLocaleString() ?? '?'}</div>
+                        <div class="rounded-md border border-darkborderc bg-lightbg/30 p-3">
+                            <div class="text-xs text-subtext">{language.maxContextSize}</div>
+                            <div class="mt-1 text-xl font-semibold tabular-nums text-maintext">{generationInfo.maxContext?.toLocaleString() ?? '?'}</div>
                         </div>
-                        <div class="rounded-md border border-darkborderc bg-bgcolor/30 p-3">
-                            <div class="text-xs text-textcolor2">{language.inputTokens}</div>
-                            <div class="mt-1 text-xl font-semibold tabular-nums text-textcolor">{generationInfo.inputTokens?.toLocaleString() ?? '?'}</div>
+                        <div class="rounded-md border border-darkborderc bg-lightbg/30 p-3">
+                            <div class="text-xs text-subtext">{language.inputTokens}</div>
+                            <div class="mt-1 text-xl font-semibold tabular-nums text-maintext">{generationInfo.inputTokens?.toLocaleString() ?? '?'}</div>
                         </div>
-                        <div class="rounded-md border border-darkborderc bg-bgcolor/30 p-3">
-                            <div class="text-xs text-textcolor2">{language.requestDiagnostics.availableContext}</div>
-                            <div class="mt-1 text-xl font-semibold tabular-nums text-textcolor">{maxContext ? remainingTokens.toLocaleString() : '?'}</div>
+                        <div class="rounded-md border border-darkborderc bg-lightbg/30 p-3">
+                            <div class="text-xs text-subtext">{language.requestDiagnostics.availableContext}</div>
+                            <div class="mt-1 text-xl font-semibold tabular-nums text-maintext">{maxContext ? remainingTokens.toLocaleString() : '?'}</div>
                         </div>
                     </div>
                 </section>
@@ -229,14 +229,14 @@
                 {#if totalTiming > 0}
                     <section>
                         <div class="mb-3 flex items-center justify-between gap-3">
-                            <h2 class="m-0 flex items-center gap-2 text-sm font-semibold text-textcolor"><Clock3Icon size={16} />{language.requestDiagnostics.timing}</h2>
-                            <span class="text-xs tabular-nums text-textcolor2">{formatDuration(totalTiming)}</span>
+                            <h2 class="m-0 flex items-center gap-2 text-sm font-semibold text-maintext"><Clock3Icon size={16} />{language.requestDiagnostics.timing}</h2>
+                            <span class="text-xs tabular-nums text-subtext">{formatDuration(totalTiming)}</span>
                         </div>
                         <div class="grid gap-2 sm:grid-cols-4">
                             {#each timingDetails as stage}
-                                <div class="rounded-md border border-darkborderc bg-bgcolor/30 p-3 text-center">
-                                    <div class="text-xs text-textcolor2">{stage.label}</div>
-                                    <div class="mt-1 font-mono text-textcolor">{formatDuration(stage.duration)}</div>
+                                <div class="rounded-md border border-darkborderc bg-lightbg/30 p-3 text-center">
+                                    <div class="text-xs text-subtext">{stage.label}</div>
+                                    <div class="mt-1 font-mono text-maintext">{formatDuration(stage.duration)}</div>
                                 </div>
                             {/each}
                         </div>
@@ -245,7 +245,7 @@
             </div>
         {:else if selectedTab === requestDiagnosticsTabs.requestLog}
             {#if requestLogLoading}
-                <div class="flex min-h-64 items-center justify-center gap-2 text-sm text-textcolor2">
+                <div class="flex min-h-64 items-center justify-center gap-2 text-sm text-subtext">
                     <RefreshCwIcon size={16} class="animate-spin" />
                     {language.systemLogsLoading}
                 </div>
@@ -257,42 +257,42 @@
                     {requestLogError}
                 </ShAlert>
             {:else if !requestKey}
-                <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-bgcolor/20 px-6 text-center">
-                    <ScrollTextIcon size={40} class="mb-3 text-textcolor2 opacity-60" />
-                    <div class="font-medium text-textcolor">{language.requestDiagnostics.unlinkedRequestLog}</div>
-                    <div class="mt-1 max-w-md text-sm text-textcolor2">{language.requestDiagnostics.unlinkedRequestLogDesc}</div>
+                <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-lightbg/20 px-6 text-center">
+                    <ScrollTextIcon size={40} class="mb-3 text-subtext opacity-60" />
+                    <div class="font-medium text-maintext">{language.requestDiagnostics.unlinkedRequestLog}</div>
+                    <div class="mt-1 max-w-md text-sm text-subtext">{language.requestDiagnostics.unlinkedRequestLogDesc}</div>
                 </div>
             {:else if requestLog}
                 <RequestLogDetail log={requestLog} />
             {:else}
-                <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-bgcolor/20 px-6 text-center">
-                    <ScrollTextIcon size={40} class="mb-3 text-textcolor2 opacity-60" />
-                    <div class="font-medium text-textcolor">{language.requestDiagnostics.noRequestLog}</div>
-                    <div class="mt-1 max-w-md text-sm text-textcolor2">{language.requestDiagnostics.noRequestLogDesc}</div>
+                <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-lightbg/20 px-6 text-center">
+                    <ScrollTextIcon size={40} class="mb-3 text-subtext opacity-60" />
+                    <div class="font-medium text-maintext">{language.requestDiagnostics.noRequestLog}</div>
+                    <div class="mt-1 max-w-md text-sm text-subtext">{language.requestDiagnostics.noRequestLogDesc}</div>
                 </div>
             {/if}
         {:else if selectedTab === requestDiagnosticsTabs.prompt}
             {#if !promptInfo || Object.keys(promptInfo).length === 0}
-                <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-bgcolor/20 px-6 text-center">
-                    <FileTextIcon size={40} class="mb-3 text-textcolor2 opacity-60" />
-                    <div class="font-medium text-textcolor">{language.promptInfoEmptyMessage}</div>
+                <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-lightbg/20 px-6 text-center">
+                    <FileTextIcon size={40} class="mb-3 text-subtext opacity-60" />
+                    <div class="font-medium text-maintext">{language.promptInfoEmptyMessage}</div>
                 </div>
             {:else}
                 <div class="flex flex-col gap-4">
-                    <section class="rounded-md border border-darkborderc bg-bgcolor/30 p-4">
-                        <div class="text-xs text-textcolor2">{language.requestDiagnostics.presetName}</div>
-                        <div class="mt-1 font-medium text-textcolor">{promptInfo.promptName ?? '—'}</div>
+                    <section class="rounded-md border border-darkborderc bg-lightbg/30 p-4">
+                        <div class="text-xs text-subtext">{language.requestDiagnostics.presetName}</div>
+                        <div class="mt-1 font-medium text-maintext">{promptInfo.promptName ?? '—'}</div>
                     </section>
 
                     <section>
-                        <h2 class="mb-2 mt-0 flex items-center gap-2 text-sm font-semibold text-textcolor"><BracesIcon size={16} />{language.requestDiagnostics.customToggles}</h2>
+                        <h2 class="mb-2 mt-0 flex items-center gap-2 text-sm font-semibold text-maintext"><BracesIcon size={16} />{language.requestDiagnostics.customToggles}</h2>
                         {#if (promptInfo.promptToggles?.length ?? 0) === 0}
-                            <div class="rounded-md border border-darkborderc bg-bgcolor/30 p-4 text-sm text-textcolor2">{language.promptInfoEmptyToggle}</div>
+                            <div class="rounded-md border border-darkborderc bg-lightbg/30 p-4 text-sm text-subtext">{language.promptInfoEmptyToggle}</div>
                         {:else}
-                            <div class="flex flex-wrap gap-2 rounded-md border border-darkborderc bg-bgcolor/30 p-3">
+                            <div class="flex flex-wrap gap-2 rounded-md border border-darkborderc bg-lightbg/30 p-3">
                                 {#each promptInfo.promptToggles ?? [] as toggle}
                                     <ShBadge variant="secondary" size="md" className="gap-3">
-                                        <span class="font-medium text-textcolor">{toggle.key}</span>
+                                        <span class="font-medium text-maintext">{toggle.key}</span>
                                         <span>{toggle.value}</span>
                                     </ShBadge>
                                 {/each}
@@ -304,7 +304,7 @@
         {/if}
 
         {#if aiLawApplies()}
-            <div class="mt-4 text-sm italic text-textcolor2">{language.generatedByAIDisclaimer}</div>
+            <div class="mt-4 text-sm italic text-subtext">{language.generatedByAIDisclaimer}</div>
         {/if}
     </div>
 </ShDialog>

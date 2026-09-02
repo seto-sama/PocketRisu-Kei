@@ -10,7 +10,7 @@ import { defaultJailbreak, defaultMainPrompt } from './defaultPrompts';
 import { alertError, notifySuccess } from '../alert';
 import type { NAISettings } from '../process/models/nai';
 import { prebuiltNAIpresets, prebuiltPresets } from '../process/templates/templates';
-import { defaultColorScheme, type ColorScheme } from '../gui/colorscheme';
+import { defaultColorScheme, normalizeColorScheme, type ColorScheme } from '../gui/colorscheme';
 import type { PromptItem, PromptSettings } from '../process/prompt';
 import type { OobaChatCompletionRequestParams } from '../model/ooba';
 import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../process/memory/hypav3'
@@ -657,11 +657,7 @@ export function setDatabase(data:Database){
     data.NAIsettings ??= safeStructuredClone(prebuiltNAIpresets)
     data.assetWidth ??= -1
     data.animationSpeed ??= 0.4
-    data.colorScheme ??= safeStructuredClone(defaultColorScheme)
-    // Backfill `primary` for existing colorScheme objects saved before the
-    // primary token was added. Without this, custom-scheme users (whose object
-    // is preserved as-is) would render with an undefined CSS var.
-    data.colorScheme.primary ??= defaultColorScheme.primary
+    data.colorScheme = normalizeColorScheme(data.colorScheme) ?? safeStructuredClone(defaultColorScheme)
     data.colorSchemeName ??= 'default'
     data.NAIsettings.starter ??= ""
     data.hypaModel ??= 'MiniLM'
@@ -1341,7 +1337,6 @@ export interface Database{
         useSync?:boolean
     },
     classicMaxWidth: boolean,
-    useChatSticker:boolean,
     useAdditionalAssetsPreview:boolean,
     memoryAlgorithmType:string // To enable new memory module/algorithms
     proxyRequestModel:string
@@ -1439,7 +1434,6 @@ export interface Database{
     customPromptTemplateToggle:string
     globalChatVariables:{[key:string]:string}
     templateDefaultVariables:string
-    cohereAPIKey:string
     goCharacterOnImport:boolean
     dallEQuality:string
     font: string
@@ -1520,7 +1514,6 @@ export interface Database{
     hypaV3PresetId: number
     hypaV3PresetTags?: PresetTag[]
     OaiCompAPIKeys: {[key:string]:string}
-    inlayErrorResponse:boolean
     reasoningEffort:number
     bulkEnabling:boolean
     showTranslationLoading: boolean
@@ -2084,7 +2077,6 @@ export interface themePreset extends PresetTagFields {
     customQuotesData?: [string, string, string, string]
     betaMobileGUI: boolean
     menuSideBar: boolean
-    useChatSticker: boolean
 }
 
 interface hordeConfig{
@@ -2525,7 +2517,6 @@ export const themePresetTemplate: themePreset = {
     customQuotesData: ['"', '"', '\u2018', '\u2019'],
     betaMobileGUI: false,
     menuSideBar: false,
-    useChatSticker: false,
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2862,7 +2853,6 @@ export function saveCurrentThemePreset(){
         customQuotesData: db.customQuotesData ? [...db.customQuotesData] as [string,string,string,string] : ['"','"','\u2018','\u2019'],
         betaMobileGUI: db.betaMobileGUI,
         menuSideBar: db.menuSideBar,
-        useChatSticker: db.useChatSticker,
     }
     if(!Array.isArray(pres)){
         pres = []
@@ -2891,7 +2881,7 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.waifuWidth = p.waifuWidth ?? db.waifuWidth
     db.waifuWidth2 = p.waifuWidth2 ?? db.waifuWidth2
     db.colorSchemeName = p.colorSchemeName ?? db.colorSchemeName
-    db.colorScheme = safeStructuredClone(p.colorScheme ?? db.colorScheme)
+    db.colorScheme = normalizeColorScheme(p.colorScheme ?? db.colorScheme) ?? db.colorScheme
     db.textTheme = normalizeTextTheme(p.textTheme ?? db.textTheme)
     db.customTextTheme = safeStructuredClone(p.customTextTheme ?? db.customTextTheme)
     db.font = p.font ?? db.font
@@ -2929,7 +2919,6 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.customQuotesData = p.customQuotesData ? [...p.customQuotesData] as [string,string,string,string] : db.customQuotesData
     db.betaMobileGUI = p.betaMobileGUI ?? db.betaMobileGUI
     db.menuSideBar = p.menuSideBar ?? db.menuSideBar
-    db.useChatSticker = p.useChatSticker ?? db.useChatSticker
 }
 
 export function copyThemePreset(id: number){

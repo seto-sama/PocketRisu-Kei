@@ -125,9 +125,9 @@
   <div class="max-h-80 space-y-1 overflow-y-auto">
         <!-- All Categories -->
         <button
-          class="flex min-h-11 w-full items-center gap-3 rounded-md border border-darkborderc px-3 py-1 text-left text-textcolor transition-colors {filterState.selectedCategoryFilter === 'all'
+          class="flex min-h-11 w-full items-center gap-3 rounded-md border border-darkborderc px-3 py-1 text-left text-maintext transition-colors {filterState.selectedCategoryFilter === 'all'
             ? 'bg-selected'
-            : 'bg-bgcolor/50 risu-interactive-surface'}"
+            : 'bg-lightbg/50 risu-interactive-surface'}"
           onclick={() => selectCategory('all')}
         >
           <span class="flex-1 text-sm">{language.hypaV3Modal.allCategories} ({hypaV3Data.summaries.length})</span>
@@ -139,9 +139,9 @@
           {@const count = hypaV3Data.summaries.filter(s => (s.categoryId || '') === category.id).length}
           <div
             data-inline-rename-row
-            class="flex min-h-11 items-center gap-3 rounded-md border border-darkborderc px-3 py-1 text-textcolor transition-colors {filterState.selectedCategoryFilter === category.id
+            class="flex min-h-11 items-center gap-3 rounded-md border border-darkborderc px-3 py-1 text-maintext transition-colors {filterState.selectedCategoryFilter === category.id
               ? 'bg-selected'
-              : 'bg-bgcolor/50 risu-interactive-surface'}"
+              : 'bg-lightbg/50 risu-interactive-surface'}"
           >
             {#if categoryManagerState.editingCategory?.id === '' && category.id === ''}
               <ShInput
@@ -182,7 +182,7 @@
 
         <!-- Empty State -->
         {#if categories.filter(c => c.id !== "").length === 0 && !categoryManagerState.editingCategory}
-          <div class="py-8 text-center text-sm text-textcolor2">
+          <div class="py-8 text-center text-sm text-subtext">
             {language.hypaV3Modal.noCategoriesYet}<br>
             <span class="text-xs">{language.hypaV3Modal.addNewCategoryHint}</span>
           </div>

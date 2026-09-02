@@ -306,7 +306,6 @@ export const helpEn = {
             "Show an \"Always active in this chat\" option on character lorebook entries. Enabled entries stay active in the current chat regardless of keyword matches.",
         requestInfoInsideChat: "Allow LLM request information such as sent prompts and token counts to be displayed inside the chat area.",
         stickyChatToolbar: "Keep the toolbar and request information visible while scrolling through the chat.",
-        inlayErrorResponse: "When a model request fails, show the error as an inlaid chat response.",
         bulkEnabling: "Show buttons in the lorebook editor for enabling or disabling multiple entries at once.",
         showTranslationLoading: "Show a loading indicator while message translation is in progress.",
         autoScrollToNewMessage: "Automatically scroll to a newly arrived message.",
@@ -416,8 +415,6 @@ export const helpEn = {
             "Use an always-visible sidebar menu instead of the classic hamburger menu. Useful on wider screens for faster navigation.",
         notification:
             "Enable browser notifications for new messages. Your browser may ask for permission the first time; if permission is denied, the option is turned back off.",
-        unrecommendedChatSticker:
-            "Enable the old chat-sticker feature. This is no longer recommended and may be removed in a future version.",
         UiLanguage:
             "Risu UI display language. Close the settings once after changing it so the new language fully applies.\n\n- **[Translate in your own language]** downloads the current language JSON so you can translate it and send it to the developer for inclusion.",
         translatorLanguage:
@@ -477,9 +474,7 @@ export const helpEn = {
         proxyRequestModel:
             "Model name to send to the proxy. Some OpenAI-compatible proxies use their own naming conventions, so paste the exact model id the proxy expects (e.g. `gpt-4o`, `claude-3-5-sonnet-20241022`).",
         proxyFormat:
-            "Request body format for the reverse proxy.\n\n- **OpenAI Compatible**: most common, OpenAI Chat Completions shape\n- **OpenAI Response API**: the new Response API (only on supporting models)\n- **Anthropic**: Claude API shape\n- **Mistral**: Mistral's own format\n- **Google Cloud**: Vertex / Gemini\n- **Cohere**: Cohere's own format\n\nPick whichever the proxy accepts. If unsure, start with OpenAI Compatible.",
-        cohereKey:
-            "Cohere API key (https://dashboard.cohere.com/api-keys). Required when using Cohere's own models such as `command-r`.",
+            "Request body format for the reverse proxy.\n\n- **OpenAI Compatible**: most common, OpenAI Chat Completions shape\n- **OpenAI Response API**: the new Response API (only on supporting models)\n- **Anthropic**: Claude API shape\n- **Mistral**: Mistral's own format\n- **Google Cloud**: Vertex / Gemini\n\nPick whichever the proxy accepts. If unsure, start with OpenAI Compatible.",
         ollamaURL:
             "URL of your local or remote Ollama server (e.g. `http://localhost:11434`). Pairs well with PocketRisu's local-network mode for stable access to private LAN LLMs.",
         ollamaModel:
@@ -580,6 +575,8 @@ export const helpEn = {
             "Maximum output tokens for a single response. Too low and replies get cut off; too high costs more and can let the model ramble. 256–1024 covers most cases.",
         seed:
             "Seed for deterministic output. Same input + same seed ≈ same response. Use it to remove variance when comparing prompts. Only honored on OpenAI / reverse-proxy / OpenRouter models.",
+        imageGenerationSeed:
+            "When left blank, a random value is sent.",
         thinkingType:
             "Claude thinking mode.\n\n- **Off**: no thinking (faster and cheaper)\n- **Budget (Manual Tokens)**: spend up to the \"Thinking Tokens\" amount on thinking\n- **Adaptive**: Claude adjusts its thinking budget to the difficulty of the task (newest Claude models only)",
         thinkingTokens:

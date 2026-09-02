@@ -317,13 +317,13 @@
 
             {#if !value.alwaysActive && getCurrentCharacter()?.globalLore?.includes(value) && DBState.db.localActivationInGlobalLorebook}
                 <div data-disclosure-row>
-                    <span class="text-sm text-textcolor">{language.alwaysActiveInChat}</span>
+                    <span class="text-sm text-maintext">{language.alwaysActiveInChat}</span>
                     <ShSwitch checked={isLocallyActivated(value)} onCheckedChange={(checked) => toggleLocalActive(checked, value)} />
                 </div>
             {/if}
             {#if !value.alwaysActive}
                 <div data-disclosure-row>
-                    <span class="flex items-center text-sm text-textcolor">
+                    <span class="flex items-center text-sm text-maintext">
                         {language.useRegexLorebook}
                         <Help key="useRegexLorebook"/>
                     </span>

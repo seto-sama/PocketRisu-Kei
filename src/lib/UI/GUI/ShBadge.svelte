@@ -37,12 +37,12 @@
     };
 
     const variantClasses: Record<ShBadgeVariant, string> = {
-        default: 'bg-selected/60 text-textcolor border-darkborderc',
-        secondary: 'bg-darkbg text-textcolor2 border-darkborderc',
-        destructive: 'bg-draculared/20 text-draculared border-draculared/40',
-        outline: 'bg-transparent text-textcolor2 border-darkborderc',
-        ghost: 'bg-transparent text-textcolor2 border-transparent risu-interactive-surface',
-        link: 'bg-transparent text-borderc border-transparent underline-offset-4 hover:underline',
+        default: 'bg-selected/60 text-maintext border-darkborderc',
+        secondary: 'bg-darkbg text-subtext border-darkborderc',
+        destructive: 'bg-danger/20 text-danger border-danger/40',
+        outline: 'bg-transparent text-subtext border-darkborderc',
+        ghost: 'bg-transparent text-subtext border-transparent risu-interactive-surface',
+        link: 'bg-transparent text-lightborderc border-transparent underline-offset-4 hover:underline',
         attention: 'bg-highlight/20 text-highlight border-highlight/40',
         warning: 'bg-warning/20 text-warning border-warning/40',
         info: 'bg-accent/20 text-accent border-accent/40',

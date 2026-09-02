@@ -115,14 +115,6 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['side', 'menu', 'reroll', 'button']
     },
     {
-        id: 'acc.inlayErrorResponse',
-        type: 'check',
-        labelKey: 'inlayErrorResponse',
-        bindKey: 'inlayErrorResponse',
-        helpKey: 'inlayErrorResponse',
-        keywords: ['inlay', 'error', 'response']
-    },
-    {
         id: 'acc.autoScrollToNewMessage',
         type: 'check',
         labelKey: 'autoScrollToNewMessage',
@@ -343,7 +335,6 @@ export const accessibilityOtherItems = pick([
     'acc.botSettingAtStart',
     'acc.goCharacterOnImport',
     'acc.createFolderOnBranch',
-    'acc.inlayErrorResponse',
     'acc.keepSessionAlive',
     'acc.disableMobileBackNavigation',
     'acc.disableMobileDragDrop',

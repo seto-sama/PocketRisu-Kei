@@ -22,6 +22,7 @@
         onSave,
     }: Props = $props()
     let draft = $state('')
+    let noteInput = $state<HTMLInputElement | null>(null)
     let saving = $state(false)
     let error = $state<string | null>(null)
 
@@ -48,13 +49,26 @@
             saving = false
         }
     }
+
+    function focusNoteInput(event: Event) {
+        event.preventDefault()
+        noteInput?.focus()
+    }
 </script>
 
-<ShDialog bind:open size="sm" closeOnOutsideClick={!saving} closeOnEscape={!saving} closable={!saving}>
+<ShDialog
+    bind:open
+    size="sm"
+    closeOnOutsideClick={!saving}
+    closeOnEscape={!saving}
+    closable={!saving}
+    onOpenAutoFocus={focusNoteInput}
+>
     {#snippet title()}{dialogTitle}{/snippet}
     {#snippet description()}{dialogDescription}{/snippet}
 
     <ShInput
+        bind:ref={noteInput}
         bind:value={draft}
         maxlength={200}
         placeholder={language.backupNotePlaceholder}
@@ -66,7 +80,7 @@
             }
         }}
     />
-    {#if error}<p class="mt-2 text-sm text-draculared">{language.backupNoteSaveFailed}: {error}</p>{/if}
+    {#if error}<p class="mt-2 text-sm text-danger">{language.backupNoteSaveFailed}: {error}</p>{/if}
 
     {#snippet footer()}
         <ShButton variant="outline" disabled={saving} onclick={() => open = false}>{language.cancel}</ShButton>

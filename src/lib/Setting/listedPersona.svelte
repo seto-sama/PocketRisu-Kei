@@ -9,6 +9,7 @@
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
+    import AvatarFallback from "../UI/AvatarFallback.svelte";
     import { v4 as uuidv4 } from "uuid";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
@@ -150,11 +151,13 @@
 >
     {#snippet itemContent(index, renameController)}
         {@const persona = DBState.db.personas[index]}
-        <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md bg-textcolor2">
+        <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md">
             {#if persona.icon}
                 {#await getCharImage(persona.icon, 'css') then imageStyle}
                     <div class="h-full w-full bg-cover bg-center" style={imageStyle}></div>
                 {/await}
+            {:else}
+                <AvatarFallback className="h-full w-full" iconSize={16} />
             {/if}
         </div>
         <InlineEditableName
@@ -169,7 +172,7 @@
         >
             {#snippet display()}
                 <span>{persona.name}</span>
-                {#if persona.note}<span class="text-textcolor2"> / {persona.note}</span>{/if}
+                {#if persona.note}<span class="text-subtext"> / {persona.note}</span>{/if}
             {/snippet}
         </InlineEditableName>
     {/snippet}

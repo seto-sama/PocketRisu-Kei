@@ -174,7 +174,7 @@
     {#snippet itemContent(index, renameController)}
         {@const rmodule = DBState.db.modules[index]}
         {#if rmodule.mcp}
-            <WaypointsIcon size={18} class="mr-2 shrink-0 text-textcolor2" />
+            <WaypointsIcon size={18} class="mr-2 shrink-0 text-subtext" />
         {/if}
         <InlineEditableName
             controller={renameController}
@@ -188,7 +188,7 @@
                 <span class="min-w-0 truncate">
                     <span class:isModuleGlobal={isGlobal(rmodule.id)}>{rmodule.name}</span>
                     {#if rmodule.description}
-                        <span class="text-textcolor2"> / {rmodule.description}</span>
+                        <span class="text-subtext"> / {rmodule.description}</span>
                     {/if}
                 </span>
             {/snippet}
@@ -225,6 +225,6 @@
 
 <style>
     .isModuleGlobal {
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
     }
 </style>

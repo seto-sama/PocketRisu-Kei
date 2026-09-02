@@ -157,15 +157,14 @@ export const selIdState = $state({
 
 
 CustomCSSStore.subscribe((css) => {
-    console.log(css)
     const q = document.querySelector('#customcss')
     if(q){
-        q.innerHTML = css
+        q.textContent = css
     }
     else{
         const s = document.createElement('style')
         s.id = 'customcss'
-        s.innerHTML = css
+        s.textContent = css
         document.body.appendChild(s)
     }
 })

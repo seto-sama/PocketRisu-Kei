@@ -262,7 +262,7 @@
                 </div>
             </div>
             <div data-disclosure-row>
-                <span class="text-sm text-textcolor">{language.untilChatEnd}</span>
+                <span class="text-sm text-maintext">{language.untilChatEnd}</span>
                 <ShSwitch checked={promptItem.rangeEnd === 'end'} onCheckedChange={(checked) => {
                     if(promptItem.type === 'chat'){
                         promptItem.rangeEnd = checked ? 'end' : 0
@@ -271,7 +271,7 @@
             </div>
             {#if DBState.db.promptSettings.sendChatAsSystem}
                 <div data-disclosure-row>
-                    <span class="text-sm text-textcolor">{language.chatAsOriginalOnSystem}</span>
+                    <span class="text-sm text-maintext">{language.chatAsOriginalOnSystem}</span>
                     <ShSwitch checked={!!promptItem.chatAsOriginalOnSystem} onCheckedChange={(checked) => {
                         if(promptItem.type === 'chat'){
                             promptItem.chatAsOriginalOnSystem = checked
@@ -281,7 +281,7 @@
             {/if}
         {/if}
         <div data-disclosure-row>
-            <span class="text-sm text-textcolor">{language.advanced}</span>
+            <span class="text-sm text-maintext">{language.advanced}</span>
             <ShSwitch checked={promptItem.rangeStart !== -1000} onCheckedChange={setAdvancedChat} />
         </div>
     {/if}
@@ -301,7 +301,7 @@
             </div>
         {/if}
         <div data-disclosure-row>
-            <span class="text-sm text-textcolor">{language.customInnerFormat}</span>
+            <span class="text-sm text-maintext">{language.customInnerFormat}</span>
             <ShSwitch checked={!!promptItem.innerFormat} onCheckedChange={(checked) => {
                 if(promptItem.type === 'persona' || promptItem.type === 'description' || promptItem.type === 'authornote' || promptItem.type === 'memory'){
                     promptItem.innerFormat = checked ? (promptItem.innerFormat || "{{slot}}") : undefined

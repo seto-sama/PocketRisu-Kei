@@ -58,7 +58,7 @@
 
     function groupedItemClass(index: number) {
         return cn(
-            'cursor-pointer select-none bg-transparent text-textcolor2 transition-colors',
+            'cursor-pointer select-none bg-transparent text-subtext transition-colors',
             'disabled:cursor-not-allowed disabled:opacity-50',
             size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-sm',
             variant === 'pill' && fullWidth && 'flex min-w-0 flex-1 items-center justify-center text-center',
@@ -68,13 +68,13 @@
             variant === 'grid' && Math.floor(index / columns) < Math.ceil(options.length / columns) - 1 && 'border-b border-darkborderc',
             activeColor === 'primary' && [
                 'risu-interactive-surface',
-                'data-[state=checked]:bg-primary data-[state=checked]:text-textcolor',
-                'data-[state=on]:bg-primary data-[state=on]:text-textcolor',
+                'data-[state=checked]:bg-primary data-[state=checked]:text-themewhite',
+                'data-[state=on]:bg-primary data-[state=on]:text-themewhite',
             ],
             activeColor === 'selected' && [
                 'data-[state=unchecked]:risu-interactive-surface-strong data-[state=off]:risu-interactive-surface-strong',
-                'data-[state=checked]:bg-selected data-[state=checked]:text-textcolor',
-                'data-[state=on]:bg-selected data-[state=on]:text-textcolor',
+                'data-[state=checked]:bg-selected data-[state=checked]:text-maintext',
+                'data-[state=on]:bg-selected data-[state=on]:text-maintext',
             ],
         );
     }
@@ -109,7 +109,7 @@
                 <RadioGroup.Item
                     value={opt.value}
                     class={cn(
-                        'group flex w-full gap-2.5 rounded-md border border-transparent px-1 py-1.5 text-left text-sm text-textcolor transition-colors',
+                        'group flex w-full gap-2.5 rounded-md border border-transparent px-1 py-1.5 text-left text-sm text-maintext transition-colors',
                         opt.description ? 'items-start' : 'items-center',
                         'risu-interactive-surface disabled:cursor-not-allowed disabled:opacity-50',
                     )}
@@ -120,7 +120,7 @@
                     <span class="min-w-0">
                         <span>{opt.label}</span>
                         {#if opt.description}
-                            <span class="block text-xs text-textcolor2">{opt.description}</span>
+                            <span class="block text-xs text-subtext">{opt.description}</span>
                         {/if}
                     </span>
                 </RadioGroup.Item>

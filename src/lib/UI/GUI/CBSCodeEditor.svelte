@@ -1,4 +1,4 @@
-<div class="risu-field-border h-full min-h-0 w-full rounded-md bg-bgcolor text-textcolor" bind:this={editorRoot}></div>
+<div class="risu-field-border h-full min-h-0 w-full rounded-md bg-lightbg text-maintext" bind:this={editorRoot}></div>
 
 <script lang="ts">
     import { autocompletion, closeCompletion, completionKeymap, completionStatus, type CompletionContext } from '@codemirror/autocomplete'
@@ -324,7 +324,7 @@
             height: '100%',
             position: 'relative',
             backgroundColor: 'transparent',
-            color: 'var(--risu-theme-textcolor)',
+            color: 'var(--risu-theme-maintext)',
         },
         '&.cm-focused': { outline: 'none' },
         '.cm-scroller': {
@@ -336,10 +336,10 @@
         '.cm-content': {
             minHeight: '100%',
             padding: '0.75rem',
-            caretColor: 'var(--risu-theme-textcolor)',
+            caretColor: 'var(--risu-theme-maintext)',
         },
         '.cm-line': { padding: '0' },
-        '.cm-cursor': { borderLeftColor: 'var(--risu-theme-textcolor)' },
+        '.cm-cursor': { borderLeftColor: 'var(--risu-theme-maintext)' },
         '.cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
             background: 'color-mix(in srgb, var(--risu-theme-primary) 12%, transparent) !important',
         },
@@ -357,9 +357,9 @@
             borderRadius: '2px',
         },
         '.cm-panels': {
-            backgroundColor: 'var(--risu-theme-bgcolor)',
-            color: 'var(--risu-theme-textcolor)',
-            borderColor: 'var(--risu-theme-borderc)',
+            backgroundColor: 'var(--risu-theme-lightbg)',
+            color: 'var(--risu-theme-maintext)',
+            borderColor: 'var(--risu-theme-lightborderc)',
         },
         '.cm-panels.cm-panels-top': {
             position: 'absolute',
@@ -402,7 +402,7 @@
             padding: '0',
             border: '0',
             backgroundColor: 'transparent',
-            color: 'var(--risu-theme-textcolor)',
+            color: 'var(--risu-theme-maintext)',
             cursor: 'pointer',
         },
         '.risu-search-expand svg': {
@@ -418,7 +418,7 @@
             alignItems: 'center',
             paddingRight: '0.125rem',
             overflow: 'hidden',
-            backgroundColor: 'var(--risu-theme-bgcolor)',
+            backgroundColor: 'var(--risu-theme-lightbg)',
             border: '1px solid var(--risu-theme-darkborderc)',
             borderRadius: '0.25rem',
         },
@@ -428,8 +428,8 @@
             minWidth: '0',
             height: '1.625rem',
             padding: '0 0.375rem',
-            backgroundColor: 'var(--risu-theme-bgcolor)',
-            color: 'var(--risu-theme-textcolor)',
+            backgroundColor: 'var(--risu-theme-lightbg)',
+            color: 'var(--risu-theme-maintext)',
             border: '1px solid var(--risu-theme-darkborderc)',
             borderRadius: '0.25rem',
         },
@@ -442,29 +442,29 @@
         },
         '.risu-search-action': {
             backgroundColor: 'transparent',
-            color: 'var(--risu-theme-textcolor) !important',
+            color: 'var(--risu-theme-maintext) !important',
             cursor: 'pointer',
         },
         '.risu-search-action:hover, .risu-search-action[aria-pressed="true"]': {
             backgroundColor: 'var(--risu-theme-selected)',
-            color: 'var(--risu-theme-textcolor)',
+            color: 'var(--risu-theme-maintext)',
         },
         '.risu-search-replace-row > .risu-search-input': { gridColumn: '2' },
         '.risu-search-replace-actions': { gridColumn: '3 / 5' },
         '.risu-search-count': {
-            color: 'var(--risu-theme-textcolor2)',
+            color: 'var(--risu-theme-subtext)',
             fontSize: '0.6875rem',
             whiteSpace: 'nowrap',
             textAlign: 'center',
         },
         '.cm-tooltip': {
-            backgroundColor: 'var(--risu-theme-bgcolor)',
-            color: 'var(--risu-theme-textcolor)',
-            border: '1px solid var(--risu-theme-borderc)',
+            backgroundColor: 'var(--risu-theme-lightbg)',
+            color: 'var(--risu-theme-maintext)',
+            border: '1px solid var(--risu-theme-lightborderc)',
         },
         '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
             background: 'var(--risu-theme-selected) !important',
-            color: 'var(--risu-theme-textcolor)',
+            color: 'var(--risu-theme-maintext)',
         },
         '.cm-tooltip.cm-tooltip-autocomplete': {
             overflow: 'visible',
@@ -506,7 +506,7 @@
             flex: '0 0 auto',
             marginLeft: 'auto',
             paddingLeft: '0.375rem',
-            color: 'var(--risu-theme-textcolor2)',
+            color: 'var(--risu-theme-subtext)',
             fontSize: '0.625rem',
             fontStyle: 'normal',
         },
@@ -527,7 +527,7 @@
             flexDirection: 'column',
             gap: '0.5rem',
             padding: '0.5rem 0.625rem',
-            color: 'var(--risu-theme-textcolor)',
+            color: 'var(--risu-theme-maintext)',
             fontSize: '0.6875rem',
             lineHeight: '1.5',
             whiteSpace: 'pre-wrap',
@@ -549,7 +549,7 @@
         '.cm-cbs-variable': { color: 'var(--color-syntax-variable)' },
         '.cm-cbs-literal': { color: 'var(--color-syntax-literal)' },
         '.cm-cbs-deprecated': {
-            color: 'var(--risu-theme-textcolor2)',
+            color: 'var(--risu-theme-subtext)',
             textDecoration: 'line-through',
         },
     })

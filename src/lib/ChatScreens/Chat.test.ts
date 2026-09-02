@@ -45,7 +45,10 @@ const storeMocks = vi.hoisted(() => {
 
 const parserMocks = vi.hoisted(() => ({
     ParseMarkdown: vi.fn(async (value: string) => value),
+    imagePreloadingEnabled: false,
+    preloadInlayAssets: vi.fn(() => Promise.resolve()),
     preloadInlayAssetsWhenNear: vi.fn(() => () => {}),
+    preloadRenderedChatImages: vi.fn(() => Promise.resolve()),
     prepareMarkdownSource: vi.fn(async (value: string) => value),
     renderPreparedMarkdown: vi.fn(async (value: string) => value),
 }))
@@ -116,11 +119,12 @@ vi.mock('../../ts/parser/parser.svelte', () => ({
     ParseMarkdown: parserMocks.ParseMarkdown,
     addMetadataToElement: (value: string) => value,
     getDistance: () => 0,
-    isChatImagePreloadingEnabled: () => false,
+    isChatImagePreloadingEnabled: () => parserMocks.imagePreloadingEnabled,
     postTranslationParse: (value: string) => value,
     prepareMarkdownSource: parserMocks.prepareMarkdownSource,
+    preloadInlayAssets: parserMocks.preloadInlayAssets,
     preloadInlayAssetsWhenNear: parserMocks.preloadInlayAssetsWhenNear,
-    preloadRenderedChatImages: vi.fn(() => Promise.resolve()),
+    preloadRenderedChatImages: parserMocks.preloadRenderedChatImages,
     renderPreparedMarkdown: parserMocks.renderPreparedMarkdown,
     resolveInlayPlaceholders: vi.fn(() => () => {}),
     trimMarkdown: (value: string) => value,
@@ -203,7 +207,10 @@ const mountedComponents: unknown[] = []
 
 beforeEach(() => {
     clearChatBodyRenderCache()
+    parserMocks.imagePreloadingEnabled = false
     parserMocks.ParseMarkdown.mockImplementation(async (value: string) => value)
+    parserMocks.preloadInlayAssets.mockResolvedValue()
+    parserMocks.preloadRenderedChatImages.mockResolvedValue()
     parserMocks.prepareMarkdownSource.mockImplementation(async (value: string) => value)
     parserMocks.renderPreparedMarkdown.mockImplementation(
         async (value: string) => `<p>${value.trim()}</p>`,
@@ -651,6 +658,55 @@ describe('Chat editing', () => {
         })
         expect(translatorMocks.translateHTML.mock.calls.some(([value]) => value === 'Older assistant output'))
             .toBe(false)
+    })
+
+    it('judges last-output auto translation from the final displayed text', async () => {
+        DBState.db.language = 'ko'
+        DBState.db.translator = 'ko'
+        DBState.db.translatorType = 'llm'
+        DBState.db.autoTranslate = true
+        DBState.db.autoTranslateLastOutputOnly = true
+        DBState.db.autoTranslateCachedOnly = false
+
+        const rawMessage = '☆ [Date: 2025-05-14 (Wed) | Location: Seoul | Weather: Sunny]\n안녕하세요.'
+        parserMocks.ParseMarkdown.mockImplementation(async (value: string) => {
+            if (value === rawMessage) {
+                return '<p>안녕하세요. 오늘도 반가워요.</p>'
+            }
+            return value
+        })
+
+        const messages: Message[] = [
+            { role: 'char', data: rawMessage, chatId: 'parsed-korean-output' },
+        ]
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            largePortrait: false,
+            chats: [{ id: 'chat-1', message: messages }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chats, {
+            target,
+            props: {
+                messages,
+                currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 1,
+            },
+        })
+        mountedComponents.push(component)
+
+        await vi.waitFor(() => expect(target.textContent).toContain('안녕하세요. 오늘도 반가워요.'))
+        expect(translatorMocks.translateHTML).not.toHaveBeenCalled()
     })
 
     it('waits until streaming completes before evaluating last-output auto translation', async () => {
@@ -1148,7 +1204,6 @@ describe('Chat editing', () => {
         expect(parserMocks.preloadInlayAssetsWhenNear).toHaveBeenCalledWith(
             expect.any(HTMLElement),
             [
-                '{{inlayed::current-image}}',
                 '{{inlayed::previous-image}}',
                 '{{inlayed::next-image}}',
             ],
@@ -1156,6 +1211,44 @@ describe('Chat editing', () => {
 
         resolveParse?.('{{inlayed::current-image}}')
         await tick()
+    })
+
+    it('waits for inlay and rendered image preloads before committing a message', async () => {
+        parserMocks.imagePreloadingEnabled = true
+        let resolveInlays: (() => void) | undefined
+        let resolveRenderedImages: (() => void) | undefined
+        parserMocks.preloadInlayAssets.mockImplementationOnce(() => new Promise<void>((resolve) => {
+            resolveInlays = resolve
+        }))
+        parserMocks.preloadRenderedChatImages.mockImplementationOnce(() => new Promise<void>((resolve) => {
+            resolveRenderedImages = resolve
+        }))
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: '{{inlayed::delayed-image}} message body',
+                name: 'Character',
+                role: 'char',
+                idx: 0,
+                totalLength: 1,
+            },
+        })
+        mountedComponents.push(component)
+
+        await vi.waitFor(() => expect(resolveInlays).toBeTypeOf('function'))
+        expect(parserMocks.ParseMarkdown).not.toHaveBeenCalled()
+        expect(target.textContent).not.toContain('message body')
+
+        resolveInlays?.()
+        await vi.waitFor(() => expect(resolveRenderedImages).toBeTypeOf('function'))
+        expect(parserMocks.ParseMarkdown).toHaveBeenCalled()
+        expect(target.textContent).not.toContain('message body')
+
+        resolveRenderedImages?.()
+        await vi.waitFor(() => expect(target.textContent).toContain('message body'))
     })
 
     it('preserves the message anchor when translation is shown and hidden', async () => {
@@ -1572,7 +1665,7 @@ describe('Chat editing', () => {
         if (theme === 'waifu') {
             expect(floatingCard?.getAttribute('style')).toContain('#34567880')
         } else {
-            expect(floatingCard?.getAttribute('style')).toContain('var(--risu-theme-bgcolor)')
+            expect(floatingCard?.getAttribute('style')).toContain('var(--risu-theme-lightbg)')
         }
     })
 

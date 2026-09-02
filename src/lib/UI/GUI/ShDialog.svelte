@@ -24,6 +24,7 @@
         contentClass?: string;
         bodyClass?: string;
         overlayClass?: string;
+        onOpenAutoFocus?: (event: Event) => void;
         onCloseAutoFocus?: (event: Event) => void;
         title?: Snippet;
         description?: Snippet;
@@ -48,6 +49,7 @@
         contentClass = '',
         bodyClass = '',
         overlayClass = '',
+        onOpenAutoFocus,
         onCloseAutoFocus,
         title,
         description,
@@ -121,17 +123,18 @@
             interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
             onEscapeKeydown={handleEscapeKeydown}
             onInteractOutside={handleInteractOutside}
+            {onOpenAutoFocus}
             {onCloseAutoFocus}
         >
             {#if title || description || closable}
                 <div class={cn('flex flex-col gap-1 relative', closable && 'pr-8')}>
                     {#if title}
-                        <Dialog.Title class="text-lg font-semibold text-textcolor leading-tight">
+                        <Dialog.Title class="text-lg font-semibold text-maintext leading-tight">
                             {@render title()}
                         </Dialog.Title>
                     {/if}
                     {#if description}
-                        <Dialog.Description class="text-sm text-textcolor2">
+                        <Dialog.Description class="text-sm text-subtext">
                             {@render description()}
                         </Dialog.Description>
                     {/if}
@@ -139,7 +142,7 @@
                         {#if onRequestClose}
                             <button
                                 type="button"
-                                class="absolute right-0 top-0 rounded-sm border border-transparent text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
+                                class="absolute right-0 top-0 rounded-sm border border-transparent text-subtext risu-interactive-foreground transition-colors cursor-pointer"
                                 aria-label="Close"
                                 onclick={onRequestClose}
                             >
@@ -147,7 +150,7 @@
                             </button>
                         {:else}
                             <Dialog.Close
-                                class="absolute right-0 top-0 rounded-sm border border-transparent text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
+                                class="absolute right-0 top-0 rounded-sm border border-transparent text-subtext risu-interactive-foreground transition-colors cursor-pointer"
                                 aria-label="Close"
                             >
                                 <XIcon size={18} />
@@ -164,7 +167,7 @@
             {/if}
 
             {#if children}
-                <div class={cn('text-textcolor wrap-break-word', bodyClass)}>
+                <div class={cn('text-maintext wrap-break-word', bodyClass)}>
                     {@render children()}
                 </div>
             {/if}

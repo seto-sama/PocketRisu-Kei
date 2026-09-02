@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { DynamicGUI, settingsOpen, sideBarClosing, sideBarStore, openPresetList, openModelPresetList, requestPreviewOpen, openModelProfileBrowser, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, MobileGUI, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, popUpEditorStore } from './ts/stores.svelte';
+    import { DynamicGUI, settingsOpen, sideBarClosing, sideBarStore, openPresetList, openModelPresetList, requestPreviewOpen, openModelProfileBrowser, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, MobileGUI, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, popUpEditorStore, selectedCharID } from './ts/stores.svelte';
     import Sidebar from './lib/SideBars/Sidebar.svelte';
     import { DBState } from './ts/stores.svelte';
     import ChatScreen from './lib/ChatScreens/ChatScreen.svelte';
@@ -25,7 +25,7 @@
     import MobileBody from './lib/Mobile/MobileBody.svelte';
     import MobileFooter from './lib/Mobile/MobileFooter.svelte';
     import { checkCharOrder } from './ts/globalApi.svelte';
-    import { hypaV3ModalOpen, hypaV3ProgressStore } from "./ts/stores.svelte";
+    import { hypaV3ProgressStore } from "./ts/stores.svelte";
     import HypaV3Modal from './lib/Others/HypaV3Modal.svelte';
     import HypaV3Progress from './lib/Others/HypaV3Progress.svelte';
     import PluginAlertModal from './lib/Others/PluginAlertModal.svelte';
@@ -76,7 +76,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<main class="flex bg-bgcolor w-full h-full max-w-100vw text-textcolor" ondragover={(e) => {
+<main class="flex bg-lightbg w-full h-full max-w-100vw text-maintext" ondragover={(e) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'link'
 }} ondrop={async (e) => {
@@ -121,16 +121,16 @@
     }
 }}>
     {#if !$loadedStore}
-        <div class="w-full h-full flex justify-center items-center text-textcolor text-xl bg-gray-900 flex-col">
+        <div class="w-full h-full flex justify-center items-center text-maintext text-xl bg-lightbg flex-col">
             <div class="flex flex-row items-center">
-                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-textcolor" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-maintext" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                 </svg>
                 <span>Loading...</span>
             </div>
 
-            <span class="text-sm mt-2 text-textcolor2">{LoadingStatusState.text}</span>
+            <span class="text-sm mt-2 text-subtext">{LoadingStatusState.text}</span>
         </div>
     {:else}
         <div
@@ -158,7 +158,7 @@
 
         {#if gridOpen && !$MobileGUI && !$settingsOpen}
             <div
-                class="risu-layer-local-focus fixed inset-0 flex h-dvh w-full min-w-0 overflow-hidden bg-bgcolor outline-none"
+                class="risu-layer-local-focus fixed inset-0 flex h-dvh w-full min-w-0 overflow-hidden bg-lightbg outline-none"
                 tabindex="-1"
                 use:focusOverlay
             >
@@ -168,7 +168,7 @@
 
         {#if $settingsOpen}
             <div
-                class="risu-layer-local-focus fixed inset-0 h-dvh w-full overflow-hidden bg-bgcolor outline-none"
+                class="risu-layer-local-focus fixed inset-0 h-dvh w-full overflow-hidden bg-lightbg outline-none"
                 tabindex="-1"
                 use:focusOverlay
             >
@@ -219,8 +219,11 @@
     {#if $bookmarkListOpen}
         <BookmarkList />
     {/if}
-    {#if $hypaV3ModalOpen}
-        <HypaV3Modal />
+    <!-- Keep the modal mounted while a chat is selected so work/results survive closing it. -->
+    {#if $selectedCharID >= 0 && DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID].chatPage]}
+        {#key `${$selectedCharID}:${DBState.db.characters[$selectedCharID].chatPage}:${DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].id ?? ''}`}
+            <HypaV3Modal />
+        {/key}
     {/if}
     <SavePopupIconComp />
     {#if $hypaV3ProgressStore.open}

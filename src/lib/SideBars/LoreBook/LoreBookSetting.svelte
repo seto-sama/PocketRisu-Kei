@@ -95,7 +95,7 @@
 {:else}
     <ShSettings spacing="none">
         <ShSettings variant="row">
-            <span class="min-w-0 text-textcolor">{language.useGlobalSettings}</span>
+            <span class="min-w-0 text-maintext">{language.useGlobalSettings}</span>
             <ShSwitch
                 checked={!DBState.db.characters[$selectedCharID].loreSettings}
                 onCheckedChange={setUseGlobalSettings}
@@ -103,19 +103,19 @@
         </ShSettings>
         {#if DBState.db.characters[$selectedCharID].loreSettings}
             <ShSettings variant="row">
-                <span class="min-w-0 text-textcolor">{language.recursiveScanning}</span>
+                <span class="min-w-0 text-maintext">{language.recursiveScanning}</span>
                 <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].loreSettings.recursiveScanning}/>
             </ShSettings>
             <ShSettings variant="row">
-                <span class="min-w-0 text-textcolor">{language.fullWordMatching}</span>
+                <span class="min-w-0 text-maintext">{language.fullWordMatching}</span>
                 <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].loreSettings.fullWordMatching}/>
             </ShSettings>
             <ShSettings variant="row">
-                <span class="min-w-0 text-textcolor">{language.loreBookDepth}</span>
+                <span class="min-w-0 text-maintext">{language.loreBookDepth}</span>
                 <NumberInput size="sm" className="w-24" min={0} max={20} bind:value={DBState.db.characters[$selectedCharID].loreSettings.scanDepth} />
             </ShSettings>
             <ShSettings variant="row">
-                <span class="min-w-0 text-textcolor">{language.loreBookToken}</span>
+                <span class="min-w-0 text-maintext">{language.loreBookToken}</span>
                 <NumberInput size="sm" className="w-24" min={0} max={4096} bind:value={DBState.db.characters[$selectedCharID].loreSettings.tokenBudget} />
             </ShSettings>
         {/if}
@@ -138,7 +138,7 @@
         <UploadIcon />
     </IconButton>
     {#if DBState.db.bulkEnabling}
-        <button class="flex items-center gap-1 text-textcolor2 risu-interactive-accent" onclick={() => {
+        <button class="flex items-center gap-1 text-subtext risu-interactive-accent" onclick={() => {
             toggleCharacterLoreAlwaysActive()
         }}>
             {#if isAllCharacterLoreAlwaysActive()}

@@ -32,7 +32,7 @@
             {#if Component}
                 <Component {item} {ctx} />
             {:else}
-                <div class="text-draculared text-xs mt-2">Unknown setting type: {item.type}</div>
+                <div class="text-danger text-xs mt-2">Unknown setting type: {item.type}</div>
             {/if}
         {/if}
     {/each}
