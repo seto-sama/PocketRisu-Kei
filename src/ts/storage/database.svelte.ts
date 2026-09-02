@@ -663,9 +663,9 @@ export function setDatabase(data:Database){
     data.hypaModel ??= 'MiniLM'
     data.mancerHeader ??= ''
     data.emotionProcesser ??= 'submodel'
-    data.translatorType ??= 'google'
+    data.translatorType ??= 'bergamot'
     if (!isSupportedTranslatorType(data.translatorType)) {
-        data.translatorType = 'google'
+        data.translatorType = 'bergamot'
     }
     data.htmlTranslation ??= false
     data.translateBeforeHTMLFormatting ??= true
