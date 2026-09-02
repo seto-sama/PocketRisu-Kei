@@ -1664,7 +1664,6 @@ export interface Database{
     settingsMenuOrder?:string[]
     sidebarMenuPluginOwners?:Record<string, string>
     hideLeftBarCollapseButton?:boolean
-    enableRemoteSaving?:boolean
     blockquoteStyling?:boolean
     cornerBracketStyling?:boolean
     nodeOnlyScrollButtonType?:'four'|'two'|'off'

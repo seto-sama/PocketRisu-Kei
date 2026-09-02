@@ -1434,10 +1434,7 @@ export async function saveDb() {
         if (requiresFullEncoderReload.state) {
             if (!isNodeServer) {
                 encoder = new RisuSaveEncoder()
-                await encoder.init(getDatabase(), {
-                    compression: false,
-                    skipRemoteSavingOnCharacters: false
-                })
+                await encoder.init(getDatabase(), { compression: false })
             }
             requiresFullEncoderReload.state = false
         }

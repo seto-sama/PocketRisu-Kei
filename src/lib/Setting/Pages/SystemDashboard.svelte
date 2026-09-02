@@ -338,7 +338,7 @@
         // else lives in kv (test keys, migration leftovers), it shows up
         // under "uncategorized" so the bar always sums correctly.
         const knownKv =
-            get('assets/') + inlayKvTotal + get('remotes/') + get('coldstorage/')
+            get('assets/') + inlayKvTotal + get('coldstorage/')
             + get('cache/hypa-vector/') + get('cache/llm-translate/') + rawDbBlob
         const uncategorizedKv = Math.max(0, stats.kvTotalBytes - knownKv)
         const otherData = uncategorizedKv + stats.files.wal + stats.files.shm
@@ -355,7 +355,6 @@
             { id: 'kv-inlay',        label: language.storageRowKvInlay,        desc: language.storageRowKvInlayDesc,        size: inlayTotal,                    color: 'bg-emerald-500' },
             { id: 'hypa-vector',      label: language.storageRowHypaVectorCache, desc: language.storageRowHypaVectorCacheDesc, size: get('cache/hypa-vector/'), color: 'bg-violet-500' },
             { id: 'llm-translation',  label: language.storageRowLlmTranslationCache, desc: language.storageRowLlmTranslationCacheDesc, size: get('cache/llm-translate/'), color: 'bg-indigo-500' },
-            { id: 'kv-remotes',      label: language.storageRowKvRemotes,      desc: language.storageRowKvRemotesDesc,      size: get('remotes/'),               color: 'bg-cyan-500' },
             { id: 'kv-cold',         label: language.storageRowKvColdStorage,  desc: language.storageRowKvColdStorageDesc,  size: get('coldstorage/'),           color: 'bg-stone-500' },
             { id: 'kv-uncat',        label: language.storageRowKvUncategorized, desc: language.storageRowKvUncategorizedDesc, size: otherData,                   color: 'bg-stone-600' },
             { id: 'overhead',        label: language.storageRowSqliteOverhead, desc: language.storageRowSqliteOverheadDesc, size: structuralOverhead,            color: 'bg-zinc-500' },

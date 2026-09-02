@@ -18,6 +18,13 @@ import type {
 const BOOKMARKS_API_PATH = '/api/bookmarks'
 const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags'
 
+function serverErrorMessage(body: any, fallback: string): string {
+    if (body?.code === 'UNSUPPORTED_REMOTE_SAVE') {
+        return language.unsupportedRemoteSave
+    }
+    return typeof body?.error === 'string' ? body.error : fallback
+}
+
 // Custom error class for database conflict detection
 export class ConflictError extends Error {
     currentEtag: string
@@ -701,7 +708,9 @@ export class NodeStorage{
                     } else if (msg.type === 'done') {
                         result = msg
                     } else if (msg.type === 'error') {
-                        serverErrorMsg = typeof msg.message === 'string' ? msg.message : 'backup import failed'
+                        serverErrorMsg = msg.code === 'UNSUPPORTED_REMOTE_SAVE'
+                            ? language.unsupportedRemoteSave
+                            : typeof msg.message === 'string' ? msg.message : 'backup import failed'
                     }
                     // Ignore 'heartbeat' and unknown event types.
                 }
@@ -714,7 +723,7 @@ export class NodeStorage{
                     let msg = `backup import error: ${xhr.status}`
                     try {
                         const body = JSON.parse(xhr.responseText)
-                        if (body?.error) msg = String(body.error)
+                        msg = serverErrorMessage(body, msg)
                     } catch {}
                     reject(new Error(msg))
                     return
@@ -797,7 +806,7 @@ export class NodeStorage{
         if (da.status === 409) throw new Error('Another import is already in progress')
         if (da.status < 200 || da.status >= 300) {
             const body = await da.json().catch(() => ({}))
-            throw new Error(body.error || `server backup restore error: ${da.status}`)
+            throw new Error(serverErrorMessage(body, `server backup restore error: ${da.status}`))
         }
 
         const reader = da.body!.getReader()
@@ -819,7 +828,9 @@ export class NodeStorage{
                 } else if (msg.type === 'done') {
                     result = msg
                 } else if (msg.type === 'error') {
-                    throw new Error(msg.message)
+                    throw new Error(msg.code === 'UNSUPPORTED_REMOTE_SAVE'
+                        ? language.unsupportedRemoteSave
+                        : msg.message)
                 }
             }
         }
@@ -1086,7 +1097,7 @@ export class NodeStorage{
             xhr.onload = () => {
                 if (xhr.status < 200 || xhr.status >= 300) {
                     let msg = `zip import error: ${xhr.status}`
-                    try { msg = JSON.parse(xhr.responseText).error || msg } catch {}
+                    try { msg = serverErrorMessage(JSON.parse(xhr.responseText), msg) } catch {}
                     reject(new Error(msg))
                     return
                 }

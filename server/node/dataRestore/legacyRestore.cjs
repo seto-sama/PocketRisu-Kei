@@ -6,8 +6,6 @@ const zlib = require('zlib');
 
 const DB_BLOB_KEY = 'database/database.bin';
 const COLD_STORAGE_HEADER = '\uEF01COLDSTORAGE\uEF01';
-const REMOTE_MIGRATION_MARKER_KEY = 'migration/disable-remote-saving';
-const REMOTE_MIGRATION_MARKER_VALUE = Buffer.from('done', 'utf-8');
 const HEX_FILENAME = /^[0-9a-fA-F]+$/;
 
 function createLegacyRestoreService({
@@ -17,18 +15,13 @@ function createLegacyRestoreService({
     kvSet,
     kvDel,
     kvDelPrefix,
-    kvCopyValue,
     clearEntities,
     flushPendingDb,
     createBackupAndRotate,
     invalidateDbCache,
     prepareDatabaseProjection,
-    isCanonicalDatabaseInstalled = () => false,
-    decodeRisuSave,
-    encodeRisuSaveLegacy,
-    hasRemoteBlocks,
     logger,
-    setDbEtag,
+    setDbEtag = () => {},
 }) {
     const migrationMarkerPath = path.join(savePath, '.migrated_to_sqlite');
 
@@ -37,10 +30,6 @@ function createLegacyRestoreService({
             'createLegacyRestoreService requires prepareDatabaseProjection',
         );
     }
-    if (typeof isCanonicalDatabaseInstalled !== 'function') {
-        throw new TypeError('isCanonicalDatabaseInstalled must be a function');
-    }
-
     function isInvalidPathSegment(name) {
         return (
             !name ||
@@ -255,53 +244,6 @@ function createLegacyRestoreService({
         }
     }
 
-    function isRemoteMigrationDone() {
-        const value = kvGet(REMOTE_MIGRATION_MARKER_KEY);
-        return value !== null && value.length > 0;
-    }
-
-    function markRemoteMigrationDone() {
-        kvSet(REMOTE_MIGRATION_MARKER_KEY, REMOTE_MIGRATION_MARKER_VALUE);
-    }
-
-    async function migrateRemoteBlocksIfNeeded() {
-        // REMOTE is a codec migration for the one-time legacy blob cutover.
-        // A leftover blob can survive a post-install cleanup failure, but it is
-        // stale once relational rows are canonical and must never win again.
-        if (isCanonicalDatabaseInstalled()) {
-            return { ran: false, reason: 'canonical-database' };
-        }
-        if (isRemoteMigrationDone()) return { ran: false, reason: 'already-done' };
-        const raw = kvGet(DB_BLOB_KEY);
-        if (!raw) {
-            markRemoteMigrationDone();
-            return { ran: false, reason: 'no-database' };
-        }
-        if (!hasRemoteBlocks(raw)) {
-            markRemoteMigrationDone();
-            return { ran: false, reason: 'no-remote-blocks' };
-        }
-        logger.info('[Migration] REMOTE blocks detected; converting to inline format');
-        const backupKey = `migration-backup/pre-remote-fix-${Date.now()}.bin`;
-        kvCopyValue(DB_BLOB_KEY, backupKey);
-        const dbObj = await decodeRisuSave(raw, {
-            resolveRemote: async (name) => kvGet(`remotes/${name}.local.bin`) || null,
-        });
-        const reEncoded = encodeRisuSaveLegacy(dbObj, 'compression');
-        sqliteDb.transaction(() => {
-            kvSet(DB_BLOB_KEY, Buffer.from(reEncoded));
-            markRemoteMigrationDone();
-        })();
-        invalidateDbCache();
-        setDbEtag(null);
-        const characterCount = Array.isArray(dbObj.characters) ? dbObj.characters.length : 0;
-        logger.info(
-            `[Migration] REMOTE conversion complete: ${characterCount} character(s); ` +
-            `backup at ${backupKey}`,
-        );
-        return { ran: true, characterCount, backupKey };
-    }
-
     function scanHexFilesInDir(dirPath) {
         let files;
         try {
@@ -330,7 +272,6 @@ function createLegacyRestoreService({
         ]) {
             kvDelPrefix(prefix);
         }
-        kvDel(REMOTE_MIGRATION_MARKER_KEY);
         clearEntities();
     }
 
@@ -452,7 +393,6 @@ function createLegacyRestoreService({
 
     return {
         migrationMarkerPath,
-        remoteMigrationMarkerKey: REMOTE_MIGRATION_MARKER_KEY,
         normalizeColdStorageStorageKey,
         parseColdStorageJsonBuffer,
         encodeColdStorageCanonicalBuffer,
@@ -460,7 +400,6 @@ function createLegacyRestoreService({
         listColdStorageBackupEntries,
         restoreColdStorageCharactersInDb,
         restoreColdStorageChat,
-        migrateRemoteBlocksIfNeeded,
         scanHexFilesInDir,
         importHexFilesFromDir,
         importHexEntries,

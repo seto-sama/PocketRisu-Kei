@@ -1,7 +1,7 @@
 import { Packr, Unpackr, decode } from "msgpackr/index-no-eval";
 import * as fflate from "fflate";
-import { createBotPresetTemplate, getDatabase, type Database } from "./database.svelte";
-import { forageStorage } from "./autoStorage";
+import { language } from "src/lang";
+import { createBotPresetTemplate, type Database } from "./database.svelte";
 import { chatToStub } from "./chatStorage";
 import {
     characterToClientWriteShape,
@@ -20,10 +20,6 @@ const unpackr = new Unpackr({
     useRecords:false
 })
 
-
-// NodeOnly: server cannot resolve remote blocks, always disable
-const disableRemoteSaving = () => true
-const checkedRemoteExistence = new Set<string>();
 const magicHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 7]); 
 const magicCompressedHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 8]);
 const magicStreamCompressedHeader = new Uint8Array([0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 9]);
@@ -91,7 +87,7 @@ enum RisuSaveType {
     CHAT = 3,
     BOTPRESET = 4,
     MODULES = 5,
-    REMOTE = 6,
+    UNSUPPORTED_REMOTE = 6,
     CHARACTER_WITHOUT_CHAT = 7,
     ROOT_COMPONENT = 8,
     PLUGINS = 9,
@@ -105,11 +101,17 @@ type EncodeBlockArg = {
     type:RisuSaveType
     name:string
     cache?:boolean
-    skipRemoteSaving?:boolean
 }
 
-type EncodeBlockOption = {
-    remote: 'none'|'prefer'|'force'
+class UnsupportedRemoteBlockError extends Error {
+    readonly code = 'UNSUPPORTED_REMOTE_SAVE'
+
+    constructor() {
+        super(
+            language.unsupportedRemoteSave,
+        )
+        this.name = 'UnsupportedRemoteBlockError'
+    }
 }
 
 const risuSaveCacheMap = new Map<string, {type: RisuSaveType, data: string, name: string}>();
@@ -125,14 +127,8 @@ export class RisuSaveEncoder {
     // differ from the patcher's protocol-level calculateHash.
     private characterJsons: { [key: string]: string } = {};
 
-    async init(data:Database,arg:{
-        compression?: boolean,
-        skipRemoteSavingOnCharacters?: boolean
-    } = {}){
-        const {
-            compression = false,
-            skipRemoteSavingOnCharacters = true
-        } = arg;
+    async init(data:Database,arg:{ compression?: boolean } = {}){
+        const { compression = false } = arg;
         this.compression = compression;
         let obj:Record<any,any> = {}
         let keys = Object.keys(data)
@@ -189,10 +185,7 @@ export class RisuSaveEncoder {
                 compression,
                 data: charJson,
                 type: RisuSaveType.CHARACTER_WITH_CHAT,
-                name: character.chaId,
-                skipRemoteSaving: skipRemoteSavingOnCharacters
-            }, {
-                remote: 'prefer'
+                name: character.chaId
             });
             this.characterJsons[character.chaId] = charJson
         }
@@ -242,8 +235,6 @@ export class RisuSaveEncoder {
                     data: charJson,
                     type: RisuSaveType.CHARACTER_WITH_CHAT,
                     name: character.chaId
-                }, {
-                    remote: 'prefer'
                 });
                 this.characterJsons[chaId] = charJson
                 if (index !== -1) {
@@ -344,17 +335,7 @@ export class RisuSaveEncoder {
         return arrayBuf;
     }
 
-    async encodeBlock(arg:EncodeBlockArg, option:EncodeBlockOption = { remote: 'none' }){
-        if(
-            option.remote === 'force' ||
-            (option.remote === 'prefer' && !disableRemoteSaving())
-        ){
-            return await this.encodeRemoteBlock(arg);
-        }
-        return await this.encodeRawBlock(arg);
-    }
-
-    async encodeRawBlock(arg:EncodeBlockArg){
+    async encodeBlock(arg:EncodeBlockArg){
         let databuf: Uint8Array;
         const cacheBlock = arg.cache ?? true;
         if(arg.compression){
@@ -387,38 +368,6 @@ export class RisuSaveEncoder {
         return buf;
     }
 
-    async encodeRemoteBlock(arg:EncodeBlockArg){
-        console.log(`Encoding remote block: ${arg.name}`);
-        const encoded = new TextEncoder().encode(arg.data);
-        const fileName = `remotes/${arg.name}.local.bin`
-
-        if(arg.skipRemoteSaving && checkedRemoteExistence.has(arg.name) === false){
-            let fileExists = false;
-            const stored = await forageStorage.keys();
-            if(stored.includes(fileName)){
-                fileExists = true;
-            }
-            if(!fileExists){
-                console.log(`Remote file ${fileName} does not exist, disabling skipRemoteSaving for this block.`);
-                arg.skipRemoteSaving = false;
-            }
-            checkedRemoteExistence.add(arg.name);
-        }
-
-        if(!arg.skipRemoteSaving){
-            await forageStorage.setItem(fileName, encoded);
-        }
-        return await this.encodeBlock({
-            compression: false,
-            data: JSON.stringify({
-                v: 1,
-                type: arg.type,
-                name: arg.name,
-            }),
-            type: RisuSaveType.REMOTE,
-            name: arg.name
-        });
-    }
 }
 
 export class RisuSaveDecoder {
@@ -550,33 +499,8 @@ export class RisuSaveDecoder {
                     db.pluginCustomStorage = JSON.parse(this.blocks[key].content);
                     break;
                 }
-                case RisuSaveType.REMOTE:{
-                    const remoteInfo:{
-                        v:number
-                        type:RisuSaveType
-                        name:string
-                    } = JSON.parse(this.blocks[key].content);
-                    const fileName = `remotes/${remoteInfo.name}.local.bin`
-                    let remoteData:Uint8Array|null = null
-                    const stored = await forageStorage.getItem(fileName);
-                    if(stored){
-                        remoteData = stored as Uint8Array;
-                    }
-
-                    if(!remoteData){
-                        console.warn(`Remote file ${fileName} not found.`);
-                        break;
-                    }
-                    const decoded = new TextDecoder().decode(remoteData)
-
-                    //add to blocks for further processing
-                    this.blocks.push({
-                        name: remoteInfo.name,
-                        type: remoteInfo.type,
-                        compression: false,
-                        content: decoded
-                    });
-                    break;
+                case RisuSaveType.UNSUPPORTED_REMOTE:{
+                    throw new UnsupportedRemoteBlockError()
                 }
                 case RisuSaveType.ROOT_COMPONENT:{
                     const componentData:{
@@ -592,6 +516,10 @@ export class RisuSaveDecoder {
             }
             } catch (error) {
                 console.error(`Error processing block ${this.blocks[key].name}:`, error);
+
+                if(error instanceof UnsupportedRemoteBlockError){
+                    throw error
+                }
 
                 if(this.blocks[key].type === RisuSaveType.ROOT){
                     throw new Error('Failed to decode root block, cannot proceed with decoding RisuSave data');
@@ -636,6 +564,9 @@ export async function decodeRisuSave(data:Uint8Array){
         return unpackr.decode(data)
     }
     catch (error) {
+        if(error instanceof UnsupportedRemoteBlockError){
+            throw error
+        }
         console.error('Error decoding RisuSave data:', error);
         try {
             console.log('risudecode')

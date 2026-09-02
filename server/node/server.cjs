@@ -23,7 +23,7 @@ const getVips = () => {
     return _vipsPromise
 }
 const { kvGet, kvSet, kvSetChunked, kvDel, kvList, kvCount,
-        kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue, clearEntities, checkpointWal,
+        kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, clearEntities, checkpointWal,
         estimateVacuumRequiredBytes, vacuumDatabase, gcChunks, reclaimableChunkBytes,
         chunkStorageStats, isDbBlobChunked, snapshotFootprint, snapshotSetFootprint,
         db: sqliteDb } = require('./db.cjs');
@@ -130,7 +130,7 @@ const {
     mergeRemoteFilteredDatabase,
 } = require('./remoteDatabaseFilter.cjs');
 const { applyPatch } = require('fast-json-patch');
-const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON, hasRemoteBlocks } = require('./utils.cjs');
+const { decodeRisuSave, encodeRisuSaveLegacy, calculateHash, normalizeJSON } = require('./utils.cjs');
 const {
     createBackupRestoreService,
     createLegacyRestoreService,
@@ -163,7 +163,6 @@ let fullChatStore = null; // Map<chaId, Map<chatId, chatObject>> — lazy-initia
 // ETag for database.bin
 let dbEtag = null;
 const MISSING_DATABASE_ETAG = '__missing_database__';
-let migrateRemoteBlocksIfNeeded;
 let restoreColdStorageCharactersInDb;
 let restoreColdStorageChat;
 let appDataMigration;
@@ -2740,20 +2739,12 @@ function encodeBackupEntry(name, data) {
 // Legacy storage codecs and migrations are provided by dataRestore/legacyRestore.cjs.
 
 /**
- * Decode an external database.bin projection without consulting live KV, then
- * return a synchronous installer for the caller's outer SQLite transaction.
- * Cold-storage references are intentionally resolved during install: by then
- * the staged coldstorage/ rows have joined that same transaction and are the
- * only values visible to the legacy restoration helpers.
+ * Decode an external database.bin projection, then return a synchronous
+ * installer for the caller's outer SQLite transaction. Cold-storage references
+ * are resolved during install, after staged coldstorage/ rows join it.
  */
-async function prepareImportedDatabaseProjection(raw, context = {}) {
-    const stagedValue = context.source?.getEntry ?? context.getStagedValue;
-    const decoded = await decodeRisuSave(Buffer.from(raw), {
-        resolveRemote: async name => {
-            if (typeof stagedValue !== 'function') return null;
-            return stagedValue(`remotes/${name}.local.bin`) ?? null;
-        },
-    });
+async function prepareImportedDatabaseProjection(raw) {
+    const decoded = await decodeRisuSave(Buffer.from(raw));
     const prepared = normalizeJSON(decoded);
     if (!prepared || typeof prepared !== 'object' || Array.isArray(prepared)) {
         throw new TypeError('Imported database projection must be an object');
@@ -2781,7 +2772,6 @@ function createPreReplacementSnapshot() {
 
 const {
     migrationMarkerPath,
-    remoteMigrationMarkerKey,
     normalizeColdStorageStorageKey,
     parseColdStorageJsonBuffer,
     encodeColdStorageCanonicalBuffer,
@@ -2789,7 +2779,6 @@ const {
     listColdStorageBackupEntries,
     restoreColdStorageCharactersInDb: restoreColdStorageCharacters,
     restoreColdStorageChat: restoreColdChat,
-    migrateRemoteBlocksIfNeeded: migrateRemoteBlocks,
     scanHexFilesInDir,
     importHexFilesFromDir,
     importHexEntries,
@@ -2800,20 +2789,14 @@ const {
     kvSet,
     kvDel,
     kvDelPrefix,
-    kvCopyValue,
     clearEntities,
     flushPendingDb,
     createBackupAndRotate: createPreReplacementSnapshot,
     invalidateDbCache,
     prepareDatabaseProjection: prepareImportedDatabaseProjection,
-    isCanonicalDatabaseInstalled: () => appDataStore.getState().initialized,
-    decodeRisuSave,
-    encodeRisuSaveLegacy,
-    hasRemoteBlocks,
     logger,
     setDbEtag: (value) => { dbEtag = value; },
 });
-migrateRemoteBlocksIfNeeded = migrateRemoteBlocks;
 restoreColdStorageCharactersInDb = restoreColdStorageCharacters;
 restoreColdStorageChat = restoreColdChat;
 
@@ -2872,9 +2855,8 @@ function refreshCanonicalDatabaseCache(options = {}) {
 async function ensureCanonicalStorage() {
     if (appDataReadyPromise) return appDataReadyPromise;
     appDataReadyPromise = (async () => {
-        // Preserve the exact pre-cutover bytes before any REMOTE codec rewrite.
-        // This immutable artifact is the downgrade/recovery escape hatch; the
-        // live blob itself is deleted after the relational install verifies.
+        // Preserve the exact pre-cutover bytes as a downgrade/recovery escape
+        // hatch; the live blob is deleted after relational install verifies.
         const originalLegacyBlob = kvGet('database/database.bin');
         if (originalLegacyBlob
             && !appDataStore.getState().initialized
@@ -2887,10 +2869,6 @@ async function ensureCanonicalStorage() {
                 kvSetChunked(backupKey, Buffer.from(originalLegacyBlob));
             }
         }
-        // REMOTE blocks belong to the legacy codec and must be resolved before
-        // the one-time relational split. Once rows are canonical this is an
-        // idempotent no-op even if stale cleanup artifacts remain.
-        await migrateRemoteBlocksIfNeeded();
         try {
             await appDataMigration.run();
         } catch (error) {
@@ -2926,7 +2904,6 @@ const {
     savePath,
     inlayDir,
     inlayMigrationMarker,
-    remoteMigrationMarkerKey,
     sqliteDb,
     kvGet,
     kvSet,
@@ -4296,12 +4273,6 @@ app.post('/api/write', async (req, res, next) => {
                 // Explicit compatibility import. Ordinary browser saves use
                 // PATCH /api/database and never pass through this codec.
                 try {
-                    if (hasRemoteBlocks(fileContent)) {
-                        return res.status(400).json({
-                            error: 'REMOTE-block databases require save-folder or backup import',
-                            code: 'DATABASE_IMPORT_REQUIRES_REMOTE_ENTRIES',
-                        });
-                    }
                     let incomingDb = normalizeLegacyDatabaseProjection(
                         await decodeRisuSave(fileContent),
                     ).database;
@@ -4343,7 +4314,11 @@ app.post('/api/write', async (req, res, next) => {
                     bookmarkStore.projectDatabaseCompatibility(databaseForEtag);
                 } catch (e) {
                     logger.error('[Write] Compatibility database import failed:', e);
-                    res.status(500).json({ error: 'Database import failed' });
+                    if (e?.code === 'UNSUPPORTED_REMOTE_SAVE') {
+                        res.status(400).json({ error: e.message, code: e.code });
+                    } else {
+                        res.status(500).json({ error: 'Database import failed' });
+                    }
                     return;
                 }
             } else {
@@ -4992,7 +4967,11 @@ app.post('/api/backup/import', async (req, res, next) => {
     } catch (error) {
         if (wantsNdjson && res.headersSent) {
             try {
-                res.write(JSON.stringify({ type: 'error', message: error?.message || 'backup import failed' }) + '\n');
+                res.write(JSON.stringify({
+                    type: 'error',
+                    message: error?.message || 'backup import failed',
+                    ...(error?.code ? { code: error.code } : {}),
+                }) + '\n');
                 res.end();
             } catch (_) {}
         } else {
@@ -5132,7 +5111,11 @@ app.post('/api/backup/server/save', async (req, res, next) => {
         if (!res.headersSent) {
             next(error);
         } else {
-            res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
+            res.write(JSON.stringify({
+                type: 'error',
+                message: error.message,
+                ...(error?.code ? { code: error.code } : {}),
+            }) + '\n');
             res.end();
         }
     }
@@ -5836,7 +5819,6 @@ const DB_BLOB_KEY = 'database/database.bin';
 const DB_BACKUP_PREFIX = 'database/dbbackup-';
 const ASSET_PREFIXES = [
     STORED_ASSET_PREFIX,
-    'remotes/',
     'inlay/',
     'inlay_thumb/',
     'inlay_meta/',
@@ -6092,14 +6074,6 @@ app.get('/api/db/stats/characters', async (req, res, next) => {
         for (const it of kvListWithSizes('assets/')) {
             assetSize.set(statsBasename(it.key), it.size);
         }
-        // remotes/<chaId>.local.bin (+ optional .meta sidecar) → bucket by chaId.
-        const remoteSize = new Map();
-        for (const it of kvListWithSizes('remotes/')) {
-            const bn = statsBasename(it.key).replace(/\.meta$/, '');
-            const chaId = bn.replace(/\.local\.bin$/, '');
-            if (chaId) remoteSize.set(chaId, (remoteSize.get(chaId) || 0) + it.size);
-        }
-
         const claimed = new Set();
         const characters = [];
         const list = appDataStore.listCharacterStorage();
@@ -6124,8 +6098,6 @@ app.get('/api/db/stats/characters', async (req, res, next) => {
                     claimed.add(bn);
                 }
             }
-            const remoteBytes = remoteSize.get(cha.chaId) || 0;
-
             const chatBytes = stored.chatBytes;
             const cardBytes = stored.cardBytes;
 
@@ -6135,9 +6107,9 @@ app.get('/api/db/stats/characters', async (req, res, next) => {
                 image: cha.image || '',
                 trashed: !!cha.trashTime,
                 cardBytes,
-                imgBytes: imgBytes + remoteBytes,
+                imgBytes,
                 chatBytes,
-                totalBytes: cardBytes + imgBytes + remoteBytes + chatBytes,
+                totalBytes: cardBytes + imgBytes + chatBytes,
             });
         }
 
@@ -6486,9 +6458,7 @@ async function restoreDatabaseBlob(blob, options = {}) {
         // /api/db/optimize. Without this, an in-flight save could land
         // after the restore and overwrite the restored snapshot.
         await flushPendingDb();
-        const decoded = await decodeRisuSave(Buffer.from(blob), {
-            resolveRemote: async name => kvGet(`remotes/${name}.local.bin`) || null,
-        });
+        const decoded = await decodeRisuSave(Buffer.from(blob));
         const { database } = normalizeLegacyDatabaseProjection(decoded);
         sqliteDb.transaction(() => {
             const restoredBookmarkSnapshot = options.bookmarkSnapshotKey
@@ -7404,7 +7374,11 @@ app.post('/api/tunnel/stop', async (req, res) => {
 app.use(expressErrorMiddleware);
 app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);
-    res.status(500).json({ error: err?.message || 'internal server error' });
+    const unsupportedRemote = err?.code === 'UNSUPPORTED_REMOTE_SAVE';
+    res.status(unsupportedRemote ? 400 : 500).json({
+        error: err?.message || 'internal server error',
+        ...(err?.code ? { code: err.code } : {}),
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -7440,7 +7414,6 @@ async function getHttpsOptions() {
 async function startServer() {
     try {
         await migrateInlaysToFilesystem();
-        await migrateRemoteBlocksIfNeeded();
         const port = process.env.PORT || 6001;
         const httpsOptions = await getHttpsOptions();
         let server;

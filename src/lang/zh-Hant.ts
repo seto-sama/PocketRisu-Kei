@@ -1356,7 +1356,6 @@ export const languageChineseTraditional = {
         "save": "儲存",
         "cancel": "取消",
     },
-    "enableRemoteSaving": "啟用遠端儲存",
     "blockquoteStyling": "引言樣式",
     "confirmInstallPluginViaPlugin": "您正透過另一個外掛安裝新外掛。若來源外掛不可信，這將帶來安全風險。確定要繼續嗎？",
     "nodeOnlyScrollButtonType": "捲動按鈕類型",
