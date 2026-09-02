@@ -7,6 +7,7 @@
         label: string;
         activeName: string;
         onManage: () => void;
+        onContextMenu?: (event: MouseEvent) => void;
         compact?: boolean;
         disabled?: boolean;
         variant?: ButtonVariant;
@@ -17,6 +18,7 @@
         label,
         activeName,
         onManage,
+        onContextMenu,
         compact = false,
         disabled = false,
         variant = 'secondary',
@@ -39,6 +41,7 @@
         aria-label={`${label}: ${activeName}`}
         {disabled}
         onclick={onManage}
+        oncontextmenu={onContextMenu}
     >
         <span class="truncate text-sm grow text-left">{activeName}</span>
         <ChevronRightIcon class="shrink-0 text-subtext" />
@@ -49,6 +52,7 @@
         tabindex="0"
         aria-label={`${label}: ${activeName}`}
         onclick={onManage}
+        oncontextmenu={onContextMenu}
         onkeydown={handleKeydown}
         class="w-full flex items-center gap-3 bg-darkbg border border-darkborderc rounded-md px-3 py-2.5 mb-4 cursor-pointer risu-interactive-surface transition-colors"
     >

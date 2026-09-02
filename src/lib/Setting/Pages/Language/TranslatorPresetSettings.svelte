@@ -10,13 +10,13 @@
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import {
-        createTranslatorPreset, decodeTranslatorPresetFile, defaultTranslatorPrompt,
+        appendTranslatorPreset, createTranslatorPreset, decodeTranslatorPresetFile, defaultTranslatorPrompt,
+        duplicateTranslatorPreset,
         encodeTranslatorPresetFile, getTranslatorPresetDownloadName,
-        syncCurrentTranslatorPresetToLegacyFields,
+        moveTranslatorPreset, removeTranslatorPreset, syncCurrentTranslatorPresetToLegacyFields,
         translatorPresetImportExtensions,
     } from "src/ts/translator/presets";
     import { selectSingleFile } from "src/ts/util";
-    import { v4 as uuidv4 } from "uuid";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
     let pickerOpen = $state(false);
@@ -53,49 +53,29 @@
     }
 
     function movePreset(fromIndex: number, toIndex: number) {
-        const presets = DBState.db.translatorPresets;
-        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= presets.length || toIndex > presets.length) return;
-        const next = [...presets];
-        const [moved] = next.splice(fromIndex, 1);
-        if (!moved) return;
-        const target = fromIndex < toIndex ? toIndex - 1 : toIndex;
-        next.splice(target, 0, moved);
-        const current = DBState.db.translatorPresetId;
-        if (current === fromIndex) DBState.db.translatorPresetId = target;
-        else if (fromIndex < current && target >= current) DBState.db.translatorPresetId = current - 1;
-        else if (fromIndex > current && target <= current) DBState.db.translatorPresetId = current + 1;
-        DBState.db.translatorPresets = next;
-        sync();
+        moveTranslatorPreset(DBState.db, fromIndex, toIndex);
     }
 
     function addPreset() {
         const preset = createTranslatorPreset();
         preset.tagIds = undefined;
-        DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
-        DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
-        sync();
+        appendTranslatorPreset(DBState.db, preset);
     }
 
     function duplicatePreset(index: number) {
-        const preset = safeStructuredClone(DBState.db.translatorPresets[index]);
-        preset.id = uuidv4();
-        preset.name = `${preset.name} Copy`;
-        DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
-        DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
-        sync();
-        notifySuccess(language.presetDuplicated);
+        if (duplicateTranslatorPreset(DBState.db, index, language.copy)) {
+            notifySuccess(language.presetDuplicated);
+        }
     }
 
     async function removePreset(index: number) {
         if (DBState.db.translatorPresets.length <= 1) {
-            notifyError("There must be at least one preset.");
+            notifyError(language.errors.onlyOnePreset);
             return;
         }
         const preset = DBState.db.translatorPresets[index];
         if (!await alertConfirm(`${language.removeConfirm}${preset.name}`)) return;
-        DBState.db.translatorPresets = DBState.db.translatorPresets.filter((_, i) => i !== index);
-        DBState.db.translatorPresetId = Math.min(DBState.db.translatorPresetId, DBState.db.translatorPresets.length - 1);
-        sync();
+        removeTranslatorPreset(DBState.db, index);
     }
 
     async function exportPreset(index: number) {
@@ -112,11 +92,9 @@
         try {
             const file = await selectSingleFile(translatorPresetImportExtensions);
             if (!file) return;
-            const preset = await decodeTranslatorPresetFile(file.data);
-            preset.id = uuidv4();
-            DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
-            DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
-            sync();
+            const decoded = await decodeTranslatorPresetFile(file.data);
+            const preset = createTranslatorPreset(decoded.name, { ...decoded, id: undefined });
+            appendTranslatorPreset(DBState.db, preset);
             notifySuccess(language.successImport);
         } catch (error) {
             alertError(`${error}`);

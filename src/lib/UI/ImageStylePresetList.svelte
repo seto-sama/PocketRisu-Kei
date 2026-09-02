@@ -1,7 +1,7 @@
 <script lang="ts">
     import { ArrowLeftRightIcon, SquarePenIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
-    import { alertConfirm } from 'src/ts/alert'
+    import { alertConfirm, alertError, notifyError, notifySuccess } from 'src/ts/alert'
     import {
         createImageStylePreset,
         createImageStyleLorebookFolder,
@@ -23,8 +23,18 @@
     import Dialog from './components/Dialog.svelte'
     import Textarea from './components/Textarea.svelte'
     import Input from './components/Input.svelte'
+    import InlineEditableName from './components/InlineEditableName.svelte'
     import { v4 as uuidv4 } from 'uuid'
     import { removePresetTag, togglePresetTag } from 'src/ts/preset/tags'
+    import {
+        appendImageGenerationPreset,
+        createImageGenerationPreset,
+        decodeImageGenerationPresetFile,
+        duplicateImageGenerationPreset as duplicateStoredImageGenerationPreset,
+        moveImageGenerationPreset,
+        removeImageGenerationPreset,
+    } from 'src/ts/imageGeneration/presets'
+    import { selectSingleFile } from 'src/ts/util'
 
     interface Props {
         compact?: boolean
@@ -218,6 +228,46 @@
         DBState.db.imageStylePresetTagBindings = nextBindings
         DBState.db.imageStylePresetOrder = DBState.db.imageStylePresetOrder.filter(id => id !== preset.id)
         if (DBState.db.imageStylePresetId === preset.id) DBState.db.imageStylePresetId = ''
+    }
+
+    function addImageGenerationPreset() {
+        const source = imageGenerationPresets[DBState.db.imageGenerationPresetId] ?? imageGenerationPresets[0]
+        if (!source) return
+        const preset = createImageGenerationPreset(language.imageGenerationPresetNew, source.settings)
+        appendImageGenerationPreset(DBState.db, preset)
+    }
+
+    function duplicateImageGenerationPreset(index: number) {
+        if (duplicateStoredImageGenerationPreset(DBState.db, index, language.copy)) {
+            notifySuccess(language.presetDuplicated)
+        }
+    }
+
+    async function deleteImageGenerationPreset(index: number) {
+        if (imageGenerationPresets.length <= 1) {
+            notifyError(language.errors.onlyOnePreset)
+            return
+        }
+        const preset = imageGenerationPresets[index]
+        if (!preset || !await alertConfirm(`${language.removeConfirm}${preset.name}`)) return
+        removeImageGenerationPreset(DBState.db, index)
+    }
+
+    async function importImageGenerationPreset() {
+        try {
+            const file = await selectSingleFile(['json'])
+            const source = imageGenerationPresets[DBState.db.imageGenerationPresetId] ?? imageGenerationPresets[0]
+            if (!file?.data || !source) return
+            const preset = decodeImageGenerationPresetFile(
+                file.data,
+                source.settings,
+                language.imageGenerationPresetInvalid,
+            )
+            appendImageGenerationPreset(DBState.db, preset)
+            notifySuccess(language.successImport)
+        } catch (error) {
+            alertError(`${error}`)
+        }
     }
 
     function movePreset(sourceIndex: number, targetIndex: number) {
@@ -414,11 +464,9 @@
         bind:visibleItemIndexes
         bind:selectedFolder={selectedGroup}
         close={() => { open = false }}
-        readOnly={viewMode === 'module'}
         folderReadOnly={viewMode === 'module'}
         folderReorderable
         folderEditable={viewMode === 'tag'}
-        itemReadOnly={false}
         allowItemDropOnReadOnlyFolders={viewMode === 'module'}
         showCreateFolder
         createFolderDisabled={viewMode === 'module' && !selectedModuleTarget}
@@ -478,6 +526,7 @@
     label={language.imageStylePreset}
     activeName={selectedPreset?.name ?? language.imageStylePresetNone}
     onOpen={() => { open = true }}
+    onEdit={selectedPreset ? () => startEdit(selectedPreset) : undefined}
     state={selectedPreset ? 'selected' : 'empty'}
 />
 
@@ -533,19 +582,44 @@
         bind:selectedFolder={bindingSelectedFolder}
         bind:visibleItemIndexes={bindingVisibleItemIndexes}
         close={() => { bindingPickerOpen = false }}
-        readOnly
-        showCreateFolder={false}
-        onFoldersChange={() => {}}
-        onAssignItem={() => {}}
-        onDeleteFolder={() => {}}
+        onFoldersChange={(folders) => { DBState.db.imageGenerationPresetTags = folders }}
+        onAssignItem={(index, tagId) => {
+            const preset = imageGenerationPresets[index]
+            if (!preset) return
+            DBState.db.imageGenerationPresets = imageGenerationPresets.map((item, presetIndex) => presetIndex === index
+                ? { ...item, tagIds: togglePresetTag(item.tagIds, tagId) }
+                : item)
+        }}
+        onDeleteFolder={(tagId) => {
+            DBState.db.imageGenerationPresets = imageGenerationPresets.map(preset => ({
+                ...preset,
+                tagIds: removePresetTag(preset.tagIds, tagId),
+            }))
+        }}
         selectedItemIndex={boundImageGenerationPresetIndex}
+        onMoveItem={(fromIndex, toIndex) => {
+            moveImageGenerationPreset(DBState.db, fromIndex, toIndex)
+        }}
         onSelectItem={(index) => {
             editorImageGenerationPresetId = imageGenerationPresets[index]?.id ?? ''
             bindingPickerOpen = false
         }}
+        onDuplicateItem={duplicateImageGenerationPreset}
+        onDeleteItem={deleteImageGenerationPreset}
+        itemRenameable
     >
-        {#snippet itemContent(index)}
-            <span class="truncate flex-1">{imageGenerationPresets[index].name}</span>
+        {#snippet itemContent(index, renameController)}
+            <InlineEditableName
+                controller={renameController}
+                bind:value={DBState.db.imageGenerationPresets[index].name}
+                size="default"
+                editorLeadingInset="row"
+                placeholder={language.imageGenerationPresetNew}
+                onActivate={() => {
+                    editorImageGenerationPresetId = imageGenerationPresets[index]?.id ?? ''
+                    bindingPickerOpen = false
+                }}
+            />
         {/snippet}
         {#snippet listFooter()}
             <button
@@ -559,5 +633,9 @@
                 <span class="truncate">{language.imageStylePresetBindingNone}</span>
             </button>
         {/snippet}
+        <PresetPickerActions
+            onCreate={addImageGenerationPreset}
+            onImport={importImageGenerationPreset}
+        />
     </PresetPickerLayout>
 {/if}

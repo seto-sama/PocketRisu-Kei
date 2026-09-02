@@ -93,7 +93,7 @@
         if (!source) return;
         const copy = structuredClone($state.snapshot(source));
         copy.id = uuidv4();
-        copy.name = `${source.name} Copy`;
+        copy.name = `${source.name} ${language.copy}`;
         copy.createdAt = Date.now();
         copy.updatedAt = Date.now();
         DBState.db.modelPresets = [...presets, copy];
@@ -124,7 +124,6 @@
         bind:visibleItemIndexes
         bind:selectedFolder
         itemDragDataKey="presetIndex"
-        readOnly={showConfigure}
         close={() => { open = false }}
         configure={showConfigure ? goToPresetSettings : undefined}
         onFoldersChange={(next) => { DBState.db.modelPresetTags = next }}
@@ -148,7 +147,6 @@
                 size="default"
                 editorLeadingInset="row"
                 placeholder="string"
-                disabled={showConfigure}
                 onActivate={() => pick(presets[index].id)}
             />
         {/snippet}
@@ -163,9 +161,7 @@
                 </button>
             {/if}
         {/snippet}
-        {#if !showConfigure}
-            <PresetPickerActions onCreate={createPreset} />
-        {/if}
+        <PresetPickerActions onCreate={createPreset} />
     </PresetPickerLayout>
 {/if}
 

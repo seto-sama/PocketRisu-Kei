@@ -221,7 +221,7 @@
         if (!source || source.mcp) return
         const duplicate = safeStructuredClone(source)
         duplicate.id = v4()
-        duplicate.name = `${source.name} Copy`
+        duplicate.name = `${source.name} ${language.copy}`
         DBState.db.modules.splice(index + 1, 0, duplicate)
         DBState.db.modules = [...DBState.db.modules]
         void requestImmediateSave()
@@ -442,14 +442,13 @@
     {#if personaModuleTarget}
         <PresetPickerLayout
             title={language.personaModuleBinding}
-            titleHelp={language.help.personaModuleBinding}
+            titleHelpKey="personaModuleBinding"
             folders={personaTags}
             itemFolderIds={DBState.db.personas.map(persona => persona.tagIds)}
             organizationKind="tag"
             itemNames={DBState.db.personas.map(persona => persona.name ?? '')}
             itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
             searchPlaceholder={language.personaSearch}
-            readOnly
             itemDragDataKey="personaModuleIndex"
             bind:selectedFolder={personaFolder}
             bind:searchQuery={personaSearch}

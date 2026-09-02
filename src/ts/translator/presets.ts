@@ -120,6 +120,72 @@ export function createTranslatorPreset(
     });
 }
 
+type TranslatorPresetCollection = {
+    translatorPresets: TranslatorPreset[];
+    translatorPresetId: number;
+    translatorPrompt?: string;
+    translatorMaxResponse?: number;
+};
+
+export function appendTranslatorPreset(
+    state: TranslatorPresetCollection,
+    preset: TranslatorPreset,
+): number {
+    state.translatorPresets = [...state.translatorPresets, preset];
+    state.translatorPresetId = state.translatorPresets.length - 1;
+    syncCurrentTranslatorPresetToLegacyFields(state);
+    return state.translatorPresetId;
+}
+
+export function duplicateTranslatorPreset(
+    state: TranslatorPresetCollection,
+    index: number,
+    copyLabel: string,
+): TranslatorPreset | undefined {
+    const source = state.translatorPresets[index];
+    if (!source) return undefined;
+    const preset = createTranslatorPreset(`${source.name} ${copyLabel}`, {
+        ...source,
+        id: undefined,
+    });
+    appendTranslatorPreset(state, preset);
+    return preset;
+}
+
+export function moveTranslatorPreset(
+    state: TranslatorPresetCollection,
+    fromIndex: number,
+    toIndex: number,
+): boolean {
+    const presets = state.translatorPresets;
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= presets.length || toIndex > presets.length) return false;
+    const selectedId = presets[state.translatorPresetId]?.id;
+    const next = [...presets];
+    const [moved] = next.splice(fromIndex, 1);
+    if (!moved) return false;
+    next.splice(fromIndex < toIndex ? toIndex - 1 : toIndex, 0, moved);
+    state.translatorPresets = next;
+    state.translatorPresetId = Math.max(0, next.findIndex(preset => preset.id === selectedId));
+    syncCurrentTranslatorPresetToLegacyFields(state);
+    return true;
+}
+
+export function removeTranslatorPreset(
+    state: TranslatorPresetCollection,
+    index: number,
+): boolean {
+    const presets = state.translatorPresets;
+    if (presets.length <= 1 || !presets[index]) return false;
+    const selectedId = presets[state.translatorPresetId]?.id;
+    state.translatorPresets = presets.filter((_, presetIndex) => presetIndex !== index);
+    const selectedIndex = state.translatorPresets.findIndex(preset => preset.id === selectedId);
+    state.translatorPresetId = selectedIndex >= 0
+        ? selectedIndex
+        : Math.min(index, state.translatorPresets.length - 1);
+    syncCurrentTranslatorPresetToLegacyFields(state);
+    return true;
+}
+
 export function normalizeTranslatorPresetState<T extends TranslatorPresetStateLike>(state: T): T {
     const defaultPreset = getDefaultTranslatorPreset(state);
     const sourcePresets =

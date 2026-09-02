@@ -39,8 +39,9 @@
     }
 
     .inline-name-inset-row {
-        width: calc(100% + 0.5rem);
-        margin-left: -0.5rem;
-        padding-left: calc(0.5rem - 1px);
+        --inline-name-row-edge-gap: 2px;
+        width: calc(100% + 0.5rem - var(--inline-name-row-edge-gap));
+        margin-left: calc(-0.5rem + var(--inline-name-row-edge-gap));
+        padding-left: calc(0.5rem - 1px - var(--inline-name-row-edge-gap));
     }
 </style>

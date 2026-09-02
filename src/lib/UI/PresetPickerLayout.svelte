@@ -1,10 +1,10 @@
 <script lang="ts">
     import type { Snippet } from "svelte";
-    import { CircleQuestionMarkIcon, CopyIcon, DownloadIcon, FolderIcon, FolderPlusIcon, PackageIcon, PencilIcon, SearchIcon, SettingsIcon, TagIcon, TagsIcon, TrashIcon, XIcon } from "@lucide/svelte";
+    import { CopyIcon, DownloadIcon, FolderIcon, FolderPlusIcon, PackageIcon, PencilIcon, SearchIcon, SettingsIcon, TagIcon, TagsIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { alertConfirm, alertConfirmMulti, alertInput } from "src/ts/alert";
     import { v4 as uuidv4 } from "uuid";
-    import Tooltip from "./components/Tooltip.svelte";
+    import Help from "../Others/Help.svelte";
     import SettingLayout from "../Setting/Wrappers/SettingLayout.svelte";
     import SortableList, { restoreSortableDragOrigin, type SortableDragOrigin } from "./components/SortableList.svelte";
     import IconButton from "./components/IconButton.svelte";
@@ -24,7 +24,7 @@
 
     interface Props {
         title: string;
-        titleHelp?: string;
+        titleHelpKey?: keyof typeof language.help;
         folders: PresetFolder[];
         itemFolderIds: (string | string[] | undefined)[];
         itemDragDataKey: string;
@@ -41,11 +41,9 @@
         itemSearchTexts?: string[];
         searchPlaceholder?: string;
         organizationKind?: 'folder' | 'tag';
-        readOnly?: boolean;
         folderReadOnly?: boolean;
         folderReorderable?: boolean;
         folderEditable?: boolean;
-        itemReadOnly?: boolean;
         itemRenameable?: boolean;
         allowItemDropOnReadOnlyFolders?: boolean;
         visibleItemIndexes?: number[];
@@ -80,7 +78,7 @@
 
     let {
         title,
-        titleHelp,
+        titleHelpKey,
         folders,
         itemFolderIds,
         itemDragDataKey,
@@ -97,11 +95,9 @@
         itemSearchTexts = itemNames,
         searchPlaceholder = language.presetSearch,
         organizationKind = 'folder',
-        readOnly = false,
-        folderReadOnly = readOnly,
+        folderReadOnly = false,
         folderReorderable = !folderReadOnly,
         folderEditable = !folderReadOnly,
-        itemReadOnly = readOnly,
         itemRenameable = false,
         allowItemDropOnReadOnlyFolders = false,
         visibleItemIndexes = $bindable([]),
@@ -112,7 +108,7 @@
         folderRenamePrompt = organizationKind === 'tag' ? language.presetTagRenamePrompt : language.presetFolderRenamePrompt,
         folderDeleteConfirm = organizationKind === 'tag' ? language.presetTagDeleteConfirm : language.presetFolderDeleteConfirm,
         newFolderLabel = organizationKind === 'tag' ? language.presetNewTag : language.presetNewFolder,
-        showCreateFolder = !readOnly,
+        showCreateFolder = true,
         createFolderDisabled = false,
         showUncategorized = true,
         onCreateFolder,
@@ -272,7 +268,6 @@
     }
 
     function reorderItems(orderedKeys: string[], draggedKey: string) {
-        if (itemReadOnly) return;
         if (!allowItemReorder || !onMoveItem) {
             restoreItemDragPosition();
             return;
@@ -297,20 +292,7 @@
     <div class="p-4 pb-0">
         <div class="flex items-center text-maintext mb-4">
             <h2 class="mt-0 mb-0">{title}</h2>
-            {#if titleHelp}
-                <Tooltip>
-                    {#snippet trigger(props)}
-                        <button
-                            {...props}
-                            class="ml-1 inline-flex size-5 shrink-0 items-center justify-center text-subtext cursor-help risu-interactive-accent"
-                            aria-label={`${title} ${language.showHelp}`}
-                        >
-                            <CircleQuestionMarkIcon size={12}/>
-                        </button>
-                    {/snippet}
-                    {titleHelp}
-                </Tooltip>
-            {/if}
+            {#if titleHelpKey}<Help key={titleHelpKey} name={title} />{/if}
             <div class="grow flex justify-end">
                 {#if configure}
                     <IconButton size="lg" onclick={configure} title={language.settings} aria-label={language.settings}>
@@ -447,7 +429,7 @@
             {#if itemContent && onSelectItem}
                 <SortableList
                     className="grow min-h-0 overflow-y-auto flex flex-col [&>*]:shrink-0"
-                    disabled={itemReadOnly || (!onMoveItem && !allowFolderAssignmentDrag)}
+                    disabled={!onMoveItem && !allowFolderAssignmentDrag}
                     dataTransferKey={itemDragDataKey}
                     dragPreviewText={(key) => itemNames[Number(key)] || 'Unnamed Preset'}
                     onReorder={(orderedKeys, event) => {
@@ -475,22 +457,20 @@
                             data-inline-rename-row={itemRenameable ? '' : undefined}
                             class="risu-selectable-row preset-picker-item w-full h-10 min-w-0 flex items-center rounded-md text-left text-maintext px-2"
                             data-selected={index === selectedItemIndex}
-                            class:cursor-grab={!itemReadOnly && (!!onMoveItem || allowFolderAssignmentDrag)}
+                            class:cursor-grab={!!onMoveItem || allowFolderAssignmentDrag}
                             onclick={() => onSelectItem(index)}
                             onkeydown={(e) => {
                                 if (isEventFromInteractiveChild(e)) return
                                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectItem(index) }
                             }}>
                             {@render itemContent(index, renameController)}
-                            {#if (itemRenameable && !itemReadOnly) || itemActions || (!itemReadOnly && (onDuplicateItem || onExportItem || onDeleteItem))}
+                            {#if itemRenameable || itemActions || onDuplicateItem || onExportItem || onDeleteItem}
                                 <IconButtonGroup className="-my-2 -ml-2 -mr-2 shrink-0 py-2 pl-5 pr-2" onclick={(e) => e.stopPropagation()}>
-                                    {#if itemRenameable && !itemReadOnly}<InlineRenameAction controller={renameController} />{/if}
+                                    {#if itemRenameable}<InlineRenameAction controller={renameController} />{/if}
                                     {@render itemActions?.(index)}
-                                    {#if !itemReadOnly}
-                                        {#if onDuplicateItem && showDuplicateItem(index)}<IconButton onclick={() => onDuplicateItem(index)}><CopyIcon /></IconButton>{/if}
-                                        {#if onExportItem && showExportItem(index)}<IconButton onclick={() => onExportItem(index)}><DownloadIcon /></IconButton>{/if}
-                                        {#if onDeleteItem}<IconButton tone="destructive" onclick={() => { void deleteItem(index) }}><TrashIcon /></IconButton>{/if}
-                                    {/if}
+                                    {#if onDuplicateItem && showDuplicateItem(index)}<IconButton onclick={() => onDuplicateItem(index)}><CopyIcon /></IconButton>{/if}
+                                    {#if onExportItem && showExportItem(index)}<IconButton onclick={() => onExportItem(index)}><DownloadIcon /></IconButton>{/if}
+                                    {#if onDeleteItem}<IconButton tone="destructive" onclick={() => { void deleteItem(index) }}><TrashIcon /></IconButton>{/if}
                                 </IconButtonGroup>
                             {/if}
                         </div>

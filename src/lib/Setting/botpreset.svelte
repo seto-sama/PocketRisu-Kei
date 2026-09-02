@@ -143,7 +143,6 @@
         itemNames={DBState.db.botPresets.map(preset => preset.name ?? '')}
         bind:selectedFolder
         itemDragDataKey="presetIndex"
-        readOnly={!$settingsOpen}
         {close}
         configure={!$settingsOpen ? () => {
                 close()
@@ -175,7 +174,6 @@
                 size="default"
                 editorLeadingInset={preset.image ? 'border' : 'row'}
                 placeholder="string"
-                disabled={!$settingsOpen}
                 onActivate={() => selectPreset(index)}
             />
         {/snippet}
@@ -193,29 +191,27 @@
                 </IconButton>
             {/if}
         {/snippet}
-        {#if $settingsOpen}
-            <PresetPickerActions
-                onCreate={() => {
-                    let botPresets = DBState.db.botPresets
-                    let newPreset = safeStructuredClone(prebuiltPresets.OAI2)
-                    newPreset.id = uuidv4()
-                    newPreset.name = `New Preset`
-                    newPreset.tagIds = undefined
-                    botPresets.push(newPreset)
+        <PresetPickerActions
+            onCreate={() => {
+                let botPresets = DBState.db.botPresets
+                let newPreset = safeStructuredClone(prebuiltPresets.OAI2)
+                newPreset.id = uuidv4()
+                newPreset.name = `New Preset`
+                newPreset.tagIds = undefined
+                botPresets.push(newPreset)
 
-                    DBState.db.botPresets = botPresets
-                }}
-                onImport={async () => {
-                    const before = DBState.db.botPresets.length
-                    await importPreset()
-                    const after = DBState.db.botPresets.length
-                    if (after > before) {
-                        changeToPreset(after - 1)
-                        notifySuccess(language.presetImported)
-                    }
-                }}
-            />
-        {/if}
+                DBState.db.botPresets = botPresets
+            }}
+            onImport={async () => {
+                const before = DBState.db.botPresets.length
+                await importPreset()
+                const after = DBState.db.botPresets.length
+                if (after > before) {
+                    changeToPreset(after - 1)
+                    notifySuccess(language.presetImported)
+                }
+            }}
+        />
 </PresetPickerLayout>
 
 {#if showDiffModal && firstPresetId !== null && secondPresetId !== null}

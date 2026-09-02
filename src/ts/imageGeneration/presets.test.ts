@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+    appendImageGenerationPreset,
     captureNAIImageCoreSettings,
     createImageGenerationPreset,
+    decodeImageGenerationPresetFile,
+    duplicateImageGenerationPreset,
     getNAIImageDimensions,
     getCurrentImageGenerationPreset,
     moveImageGenerationPreset,
@@ -122,6 +125,20 @@ describe('image generation presets', () => {
         expect(removeImageGenerationPreset(state as never, 0)).toBe(false)
     })
 
+    it('appends and duplicates presets while selecting the new entry', () => {
+        const state = legacyImageState()
+        normalizeImageGenerationPresetState(state as never)
+        const first = state.imageGenerationPresets![0]
+        const added = createImageGenerationPreset('Added', first.settings)
+
+        appendImageGenerationPreset(state as never, added)
+        const duplicate = duplicateImageGenerationPreset(state as never, 0, 'Copy')
+
+        expect(state.imageGenerationPresetId).toBe(2)
+        expect(duplicate?.name).toBe(`${first.name} Copy`)
+        expect(duplicate?.id).not.toBe(first.id)
+    })
+
     it('captures only lightweight fields for the quick editor', () => {
         const state = legacyImageState()
         normalizeImageGenerationPresetState(state as never)
@@ -138,5 +155,40 @@ describe('image generation presets', () => {
             scale: 5,
             cfg_rescale: 0,
         })
+    })
+
+    it('decodes imported presets and normalizes legacy tag fields', () => {
+        const state = legacyImageState()
+        normalizeImageGenerationPresetState(state as never)
+        const fallback = state.imageGenerationPresets![0].settings
+        const data = new TextEncoder().encode(JSON.stringify({
+            type: 'risu-image-generation-preset',
+            data: {
+                name: 'Imported',
+                folderId: 'legacy-tag',
+                settings: {
+                    ...fallback,
+                    sdProvider: 'comfyui',
+                },
+            },
+        }))
+
+        const preset = decodeImageGenerationPresetFile(data, fallback)
+
+        expect(preset.name).toBe('Imported')
+        expect(preset.settings.sdProvider).toBe('comfyui')
+        expect(preset.tagIds).toEqual(['legacy-tag'])
+    })
+
+    it('rejects invalid imported preset containers with the caller message', () => {
+        const state = legacyImageState()
+        normalizeImageGenerationPresetState(state as never)
+        const data = new TextEncoder().encode(JSON.stringify({ type: 'other' }))
+
+        expect(() => decodeImageGenerationPresetFile(
+            data,
+            state.imageGenerationPresets![0].settings,
+            'Invalid preset file',
+        )).toThrow('Invalid preset file')
     })
 })

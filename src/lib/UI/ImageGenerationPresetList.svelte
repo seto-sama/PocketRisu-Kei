@@ -1,9 +1,13 @@
 <script lang="ts">
     import { SquarePenIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
-    import { alertConfirm, notifyError } from 'src/ts/alert'
+    import { alertConfirm, alertError, notifyError, notifySuccess } from 'src/ts/alert'
     import {
+        appendImageGenerationPreset,
         captureNAIImageCoreSettings,
+        createImageGenerationPreset,
+        decodeImageGenerationPresetFile,
+        duplicateImageGenerationPreset,
         moveImageGenerationPreset,
         removeImageGenerationPreset,
         type NAIImageCoreSettings,
@@ -16,8 +20,10 @@
     import Input from './components/Input.svelte'
     import NovelAIImageCoreSettings from './NovelAIImageCoreSettings.svelte'
     import PresetBindingTrigger from './PresetBindingTrigger.svelte'
+    import PresetPickerActions from './PresetPickerActions.svelte'
     import PresetPickerLayout from './PresetPickerLayout.svelte'
     import { removePresetTag, togglePresetTag } from 'src/ts/preset/tags'
+    import { selectSingleFile } from 'src/ts/util'
 
     interface Props {
         compact?: boolean
@@ -116,6 +122,36 @@
             editorOpen = false
         }
     }
+
+    function addPreset() {
+        const source = selectedPreset ?? presets[0]
+        if (!source) return
+        const preset = createImageGenerationPreset(language.imageGenerationPresetNew, source.settings)
+        appendImageGenerationPreset(DBState.db, preset)
+    }
+
+    function duplicatePreset(index: number) {
+        if (duplicateImageGenerationPreset(DBState.db, index, language.copy)) {
+            notifySuccess(language.presetDuplicated)
+        }
+    }
+
+    async function importPreset() {
+        try {
+            const file = await selectSingleFile(['json'])
+            const source = selectedPreset ?? presets[0]
+            if (!file?.data || !source) return
+            const preset = decodeImageGenerationPresetFile(
+                file.data,
+                source.settings,
+                language.imageGenerationPresetInvalid,
+            )
+            appendImageGenerationPreset(DBState.db, preset)
+            notifySuccess(language.successImport)
+        } catch (error) {
+            alertError(`${error}`)
+        }
+    }
 </script>
 
 {#if open}
@@ -145,6 +181,7 @@
             }))
         }}
         onMoveItem={(fromIndex, toIndex) => { moveImageGenerationPreset(DBState.db, fromIndex, toIndex) }}
+        onDuplicateItem={duplicatePreset}
         onDeleteItem={deletePreset}
         {selectedItemIndex}
         onSelectItem={selectPreset}
@@ -157,6 +194,7 @@
                 <SquarePenIcon />
             </IconButton>
         {/snippet}
+        <PresetPickerActions onCreate={addPreset} onImport={importPreset} />
     </PresetPickerLayout>
 {/if}
 
@@ -165,6 +203,7 @@
     label={language.imageGenerationPreset}
     activeName={selectedPreset?.name ?? language.modelPresetDeleted}
     onOpen={() => { open = true }}
+    onEdit={selectedPreset ? () => startEdit(selectedItemIndex) : undefined}
     state={selectedPreset ? 'selected' : 'warning'}
 />
 
