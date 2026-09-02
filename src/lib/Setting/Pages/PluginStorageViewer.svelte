@@ -240,13 +240,14 @@
             title: entry.key,
             formatJson: true,
             mode: 'plain',
+            commitMode: 'submit',
             metadata: [
                 { label: language.pluginStorageMetaType, value: entry.type },
                 { label: language.pluginStorageMetaSize, value: formatSize(entry.size) },
                 { label: language.pluginStorageMetaChars, value: entry.str.length.toLocaleString() },
                 { label: language.pluginStorageOwner, value: entry.owner ?? language.pluginStorageOwnerUnknown },
             ],
-            onSave: (editText) => saveEdit(entry, editText),
+            onCommit: (editText) => saveEdit(entry, editText),
         })
     }
 

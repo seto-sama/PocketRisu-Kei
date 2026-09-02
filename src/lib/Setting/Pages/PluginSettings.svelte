@@ -81,7 +81,8 @@
             value: originalScript,
             title: pluginTitle(plugin),
             mode: 'plain',
-            onSave: (nextScript) => {
+            commitMode: 'submit',
+            onCommit: (nextScript) => {
                 if (nextScript === originalScript) return true
 
                 const foundIndex = DBState.db.plugins?.findIndex((p) => p.name === plugin.name) ?? -1
@@ -104,7 +105,8 @@
             value: getBlankPluginSource(),
             title: language.createPlugin,
             mode: 'plain',
-            onSave: async (script) => {
+            commitMode: 'submit',
+            onCommit: async (script) => {
                 const created = await createBlankPlugin(script)
                 if (created) notifySuccess(language.pluginCreated)
                 return created

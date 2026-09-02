@@ -9,7 +9,7 @@ export interface DebouncedDraftWriter<T> {
 /** Shared debounce/flush lifecycle for composer-like drafts. */
 export function createDebouncedDraftWriter<T>(
     write: (value: T) => void | Promise<void>,
-    delayMs: number,
+    delayMs: number | (() => number),
 ): DebouncedDraftWriter<T> {
     let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -30,7 +30,7 @@ export function createDebouncedDraftWriter<T>(
                 catch {
                     // localStorage and custom backends may throw synchronously.
                 }
-            }, delayMs)
+            }, typeof delayMs === 'function' ? delayMs() : delayMs)
         },
         async flush(value) {
             cancel()

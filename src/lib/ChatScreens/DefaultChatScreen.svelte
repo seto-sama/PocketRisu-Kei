@@ -1052,12 +1052,18 @@ import { isMobile } from 'src/ts/platform'
             value: messageInput,
             title: language.chatInputExpandTitle,
             mode: 'cbs',
-            onSave: async (nextValue) => {
+            commitMode: 'debounce',
+            hideCancel: true,
+            submitKind: 'send',
+            onCommit: async (nextValue) => {
                 messageInput = nextValue
-                persistDraftNow()
                 await tick()
                 updateInputSizeAll()
                 updateInputTransateMessage(false)
+            },
+            onSubmit: (nextValue) => {
+                messageInput = nextValue
+                void send()
                 return true
             },
         })

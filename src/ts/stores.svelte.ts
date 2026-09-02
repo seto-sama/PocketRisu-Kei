@@ -6,6 +6,8 @@ import { moduleUpdate } from "./process/modules";
 import { deepTouch } from "./gui/deepTouch.svelte";
 import { resetScriptCache } from "./process/scripts";
 import type { PluginSafetyErrors } from "./plugins/pluginSafety";
+import { INPUT_COMMIT_DEBOUNCE_MS } from './inputCommit'
+import type { PopupEditorCommitMode, PopupEditorCommitResult } from './popupEditorCommit'
 
 function updateSize(){
     SizeStore.set({
@@ -268,7 +270,14 @@ export interface PopupEditorOptions {
     metadata?: PopupEditorMetadata[]
     formatJson?: boolean
     mode?: 'plain' | 'cbs'
-    onSave: (value: string) => boolean | Promise<boolean>
+    commitMode?: PopupEditorCommitMode
+    debounceMs?: number
+    hideCancel?: boolean
+    submitKind?: 'save' | 'send'
+    /** Writes through the same domain commit path used by the source field. */
+    onCommit: (value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>
+    /** Optional action after the latest value has committed (for example, send). */
+    onSubmit?: (value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>
 }
 
 export const popUpEditorStore = $state({
@@ -279,7 +288,12 @@ export const popUpEditorStore = $state({
     metadata: [] as PopupEditorMetadata[],
     formatJson: false,
     mode: 'cbs' as 'plain' | 'cbs',
-    onSave: null as null | ((value: string) => boolean | Promise<boolean>)
+    commitMode: 'submit' as PopupEditorCommitMode,
+    debounceMs: INPUT_COMMIT_DEBOUNCE_MS,
+    hideCancel: false,
+    submitKind: 'save' as 'save' | 'send',
+    onCommit: null as null | ((value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>),
+    onSubmit: null as null | ((value: string) => PopupEditorCommitResult | Promise<PopupEditorCommitResult>)
 })
 
 export function showPopupEditor(options: PopupEditorOptions) {
@@ -289,7 +303,12 @@ export function showPopupEditor(options: PopupEditorOptions) {
     popUpEditorStore.metadata = options.metadata ?? []
     popUpEditorStore.formatJson = options.formatJson ?? false
     popUpEditorStore.mode = options.mode ?? 'cbs'
-    popUpEditorStore.onSave = options.onSave
+    popUpEditorStore.commitMode = options.commitMode ?? 'submit'
+    popUpEditorStore.debounceMs = options.debounceMs ?? INPUT_COMMIT_DEBOUNCE_MS
+    popUpEditorStore.hideCancel = options.hideCancel ?? false
+    popUpEditorStore.submitKind = options.submitKind ?? 'save'
+    popUpEditorStore.onCommit = options.onCommit
+    popUpEditorStore.onSubmit = options.onSubmit ?? null
     popUpEditorStore.open = true
 }
 

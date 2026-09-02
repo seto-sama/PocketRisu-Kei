@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { AlignLeftIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, MenuIcon, SquarePenIcon, SaveIcon, SearchIcon, TextWrapIcon, XIcon } from '@lucide/svelte'
+    import { AlignLeftIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, MenuIcon, SquarePenIcon, SaveIcon, SearchIcon, SendIcon, TextWrapIcon, XIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
     import { alertConfirm, notifyError } from 'src/ts/alert'
     import { textAreaTextSize } from 'src/ts/gui/guisize'
@@ -27,6 +27,8 @@
     import { parseToggleSyntax, type sidebarToggle } from 'src/ts/util'
     import { applyCBSPreviewValues, extractCBSPreviewReferences } from 'src/ts/parser/cbsPreview'
     import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence'
+    import { createPopupEditorCommitController } from 'src/ts/popupEditorCommit'
+    import { INPUT_COMMIT_DEBOUNCE_MS } from 'src/ts/inputCommit'
     import { onDestroy, tick } from 'svelte'
     import CBSDocumentationDialog from './CBSDocumentationDialog.svelte'
 
@@ -64,6 +66,15 @@
     let previewSearchInput:HTMLInputElement | null = $state(null)
     let previewPane:HTMLDivElement | undefined = $state()
     let documentationOpen = $state(false)
+    const commitController = createPopupEditorCommitController(
+        async (value) => popUpEditorStore.onCommit?.(value),
+        () => popUpEditorStore.debounceMs,
+    )
+
+    function updateEditorValue(value: string) {
+        popUpEditorStore.value = value
+        commitController.update(value, popUpEditorStore.commitMode)
+    }
 
     const previewSearchMatches = $derived.by(() => {
         const query = previewSearchQuery.toLocaleLowerCase()
@@ -103,14 +114,20 @@
 
     function closeEditor() {
         debouncedPreviewRenderer.cancel()
+        commitController.cancel()
         popUpEditorStore.open = false
         popUpEditorStore.value = ''
         popUpEditorStore.originalValue = ''
-        popUpEditorStore.onSave = null
+        popUpEditorStore.onCommit = null
+        popUpEditorStore.onSubmit = null
         popUpEditorStore.title = ''
         popUpEditorStore.metadata = []
         popUpEditorStore.formatJson = false
         popUpEditorStore.mode = 'cbs'
+        popUpEditorStore.commitMode = 'submit'
+        popUpEditorStore.debounceMs = INPUT_COMMIT_DEBOUNCE_MS
+        popUpEditorStore.hideCancel = false
+        popUpEditorStore.submitKind = 'save'
         previewing = false
         previewVariables = []
         previewVariableOverrides.clear()
@@ -124,6 +141,10 @@
 
     async function requestClose() {
         if (saving || confirmingClose) return
+        if (popUpEditorStore.commitMode !== 'submit') {
+            await commitController.flush(popUpEditorStore.value, popUpEditorStore.commitMode)
+            popUpEditorStore.originalValue = popUpEditorStore.value
+        }
         if (popUpEditorStore.value !== popUpEditorStore.originalValue) {
             confirmingClose = true
             try {
@@ -135,12 +156,16 @@
         closeEditor()
     }
 
-    async function requestSave() {
-        if (!popUpEditorStore.onSave || saving) return
+    async function requestSubmit() {
+        if (!popUpEditorStore.onCommit || saving) return
 
         saving = true
         try {
-            const canClose = await popUpEditorStore.onSave(popUpEditorStore.value)
+            let canClose = await commitController.flush(popUpEditorStore.value, popUpEditorStore.commitMode)
+            if (canClose === false) return
+            if (popUpEditorStore.onSubmit) {
+                canClose = await popUpEditorStore.onSubmit(popUpEditorStore.value)
+            }
             if (canClose !== false) closeEditor()
         } finally {
             saving = false
@@ -149,7 +174,7 @@
 
     function formatJson() {
         try {
-            popUpEditorStore.value = JSON.stringify(JSON.parse(popUpEditorStore.value), null, 2)
+            updateEditorValue(JSON.stringify(JSON.parse(popUpEditorStore.value), null, 2))
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             notifyError(language.popupEditorJsonError(message))
@@ -159,7 +184,7 @@
     function handleKeydown(event: KeyboardEvent) {
         if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
             event.preventDefault()
-            void requestSave()
+            void requestSubmit()
         }
     }
 
@@ -570,10 +595,10 @@
                     value={popUpEditorStore.value}
                     {wordWrap}
                     {searchRequest}
-                    onValueChange={(value) => (popUpEditorStore.value = value)}
+                    onValueChange={updateEditorValue}
                     onSearchOpened={() => (searchRequest = 0)}
                     onSearchOpenChange={(open) => (editorSearchOpen = open)}
-                    onSave={() => void requestSave()}
+                    onSave={() => void requestSubmit()}
                 />
             </div>
         {:else}
@@ -591,6 +616,7 @@
                 autocomplete="off"
                 autocapitalize="off"
                 spellcheck="false"
+                oninput={() => updateEditorValue(popUpEditorStore.value)}
                 onkeydown={handleKeydown}
             ></textarea>
         {/if}
@@ -644,12 +670,19 @@
                 </ShDropdownMenu>
             </div>
             <div class="ml-auto flex items-center gap-2">
-                <ShButton size="sm" variant="outline" onclick={() => void requestClose()} disabled={saving || confirmingClose}>
-                    {language.cancel}
-                </ShButton>
-                <ShButton size="sm" variant="primary" onclick={requestSave} disabled={saving}>
-                    <SaveIcon />
-                    {language.popupEditorSave}
+                {#if !popUpEditorStore.hideCancel}
+                    <ShButton size="sm" variant="outline" onclick={() => void requestClose()} disabled={saving || confirmingClose}>
+                        {language.cancel}
+                    </ShButton>
+                {/if}
+                <ShButton size="sm" variant="primary" onclick={requestSubmit} disabled={saving}>
+                    {#if popUpEditorStore.submitKind === 'send'}
+                        <SendIcon />
+                        {language.send}
+                    {:else}
+                        <SaveIcon />
+                        {language.popupEditorSave}
+                    {/if}
                 </ShButton>
             </div>
         </div>
