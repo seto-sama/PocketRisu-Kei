@@ -2136,6 +2136,7 @@ export const languageKorean = {
   removePlugin: "플러그인 삭제",
   updatePlugin: "플러그인 업데이트 설치",
   pluginCreated: "플러그인을 만들었습니다.",
+  pluginUpdated: "플러그인을 업데이트했습니다.",
   pluginV2WarningTitle: "구형 플러그인 API 경고",
   pluginV2Warning:
     "플러그인 V2 및 V2.1은 안전하지 않다고 간주되며, 향후 버전에서는 동작이 중단됩니다. **이 버전의 플러그인을 사용하지 마세요.** 이 플러그인의 개발자라면 가능한 한 빨리 V3로 업데이트해주세요.",

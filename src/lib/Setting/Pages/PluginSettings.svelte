@@ -75,27 +75,21 @@
         void requestImmediateSave()
     }
 
-    function openPluginScriptEditor(index: number, plugin: RisuPlugin) {
+    function openPluginScriptEditor(plugin: RisuPlugin) {
         const originalScript = plugin.script ?? ''
         showPopupEditor({
             value: originalScript,
             title: pluginTitle(plugin),
             mode: 'plain',
             commitMode: 'submit',
-            onCommit: (nextScript) => {
+            onCommit: async (nextScript) => {
                 if (nextScript === originalScript) return true
-
-                const foundIndex = DBState.db.plugins?.findIndex((p) => p.name === plugin.name) ?? -1
-                const currentIndex = foundIndex >= 0 ? foundIndex : index
-                const currentPlugin = DBState.db.plugins?.[currentIndex]
-                if (!currentPlugin) return true
-
-                currentPlugin.script = nextScript
-                DBState.db.plugins[currentIndex] = currentPlugin
-                loadPlugins()
-                void requestImmediateSave()
-                notifySuccess('Plugin updated.')
-                return true
+                const updated = await importPlugin(nextScript, {
+                    isUpdate: true,
+                    originalPluginName: plugin.name,
+                })
+                if (updated) notifySuccess(language.pluginUpdated)
+                return updated
             },
         })
     }
@@ -269,7 +263,7 @@
                 aria-label={language.editPlugin}
                 onclick={(e) => {
                     e.stopPropagation()
-                    openPluginScriptEditor(index, plugin)
+                    openPluginScriptEditor(plugin)
                 }}
             >
                 <SquarePenIcon />

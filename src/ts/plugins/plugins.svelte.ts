@@ -9,7 +9,7 @@ import { DBState, pluginAlertModalStore, selectedCharID } from "../stores.svelte
 import type { ScriptMode } from "../process/scripts";
 import { checkCodeSafety } from "./pluginSafety";
 import { SafeDocument, SafeIdbFactory, SafeLocalStorage } from "./pluginSafeClass";
-import { loadV3Plugins } from "./apiV3/v3.svelte";
+import { loadV3Plugins, reloadV3Plugin } from "./apiV3/v3.svelte";
 import { pluginCodeTranspiler } from "./apiV3/transpiler";
 
 export const customProviderStore = writable([] as string[])
@@ -142,9 +142,9 @@ export async function importPlugin(code:string|null = null, argu:{
 } = {}): Promise<boolean> {
     try {
         let jsFile = ''
-        let db = getDatabase()
-        let isUpdate = argu.isUpdate || false
-        let originalPluginName = argu.originalPluginName || ''
+        const db = getDatabase()
+        const isUpdate = argu.isUpdate || false
+        const originalPluginName = argu.originalPluginName || ''
         let isTypescript = argu.isTypescript || false
         
         if(code === null){
@@ -390,21 +390,28 @@ export async function importPlugin(code:string|null = null, argu:{
         db.plugins ??= []
 
         const oldPluginIndex = db.plugins.findIndex((p: RisuPlugin) => p.name === pluginData.name);
+        const oldPlugin: RisuPlugin | undefined = oldPluginIndex !== -1 ? db.plugins[oldPluginIndex] : undefined;
 
         if(originalPluginName && originalPluginName !== pluginData.name){
             showError(`When updating plugin "${originalPluginName}", the plugin name cannot be changed to "${pluginData.name}". Please keep the original name to update.`)
             return false
         }
 
-
-        if(!isUpdate && oldPluginIndex !== -1){
+        if(!isUpdate && oldPlugin){
             const c = await alertConfirm(language.duplicatePluginFoundUpdateIt)
             if(!c){
                 return false
             }
         }
 
-        if(oldPluginIndex !== -1){
+        if(oldPlugin){
+            // Updating code must not discard user-owned configuration.
+            for(const key of Object.keys(arg)){
+                if(oldPlugin.arguments?.[key] === arg[key] && oldPlugin.realArg && key in oldPlugin.realArg){
+                    pluginData.realArg[key] = oldPlugin.realArg[key]
+                }
+            }
+            if(isUpdate) pluginData.enabled = oldPlugin.enabled ?? true
             db.plugins[oldPluginIndex] = pluginData;
         }
         else if(!isUpdate){
@@ -415,7 +422,12 @@ export async function importPlugin(code:string|null = null, argu:{
         setDatabaseLite(db)
         void requestImmediateSave()
 
-        loadPlugins()
+        if(isUpdate && oldPlugin?.version === '3.0' && pluginData.version === '3.0'){
+            await reloadV3Plugin(pluginData)
+        }
+        else{
+            await loadPlugins()
+        }
         return true
         
     } catch (error) {

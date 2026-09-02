@@ -1966,6 +1966,7 @@ export const languageEnglish = {
     removePlugin: "Remove plugin",
     updatePlugin: "Install plugin update",
     pluginCreated: "Plugin created.",
+    pluginUpdated: "Plugin updated.",
     pluginV2WarningTitle: "Legacy Plugin API warning",
     pluginV2Warning: "Plugin V2 and V2.1 is considered unsafe and will stop working in future versions. **Please do not use these versions of plugins.**. If you are the developer of this plugin, please update to V3 as soon as possible.",
     createFolderOnBranch: "Create Folder on Branch",
