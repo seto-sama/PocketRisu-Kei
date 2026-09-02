@@ -35,7 +35,7 @@
         const deltaY = clientY - initialY;
 
         const newWidth = Math.min(initialWidth + deltaX, window.innerWidth * 0.8);
-        const newHeight = Math.min(initialHeight + deltaY, window.innerHeight * 0.8);
+        const newHeight = Math.min(initialHeight + deltaY, (window.visualViewport?.height ?? window.innerHeight) * 0.8);
 
         ViewBoxsize.set({
             width: newWidth,

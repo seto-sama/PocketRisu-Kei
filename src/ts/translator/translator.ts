@@ -20,6 +20,7 @@ import { playNotificationSound } from '../notificationSound'
 import { language } from '../../lang'
 import {
     completeRevenantTranslation,
+    decodeRevenantTranslation,
     isUsableTranslationResult,
     prepareRevenantTranslationRequest,
     recoverRevenantTranslationJobs,
@@ -209,6 +210,7 @@ export interface PromptTranslatorOptions {
     preset: TranslatorPreset
     modelPresetId: string
     regenerate?: boolean
+    cache?: boolean
     onRequestStatusActivate?: () => void
 }
 
@@ -227,6 +229,7 @@ export async function runPromptTranslator(
         modelPresetId: options.modelPresetId,
         cacheKey: text,
         regenerate: options.regenerate,
+        cache: options.cache,
         onRequestStatusActivate: options.onRequestStatusActivate,
     })
 }
@@ -321,52 +324,6 @@ async function translateMain(text:string, arg:{from:string, to:string, host:stri
         const tr = arg.to || DEFAULT_TRANSLATOR_LANGUAGE
         return translateLLM(text, {to: tr, from: arg.from, translatorNote: arg.translatorNote, signal})
     }
-    if(db.translatorType === 'deepl'){
-        const body = {
-            text: [text],
-            target_lang: arg.to.toLocaleUpperCase(),
-        }
-        let url = db.deeplOptions.freeApi ? "https://api-free.deepl.com/v2/translate" : "https://api.deepl.com/v2/translate"
-        const f = await globalFetch(url, {
-            headers: {
-                "Authorization": "DeepL-Auth-Key " + db.deeplOptions.key,
-                "Content-Type": "application/json"
-            },
-            body: body,
-            abortSignal: signal
-        })
-
-        if(!f.ok){
-            return 'ERR::DeepL API Error' + (await f.data)
-        }
-        return f.data.translations[0].text
-
-    }
-    if(db.translatorType === 'deeplX'){
-        let url = db.deeplXOptions.url ?? 'http://localhost:1188'
-
-        if(url.endsWith('/')){
-            url = url.slice(0, -1)
-        }
-
-        if(!url.endsWith('/translate')){
-            url += '/translate'
-        }
-
-        let headers = { "Content-Type": "application/json" }
-
-        const body = {text: text, target_lang: arg.to.toLocaleUpperCase(), source_lang: arg.from.toLocaleUpperCase()}
-
-    
-        if(db.deeplXOptions.token.trim() !== '') { headers["Authorization"] = "Bearer " + db.deeplXOptions.token}
-        
-        //Since the DeepLX API is non-CORS restricted, we can use the plain fetch function
-        const f = await globalFetch(url, { method: "POST", headers: headers, body: body, plainFetchForce:true, abortSignal: signal })
-
-        if(!f.ok){ return 'ERR::DeepLX API Error' + (await f.data) }
-
-        return f.data.data;
-    }
     if(db.translatorType == "bergamot") {
         if(!bergamotTranslate){
             const bergamotTranslator = await import('./bergamotTranslator')
@@ -445,7 +402,7 @@ async function jaTrans(text:string) {
 
 export function isExpTranslator(){
     const db = getDatabase()
-    return db.translatorType === 'llm' || db.translatorType === 'deepl' || db.translatorType === 'deeplX'
+    return db.translatorType === 'llm'
 }
 
 function getChatMessageTranslationTarget(chatID: number): RevenantChatMessageTranslationTarget | null {
@@ -519,72 +476,8 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     console.log(html)
 
     let promises: Promise<void>[] = [];
-    let translationChunks: {
-        chunks: string[],
-        resolvers: ((text:string) => void)[]
-    }[] = [{
-        chunks: [],
-        resolvers: []
-    }]
-    
-
-    async function translateTranslationChunks(force:boolean = false, additionalChunkLength = 0){
-        if(translationChunks.length === 0 || !needSuperChunkedTranslate()){
-            return
-        }
-
-        const currentChunk = translationChunks[translationChunks.length-1]
-        const text: string = currentChunk.chunks.join('\n■\n')
-
-        if(!force && text.length + additionalChunkLength < 5000){
-            return
-        }
-
-        translationChunks.push({
-            chunks: [],
-            resolvers: []
-        })
-
-        if(!text){
-            return
-        }
-
-        const translated = await translate(text, reverse, signal)
-
-        const split = translated.split('■')
-
-        console.log(split.length, currentChunk.chunks.length)
-
-        if(split.length !== currentChunk.chunks.length){
-            //try translating one by one
-            for(let i = 0; i < currentChunk.chunks.length; i++){
-                currentChunk.resolvers[i](
-                    await translate(currentChunk.chunks[i]
-                , reverse, signal))
-            }
-        }
-        
-        for(let i = 0; i < split.length; i++){
-            console.log(split[i])
-            currentChunk.resolvers[i](split[i])
-        }
-
-
-    }
-
     async function translateNodeText(node:Node, reprocessDisplayScript:boolean = false) {
         if(node.textContent.trim().length !== 0){
-            if(needSuperChunkedTranslate()){
-                const prm = new Promise<string>((resolve) => {
-                    translateTranslationChunks(false, node.textContent.length)
-                    translationChunks[translationChunks.length-1].resolvers.push(resolve)
-                    translationChunks[translationChunks.length-1].chunks.push(node.textContent)
-                })
-    
-                node.textContent = await prm
-                return
-            }
-
             const translateChunks = (node.textContent || '').split(/\n\n+/g);
             let translatedChunksPromises: Promise<string>[] = [];
             for (const chunk of translateChunks) {
@@ -690,8 +583,6 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     // Start translation from the body element
     await translateNode(dom.body);
 
-    await translateTranslationChunks(true, 0)
-
     await Promise.all(promises)
     // Serialize the DOM back to HTML
     const serializer = new XMLSerializer();
@@ -707,14 +598,11 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     return translatedHTML
 }
 
-function needSuperChunkedTranslate(){
-    return getDatabase().translatorType === 'deeplX'
-}
-
-async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string, signal?:AbortSignal, target?:RevenantChatMessageTranslationTarget|null, onCacheState?:(cached:boolean) => void, preset?:TranslatorPreset, modelPresetId?:string, cacheKey?:string, onRequestStatusActivate?:() => void}):Promise<string>{
+async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,cache?:boolean,translatorNote?:string, signal?:AbortSignal, target?:RevenantChatMessageTranslationTarget|null, onCacheState?:(cached:boolean) => void, preset?:TranslatorPreset, modelPresetId?:string, cacheKey?:string, onRequestStatusActivate?:() => void}):Promise<string>{
     const cacheKey = arg.cacheKey ?? text
+    const shouldCache = arg.cache !== false
     arg.signal?.throwIfAborted()
-    if(!arg.regenerate){
+    if(shouldCache && !arg.regenerate){
         const cacheMatch = await getLLMCache(cacheKey)
         if(cacheMatch !== null){
             arg.onCacheState?.(true)
@@ -724,12 +612,14 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
     // A cache miss may belong to a detached revenant job discovered just after
     // the throttled background poll. Force one authoritative recovery pass
     // before creating another model request.
-    await recoverRevenantTranslationJobs(revenantTranslationCache, {
-        force: true,
-        cacheKey,
-    })
+    if(shouldCache){
+        await recoverRevenantTranslationJobs(revenantTranslationCache, {
+            force: true,
+            cacheKey,
+        })
+    }
     arg.signal?.throwIfAborted()
-    if(!arg.regenerate){
+    if(shouldCache && !arg.regenerate){
         const recoveredCacheMatch = await getLLMCache(cacheKey)
         if(recoveredCacheMatch !== null){
             arg.onCacheState?.(true)
@@ -792,14 +682,14 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
         maxTokens: preset.maxResponse,
         modelPresetOverrideId: arg.modelPresetId,
         onRequestStatusActivate: arg.onRequestStatusActivate,
-        revenantOperationContext: revenantRequest.operationContext,
-        // The shared request pipeline discards failed/superseded attempts but
-        // leaves the final success until completeRevenantTranslation has
-        // durably written the translation cache.
-        revenantAuxiliaryResultPolicy: 'retain-success',
-        onRevenantJobCreated: jobId => {
+        revenantOperationContext: shouldCache ? revenantRequest.operationContext : undefined,
+        // Cached translations retain the final success until the cache write.
+        // Ephemeral translations omit the operation context and use the shared
+        // request pipeline's automatic acknowledgement instead.
+        revenantAuxiliaryResultPolicy: shouldCache ? 'retain-success' : undefined,
+        onRevenantJobCreated: shouldCache ? jobId => {
             revenantJob.id = jobId
-        },
+        } : undefined,
     }, 'translate', arg.signal)
 
     if(rq.type === 'fail'){
@@ -812,12 +702,14 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
         return text
     }
     arg.signal?.throwIfAborted()
-    const result = await completeRevenantTranslation(
-        revenantTranslationCache,
-        revenantRequest,
-        rq.result,
-        revenantJob.id,
-    )
+    const result = shouldCache
+        ? await completeRevenantTranslation(
+            revenantTranslationCache,
+            revenantRequest,
+            rq.result,
+            revenantJob.id,
+        )
+        : decodeRevenantTranslation(rq.result, revenantRequest.styleDecodes)
     if (!isUsableTranslationResult(result)) {
         notifyError(language.errors.emptyTranslationResponse)
         return revenantRequest.cacheKey

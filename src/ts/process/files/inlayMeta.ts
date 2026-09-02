@@ -11,6 +11,7 @@ export type InlayAssetMeta = {
     imageGeneration?: {
         prompt: string
         negativePrompt: string
+        seed?: number
     }
 }
 
@@ -87,7 +88,10 @@ function parseImageGenerationMeta(value: unknown): InlayAssetMeta['imageGenerati
     if(!value || typeof value !== 'object') return undefined
     const data = value as Record<string, unknown>
     if(typeof data.prompt !== 'string' || typeof data.negativePrompt !== 'string') return undefined
-    return { prompt: data.prompt, negativePrompt: data.negativePrompt }
+    const seed = typeof data.seed === 'number' && Number.isFinite(data.seed)
+        ? data.seed
+        : undefined
+    return { prompt: data.prompt, negativePrompt: data.negativePrompt, seed }
 }
 
 let _storage: NodeInlayMetaStorage | null = null

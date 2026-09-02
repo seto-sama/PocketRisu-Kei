@@ -1,4 +1,4 @@
-import type { PromptPresetFolder } from '../storage/database.svelte'
+import type { PresetTag } from '../preset/tags'
 
 export interface BookmarkCatalogEntry {
     characterId: string
@@ -7,13 +7,13 @@ export interface BookmarkCatalogEntry {
     name: string
     customName?: string | null
     preview: string
-    folderId?: string | null
+    tagIds: string[]
     sortOrder: number
 }
 
 export interface BookmarkCatalog {
     revision: number
-    folders: PromptPresetFolder[]
+    tags: PresetTag[]
     entries: BookmarkCatalogEntry[]
 }
 
@@ -26,7 +26,7 @@ export interface BookmarkTarget {
 export interface BookmarkCompatibilityData {
     bookmarks: string[]
     bookmarkNames?: Record<string, string>
-    bookmarkFolderIds?: Record<string, string>
+    bookmarkTagIds?: Record<string, string[]>
 }
 
 export interface BookmarkCompatibilityResult {
@@ -35,7 +35,7 @@ export interface BookmarkCompatibilityResult {
         chatId: string
         data: BookmarkCompatibilityData
     }>
-    folders: PromptPresetFolder[]
+    tags: PresetTag[]
 }
 
 export interface GlobalBookmarkEntry extends BookmarkCatalogEntry {

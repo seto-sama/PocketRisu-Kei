@@ -1,9 +1,9 @@
 <script lang="ts">
-    import { devToolAutopilotStore, selectedCharID } from "src/ts/stores.svelte";
+    import { devToolAutopilotStore, requestPreviewOpen, selectedCharID } from "src/ts/stores.svelte";
     import TextInput from "../UI/GUI/TextInput.svelte";
     import NumberInput from "../UI/GUI/NumberInput.svelte";
     import { previewChatGuardToast, previewPersistFailureToast } from "src/ts/globalApi.svelte";
-    import { alertConfirm, alertMd, alertWait } from "src/ts/alert";
+    import { alertConfirm, alertMd } from "src/ts/alert";
     import Accordion from "../UI/Accordion.svelte";
     import ShButton from "../UI/GUI/ShButton.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
@@ -15,113 +15,13 @@
     import { language } from 'src/lang';
     import ShSettings from "../UI/GUI/ShSettings.svelte";
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
-    import { ArrowDownIcon, ArrowUpIcon, BookOpenIcon, ChevronRightIcon, UploadIcon, PlusIcon, SearchIcon, TrashIcon } from "@lucide/svelte";
+    import { ArrowDownIcon, ArrowUpIcon, BookOpenIcon, ChevronRightIcon, FileSearchIcon, UploadIcon, PlusIcon, SearchIcon, TrashIcon } from "@lucide/svelte";
     import { selectSingleFile } from "src/ts/util";
-    import { doingChat, previewFormated, previewBody, sendChat, type OpenAIChat } from "src/ts/process/index.svelte";
-    import SelectInput from "../UI/GUI/SelectInput.svelte";
-    import { applyChatTemplate, chatTemplates } from "src/ts/process/templates/chatTemplate";
-    import OptionInput from "../UI/GUI/OptionInput.svelte";
+    import { doingChat, sendChat } from "src/ts/process/index.svelte";
     import { loadLoreBookV3Prompt } from "src/ts/process/lorebook.svelte";
     import { risuChatParser } from "src/ts/process/scripts";
     import { getModules } from "src/ts/process/modules";
 
-    let previewMode = $state('chat')
-    let previewJoin = $state('yes')
-    let instructType = $state('chatml')
-    let instructCustom = $state('')
-
-    const preview = async () => {
-        if($doingChat){
-            return false
-        }
-        alertWait("Loading...")
-        await sendChat(-1, {
-            preview: previewJoin !== 'prompt',
-            previewPrompt: previewJoin === 'prompt'
-        })
-
-        let md = ''
-        const styledRole = {
-            "function": "📐 Function",
-            "user": "😐 User",
-            "system": "⚙️ System",
-            "assistant": "✨ Assistant",
-        }
-
-        if(previewJoin === 'prompt'){
-            md += '### Prompt\n'
-            md += '```json\n' + JSON.stringify(JSON.parse(previewBody), null, 2).replaceAll('```', '\\`\\`\\`') + '\n```\n'
-            $doingChat = false
-            alertMd(md)
-            return
-        }
-
-        let formated = safeStructuredClone(previewFormated)
-
-        if(previewJoin === 'yes'){
-            const newFormated: OpenAIChat[] = []
-            let latestRole = ''
-
-            for(let i=0;i<formated.length;i++){
-                if(formated[i].role === latestRole){
-                    const merged = newFormated[newFormated.length - 1]
-                    merged.content += '\n' + formated[i].content
-                    if(formated[i].multimodals){
-                        merged.multimodals ??= []
-                        merged.multimodals.push(...formated[i].multimodals)
-                    }
-                    if(formated[i].thoughts){
-                        merged.thoughts ??= []
-                        merged.thoughts.push(...formated[i].thoughts)
-                    }
-                    if(formated[i].cachePoint){
-                        merged.cachePoint = true
-                    }
-                }else{
-                    newFormated.push(formated[i])
-                    latestRole = formated[i].role
-                }
-            }
-
-            formated = newFormated
-        }
-
-        if(previewMode === 'instruct'){
-            const instructed = applyChatTemplate(formated, {
-                type: instructType,
-                custom: instructCustom
-            })
-
-            md += '### Instruction\n'
-            md += '```\n' + instructed.replaceAll('```', '\\`\\`\\`') + '\n```\n'
-            $doingChat = false
-            alertMd(md)
-            return
-        }
-
-        for(let i=0;i<formated.length;i++){
-            
-            md += '### ' + (styledRole[formated[i].role] ?? '🤔 Unknown role') + '\n'
-            const modals = formated[i].multimodals
-
-            if(modals && modals.length > 0){
-                md += `> ${modals.length} non-text content(s) included\n` 
-            }
-
-            if(formated[i].thoughts && formated[i].thoughts.length > 0){
-                md += `> ${formated[i].thoughts.length} thought(s) included\n`
-            }
-
-            md += '```\n' + formated[i].content.replaceAll('```', '\\`\\`\\`') + '\n```\n'
-
-            if(formated[i].cachePoint){
-                md += `> Cache point\n`
-            }
-        }
-        $doingChat = false
-        alertMd(md)
-    }
-    
     async function getCharacterDescriptionToken() {
         const char = DBState.db.characters[$selectedCharID]
         return tokenize(risuChatParser(char.desc, { chara: char }))
@@ -209,8 +109,8 @@
     </ShSettings>
 {/snippet}
 
-<Accordion styled name={language.chatVariables}>
-    <ShSettings spacing="spaced">
+<Accordion styled name={language.chatVariables} topGap={false}>
+    <ShSettings spacing="none">
         {#if DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate &&  Object.keys(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate).length > 0}
             {#each Object.keys(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate) as key}
                 <ShSettings
@@ -284,7 +184,7 @@
     {#each $devToolAutopilotStore as _, i}
         <div class="mt-2 flex items-center gap-1">
             <div class="min-w-0 flex-1">
-                <TextAreaInput bind:value={$devToolAutopilotStore[i]} placeholder="..." fullwidth />
+                <TextAreaInput bind:value={$devToolAutopilotStore[i]} commitMode="input" placeholder="..." fullwidth />
             </div>
             <IconButtonGroup size="sm" direction="vertical">
                 <IconButton
@@ -340,55 +240,19 @@
 </Accordion>
 
 
-<Accordion styled name={language.devToolPromptPreview.title}>
-    <ShSettings spacing="spaced">
-        <ShSettings variant="row">
-            <span class="min-w-0 pr-2">{language.devToolPromptPreview.type}</span>
-            <SelectInput className="min-w-0 flex-1" bind:value={previewMode}>
-                <OptionInput value="chat">{language.devToolPromptPreview.chat}</OptionInput>
-                <OptionInput value="instruct">{language.devToolPromptPreview.instruct}</OptionInput>
-            </SelectInput>
+<Accordion styled name={language.preview}>
+    <ShSettings spacing="none">
+        <ShSettings variant="row" className="px-0">
+            <ShButton
+                variant="ghost"
+                className="w-full justify-start px-1"
+                onclick={() => requestPreviewOpen.set(true)}
+            >
+                <FileSearchIcon class="text-textcolor2" />
+                <span class="min-w-0 flex-1 truncate text-left">{language.devToolPreview.request}</span>
+                <ChevronRightIcon class="text-textcolor2" />
+            </ShButton>
         </ShSettings>
-        {#if previewMode === 'instruct'}
-            <ShSettings variant="row">
-                <span class="min-w-0 pr-2">{language.devToolPromptPreview.instructionType}</span>
-                <SelectInput className="min-w-0 flex-1" bind:value={instructType}>
-                    {#each Object.keys(chatTemplates) as template}
-                        <OptionInput value={template}>{template}</OptionInput>
-                    {/each}
-                    <OptionInput value="jinja">{language.devToolPromptPreview.customJinja}</OptionInput>
-                </SelectInput>
-            </ShSettings>
-            {#if instructType === 'jinja'}
-                <div class="mt-2">
-                    <span>{language.devToolPromptPreview.customJinja}</span>
-                    <TextAreaInput bind:value={instructCustom} />
-                </div>
-            {/if}
-        {/if}
-        <ShSettings variant="row">
-            <span class="min-w-0 pr-2">{language.devToolPromptPreview.merge}</span>
-            <SelectInput className="min-w-0 flex-1" bind:value={previewJoin}>
-                <OptionInput value="yes">{language.devToolPromptPreview.withMerge}</OptionInput>
-                <OptionInput value="no">{language.devToolPromptPreview.withoutMerge}</OptionInput>
-                <OptionInput value="prompt">{language.devToolPromptPreview.asRequest}</OptionInput>
-            </SelectInput>
-        </ShSettings>
-    </ShSettings>
-    <div class="mt-2 flex justify-end">
-        <ShButton
-            variant="outline"
-            size="sm"
-            disabled={$doingChat}
-            onclick={preview}
-        >
-            {language.run}
-        </ShButton>
-    </div>
-</Accordion>
-
-<Accordion styled name={language.devToolLorebookPreview.title}>
-    <ShSettings spacing="spaced">
         <ShSettings variant="row" className="px-0">
             <ShButton
                 variant="ghost"
@@ -404,7 +268,7 @@
                 }}
             >
                 <BookOpenIcon class="text-textcolor2" />
-                <span class="min-w-0 flex-1 truncate text-left">{language.devToolLorebookPreview.active}</span>
+                <span class="min-w-0 flex-1 truncate text-left">{language.devToolPreview.active}</span>
                 <ChevronRightIcon class="text-textcolor2" />
             </ShButton>
         </ShSettings>
@@ -418,8 +282,8 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>${language.devToolLorebookPreview.keyword}</th>
-                                <th>${language.devToolLorebookPreview.source}</th>
+                                <th>${language.devToolPreview.keyword}</th>
+                                <th>${language.devToolPreview.source}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -436,7 +300,7 @@
                 }}
             >
                 <SearchIcon class="text-textcolor2" />
-                <span class="min-w-0 flex-1 truncate text-left">{language.devToolLorebookPreview.matches}</span>
+                <span class="min-w-0 flex-1 truncate text-left">{language.devToolPreview.matches}</span>
                 <ChevronRightIcon class="text-textcolor2" />
             </ShButton>
         </ShSettings>

@@ -6,6 +6,7 @@
     import { tick } from 'svelte';
     import TextInput from './TextInput.svelte';
     import OverlayPortal from './OverlayPortal.svelte';
+    import { getVisualViewportBounds } from 'src/ts/gui/visualViewport';
 
     interface Props {
         value: string;
@@ -62,14 +63,21 @@
         if (!input || !dropdownEl || !listVisible) return;
 
         const rect = input.getBoundingClientRect();
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const spaceAbove = rect.top;
-        const dropdownHeight = dropdownEl.offsetHeight;
+        const viewport = getVisualViewportBounds();
+        const spaceBelow = viewport.bottom - rect.bottom;
+        const spaceAbove = rect.top - viewport.top;
+        const desiredHeight = dropdownEl.scrollHeight;
+        const minLeft = viewport.left + 8;
+        const maxLeft = Math.max(minLeft, viewport.right - rect.width - 8);
+        const left = Math.min(Math.max(rect.left, minLeft), maxLeft);
+        const placeBelow = spaceBelow >= desiredHeight || spaceBelow >= spaceAbove;
+        const availableHeight = Math.max(0, (placeBelow ? spaceBelow : spaceAbove) - 10);
+        const dropdownHeight = Math.min(desiredHeight, availableHeight);
 
-        if (spaceBelow >= dropdownHeight || spaceBelow >= spaceAbove) {
-            dropdownStyle = `top: ${rect.bottom + 2}px; left: ${rect.left}px; width: ${rect.width}px;`;
+        if (placeBelow) {
+            dropdownStyle = `top: ${rect.bottom + 2}px; left: ${left}px; width: ${rect.width}px; max-height: ${availableHeight}px;`;
         } else {
-            dropdownStyle = `bottom: ${window.innerHeight - rect.top + 2}px; left: ${rect.left}px; width: ${rect.width}px;`;
+            dropdownStyle = `top: ${Math.max(viewport.top + 8, rect.top - dropdownHeight - 2)}px; left: ${left}px; width: ${rect.width}px; max-height: ${availableHeight}px;`;
         }
     }
 
@@ -151,10 +159,14 @@
         document.addEventListener('pointerdown', handlePointerDown, true);
         window.addEventListener('resize', positionDropdown);
         window.addEventListener('scroll', positionDropdown, true);
+        window.visualViewport?.addEventListener('resize', positionDropdown);
+        window.visualViewport?.addEventListener('scroll', positionDropdown);
         return () => {
             document.removeEventListener('pointerdown', handlePointerDown, true);
             window.removeEventListener('resize', positionDropdown);
             window.removeEventListener('scroll', positionDropdown, true);
+            window.visualViewport?.removeEventListener('resize', positionDropdown);
+            window.visualViewport?.removeEventListener('scroll', positionDropdown);
         };
     });
 </script>
@@ -187,7 +199,7 @@
             data-risu-dialog-interactive
             id={listboxId}
             role="listbox"
-            class="risu-layer-overlay fixed max-h-64 overflow-y-auto rounded-md border border-darkborderc
+            class="risu-layer-overlay fixed overflow-y-auto rounded-md border border-darkborderc
                    bg-darkbg shadow-lg p-1"
             style={dropdownStyle}
         >

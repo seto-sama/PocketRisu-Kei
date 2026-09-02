@@ -98,6 +98,7 @@ describe("normalizeTranslatorPresetState", () => {
             name: "Legacy",
         }));
     });
+
 });
 
 describe("getCurrentTranslatorPresetFromState", () => {

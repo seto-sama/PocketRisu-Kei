@@ -6,13 +6,19 @@
     // Restore flow forces a full page reload because the in-memory db cache
     // is replaced; download streams via streamsaver to avoid loading the
     // backup into memory.
-    import { language } from "src/lang";
+    import { getCurrentLocale, language } from "src/lang";
     import { alertConfirm, alertConfirmMulti, alertError, alertWait, alertStore, waitAlert, notifySuccess, notifyError } from "src/ts/alert";
     import { forageStorage, downloadFile } from "src/ts/globalApi.svelte";
     import { RotateCcwIcon, DownloadIcon, TrashIcon } from "@lucide/svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import InlineRenameAction from "src/lib/UI/GUI/InlineRenameAction.svelte";
+    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import BackupNoteEditor from "src/lib/Setting/BackupNoteEditor.svelte";
+    import { updateBackupNote } from "src/ts/drive/backupNotes";
+
+    const PAGE_SIZE = 20;
 
     interface Props {
         onChange?: () => void;
@@ -24,10 +30,16 @@
         filename: string;
         size: number;
         createdAt: number;
+        note: string;
     }
 
     let backups = $state<BackupEntry[]>([]);
     let loading = $state(true);
+    let shown = $state(PAGE_SIZE);
+    let noteEditorOpen = $state(false);
+    let noteEditorBackup = $state<BackupEntry | null>(null);
+    const displayedBackups = $derived(backups.slice(0, shown));
+    const remaining = $derived(Math.max(0, backups.length - shown));
 
     function formatBytes(bytes: number): string {
         if (bytes < 1024) return `${bytes} B`;
@@ -40,7 +52,8 @@
         loading = true;
         try {
             const result = await forageStorage.listServerBackups();
-            backups = result.backups;
+            backups = result.backups.map(backup => ({ ...backup, note: backup.note ?? '' }));
+            shown = PAGE_SIZE;
             onStatsChange?.(
                 backups.length,
                 backups.reduce((total, backup) => total + backup.size, 0),
@@ -154,6 +167,17 @@
         }
     }
 
+    function openNoteEditor(backup: BackupEntry) {
+        noteEditorBackup = backup;
+        noteEditorOpen = true;
+    }
+
+    async function saveNote(value: string) {
+        if (!noteEditorBackup) return;
+        noteEditorBackup.note = await updateBackupNote('server', noteEditorBackup.filename, value);
+        backups = [...backups];
+    }
+
     loadBackups();
 </script>
 
@@ -162,30 +186,48 @@
 {:else if backups.length === 0}
     <p class="text-textcolor2 text-sm">{language.serverBackupEmpty}</p>
 {:else}
-    <SettingLayout variant="list" scrollable className="max-h-[75vh]">
-        {#each backups as backup (backup.filename)}
-            <SettingLayout variant="item" className="text-textcolor">
+    <SettingLayout variant="list">
+        {#each displayedBackups as backup (backup.filename)}
+            <SettingLayout variant="item" inlineRenameRow className="text-textcolor">
                 <div class="flex flex-col min-w-0 flex-1">
-                    <span class="text-sm">{new Date(backup.createdAt).toLocaleString()}</span>
-                    <span class="text-xs text-textcolor2 tabular-nums">{formatBytes(backup.size)}</span>
+                    <span class="truncate text-sm text-textcolor">{backup.note || language.backupNoteEmpty}</span>
+                    <span class="flex flex-wrap items-center gap-x-1 text-xs text-textcolor2 tabular-nums">
+                        <span>{new Date(backup.createdAt).toLocaleString(getCurrentLocale())}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{formatBytes(backup.size)}</span>
+                    </span>
                 </div>
                 {#snippet control()}
                     <IconButtonGroup>
-                    <IconButton title={language.serverBackupRestore} aria-label={language.serverBackupRestore}
-                        onclick={() => chooseRestore(backup)}>
-                        <RotateCcwIcon />
-                    </IconButton>
-                    <IconButton title={language.serverBackupDownload} aria-label={language.serverBackupDownload}
-                        onclick={() => downloadBackup(backup)}>
-                        <DownloadIcon />
-                    </IconButton>
-                    <IconButton tone="destructive" title={language.serverBackupDelete} aria-label={language.serverBackupDelete}
-                        onclick={() => deleteBackup(backup)}>
-                        <TrashIcon />
-                    </IconButton>
+                        <InlineRenameAction title={language.backupNoteEdit} onclick={() => openNoteEditor(backup)} />
+                        <IconButton title={language.serverBackupRestore} aria-label={language.serverBackupRestore}
+                            onclick={() => chooseRestore(backup)}>
+                            <RotateCcwIcon />
+                        </IconButton>
+                        <IconButton title={language.serverBackupDownload} aria-label={language.serverBackupDownload}
+                            onclick={() => downloadBackup(backup)}>
+                            <DownloadIcon />
+                        </IconButton>
+                        <IconButton tone="destructive" title={language.serverBackupDelete} aria-label={language.serverBackupDelete}
+                            onclick={() => deleteBackup(backup)}>
+                            <TrashIcon />
+                        </IconButton>
                     </IconButtonGroup>
                 {/snippet}
             </SettingLayout>
         {/each}
     </SettingLayout>
+    {#if remaining > 0}
+        <div class="flex justify-center mt-3">
+            <ShButton variant="outline" size="default" onclick={() => shown += PAGE_SIZE}>
+                {language.systemLogsLoadMore}
+            </ShButton>
+        </div>
+    {/if}
 {/if}
+
+<BackupNoteEditor
+    bind:open={noteEditorOpen}
+    value={noteEditorBackup?.note ?? ''}
+    onSave={saveNote}
+/>

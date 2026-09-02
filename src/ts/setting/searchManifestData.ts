@@ -29,7 +29,7 @@ export const searchManifestEntries: ManualSearchEntry[] = [
     { id: 'manual.addons.moduleModelBinding', label: () => language.moduleModelBindingEnable, keywords: ['module model binding', 'per-module model', '모듈별 모델', '모듈 모델 바인딩'], route: SettingsRoute.Addons, subTab: 1 },
     { id: 'manual.addons.mcp', label: () => 'MCP', keywords: ['mcp', 'model context protocol'], route: SettingsRoute.Addons, subTab: 2 },
     { id: 'manual.display.sound', label: () => language.soundAndNotification, keywords: ['sound', 'notification', 'volume', '소리', '알림'], route: SettingsRoute.Display, subTab: 3 },
-    { id: 'manual.accessibility.hotkeys', label: () => language.hotkey, keywords: ['hotkey', 'shortcut', '단축키', '핫키'], route: SettingsRoute.Accessibility, subTab: 3 },
+    { id: 'manual.page.hotkeys', label: () => language.hotkey, keywords: ['hotkey', 'shortcut', '단축키', '핫키'], route: SettingsRoute.Hotkeys, subTab: 0 },
     { id: 'manual.page.advanced', label: () => language.advancedSettings, keywords: ['advanced', 'developer', '고급', '개발자'], route: SettingsRoute.Advanced },
     { id: 'manual.inlay.images', label: () => language.inlayGallery.inlayImageList, keywords: ['inlay image', '인레이 이미지'], route: SettingsRoute.InlayImageGallery, subTab: 0 },
     { id: 'manual.inlay.media', label: () => language.inlayGallery.inlayMediaList, keywords: ['inlay media', 'video', 'audio', '인레이 미디어'], route: SettingsRoute.InlayImageGallery, subTab: 1 },
@@ -46,7 +46,7 @@ export const searchManifestEntries: ManualSearchEntry[] = [
     },
     { id: 'manual.system.pluginStorage', label: () => language.pluginStorageTab, keywords: ['plugin storage', '플러그인 저장소'], route: SettingsRoute.System, subTab: 2 },
     { id: 'manual.admin.systemLogs', label: () => language.systemLogs, keywords: ['system log', 'error log', '시스템 로그'], route: SettingsRoute.AdminAndStats, subTab: 0 },
-    { id: 'manual.admin.requestLogs', label: () => 'Request Logs', keywords: ['request log', 'api call', '요청 로그'], route: SettingsRoute.AdminAndStats, subTab: 1 },
+    { id: 'manual.admin.requestLogs', label: () => 'Request Logs', keywords: ['request log', 'api call', '요청 로그', '리퀘스트 로그'], route: SettingsRoute.AdminAndStats, subTab: 1 },
     { id: 'manual.admin.usage', label: () => 'Usage', keywords: ['usage', 'token', 'statistics', '사용량', '통계'], route: SettingsRoute.AdminAndStats, subTab: 2 },
     { id: 'manual.page.files', label: () => language.files, keywords: ['files', 'assets', '파일'], route: SettingsRoute.Files },
 ];

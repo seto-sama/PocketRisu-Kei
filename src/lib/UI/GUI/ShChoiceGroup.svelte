@@ -1,6 +1,7 @@
 <script lang="ts">
     import { RadioGroup, ToggleGroup } from 'bits-ui';
     import { cn } from 'src/lib/utils';
+    import ShTooltip from './ShTooltip.svelte';
 
     interface ChoiceOption {
         value: string;
@@ -124,9 +125,20 @@
                     </span>
                 </RadioGroup.Item>
             {:else}
-                <RadioGroup.Item value={opt.value} class={groupedItemClass(index)}>
-                    {opt.label}
-                </RadioGroup.Item>
+                {#if opt.description}
+                    <ShTooltip>
+                        {#snippet trigger(props)}
+                            <RadioGroup.Item {...props} value={opt.value} class={groupedItemClass(index)}>
+                                {opt.label}
+                            </RadioGroup.Item>
+                        {/snippet}
+                        <span class="whitespace-pre-line">{opt.description}</span>
+                    </ShTooltip>
+                {:else}
+                    <RadioGroup.Item value={opt.value} class={groupedItemClass(index)}>
+                        {opt.label}
+                    </RadioGroup.Item>
+                {/if}
             {/if}
         {/each}
     </RadioGroup.Root>

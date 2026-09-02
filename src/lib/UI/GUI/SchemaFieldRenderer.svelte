@@ -253,7 +253,7 @@
         {/if}
         {#if uiField.widget === 'textarea'}
             <TextAreaInput
-                commitMode="blur"
+                commitMode="debounce"
                 className="mt-2"
                 bind:value={userValues[fieldKey] as string}
                 placeholder={uiField.placeholder ?? ''}
@@ -264,7 +264,7 @@
             />
         {:else}
             <TextAreaInput
-                commitMode="blur"
+                commitMode="debounce"
                 className="mt-2"
                 bind:value={stringArrayText}
                 placeholder={uiField.placeholder ?? ''}
@@ -383,7 +383,7 @@
         />
     {:else if uiField.widget === 'textarea'}
         <TextAreaInput
-            commitMode="blur"
+            commitMode="debounce"
             bind:value={userValues[fieldKey] as string}
             placeholder={uiField.placeholder ?? ''}
             popupTitle={localizedLabel}
@@ -436,7 +436,7 @@
         {/if}
     {:else if uiField.widget === 'string-array'}
         <TextAreaInput
-            commitMode="blur"
+            commitMode="debounce"
             bind:value={stringArrayText}
             placeholder={uiField.placeholder ?? ''}
             popupTitle={localizedLabel}
@@ -446,7 +446,7 @@
         />
     {:else if uiField.widget === 'json' || uiField.widget === 'key-value'}
         <TextAreaInput
-            commitMode="blur"
+            commitMode="debounce"
             bind:value={jsonText}
             placeholder={uiField.placeholder ?? '{}'}
             popupTitle={localizedLabel}

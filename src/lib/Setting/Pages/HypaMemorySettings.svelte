@@ -14,18 +14,18 @@
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
-    import InlineNameInput from "src/lib/UI/GUI/InlineNameInput.svelte";
+    import InlineEditableName from "src/lib/UI/GUI/InlineEditableName.svelte";
     import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { listApiKeys } from "src/ts/preset/apiKeyPool";
     import { createHypaV3Preset } from "src/ts/process/memory/hypav3";
     import { DBState } from "src/ts/stores.svelte";
     import { selectSingleFile } from "src/ts/util";
+    import { normalizeTagIds, removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
     let { maxMemoryRatio }: { maxMemoryRatio: Promise<number> } = $props();
 
     let pickerOpen = $state(false);
-    let editMode = $state(false);
     let selectedFolder = $state("all");
     let searchQuery = $state("");
     let visibleItemIndexes = $state<number[]>([]);
@@ -40,7 +40,7 @@
     let voyageKeyMode = $state<ApiKeyInputMode>(getInitialApiKeyInputMode(initialVoyageKeyRef, DBState.db.voyageApiKey));
     let customKeyMode = $state<ApiKeyInputMode>(getInitialApiKeyInputMode(initialCustomKeyRef, DBState.db.hypaCustomSettings.key));
 
-    const folders = $derived(DBState.db.hypaV3PresetFolders ?? []);
+    const tags = $derived(DBState.db.hypaV3PresetTags ?? []);
     const preset = $derived(DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]);
     const settings = $derived(preset?.settings);
     const openAIKeys = $derived(listApiKeys("openai"));
@@ -106,7 +106,7 @@
 
     function addPreset() {
         const next = createHypaV3Preset();
-        next.folderId = undefined;
+        next.tagIds = undefined;
         DBState.db.hypaV3Presets = [...DBState.db.hypaV3Presets, next];
         DBState.db.hypaV3PresetId = DBState.db.hypaV3Presets.length - 1;
     }
@@ -142,7 +142,7 @@
             const obj = JSON.parse(Buffer.from(file.data).toString("utf-8"));
             if (obj.type !== "risu" || !obj.data) throw new Error(language.hypaV3Settings.invalidPresetError);
             const next = createHypaV3Preset(obj.data.name || "Imported Preset", obj.data.settings || {});
-            next.folderId = obj.data.folderId;
+            next.tagIds = normalizeTagIds(obj.data.tagIds ?? obj.data.folderId);
             DBState.db.hypaV3Presets = [...DBState.db.hypaV3Presets, next];
             DBState.db.hypaV3PresetId = DBState.db.hypaV3Presets.length - 1;
             notifySuccess(language.successImport);
@@ -183,10 +183,10 @@
 
             {#if settings}
                 <SettingLayout variant="row" title={language.summarizationPrompt} description={help("summarizationPrompt")} stacked>
-                    <TextAreaInput commitMode="blur" bind:value={settings.summarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
+                    <TextAreaInput commitMode="debounce" bind:value={settings.summarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
                 </SettingLayout>
                 <SettingLayout variant="row" title={language.reSummarizationPrompt} description={help("reSummarizationPrompt")} stacked>
-                    <TextAreaInput commitMode="blur" bind:value={settings.reSummarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
+                    <TextAreaInput commitMode="debounce" bind:value={settings.reSummarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
                 </SettingLayout>
 
                 <h3 class="text-base font-bold mt-8 mb-1">{language.hypaV3Settings.memoryConfigurationLabel}</h3>
@@ -285,35 +285,40 @@
 {#if pickerOpen}
     <PresetPickerLayout
         title={`${language.HypaMemory} ${language.presets}`}
-        {folders}
-        itemFolderIds={DBState.db.hypaV3Presets.map(item => item.folderId)}
+        folders={tags}
+        itemFolderIds={DBState.db.hypaV3Presets.map(item => item.tagIds)}
+        organizationKind="tag"
         itemNames={DBState.db.hypaV3Presets.map(item => item.name)}
         itemDragDataKey="hypaPresetIndex"
         bind:selectedFolder bind:searchQuery bind:visibleItemIndexes bind:emptyMessage
         close={() => pickerOpen = false}
-        onFoldersChange={(next) => DBState.db.hypaV3PresetFolders = next}
-        onAssignItem={(index, folderId) => {
-            DBState.db.hypaV3Presets[index].folderId = folderId;
+        onFoldersChange={(next) => DBState.db.hypaV3PresetTags = next}
+        onAssignItem={(index, tagId) => {
+            const preset = DBState.db.hypaV3Presets[index];
+            preset.tagIds = togglePresetTag(preset.tagIds, tagId);
             DBState.db.hypaV3Presets = [...DBState.db.hypaV3Presets];
         }}
-        onDeleteFolder={(folderId) => DBState.db.hypaV3Presets = DBState.db.hypaV3Presets.map(item =>
-            item.folderId === folderId ? { ...item, folderId: undefined } : item)}
+        onDeleteFolder={(tagId) => DBState.db.hypaV3Presets = DBState.db.hypaV3Presets.map(item => ({
+            ...item,
+            tagIds: removePresetTag(item.tagIds, tagId),
+        }))}
         selectedItemIndex={DBState.db.hypaV3PresetId}
-        itemEditMode={editMode}
         onMoveItem={movePreset}
         onSelectItem={selectPreset}
         onDuplicateItem={duplicatePreset}
         onExportItem={exportPreset}
         onDeleteItem={removePreset}
+        itemRenameable
     >
-        {#snippet itemContent(index)}
-                {@const item = DBState.db.hypaV3Presets[index]}
-                {#if editMode}
-                    <div class="grow min-w-0"><InlineNameInput bind:value={DBState.db.hypaV3Presets[index].name} size="default" placeholder="string"/></div>
-                {:else}
-                    <span class="grow min-w-0 truncate">{item.name}</span>
-                {/if}
+        {#snippet itemContent(index, renameController)}
+                <InlineEditableName
+                    controller={renameController}
+                    bind:value={DBState.db.hypaV3Presets[index].name}
+                    size="default"
+                    placeholder="string"
+                    onActivate={() => selectPreset(index)}
+                />
         {/snippet}
-        <PresetPickerActions onCreate={addPreset} onImport={importPreset} onRename={() => editMode = !editMode}/>
+        <PresetPickerActions onCreate={addPreset} onImport={importPreset}/>
     </PresetPickerLayout>
 {/if}

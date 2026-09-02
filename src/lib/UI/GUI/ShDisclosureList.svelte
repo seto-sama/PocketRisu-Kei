@@ -13,6 +13,7 @@
         dividerTone?: 'default' | 'muted';
         className?: string;
         headerClass?: string;
+        inlineRenameRow?: boolean;
         bodyClass?: string;
         bodyPadded?: boolean;
         onToggle?: () => void;
@@ -31,6 +32,7 @@
         dividerTone = 'default',
         className = '',
         headerClass = '',
+        inlineRenameRow = false,
         bodyClass = '',
         bodyPadded = true,
         onToggle = () => {},
@@ -87,7 +89,11 @@
 
 {#if variant === 'item'}
     <div {...rest} bind:this={element} class={itemClasses} data-disclosure-divider-tone={dividerTone}>
-        <div class={headerClasses} data-disclosure-header>
+        <div
+            class={headerClasses}
+            data-disclosure-header
+            data-inline-rename-row={inlineRenameRow ? '' : undefined}
+        >
             <div
                 role="button"
                 tabindex="0"
@@ -115,7 +121,13 @@
         {/if}
     </div>
 {:else}
-    <div {...rest} bind:this={element} class={listClasses} ondragstart={createDragPreview}>
+    <div
+        {...rest}
+        bind:this={element}
+        class={listClasses}
+        data-disclosure-background={background ? 'filled' : 'transparent'}
+        ondragstart={createDragPreview}
+    >
         {@render children?.()}
     </div>
 {/if}
@@ -125,6 +137,10 @@
         background-color: var(--risu-theme-darkbg);
         border-color: var(--risu-theme-selected);
         opacity: 0.7;
+    }
+
+    :global([data-disclosure-background="transparent"] > .risu-ghost-item) {
+        background-color: transparent;
     }
 
     /* A list item owns the full-width divider, so scaling its root also

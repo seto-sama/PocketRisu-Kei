@@ -1,6 +1,6 @@
 <script lang="ts">
     import { Collapsible } from 'bits-ui';
-    import { ArrowDownUpIcon, ChevronDownIcon, CopyIcon, DownloadIcon, EraserIcon, UploadIcon, LanguagesIcon, PencilIcon, ScrollTextIcon, SearchIcon, Trash2Icon } from '@lucide/svelte';
+    import { ArrowDownUpIcon, ChevronDownIcon, CopyIcon, DownloadIcon, UploadIcon, LanguagesIcon, SquarePenIcon, ScrollTextIcon, SearchIcon, Trash2Icon } from '@lucide/svelte';
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import ShInput from "src/lib/UI/GUI/ShInput.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
@@ -318,7 +318,7 @@
             {#each [
                 { title: language.exportTranslationCache, desc: language.exportTranslationCacheDesc, icon: DownloadIcon, action: exportCache, variant: "outline" as const },
                 { title: language.importTranslationCache, desc: language.importTranslationCacheDesc, icon: UploadIcon, action: importCache, variant: "outline" as const },
-                { title: language.cleanupUnusedTranslationCache, desc: language.cleanupUnusedTranslationCacheDesc, icon: EraserIcon, action: cleanupUnusedCache, variant: "outline" as const },
+                { title: language.cleanupUnusedTranslationCache, desc: language.cleanupUnusedTranslationCacheDesc, icon: Trash2Icon, action: cleanupUnusedCache, variant: "outline" as const },
             ] as operation}
                 <SettingLayout
                     variant="action"
@@ -353,7 +353,7 @@
             loading={!cacheInitialized || cacheLoading} loadingLabel={language.loading} error={cacheLoadError} />
 
         {#if displayedCacheEntries.length > 0}
-            <SettingLayout variant="list" scrollable className="max-h-[75vh]">
+            <SettingLayout variant="list">
                 {#each displayedCacheEntries as entry (entry.key)}
                     <Collapsible.Root
                         open={expandedCacheEntries[entry.key] === true}
@@ -374,6 +374,7 @@
                                 {#if editingCacheKey === entry.key}
                                     <TextAreaInput
                                         bind:value={editingCacheValue}
+                                        commitMode="input"
                                         fullwidth
                                         actionBar={true}
                                         className="bg-bgcolor/50"
@@ -398,7 +399,7 @@
                                                 <span>{language.copy}</span>
                                             </ShButton>
                                             <ShButton variant="outline" size="sm" onclick={() => openEditTranslationCacheEntry(entry)}>
-                                                <PencilIcon />
+                                                <SquarePenIcon />
                                                 <span>{language.edit}</span>
                                             </ShButton>
                                             <ShButton

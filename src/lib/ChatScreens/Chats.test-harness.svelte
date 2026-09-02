@@ -7,11 +7,15 @@
         currentCharacter,
         roomIsStreaming = false,
         roomIsResponding = roomIsStreaming,
+        imageRerollingMessageId = null,
+        onReroll = () => {},
     }: {
         messages: Message[]
         currentCharacter: character
         roomIsStreaming?: boolean
         roomIsResponding?: boolean
+        imageRerollingMessageId?: string | null
+        onReroll?: (idx?: number) => void
     } = $props()
 
     let hasNewUnreadMessage = $state(false)
@@ -22,13 +26,14 @@
         {messages}
         {currentCharacter}
         chatRoomId="chat-1"
-        onReroll={() => {}}
+        {onReroll}
         unReroll={() => {}}
         currentUsername="User"
         userIcon="user.png"
         loadPages={30}
         {roomIsStreaming}
         {roomIsResponding}
+        {imageRerollingMessageId}
         bind:hasNewUnreadMessage
     />
 </div>

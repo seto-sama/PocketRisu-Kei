@@ -16,7 +16,7 @@
         framed = false,
         embedded = false,
         interactive = false,
-        scrollable = false,
+        inlineRenameRow = false,
         shownCount = 0,
         totalCount = 0,
         loading = false,
@@ -47,7 +47,7 @@
         framed?: boolean;
         embedded?: boolean;
         interactive?: boolean;
-        scrollable?: boolean;
+        inlineRenameRow?: boolean;
         shownCount?: number;
         totalCount?: number;
         loading?: boolean;
@@ -88,6 +88,7 @@
     {#if interactive}
         <div
             class="flex w-full items-center gap-3 px-3 py-2 cursor-pointer risu-interactive-surface {className}"
+            data-inline-rename-row={inlineRenameRow ? '' : undefined}
             role="button"
             tabindex="0"
             {onclick}
@@ -97,7 +98,10 @@
             {#if control}<div class="flex items-center gap-2 shrink-0">{@render control()}</div>{/if}
         </div>
     {:else}
-        <div class="flex w-full items-center gap-3 px-3 py-2 {className}">
+        <div
+            class="flex w-full items-center gap-3 px-3 py-2 {className}"
+            data-inline-rename-row={inlineRenameRow ? '' : undefined}
+        >
             {@render children?.()}
             {#if control}<div class="flex items-center gap-2 shrink-0">{@render control()}</div>{/if}
         </div>
@@ -108,7 +112,6 @@
         class:border={!embedded}
         class:border-darkborderc={!embedded}
         class:rounded-md={!embedded}
-        class:overflow-y-auto={scrollable}
     >
         {@render children?.()}
     </div>

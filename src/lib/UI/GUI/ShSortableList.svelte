@@ -13,7 +13,7 @@
 </script>
 
 <script lang="ts">
-    import type { Snippet } from 'svelte';
+    import { untrack, type Snippet } from 'svelte';
     import Sortable, { type Options, type SortableEvent } from 'sortablejs';
     import { sortableOptions } from 'src/ts/util';
     import { layerZIndexes } from 'src/ts/gui/layers';
@@ -54,6 +54,7 @@
 
     let keysBeforeDrag: string[] = [];
     let dragOrigin: SortableDragOrigin | null = null;
+    let sortableInstance: Sortable | null = null;
 
     function itemKey(item: HTMLElement): string {
         return item.getAttribute(dataAttribute) ?? '';
@@ -112,7 +113,7 @@
     }
 
     $effect(() => {
-        if (!element || disabled) return;
+        if (!element) return;
 
         const sortable = Sortable.create(element, {
             ...sortableOptions,
@@ -122,6 +123,7 @@
             dragClass: 'risu-drag-item',
             ghostClass: 'risu-ghost-item',
             ...options,
+            disabled: untrack(() => disabled),
             draggable,
             ...(handle ? { handle } : {}),
             setData: setDragData,
@@ -160,12 +162,18 @@
                 }
             },
         });
+        sortableInstance = sortable;
 
         return () => {
+            if (sortableInstance === sortable) sortableInstance = null;
             try {
                 sortable.destroy();
             } catch (_) {}
         };
+    });
+
+    $effect(() => {
+        sortableInstance?.option('disabled', disabled);
     });
 </script>
 

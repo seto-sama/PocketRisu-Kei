@@ -1,11 +1,11 @@
 <script lang="ts">
     import { UserRoundIcon } from "@lucide/svelte";
-    import { tooltip } from "src/ts/gui/tooltip";
     import SelectionParticles from "./SelectionParticles.svelte";
 
     interface Props {
         src?: string | Promise<string>;
         name: string;
+        subtitle?: string;
         selected?: boolean;
         hideImage?: boolean;
         onclick?: () => void;
@@ -14,6 +14,7 @@
     let {
         src = '',
         name,
+        subtitle = '',
         selected = false,
         hideImage = false,
         onclick = () => {},
@@ -55,10 +56,9 @@
 {#if hideImage || !src || deferredReady}
 <button
     type="button"
-    class="relative block w-full overflow-hidden rounded-md border bg-darkbg text-textcolor transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 {selected ? 'border-primary' : 'border-darkborderc hover:border-primary/60'} {hideImage || !src ? 'aspect-square' : ''}"
+    class="group relative block w-full overflow-hidden rounded-md border bg-darkbg text-textcolor transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 {selected ? 'border-primary' : 'border-darkborderc hover:border-primary/60'} {hideImage || !src ? 'aspect-square' : ''}"
     aria-label={name}
     aria-pressed={selected || undefined}
-    use:tooltip={name}
     {onclick}
 >
     {#if hideImage || !src}
@@ -79,5 +79,13 @@
     {#if selected}
         <SelectionParticles />
     {/if}
+    <span
+        class="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col bg-gradient-to-t from-black from-[-25%] to-transparent px-2 pb-2 pt-8 text-left opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+    >
+        <span class="truncate text-xs font-medium leading-tight text-white">{name}</span>
+        {#if subtitle}
+            <span class="truncate text-[10px] leading-tight text-white/60">{subtitle}</span>
+        {/if}
+    </span>
 </button>
 {/if}

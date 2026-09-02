@@ -12,7 +12,6 @@
     import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
     import { language } from "src/lang";
     import { AccessibilitySubmenuIndex } from "src/ts/stores.svelte";
-    import HotkeySettings from "./HotkeySettings.svelte";
 </script>
 
 <SettingPage title={language.accessibility}>
@@ -21,8 +20,7 @@
         { label: language.accTabEditing, value: 0 },
         { label: language.accTabScroll, value: 1 },
         { label: language.accTabSidebar, value: 2 },
-        { label: language.hotkey, value: 3 },
-        { label: language.others, value: 4 },
+        { label: language.others, value: 3 },
     ]}
     bind:selected={$AccessibilitySubmenuIndex}
 />
@@ -39,8 +37,6 @@
     <h3 class="text-base font-bold mt-8 mb-1">{language.accSectionMenuBar}</h3>
     <SettingRenderer items={accessibilityMenuBarItems} layout="row" />
 {:else if $AccessibilitySubmenuIndex === 3}
-    <HotkeySettings />
-{:else if $AccessibilitySubmenuIndex === 4}
     <SettingRenderer items={accessibilityOtherItems} layout="row" />
 {/if}
 </SettingPage>

@@ -17,6 +17,7 @@
     import { ChevronDownIcon, CheckIcon } from "@lucide/svelte";
     import { isTouchDevice } from "src/ts/stores.svelte";
     import OverlayPortal from "./OverlayPortal.svelte";
+    import { getVisualViewportBounds } from "src/ts/gui/visualViewport";
 
     interface Props {
         value: string | number;
@@ -95,17 +96,24 @@
     function positionDropdown() {
         if (!triggerEl || !dropdownEl) return;
         const rect = triggerEl.getBoundingClientRect();
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const spaceAbove = rect.top;
-        const dropHeight = dropdownEl.scrollHeight;
+        const viewport = getVisualViewportBounds();
+        const spaceBelow = viewport.bottom - rect.bottom;
+        const spaceAbove = rect.top - viewport.top;
+        const desiredHeight = dropdownEl.scrollHeight;
         // Grow with content but never shrink below the trigger; clamp so we
         // don't run past the viewport edge when an option is wider than space.
-        const maxWidth = Math.max(rect.width, window.innerWidth - rect.left - 16);
+        const maxWidth = Math.max(rect.width, viewport.right - rect.left - 16);
+        const minLeft = viewport.left + 8;
+        const maxLeft = Math.max(minLeft, viewport.right - rect.width - 8);
+        const left = Math.min(Math.max(rect.left, minLeft), maxLeft);
+        const placeBelow = spaceBelow >= desiredHeight || spaceBelow >= spaceAbove;
+        const availableHeight = Math.max(0, (placeBelow ? spaceBelow : spaceAbove) - 12);
+        const dropdownHeight = Math.min(desiredHeight, availableHeight);
 
-        if (spaceBelow >= dropHeight || spaceBelow >= spaceAbove) {
-            dropdownStyle = `top: ${rect.bottom + 4}px; left: ${rect.left}px; min-width: ${rect.width}px; max-width: ${maxWidth}px;`;
+        if (placeBelow) {
+            dropdownStyle = `top: ${rect.bottom + 4}px; left: ${left}px; min-width: ${rect.width}px; max-width: ${maxWidth}px; max-height: ${availableHeight}px;`;
         } else {
-            dropdownStyle = `bottom: ${window.innerHeight - rect.top + 4}px; left: ${rect.left}px; min-width: ${rect.width}px; max-width: ${maxWidth}px;`;
+            dropdownStyle = `top: ${Math.max(viewport.top + 8, rect.top - dropdownHeight - 4)}px; left: ${left}px; min-width: ${rect.width}px; max-width: ${maxWidth}px; max-height: ${availableHeight}px;`;
         }
     }
 
@@ -164,10 +172,14 @@
             document.addEventListener('click', handleClickOutside, true);
             window.addEventListener('resize', schedulePositionDropdown);
             window.addEventListener('scroll', schedulePositionDropdown, true);
+            window.visualViewport?.addEventListener('resize', schedulePositionDropdown);
+            window.visualViewport?.addEventListener('scroll', schedulePositionDropdown);
             return () => {
                 document.removeEventListener('click', handleClickOutside, true);
                 window.removeEventListener('resize', schedulePositionDropdown);
                 window.removeEventListener('scroll', schedulePositionDropdown, true);
+                window.visualViewport?.removeEventListener('resize', schedulePositionDropdown);
+                window.visualViewport?.removeEventListener('scroll', schedulePositionDropdown);
                 if (positionFrame !== null) {
                     cancelAnimationFrame(positionFrame);
                     positionFrame = null;
@@ -266,7 +278,7 @@
             bind:this={dropdownEl}
             role="listbox"
             data-risu-dialog-interactive
-            class="risu-layer-overlay fixed max-h-64 overflow-y-auto rounded-md bg-darkbg shadow-md
+            class="risu-layer-overlay fixed overflow-y-auto rounded-md bg-darkbg shadow-md
                    ring-1 ring-textcolor/10 p-1"
             style={dropdownStyle}
         >

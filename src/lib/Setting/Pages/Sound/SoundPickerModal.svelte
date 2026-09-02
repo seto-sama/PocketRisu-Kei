@@ -54,7 +54,7 @@
         {language.selectNotificationSound}
     {/snippet}
 
-    <div class="flex flex-col gap-1 max-h-[50vh] overflow-y-auto pr-1">
+    <div class="flex flex-col gap-1 pr-1">
         {#each bundledSoundIds as id}
             {@const selected = value === id || (!value && id === 'default')}
             <div class="flex items-center gap-2 rounded-md px-3 py-2 transition-colors {selected ? 'bg-selected' : 'risu-interactive-surface-strong'}">

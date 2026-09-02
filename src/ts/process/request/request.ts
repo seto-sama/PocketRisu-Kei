@@ -30,6 +30,10 @@ import {
     type CompiledPluginModelPreset,
 } from "src/ts/preset/runtime/compilePreset";
 import { createRetryingSnapshotStream, pumpPresetStream } from "./presetStreamPump";
+import {
+    cancelOnOutputRepetition,
+    normalizeOutputRepetitionLimit,
+} from "./repetitionDetector";
 import { requestRetryDelayMs } from './retryPolicy';
 import { resolveChatModelBinding, buildModelPresetCredential, applyPromptPresetParams } from "./modelPresetBinding";
 import { expandAdapterMessages, toAdapterMessage, toolResponseText } from "./modelPresetMessages";
@@ -115,6 +119,8 @@ export interface requestDataArgument{
     onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
     onRevenantProviderStarted?:(startedAt:number) => void
     onRevenantTerminal?:(terminal:import('../revenant').RevenantGenerationTerminal) => void
+    /** Called once when the response stream is stopped by repetition detection. */
+    onOutputRepetitionDetected?:() => void
     llmExecutionPolicy?:LLMExecutionPolicy
     revenantClientAction?: {
         workflowId: string
@@ -166,6 +172,14 @@ export type requestDataResponse = {
 }
 
 export interface StreamResponseChunk{[key:string]:string}
+
+function applyOutputRepetitionDetection(
+    stream: ReadableStream<StreamResponseChunk>,
+    onDetected?: () => void,
+): ReadableStream<StreamResponseChunk> {
+    const limit = normalizeOutputRepetitionLimit(getDatabase().outputRepetitionLimit)
+    return limit === undefined ? stream : cancelOnOutputRepetition(stream, limit, onDetected)
+}
 
 export async function requestChatData(arg:requestDataArgument, model:ModelModeExtended, abortSignal:AbortSignal=null):Promise<requestDataResponse> {
     const db = getDatabase()
@@ -223,6 +237,10 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
             ...arg,
             tools,
         }, model, abortSignal)
+
+        if (da.type === 'streaming') {
+            da.result = applyOutputRepetitionDetection(da.result, arg.onOutputRepetitionDetected)
+        }
 
         // A ModelPreset response that already executed tools must be returned
         // as-is and NEVER re-run: the side effects (possibly writes) are done.
@@ -660,7 +678,10 @@ async function requestPluginPreset(
             })
         }
         if (!exposeStreaming || preset.decoupledStreaming) {
-            const text = await collectStreamingText(responseStream)
+            const text = await collectStreamingText(applyOutputRepetitionDetection(
+                responseStream,
+                arg.onOutputRepetitionDetected,
+            ))
             return { type: 'success', result: text, model: preset.name }
         }
         return { ...result, result: responseStream, model: preset.name }
@@ -1350,7 +1371,10 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
             // adapter.send return byte-for-byte — the chat renderer paints it
             // once instead of token-by-token.
             if(preset.decoupledStreaming){
-                const stream = createPresetStream(true)
+                const stream = applyOutputRepetitionDetection(
+                    createPresetStream(true),
+                    arg.onOutputRepetitionDetected,
+                )
                 try {
                     const text = await collectStreamingText(stream)
                     return { type: 'success', result: text, model: preset.name }

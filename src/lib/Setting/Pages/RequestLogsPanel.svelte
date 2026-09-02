@@ -250,49 +250,51 @@
     </div>
 {:else}
     <Tooltip.Provider delayDuration={300}>
-        <SettingLayout variant="list" scrollable className="max-h-[75vh]">
+        <SettingLayout variant="list">
             {#each displayedRequestLogs as log (log.id)}
                 <Collapsible.Root
                     open={requestExpanded[log.id] === true}
                     onOpenChange={(v) => handleRequestLogOpen(log.id, v)}
                 >
                     <Collapsible.Trigger class="w-full text-left group">
-                        <SettingLayout variant="item" className="gap-2 risu-interactive-surface group-focus-visible:bg-selected/30">
-                        <span class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-medium font-mono shrink-0 {log.success ? 'bg-success/20 text-success border-success/40' : 'bg-draculared/20 text-draculared border-draculared/40'}">
-                            {log.status ?? (log.success ? 'OK' : 'ERR')}
-                        </span>
-                        <Tooltip.Root>
-                            <Tooltip.Trigger>
-                                {#snippet child({ props })}
-                                    <span {...props} class="text-textcolor2 text-xs shrink-0 tabular-nums cursor-help">
-                                        {log.date}
-                                    </span>
-                                {/snippet}
-                            </Tooltip.Trigger>
-                            <Tooltip.Content
-                                class="risu-layer-overlay bg-darkbg border border-darkborderc rounded-md px-2 py-1 text-xs text-textcolor shadow-lg"
-                                sideOffset={4}
+                        <SettingLayout variant="item" className="risu-interactive-surface group-focus-visible:bg-selected/30">
+                        <div class="grid w-full min-w-0 grid-cols-[2.75rem_5rem_minmax(0,1fr)_1rem] items-center gap-2 sm:grid-cols-[2.75rem_5rem_minmax(0,1fr)_4rem_7rem_1rem]">
+                            <span class="inline-flex justify-self-start items-center rounded-md border px-1.5 py-0.5 text-xs font-medium font-mono {log.success ? 'bg-success/20 text-success border-success/40' : 'bg-draculared/20 text-draculared border-draculared/40'}">
+                                {log.status ?? (log.success ? 'OK' : 'ERR')}
+                            </span>
+                            <Tooltip.Root>
+                                <Tooltip.Trigger>
+                                    {#snippet child({ props })}
+                                        <span {...props} class="min-w-0 truncate whitespace-nowrap text-xs text-textcolor2 tabular-nums cursor-help">
+                                            {log.date}
+                                        </span>
+                                    {/snippet}
+                                </Tooltip.Trigger>
+                                <Tooltip.Content
+                                    class="risu-layer-overlay bg-darkbg border border-darkborderc rounded-md px-2 py-1 text-xs text-textcolor shadow-lg"
+                                    sideOffset={4}
+                                >
+                                    {formatRequestLogTime(log)}
+                                </Tooltip.Content>
+                            </Tooltip.Root>
+                            <span class="flex min-w-0 items-center gap-2">
+                                <span class="min-w-0 truncate text-sm text-textcolor font-medium">{requestModel(log)}</span>
+                                {#if log.model && log.provider}
+                                    <span class="shrink-0 hidden sm:inline text-xs text-textcolor2">{log.provider}</span>
+                                {/if}
+                            </span>
+                            <span class="hidden whitespace-nowrap text-right text-xs text-textcolor2 tabular-nums sm:block">
+                                {formatDuration(log.responseDurationMs)}
+                            </span>
+                            <span
+                                class="hidden grid-cols-2 gap-2 whitespace-nowrap text-right text-xs text-textcolor2 tabular-nums sm:grid"
+                                aria-label={`${language.usageInputTokens} ${number(log.promptTokens)}, ${language.usageOutputTokens} ${number(log.completionTokens)}`}
                             >
-                                {formatRequestLogTime(log)}
-                            </Tooltip.Content>
-                        </Tooltip.Root>
-                        <span class="flex flex-1 min-w-0 items-center gap-2">
-                            <span class="min-w-0 truncate text-sm text-textcolor font-medium">{requestModel(log)}</span>
-                            {#if log.model && log.provider}
-                                <span class="shrink-0 hidden sm:inline text-xs text-textcolor2">{log.provider}</span>
-                            {/if}
-                        </span>
-                        <span class="w-16 shrink-0 text-right text-xs text-textcolor2 tabular-nums">
-                            {formatDuration(log.responseDurationMs)}
-                        </span>
-                        <span
-                            class="grid w-28 shrink-0 grid-cols-2 gap-2 whitespace-nowrap text-right text-xs text-textcolor2 tabular-nums"
-                            aria-label={`${language.usageInputTokens} ${number(log.promptTokens)}, ${language.usageOutputTokens} ${number(log.completionTokens)}`}
-                        >
-                            <span>{number(log.promptTokens)}</span>
-                            <span>{number(log.completionTokens)}</span>
-                        </span>
-                        <ChevronDownIcon size={16} class="shrink-0 text-textcolor2 transition-transform group-data-[state=open]:rotate-180" />
+                                <span>{number(log.promptTokens)}</span>
+                                <span>{number(log.completionTokens)}</span>
+                            </span>
+                            <ChevronDownIcon size={16} class="justify-self-end text-textcolor2 transition-transform group-data-[state=open]:rotate-180" />
+                        </div>
                         </SettingLayout>
                     </Collapsible.Trigger>
 

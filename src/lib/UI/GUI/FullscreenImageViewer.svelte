@@ -4,6 +4,7 @@
     import OverlayPortal from './OverlayPortal.svelte';
     import IconButton from './IconButton.svelte';
     import IconButtonGroup from './IconButtonGroup.svelte';
+    import { createSingleFlightRunner } from 'src/ts/util/singleFlight';
 
     interface Props {
         open?: boolean;
@@ -25,6 +26,8 @@
         onClose: () => void;
         onPrev?: () => void;
         onNext?: () => void;
+        onDelete?: () => void | Promise<void>;
+        onDownload?: () => void | Promise<void>;
         viewerContent?: Snippet;
         actions?: Snippet;
         metadataOverlay?: Snippet;
@@ -50,27 +53,34 @@
         onClose,
         onPrev,
         onNext,
+        onDelete,
+        onDownload,
         viewerContent,
         actions,
         metadataOverlay,
     }: Props = $props();
     let metadataOpen = $state(true);
+    const runShortcutAction = createSingleFlightRunner('ImageViewerShortcut');
 
     function handleKeydown(event: KeyboardEvent) {
         if(!open){
             return
         }
-        if(event.key === 'ArrowLeft' && canGoPrev){
+        if(event.key === 'Delete' && onDelete){
+            event.preventDefault()
+            runShortcutAction('delete', onDelete)
+        }
+        else if(event.key.toLowerCase() === 's' && (event.ctrlKey || event.metaKey) && onDownload){
+            event.preventDefault()
+            runShortcutAction('download', onDownload)
+        }
+        else if(event.key === 'ArrowLeft' && canGoPrev){
             event.preventDefault()
             onPrev?.()
         }
         else if(event.key === 'ArrowRight' && canGoNext){
             event.preventDefault()
             onNext?.()
-        }
-        else if(event.key === 'Escape'){
-            event.preventDefault()
-            onClose()
         }
     }
 
@@ -84,9 +94,9 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-    <OverlayPortal>
+    <OverlayPortal onEscape={onClose}>
     <!-- Base tier keeps blocking alerts such as delete confirmation above the viewer. -->
-    <div class="risu-layer-overlay fixed inset-0 flex overflow-hidden bg-bgcolor text-textcolor">
+    <div class="risu-layer-overlay fixed inset-0 flex h-dvh overflow-hidden bg-bgcolor text-textcolor">
         <div class="relative flex flex-1 min-w-0 items-center justify-center overflow-hidden">
             <div class="absolute top-0 inset-x-0 z-10 flex items-center gap-3 px-4 py-3 bg-gradient-to-b from-darkbg/90 to-transparent pointer-events-none">
                 <div class="flex-1 min-w-0">
@@ -156,7 +166,6 @@
                         {src}
                         {alt}
                         class="max-w-full max-h-full object-contain rounded shadow-2xl"
-                        style="max-height: calc(100vh - 112px);"
                     />
                 {/if}
             </div>
@@ -173,7 +182,7 @@
             {/if}
 
             {#if metadataOpen && metadataOverlay}
-                <div class="absolute bottom-3 left-3 right-3 z-10 max-h-[42vh] overflow-y-auto rounded-md border border-darkborderc bg-darkbg/90 px-3 py-2 shadow-lg backdrop-blur-sm sm:right-auto sm:max-w-md">
+                <div class="absolute bottom-3 left-3 right-3 z-10 max-h-[calc(100%-4.25rem)] overflow-y-auto rounded-md border border-darkborderc bg-darkbg/90 px-3 py-2 shadow-lg backdrop-blur-sm sm:right-auto sm:max-w-md">
                     {@render metadataOverlay()}
                 </div>
             {/if}

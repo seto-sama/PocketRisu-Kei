@@ -2350,7 +2350,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         name: 'inlay',
         callback: 'doc_only',
         alias: [],
-        description: 'Displays unstyled inlay asset A, which doesn\'t inserts at model request.\n\nUsage:: {{inlay::inlayName}}',
+        description: 'Legacy alias of inlayed. Displays a styled inlay asset without inserting it into the model request.\n\nUsage:: {{inlay::inlayName}}',
     });
 
     registerFunction({

@@ -4,10 +4,10 @@
     import { changeToPreset, getCurrentChat } from "src/ts/storage/database.svelte";
     import { alertConfirmMulti, alertSelect, notifySuccess } from "src/ts/alert";
     import { ChevronDownIcon, PinIcon, PinOffIcon, SlidersHorizontalIcon } from "@lucide/svelte";
-    import { v4 } from "uuid";
     import ShButton from "../UI/GUI/ShButton.svelte";
     import ShSwitch from "../UI/GUI/ShSwitch.svelte";
     import Help from "../Others/Help.svelte";
+    import { bindPromptPresetToCurrentChat } from "src/ts/chatBindings";
 
     let currentChat = $derived(DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage])
 
@@ -37,16 +37,6 @@
         }
     })
 
-    function bindPreset(presetIndex: number) {
-        const chat = getCurrentChat()
-        if (!chat) return
-        const preset = DBState.db.botPresets[presetIndex]
-        if (!preset) return
-        if (!preset.id) preset.id = v4()
-        chat.bindedBotPreset = preset.id
-        notifySuccess(language.promptBindedSuccess)
-    }
-
     function unbindPreset() {
         const chat = getCurrentChat()
         if (!chat) return
@@ -64,7 +54,7 @@
                 ]
             )
             if (sel === 0) {
-                presetSelectCallback.set(bindPreset)
+                presetSelectCallback.set(bindPromptPresetToCurrentChat)
                 openPresetList.set(true)
             } else if (sel === 1) {
                 unbindPreset()
@@ -76,9 +66,9 @@
                 language.cancel
             ]))
             if (sel === 0) {
-                bindPreset(DBState.db.botPresetsId)
+                bindPromptPresetToCurrentChat(DBState.db.botPresetsId)
             } else if (sel === 1) {
-                presetSelectCallback.set(bindPreset)
+                presetSelectCallback.set(bindPromptPresetToCurrentChat)
                 openPresetList.set(true)
             }
         }

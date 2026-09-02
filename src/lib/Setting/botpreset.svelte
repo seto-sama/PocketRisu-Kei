@@ -7,21 +7,20 @@
     import { get } from 'svelte/store';
     import { openSettings, SettingsRoute } from 'src/ts/routing';
     import { GitCompareIcon } from "@lucide/svelte";
-    import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
+    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
     import { prebuiltPresets } from "src/ts/process/templates/templates";
     import PromptDiffModal from "../Others/PromptDiffModal.svelte";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
+    import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
-    let editMode = $state(false)
     let selectedFolder = $state<string>('all')
 
-    const folders = $derived(DBState.db.promptPresetFolders ?? [])
+    const tags = $derived(DBState.db.promptPresetTags ?? [])
 
-    function assignPresetToFolder(index: number, folder: string | undefined) {
-        DBState.db.botPresets[index].folderId =
-            folder === 'all' || folder === 'uncategorized' ? undefined : folder
+    function assignPresetToTag(index: number, tagId: string | undefined) {
+        DBState.db.botPresets[index].tagIds = togglePresetTag(DBState.db.botPresets[index].tagIds, tagId)
         DBState.db.botPresets = [...DBState.db.botPresets]
     }
 
@@ -138,8 +137,9 @@
 
 <PresetPickerLayout
         title={language.promptPresets}
-        {folders}
-        itemFolderIds={DBState.db.botPresets.map(preset => preset.folderId)}
+        folders={tags}
+        itemFolderIds={DBState.db.botPresets.map(preset => preset.tagIds)}
+        organizationKind="tag"
         itemNames={DBState.db.botPresets.map(preset => preset.name ?? '')}
         bind:selectedFolder
         itemDragDataKey="presetIndex"
@@ -149,36 +149,37 @@
                 close()
                 openSettings(SettingsRoute.PromptPreset)
             } : undefined}
-        onFoldersChange={(next) => { DBState.db.promptPresetFolders = next }}
-        onAssignItem={assignPresetToFolder}
-        onDeleteFolder={(folderId) => {
+        onFoldersChange={(next) => { DBState.db.promptPresetTags = next }}
+        onAssignItem={assignPresetToTag}
+        onDeleteFolder={(tagId) => {
             DBState.db.botPresets = DBState.db.botPresets.map(preset =>
-                preset.folderId === folderId ? { ...preset, folderId: undefined } : preset
+                ({ ...preset, tagIds: removePresetTag(preset.tagIds, tagId) })
             )
         }}
         selectedItemIndex={DBState.db.botPresetsId}
-        itemEditMode={editMode}
         onMoveItem={movePreset}
         onSelectItem={selectPreset}
         onDuplicateItem={duplicatePreset}
         onExportItem={exportPreset}
         onDeleteItem={deletePreset}
+        itemRenameable
     >
-        {#snippet itemContent(index)}
+        {#snippet itemContent(index, renameController)}
             {@const preset = DBState.db.botPresets[index]}
-            {#if editMode}
-                <div class="min-w-0 grow">
-                    <InlineNameInput bind:value={DBState.db.botPresets[index].name} size="default" placeholder="string" />
-                </div>
-            {:else}
-                {#if preset.image}
-                    <img src={preset.image} alt="icon" class="mr-2 min-w-6 min-h-6 w-6 h-6 rounded-md" decoding="async"/>
-                {/if}
-                <span class="min-w-0 grow truncate">{preset.name}</span>
+            {#if preset.image}
+                <img src={preset.image} alt="icon" class="mr-2 min-w-6 min-h-6 w-6 h-6 rounded-md" decoding="async"/>
             {/if}
+            <InlineEditableName
+                controller={renameController}
+                bind:value={DBState.db.botPresets[index].name}
+                size="default"
+                placeholder="string"
+                disabled={!$settingsOpen}
+                onActivate={() => selectPreset(index)}
+            />
         {/snippet}
         {#snippet itemActions(index)}
-            {#if DBState.db.showPromptComparison}
+            {#if $settingsOpen && DBState.db.showPromptComparison}
                 <IconButton
                     active={selectedDiffPreset === index}
                     activeColor="primary"
@@ -198,7 +199,7 @@
                     let newPreset = safeStructuredClone(prebuiltPresets.OAI2)
                     newPreset.id = uuidv4()
                     newPreset.name = `New Preset`
-                    newPreset.folderId = undefined
+                    newPreset.tagIds = undefined
                     botPresets.push(newPreset)
 
                     DBState.db.botPresets = botPresets
@@ -212,7 +213,6 @@
                         notifySuccess(language.presetImported)
                     }
                 }}
-                onRename={() => { editMode = !editMode }}
             />
         {/if}
 </PresetPickerLayout>

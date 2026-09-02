@@ -41,7 +41,7 @@
             autofocus
         />
     </div>
-    <div class="flex flex-col overflow-y-auto h-[50vh] mt-2 pr-1">
+    <div class="mt-2 flex flex-col pr-1">
         {#if !query.trim()}
             <span class="text-textcolor2 text-sm px-1 py-2">{language.searchSettingsHint}</span>
         {:else if results.length === 0}

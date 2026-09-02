@@ -13,7 +13,7 @@
     import ShDialog from '../UI/GUI/ShDialog.svelte';
     import ShAlertDialog from '../UI/GUI/ShAlertDialog.svelte';
     import ShLoadingDialog from '../UI/GUI/ShLoadingDialog.svelte';
-    import { XIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, PencilIcon, TrashIcon, EllipsisVerticalIcon, RefreshCwIcon, PlusIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
+    import { XIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, TrashIcon, EllipsisVerticalIcon, RefreshCwIcon, PlusIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
     import { language } from 'src/lang';
@@ -29,6 +29,7 @@
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme";
     import IconButton from "../UI/GUI/IconButton.svelte";
+    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import Help from "./Help.svelte";
     import { getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
     import { alertInput, alertConfirm, alertError, alertNormalWait, notifySuccess } from "src/ts/alert";
@@ -38,6 +39,9 @@
     import { PRODUCT_NAME } from "src/ts/branding";
     import RequestDiagnosticsModal from "./RequestDiagnosticsModal.svelte";
     import { overlayLayer } from 'src/ts/gui/overlayStack';
+    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
+    import InlineRenameAction from "../UI/GUI/InlineRenameAction.svelte";
+    import { InlineEditableNameController } from "../UI/GUI/inlineEditableNameController.svelte";
 
     let showDetails = $state(false);
     let translatedStackTrace = $state('');
@@ -79,6 +83,28 @@
 
     function closeTogglePresets() {
         togglePresetsOpenStore.set(false)
+    }
+
+    async function applyTogglePreset(preset: TogglePreset) {
+        const name = preset.name
+        const currentPromptPresetName = DBState.db.botPresets[DBState.db.botPresetsId]?.name
+        const isMismatch = preset.promptPresetName !== currentPromptPresetName
+        const msg = isMismatch ? language.togglePresetMismatchConfirm : language.togglePresetApplyConfirm
+        const confirmed = await alertConfirm(msg)
+        if (!confirmed) return
+        applyToggleValues(preset.values)
+        notifySuccess((language.togglePresetApplied as any)(name))
+        closeTogglePresets()
+    }
+
+    function renameTogglePreset(index: number, value: string) {
+        const name = value.trim()
+        const preset = DBState.db.togglePresets?.[index]
+        if (!name || !preset || name === preset.name) return
+        const oldName = preset.name
+        preset.name = name
+        DBState.db.togglePresets = [...DBState.db.togglePresets!]
+        notifySuccess((language.togglePresetRenamed as any)(oldName, name))
     }
 
     function submitAlertInput(restoreFocus = true) {
@@ -718,23 +744,30 @@
                 {:else}
                     <div class="flex flex-col gap-1">
                         {#each filteredPresets as {preset, index: i}}
-                            <div class="flex items-center border border-darkborderc rounded-md hover:ring-1 hover:ring-borderc/50 transition-shadow">
-                                <button class="flex-1 min-w-0 p-2 text-left cursor-pointer text-textcolor truncate risu-interactive-surface rounded-l-md transition-colors" onclick={async () => {
-                                    const name = preset.name
-                                    const isMismatch = preset.promptPresetName !== currentPromptPresetName
-                                    const msg = isMismatch ? language.togglePresetMismatchConfirm : language.togglePresetApplyConfirm
-                                    const confirmed = await alertConfirm(msg)
-                                    if (!confirmed) return
-                                    applyToggleValues(preset.values)
-                                    notifySuccess((language.togglePresetApplied as any)(name))
-                                    closeTogglePresets()
-                                }}>
+                            {@const renameController = new InlineEditableNameController()}
+                            <div data-inline-rename-row class="flex items-center border border-darkborderc rounded-md hover:ring-1 hover:ring-borderc/50 transition-shadow">
+                                <div
+                                    role="button"
+                                    tabindex="0"
+                                    class="flex-1 min-w-0 p-2 text-left cursor-pointer text-textcolor risu-interactive-surface rounded-l-md transition-colors"
+                                    onclick={() => { void applyTogglePreset(preset) }}
+                                    onkeydown={(event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') void applyTogglePreset(preset)
+                                    }}
+                                >
                                     <div class="text-xs text-textcolor2 leading-tight">{preset.promptPresetName ?? language.togglePresetNoPromptPreset}</div>
-                                    {preset.name}
-                                </button>
-                                <div class="flex items-center shrink-0 pr-1 gap-0.5">
+                                    <InlineEditableName
+                                        controller={renameController}
+                                        value={preset.name}
+                                        label={preset.name}
+                                        onActivate={() => { void applyTogglePreset(preset) }}
+                                        onCommit={(value) => renameTogglePreset(i, value)}
+                                    />
+                                </div>
+                                <IconButtonGroup className="shrink-0 pr-1" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+                                    <InlineRenameAction controller={renameController} />
                                     {#if togglePresetShowAll}
-                                        <ShButton variant="ghost" size="icon-xs" onclick={() => {
+                                        <IconButton onclick={() => {
                                             if (i > 0) {
                                                 const presets = DBState.db.togglePresets!;
                                                 [presets[i - 1], presets[i]] = [presets[i], presets[i - 1]];
@@ -742,8 +775,8 @@
                                             }
                                         }}>
                                             <ChevronUpIcon />
-                                        </ShButton>
-                                        <ShButton variant="ghost" size="icon-xs" onclick={() => {
+                                        </IconButton>
+                                        <IconButton onclick={() => {
                                             const presets = DBState.db.togglePresets!;
                                             if (i < presets.length - 1) {
                                                 [presets[i], presets[i + 1]] = [presets[i + 1], presets[i]];
@@ -751,14 +784,14 @@
                                             }
                                         }}>
                                             <ChevronDownIcon />
-                                        </ShButton>
+                                        </IconButton>
                                     {/if}
                                     <ShDropdownMenu>
                                         <ShDropdownMenuTrigger>
                                             {#snippet child({ props })}
-                                                <ShButton {...props} variant="ghost" size="icon-xs">
+                                                <IconButton {...props}>
                                                     <EllipsisVerticalIcon />
-                                                </ShButton>
+                                                </IconButton>
                                             {/snippet}
                                         </ShDropdownMenuTrigger>
                                         <ShDropdownMenuContent class="min-w-40" align="end">
@@ -776,19 +809,6 @@
                                             }}>
                                                 <RefreshCwIcon size={12} />
                                                 {language.togglePresetMenuOverwrite}
-                                            </ShDropdownMenuItem>
-                                            <ShDropdownMenuItem onSelect={async () => {
-                                                const idx = i
-                                                const oldName = DBState.db.togglePresets![idx].name
-                                                const name = await alertInput(language.togglePresetRename, [], oldName)
-                                                if (name && name !== oldName) {
-                                                    DBState.db.togglePresets![idx].name = name
-                                                    DBState.db.togglePresets = [...DBState.db.togglePresets!]
-                                                    notifySuccess((language.togglePresetRenamed as any)(oldName, name))
-                                                }
-                                            }}>
-                                                <PencilIcon size={12} />
-                                                {language.togglePresetMenuRename}
                                             </ShDropdownMenuItem>
                                             <ShDropdownMenuItem onSelect={() => {
                                                 const copy = $state.snapshot(preset);
@@ -824,7 +844,7 @@
                                             </ShDropdownMenuItem>
                                         </ShDropdownMenuContent>
                                     </ShDropdownMenu>
-                                </div>
+                                </IconButtonGroup>
                             </div>
                         {/each}
                     </div>

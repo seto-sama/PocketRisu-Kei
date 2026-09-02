@@ -62,7 +62,7 @@
             <MultiLangDisplay
                 value={openedData.desc}
                 markdown={true}
-                className="min-h-36 max-h-[50vh] min-w-0 flex-1 self-stretch overflow-hidden"
+                className="min-h-36 min-w-0 flex-1 self-stretch overflow-hidden"
                 contentClass="min-h-0 flex-1 overflow-y-auto pr-2"
             />
         </div>

@@ -5,7 +5,7 @@
     import { alertConfirm, notifySuccess } from "src/ts/alert";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { DBState } from 'src/ts/stores.svelte';
-    import { CharConfigSubMenu, MobileGUI, selectedCharID } from "../../ts/stores.svelte";
+    import { CharConfigSubMenu, selectedCharID } from "../../ts/stores.svelte";
     import { PlusIcon, TrashIcon, DownloadIcon, UploadIcon, ArrowUpIcon, ArrowDownIcon, TriangleAlertIcon } from '@lucide/svelte'
     import { getCharImage, selectCharImg, removeChar, changeCharImage } from "../../ts/characters";
     import LoreBook from "./LoreBook/LoreBookSetting.svelte";
@@ -233,7 +233,6 @@
 
 {#if $CharConfigSubMenu === 0}
     {#if licensed !== 'private'}
-        <h2 class="mb-2 text-2xl font-bold mt-2">{language.characterInfo}</h2>
         <span class="text-textcolor">{language.characterName}</span>
         <ShInput className="mt-2 mb-4" autocomplete="off" placeholder={language.characterName} bind:value={DBState.db.characters[$selectedCharID].name} />
         <span class="text-textcolor">{language.nickname}<Help key="nickname" /></span>
@@ -315,10 +314,7 @@
         $CharConfigSubMenu = 0
     })()}
 {:else if $CharConfigSubMenu === 1}
-    {#if !$MobileGUI}
-        <h2 class="mb-2 text-2xl font-bold mt-2">{language.characterDisplay}</h2>
-    {/if}
-
+    <div class="w-full shrink-0">
     <ShChoiceGroup
         variant="pill"
         size="md"
@@ -407,7 +403,7 @@
             </div>
 
         {#if DBState.db.characters[$selectedCharID].image !== ''}
-            <ShSettings spacing="spaced" className="mt-4">
+            <ShSettings spacing="none" className="mt-4">
                 <ShSettings variant="row">
                     <span class="min-w-0 text-textcolor">{language.largePortrait}</span>
                     <ShSwitch bind:checked={(DBState.db.characters[$selectedCharID] as character).largePortrait}/>
@@ -417,7 +413,7 @@
 
 
     {:else if viewSubMenu === 'emotion'}
-        <ShSettings spacing="spaced" className="mb-3">
+        <ShSettings spacing="none" className="mb-3">
             <ShSettings variant="row">
                 <span class="min-w-0 text-textcolor">{language.enableEmotionImages}</span>
                 <ShSwitch
@@ -479,17 +475,11 @@
                 }}
             />
     {/if}
+    </div>
 {:else if $CharConfigSubMenu === 3}
-    {#if !$MobileGUI}
-        <h2 class="mb-2 text-2xl font-bold mt-2">{language.loreBook}<Help key="lorebook"/></h2>
-    {/if}
     <LoreBook />
 {:else if $CharConfigSubMenu === 4}
     {#if DBState.db.characters[$selectedCharID].type === 'character'}
-        {#if !$MobileGUI}
-            <h2 class="mb-2 text-2xl font-bold mt-2">{language.scripts}</h2>
-        {/if}
-
         <span class="block text-textcolor">{language.backgroundHTML}<Help key="backgroundHTML" /></span>
         <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].backgroundHTML}></TextAreaInput>
 
@@ -529,10 +519,6 @@
         || DBState.db.characters[$selectedCharID].license === 'CC BY-ND 4.0'
         || DBState.db.characters[$selectedCharID].license === 'CC BY-NC-ND 4.0'
     }
-
-    {#if !$MobileGUI}
-        <h2 class="mb-2 text-2xl font-bold mt-2">{language.export}</h2>
-    {/if}
 
     <span class="text-textcolor">{language.creator}</span>
     <ShInput className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalData.creator} />
@@ -612,9 +598,6 @@
 
 {:else if $CharConfigSubMenu === 5 && DBState.db.ttsEnabled}
     {#if DBState.db.characters[$selectedCharID].type === 'character'}
-        {#if !$MobileGUI}
-            <h2 class="mb-2 text-2xl font-bold mt-2">TTS</h2>
-        {/if}
         <span class="text-textcolor">{language.provider}</span>
         <ShSelect className="mb-4 mt-2 w-full" bind:value={DBState.db.characters[$selectedCharID].ttsMode} onchange={() => {
             if(DBState.db.characters[$selectedCharID].type === 'character'){
@@ -733,7 +716,7 @@
                     {/each}
                 </SelectInput>
             {:else}
-                <TextInput className="mb-4 mt-2"
+                <TextInput className="mb-4 mt-2" commitMode="blur"
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.voice}
                     placeholder={DBState.db.characters[$selectedCharID].oaiVoice || 'alloy'} />
             {/if}
@@ -745,17 +728,17 @@
 
             {#if DBState.db.characters[$selectedCharID].oaiTTSConfig?.enabled}
                 <span class="text-textcolor">Base URL</span>
-                <TextInput className="mb-4 mt-2"
+                <TextInput className="mb-4 mt-2" commitMode="blur"
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.baseURL}
                     placeholder="https://api.openai.com/v1" />
 
                 <span class="text-textcolor">API Key (overrides global)</span>
-                <TextInput className="mb-4 mt-2" hideText={DBState.db.hideApiKey}
+                <TextInput className="mb-4 mt-2" commitMode="blur" hideText={DBState.db.hideApiKey}
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.apiKey}
                     placeholder="Leave empty to use global OpenAI API key" />
 
                 <span class="text-textcolor">Model</span>
-                <TextInput className="mb-4 mt-2"
+                <TextInput className="mb-4 mt-2" commitMode="blur"
                     bind:value={DBState.db.characters[$selectedCharID].oaiTTSConfig.model}
                     placeholder="tts-1" />
 
@@ -925,9 +908,6 @@
         {/if}
     {/if}
 {:else if $CharConfigSubMenu === 2}
-    {#if !$MobileGUI}
-        <h2 class="mb-2 text-2xl font-bold mt-2">{language.advancedSettings}</h2>
-    {/if}
         <span class="text-textcolor">{language.replaceGlobalNote}<Help key="replaceGlobalNote"/></span>
         <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></TextAreaInput>
 

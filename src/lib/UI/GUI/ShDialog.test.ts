@@ -5,6 +5,7 @@ import { mount, tick, unmount } from 'svelte'
 import ShDialog from './ShDialog.svelte'
 import { overlayLayerMinimum } from 'src/ts/gui/overlayStack'
 import OverlayStackHarness from './OverlayStackHarness.test.svelte'
+import OverlaySiblingDialogHarness from './OverlaySiblingDialogHarness.test.svelte'
 
 const mounted: unknown[] = []
 
@@ -51,6 +52,23 @@ describe('ShDialog close requests', () => {
         const layer = Number(document.querySelector<HTMLElement>('[role="dialog"]')
             ?.style.getPropertyValue('--risu-overlay-z'))
         expect(layer).toBeGreaterThanOrEqual(overlayLayerMinimum)
+    })
+
+    it('opens a global sibling dialog above an existing portal overlay', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(OverlaySiblingDialogHarness, { target })
+        mounted.push(component)
+        await tick()
+
+        const parentLayer = Number(document.querySelector<HTMLElement>('[data-testid="open-sibling-dialog"]')
+            ?.closest<HTMLElement>('[data-risu-overlay-layer]')?.dataset.risuOverlayLayer)
+        document.querySelector<HTMLButtonElement>('[data-testid="open-sibling-dialog"]')!.click()
+        await tick()
+
+        const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
+        expect(dialog).not.toBeNull()
+        expect(Number(dialog?.dataset.risuOverlayLayer)).toBeGreaterThan(parentLayer)
     })
 
     it('intercepts Escape and the close button without closing the dialog', async () => {

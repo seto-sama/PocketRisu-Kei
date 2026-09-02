@@ -39,6 +39,19 @@ function createGeneratedMessage(job, recipe, text, current = {}) {
         promptInfo: job.promptInfo,
         chatId: recipe.messageChatId,
     };
+    if (Array.isArray(message.swipes) && Number.isInteger(message.swipeId)) {
+        message.swipeMetadata = Array.isArray(message.swipeMetadata)
+            ? structuredClone(message.swipeMetadata.slice(0, message.swipes.length))
+            : [];
+        while (message.swipeMetadata.length < message.swipes.length) {
+            message.swipeMetadata.push({});
+        }
+        const metadata = message.swipeMetadata[message.swipeId];
+        metadata.chatId = recipe.messageChatId;
+        metadata.time = message.time;
+        metadata.generationInfo = structuredClone(job.generationInfo);
+        metadata.promptInfo = structuredClone(job.promptInfo);
+    }
     delete message.isRecovering;
     delete message.recoveryDisplayData;
     return message;

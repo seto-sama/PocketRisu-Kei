@@ -45,9 +45,17 @@ export interface NotifyOptions {
     log?: boolean
 }
 
+export const requestDiagnosticsTabs = {
+    overview: 0,
+    prompt: 1,
+    requestLog: 2,
+} as const
+export type RequestDiagnosticsTab = typeof requestDiagnosticsTabs[keyof typeof requestDiagnosticsTabs]
+
 export type AlertGenerationInfoStoreData = {
     genInfo: MessageGenerationInfo,
-    idx: number
+    idx: number,
+    initialTab?: RequestDiagnosticsTab
 }
 export const alertGenerationInfoStore = writable<AlertGenerationInfoStoreData>(null)
 export const alertStore = {

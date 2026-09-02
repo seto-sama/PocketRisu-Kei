@@ -18,7 +18,6 @@
         showFolder?: string;
         moduleMode?: boolean;
         openedRefs?: Set<loreBook>;
-        listEditMode?: boolean;
     }
 
     let {
@@ -27,7 +26,6 @@
         showFolder = '',
         moduleMode = false,
         openedRefs = $bindable(new Set<loreBook>()),
-        listEditMode = $bindable(false),
     }: Props = $props();
     let stb: Sortable = null
     let ele: HTMLDivElement = $state()
@@ -438,7 +436,7 @@
                 {#each externalLoreBooks as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}
                         <div class="lorebook-drop-pad" data-risu-drop-index={getDropIndexBefore(book, externalLoreBooks)} aria-hidden="true"></div>
-                        <LoreBookData idgroup={idgroup} bind:value={externalLoreBooks[i]} idx={i} {moduleMode} bind:openedRefs bind:listEditMode
+                        <LoreBookData idgroup={idgroup} bind:value={externalLoreBooks[i]} idx={i} {moduleMode} bind:openedRefs
                         isOpen={openedRefs.has(book)}
                         openFolders={openFolders()}
                         isLastInContainer={book === lastVisibleItem}
@@ -477,7 +475,7 @@
                 {#each DBState.db.characters[$selectedCharID].globalLore as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}
                         <div class="lorebook-drop-pad" data-risu-drop-index={getDropIndexBefore(book, DBState.db.characters[$selectedCharID].globalLore)} aria-hidden="true"></div>
-                        <LoreBookData idgroup={idgroup} bind:value={DBState.db.characters[$selectedCharID].globalLore[i]} idx={i} bind:openedRefs bind:listEditMode
+                        <LoreBookData idgroup={idgroup} bind:value={DBState.db.characters[$selectedCharID].globalLore[i]} idx={i} bind:openedRefs
                         isOpen={openedRefs.has(book)}
                         openFolders={openFolders()}
                         isLastInContainer={book === lastVisibleItem}
@@ -517,7 +515,7 @@
                 {#each DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore as book, i}
                     {#if (!showFolder && !book.folder) || (showFolder === book.folder)}
                         <div class="lorebook-drop-pad" data-risu-drop-index={getDropIndexBefore(book, DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore)} aria-hidden="true"></div>
-                        <LoreBookData idgroup={idgroup} bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore[i]} idx={i} bind:openedRefs bind:listEditMode
+                        <LoreBookData idgroup={idgroup} bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].localLore[i]} idx={i} bind:openedRefs
                         isOpen={openedRefs.has(book)}
                         openFolders={openFolders()}
                         isLastInContainer={book === lastVisibleItem}

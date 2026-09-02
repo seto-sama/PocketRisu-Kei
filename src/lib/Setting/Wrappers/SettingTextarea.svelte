@@ -45,7 +45,7 @@
             bind:value={localValue}
             placeholder={item.options?.placeholder}
             popupTitle={getLabel(item)}
-            commitMode={item.options?.commitMode ?? 'blur'}
+            commitMode={item.options?.commitMode ?? 'debounce'}
             debounceMs={item.options?.debounceMs}
             oncommit={commitValue}
             ondraft={(value) => draftValue = value}
@@ -64,7 +64,7 @@
         bind:value={localValue}
         placeholder={item.options?.placeholder}
         popupTitle={getLabel(item)}
-        commitMode={item.options?.commitMode ?? 'blur'}
+        commitMode={item.options?.commitMode ?? 'debounce'}
         debounceMs={item.options?.debounceMs}
         oncommit={commitValue}
         ondraft={(value) => draftValue = value}

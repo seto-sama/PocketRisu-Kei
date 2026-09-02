@@ -1,4 +1,9 @@
-import { NodeStorage, type ExportBackupOptions, type PatchItemResult } from "./nodeStorage"
+import {
+    NodeStorage,
+    type DatabaseProjection,
+    type ExportBackupOptions,
+    type PatchItemResult,
+} from "./nodeStorage"
 
 export class AutoStorage{
     isAccount:boolean = false
@@ -60,6 +65,21 @@ export class AutoStorage{
         return await this.realStorage.patchItem(key, patchData)
     }
 
+    async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
+        await this.Init()
+        return this.realStorage.getDatabaseProjection<T>()
+    }
+
+    async initializeDatabase<T>(database: T, expectedRevision = 0): Promise<PatchItemResult> {
+        await this.Init()
+        return this.realStorage.initializeDatabase(database, expectedRevision)
+    }
+
+    async patchDatabase(patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
+        await this.Init()
+        return this.realStorage.patchDatabase(patchData)
+    }
+
     /** Get the last known ETag for database.bin */
     getDbEtag(): string | null {
         return this.realStorage._lastDbEtag
@@ -70,6 +90,14 @@ export class AutoStorage{
         this.realStorage.setDbEtag(etag)
     }
 
+    getDbRevision(): number | null {
+        return this.realStorage._lastDbRevision
+    }
+
+    setDbRevision(revision: number | null) {
+        this.realStorage.setDbRevision(revision)
+    }
+
     listItem = this.keys
 
     // ── Bulk asset operations ──────────────────────────────────────────────────
@@ -77,9 +105,9 @@ export class AutoStorage{
     async setItems(entries: {key: string, value: Uint8Array}[]) { return this.realStorage.setItems(entries) }
 
     // ── Server-side backup ─────────────────────────────────────────────────────
-    async saveServerBackup(onProgress?: (current: number, total: number, bytes: number, totalBytes: number) => void) {
+    async saveServerBackup(note = '', onProgress?: (current: number, total: number, bytes: number, totalBytes: number) => void) {
         await this.Init()
-        return this.realStorage.saveServerBackup(onProgress)
+        return this.realStorage.saveServerBackup(note, onProgress)
     }
     async listServerBackups() { await this.Init(); return this.realStorage.listServerBackups() }
     async restoreServerBackup(filename: string, onProgress?: (bytes: number, totalBytes: number) => void) { await this.Init(); return this.realStorage.restoreServerBackup(filename, onProgress) }

@@ -5,9 +5,11 @@
     import PluginSettings from "./PluginSettings.svelte";
     import ModuleSettings from "./Module/ModuleSettings.svelte";
     import { AddonSubmenuIndex } from "src/ts/stores.svelte";
+
+    let { embedded = false }: { embedded?: boolean } = $props();
 </script>
 
-<SettingPage title={language.addons}>
+<SettingPage title={embedded ? undefined : language.addons}>
     <SettingTabs
         tabs={[
             { label: language.plugin, value: 0 },

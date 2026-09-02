@@ -305,7 +305,9 @@ interface RisuModule {
     name: string;
     /** Module description */
     description: string;
-    /** Optional user-defined folder used by module pickers */
+    /** User-defined tags used by module pickers */
+    tagIds?: string[];
+    /** @deprecated Legacy import field; use tagIds */
     folderId?: string;
     /** Lorebook entries */
     lorebook?: any[];

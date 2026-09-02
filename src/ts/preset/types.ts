@@ -1,4 +1,5 @@
 import type { GeminiPromptCachingConfig } from './cache/geminiContextCache'
+import type { PresetTagFields } from './tags'
 
 export type AdapterKind =
     | 'openai-compatible'
@@ -265,7 +266,7 @@ export interface ResolvedModelProfileSnapshot {
     recommendedTokenizer?: RegistryTokenizer
 }
 
-export interface ModelPreset {
+export interface ModelPreset extends PresetTagFields {
     id: string
     name: string
     notes?: string
@@ -356,8 +357,6 @@ export interface ModelPreset {
     apiKeyRef?: string
     inlineCredential?: unknown
     pinned?: boolean
-    /** Optional user-defined folder used by the model-preset picker. */
-    folderId?: string
     order?: number
     createdAt: number
     updatedAt: number

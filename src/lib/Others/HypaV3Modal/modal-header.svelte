@@ -7,7 +7,6 @@
     BarChartIcon,
     Trash2Icon,
     XIcon,
-    PencilIcon,
     SquarePenIcon,
     TagIcon,
   } from "@lucide/svelte";
@@ -115,7 +114,7 @@
       title={language.hypaV3Modal.manualSummarize}
       onclick={onToggleManualSummaryMode}
     >
-      <PencilIcon />
+      <SquarePenIcon />
     </IconButton>
 
     <!-- Bulk Edit Mode Button -->

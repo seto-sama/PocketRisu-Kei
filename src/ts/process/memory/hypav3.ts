@@ -36,16 +36,15 @@ import {
     type RecoverableAuxiliaryJob,
 } from "../revenant";
 import { v4 as uuidv4 } from "uuid";
+import type { PresetTagFields } from "src/ts/preset/tags";
 import {
     getRevenantHypaExecution,
     prepareRevenantHypaExecution,
     waitForRevenantHypaExecution,
 } from "../revenant/workflow";
 
-export interface HypaV3Preset {
+export interface HypaV3Preset extends PresetTagFields {
     name: string;
-    /** Optional preset-picker folder membership. */
-    folderId?: string;
     settings: HypaV3Settings;
 }
 

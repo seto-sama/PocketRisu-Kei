@@ -20,6 +20,8 @@
             !isTopOverlayLayer(overlayLayer.allocatedZIndex)
         ) return
 
+        if (event.target instanceof Element && event.target.closest('[data-inline-name-editor]')) return
+
         event.preventDefault()
         onEscape()
     }

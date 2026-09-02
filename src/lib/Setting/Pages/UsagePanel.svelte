@@ -574,16 +574,18 @@
                     <div class="text-textcolor font-medium">{language.usageEmpty}</div>
                 </div>
             {:else}
-                <SettingLayout variant="list" scrollable className="max-h-[75vh]">
+                <SettingLayout variant="list">
                     {#each displayedEntries as entry (entry.jobId)}
                         <SettingLayout variant="item" className="gap-2">
                             <div class="flex flex-1 min-w-0 flex-col gap-1">
-                                <div class="flex items-center gap-2 min-w-0">
+                                <div class="flex min-w-0 items-center gap-2">
                                     <span class="text-xs text-textcolor2 tabular-nums shrink-0">{formatTime(entry.timestamp)}</span>
-                                    <span class="text-sm text-textcolor font-medium truncate">{entry.model ?? entry.provider ?? language.usageUnknownModel}</span>
-                                    {#if entry.provider && entry.model}
-                                        <span class="text-xs text-textcolor2 hidden sm:inline">{entry.provider}</span>
-                                    {/if}
+                                    <span class="flex min-w-0 flex-1 items-center gap-2">
+                                        <span class="min-w-0 truncate text-sm font-medium text-textcolor">{entry.model ?? entry.provider ?? language.usageUnknownModel}</span>
+                                        {#if entry.provider && entry.model}
+                                            <span class="hidden shrink-0 text-xs text-textcolor2 sm:inline">{entry.provider}</span>
+                                        {/if}
+                                    </span>
                                 </div>
                                 <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-textcolor2 tabular-nums">
                                     <span>

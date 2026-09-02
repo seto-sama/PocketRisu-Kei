@@ -9,11 +9,12 @@
 
   import { language } from 'src/lang'
   import { InlayGallerySubmenuIndex } from 'src/ts/stores.svelte'
-  import { alertConfirm, notifySuccess, notifyError } from 'src/ts/alert'
-  import { downloadFile } from 'src/ts/globalApi.svelte'
+  import { alertConfirm } from 'src/ts/alert'
   import {
     getCharacterChatIndex,
-    getInlayAssetBlob,
+    getInlayAssetUrl,
+    getInlayThumbnailUrl,
+    getInlayVideoThumbnailUrl,
     listInlayExplorerItems,
     removeInlayAsset,
     removeInlayAssets,
@@ -29,7 +30,10 @@
   import { inlayImageSettingsItems } from 'src/ts/setting/inlayImageSettingsData'
   import FullscreenImageViewer from '../../UI/GUI/FullscreenImageViewer.svelte'
   import IconButton from '../../UI/GUI/IconButton.svelte'
+  import AssetViewerActions from '../../UI/GUI/AssetViewerActions.svelte'
+  import InlayViewerMetadata from '../../UI/GUI/InlayViewerMetadata.svelte'
   import { createIncrementalList } from '../../UI/incrementalList.svelte'
+  import { copyInlayReference, downloadInlayAsset } from '../../UI/inlayViewerActions'
 
   type SortKey = 'created-desc' | 'created-asc' | 'updated-desc' | 'updated-asc'
   type SpecialFilter = 'all' | 'meta-missing' | 'orphan-character' | 'orphan-chat' | 'orphan-message'
@@ -58,6 +62,7 @@
   let viewerUrl = $state('')
   let viewerLoading = $state(false)
   let viewerError = $state('')
+  let deletingAsset = false
   const incrementalList = createIncrementalList({
     pageSize: 40,
     rootMargin: '200px 0px',
@@ -128,7 +133,7 @@
   function getCharacterName(item: InlayExplorerItem | null): string | null {
     const charId = item?.meta?.charId
     if (!charId) return null
-    return characterMap.get(charId)?.name ?? charId
+    return characterMap.get(charId)?.name ?? null
   }
 
   function getChatName(item: InlayExplorerItem | null): string | null {
@@ -137,13 +142,13 @@
     if (!chatId) return null
     if (charId) {
       const chat = characterMap.get(charId)?.chats.find((entry) => entry.id === chatId)
-      return chat?.name ?? chatId
+      return chat?.name ?? null
     }
     for (const char of characterIndex) {
       const chat = char.chats.find((entry) => entry.id === chatId)
       if (chat) return chat.name
     }
-    return chatId
+    return null
   }
 
   function isOrphanCharacter(item: InlayExplorerItem): boolean {
@@ -171,49 +176,8 @@
     return null
   }
 
-  function formatTimestamp(value?: number): string | null {
-    if (!value || value <= 0) return null
-    return new Date(value).toLocaleString()
-  }
-
-  function sanitizeFileName(name: string): string {
-    const trimmed = name.trim()
-    const fallback = trimmed.length > 0 ? trimmed : 'inlay-asset.bin'
-    return fallback.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
-  }
-
-  function buildInlayReference(id: string): string {
-    return `{{inlayed::${id}}}`
-  }
-
-  async function copyInlayReference(id: string) {
-    try {
-      await navigator.clipboard.writeText(buildInlayReference(id))
-      notifySuccess(language.copied)
-    } catch (error) {
-      notifyError(`${error}`)
-    }
-  }
-
-  function withExtension(name: string, ext: string): string {
-    const safeExt = (ext ?? '').trim() || 'bin'
-    const lowerName = name.toLowerCase()
-    if (lowerName.endsWith(`.${safeExt.toLowerCase()}`)) return name
-    const lastDot = name.lastIndexOf('.')
-    const base = lastDot > 0 ? name.slice(0, lastDot) : name
-    return `${base}.${safeExt}`
-  }
-
   function revokeViewerUrl() {
     viewerUrl = ''
-  }
-
-  function getAssetUrl(id: string): string {
-    return `/api/asset/${Buffer.from('inlay/' + id, 'utf-8').toString('hex')}`
-  }
-
-  function getVideoThumbnailUrl(id: string): string {
-    return `/api/asset/${Buffer.from('inlay_video_thumb/' + id, 'utf-8').toString('hex')}`
   }
 
   function loadViewerAsset(id: string) {
@@ -221,7 +185,7 @@
     viewerLoading = false
     viewerError = ''
     // Use direct /api/asset/ URL — browser handles caching via HTTP headers
-    viewerUrl = getAssetUrl(id)
+    viewerUrl = getInlayAssetUrl(id)
   }
 
   function openViewer(id: string) {
@@ -256,21 +220,6 @@
     openViewer(nextItem.id)
   }
 
-  async function downloadCurrent(item: InlayExplorerItem) {
-    try {
-      const asset = await getInlayAssetBlob(item.id)
-      if (!asset) {
-        notifyError('Failed to load image for download.')
-        return
-      }
-      const buffer = new Uint8Array(await asset.data.arrayBuffer())
-      await downloadFile(sanitizeFileName(withExtension(asset.name, asset.ext)), buffer)
-      notifySuccess(language.successExport)
-    } catch (error) {
-      notifyError(`${error}`)
-    }
-  }
-
   const toggleSelect = (id: string) => {
     if (selection.has(id)) selection.delete(id)
     else selection.add(id)
@@ -280,17 +229,23 @@
   const deselectAll = () => selection.clear()
 
   const deleteAsset = async (id: string, name: string) => {
-    if (!(await alertConfirm(language.inlayGallery.inlayDeleteConfirm.replace('{name}', name)))) return
-    const currentIndex = sortedItems.findIndex((item) => item.id === id)
-    const neighborId = currentIndex >= 0
-      ? (sortedItems[currentIndex + 1] ?? sortedItems[currentIndex - 1])?.id
-      : undefined
-    await removeInlayAsset(id)
-    selection.delete(id)
-    allItems = allItems.filter((item) => item.id !== id)
-    if (viewerId === id) {
-      if (neighborId) openViewer(neighborId)
-      else closeViewer()
+    if (deletingAsset) return
+    deletingAsset = true
+    try {
+      if (!(await alertConfirm(language.inlayGallery.inlayDeleteConfirm.replace('{name}', name)))) return
+      const currentIndex = sortedItems.findIndex((item) => item.id === id)
+      const neighborId = currentIndex >= 0
+        ? (sortedItems[currentIndex + 1] ?? sortedItems[currentIndex - 1])?.id
+        : undefined
+      await removeInlayAsset(id)
+      selection.delete(id)
+      allItems = allItems.filter((item) => item.id !== id)
+      if (viewerId === id) {
+        if (neighborId) openViewer(neighborId)
+        else closeViewer()
+      }
+    } finally {
+      deletingAsset = false
     }
   }
 
@@ -446,6 +401,8 @@
       {:else}
         <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {#each displayedItems as item (item.id)}
+            {@const statusLabel = getStatusLabel(item)}
+            {@const characterName = getCharacterName(item)}
             <div
               class="relative group aspect-[2/3] rounded-lg overflow-hidden bg-darkbg border cursor-pointer select-none transition-colors
                 {selection.has(item.id) ? 'border-borderc' : 'border-darkborderc risu-interactive-border/70'}"
@@ -458,7 +415,7 @@
                 <img
                   alt={item.name}
                   class="w-full h-full object-cover"
-                  src={`/api/asset/${Buffer.from('inlay_thumb/' + item.id, 'utf-8').toString('hex')}`}
+                  src={getInlayThumbnailUrl(item.id)}
                   loading="lazy"
                   draggable={false}
                 />
@@ -472,7 +429,7 @@
                   <img
                     alt={item.name}
                     class="w-full h-full object-cover bg-darkbg"
-                    src={getVideoThumbnailUrl(item.id)}
+                    src={getInlayVideoThumbnailUrl(item.id)}
                     loading="lazy"
                     draggable={false}
                     onerror={() => failedVideoThumbnails.add(item.id)}
@@ -509,10 +466,10 @@
                 />
               </div>
 
-              {#if getStatusLabel(item)}
+              {#if statusLabel}
                 <div
                   class="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-warning text-darkbg flex items-center justify-center"
-                  title={getStatusLabel(item) ?? ''}
+                  title={statusLabel}
                 >
                   <span class="text-[9px] font-bold leading-none">!</span>
                 </div>
@@ -524,8 +481,8 @@
                   opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex flex-col"
               >
                 <p class="text-white text-xs font-medium truncate leading-tight">{item.name}</p>
-                {#if getCharacterName(item)}
-                  <p class="text-white/60 text-[10px] truncate leading-tight">{getCharacterName(item)}</p>
+                {#if characterName}
+                  <p class="text-white/60 text-[10px] truncate leading-tight">{characterName}</p>
                 {/if}
                 <div class="flex justify-between items-end mt-1.5">
                   <button
@@ -538,7 +495,7 @@
                   <div class="flex gap-1.5 justify-end">
                     <button
                       class="w-6 h-6 rounded bg-selected/70 hover:bg-borderc flex items-center justify-center text-textcolor transition-colors"
-                      onclick={(e) => { e.stopPropagation(); downloadCurrent(item) }}
+                      onclick={(e) => { e.stopPropagation(); downloadInlayAsset(item.id) }}
                       title={language.download}
                     >
                       <DownloadIcon size={12} />
@@ -586,6 +543,12 @@
   onClose={closeViewer}
   onPrev={() => goToNeighbor(-1)}
   onNext={() => goToNeighbor(1)}
+  onDelete={() => {
+    if (currentViewerItem) return deleteAsset(currentViewerItem.id, currentViewerItem.name)
+  }}
+  onDownload={() => {
+    if (currentViewerItem) return downloadInlayAsset(currentViewerItem.id)
+  }}
 >
   {#snippet viewerContent()}
     {#if currentViewerItem?.type === 'video'}
@@ -595,7 +558,6 @@
         controls
         playsinline
         class="max-w-full max-h-full rounded shadow-2xl"
-        style="max-height: calc(100vh - 112px);"
       ></video>
     {:else if currentViewerItem?.type === 'audio'}
       <div class="flex w-full max-w-xl flex-col items-center gap-6 rounded-lg border border-darkborderc bg-darkbg p-8">
@@ -607,78 +569,29 @@
         src={viewerUrl}
         alt={currentViewerItem?.name ?? viewerId}
         class="max-w-full max-h-full object-contain rounded shadow-2xl"
-        style="max-height: calc(100vh - 112px);"
       />
     {/if}
   {/snippet}
 
   {#snippet actions()}
     {#if currentViewerItem}
-      <IconButton onclick={() => copyInlayReference(currentViewerItem.id)} title={language.copy} aria-label={language.copy} className="text-textcolor">
-        <CopyIcon />
-      </IconButton>
-      <IconButton onclick={() => downloadCurrent(currentViewerItem)} title={language.download} aria-label={language.download} className="text-textcolor">
-        <DownloadIcon />
-      </IconButton>
-      <IconButton tone="destructive" onclick={() => deleteAsset(currentViewerItem.id, currentViewerItem.name)} title={language.inlayGallery.inlayDelete} aria-label={language.inlayGallery.inlayDelete} className="text-textcolor">
-        <Trash2Icon />
-      </IconButton>
+      <AssetViewerActions
+        onCopy={() => copyInlayReference(currentViewerItem.id)}
+        onDownload={() => downloadInlayAsset(currentViewerItem.id)}
+        onDelete={() => deleteAsset(currentViewerItem.id, currentViewerItem.name)}
+      />
     {/if}
   {/snippet}
 
   {#snippet metadataOverlay()}
     {#if currentViewerItem}
-      <div class="space-y-2 text-xs">
-        {#if !currentViewerItem.hasMeta}
-          <span class="risu-status-warning inline-flex rounded px-1.5 py-0.5 text-[9px] font-medium">
-            {language.inlayGallery.inlayFilterMetaMissing}
-          </span>
-        {/if}
-        <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
-          {#if getCharacterName(currentViewerItem)}
-            <dt class="text-textcolor2">{language.character}</dt>
-            <dd class="flex min-w-0 items-center gap-1.5 text-textcolor">
-              <span class="truncate">{getCharacterName(currentViewerItem)}</span>
-              {#if isOrphanCharacter(currentViewerItem)}
-                <span class="risu-status-warning shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium">
-                  {language.inlayGallery.inlayFilterOrphanCharacter}
-                </span>
-              {/if}
-            </dd>
-          {/if}
-          {#if getChatName(currentViewerItem)}
-            <dt class="text-textcolor2">{language.Chat}</dt>
-            <dd class="flex min-w-0 items-center gap-1.5 text-textcolor">
-              <span class="truncate">{getChatName(currentViewerItem)}</span>
-              {#if isOrphanChat(currentViewerItem)}
-                <span class="risu-status-warning shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium">
-                  {language.inlayGallery.inlayFilterOrphanChat}
-                </span>
-              {/if}
-            </dd>
-          {/if}
-          {#if formatTimestamp(currentViewerItem.meta?.createdAt)}
-            <dt class="text-textcolor2">{language.requestDiagnostics.createdAt}</dt>
-            <dd class="text-textcolor">{formatTimestamp(currentViewerItem.meta?.createdAt)}</dd>
-          {/if}
-          <dt class="text-textcolor2">{language.extensionInfo}</dt>
-          <dd class="text-textcolor">
-            {currentViewerItem.ext?.toUpperCase() ?? ''}{#if currentViewerItem.ext && currentViewerItem.width && currentViewerItem.height}{', '}{/if}{#if currentViewerItem.width && currentViewerItem.height}{currentViewerItem.width} × {currentViewerItem.height}px{/if}
-          </dd>
-        </dl>
-        {#if currentViewerItem.meta?.imageGeneration?.prompt}
-          <div class="space-y-0.5 border-t border-darkborderc pt-2">
-            <p class="text-textcolor2">{language.positivePrompt}</p>
-            <p class="whitespace-pre-wrap break-words text-textcolor">{currentViewerItem.meta.imageGeneration.prompt}</p>
-          </div>
-        {/if}
-        {#if currentViewerItem.meta?.imageGeneration?.negativePrompt}
-          <div class="space-y-0.5 border-t border-darkborderc pt-2">
-            <p class="text-textcolor2">{language.negativePrompt}</p>
-            <p class="whitespace-pre-wrap break-words text-textcolor">{currentViewerItem.meta.imageGeneration.negativePrompt}</p>
-          </div>
-        {/if}
-      </div>
+      <InlayViewerMetadata
+        item={currentViewerItem}
+        characterName={getCharacterName(currentViewerItem)}
+        chatName={getChatName(currentViewerItem)}
+        characterStatus={isOrphanCharacter(currentViewerItem) ? language.inlayGallery.inlayFilterOrphanCharacter : null}
+        chatStatus={isOrphanChat(currentViewerItem) ? language.inlayGallery.inlayFilterOrphanChat : null}
+      />
     {/if}
   {/snippet}
 </FullscreenImageViewer>

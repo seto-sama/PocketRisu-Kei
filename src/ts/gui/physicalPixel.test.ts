@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-    floorCssLengthToPhysicalPixel,
     getPhysicalPixelQuantum,
     snapCssLengthToPhysicalPixel,
 } from './physicalPixel'
@@ -15,11 +14,5 @@ describe('physical pixel helpers', () => {
     it('snaps animated CSS lengths to whole physical pixels', () => {
         const snapped = snapCssLengthToPhysicalPixel(52.25, 1.2)
         expect(snapped * 1.2).toBeCloseTo(Math.round(52.25 * 1.2))
-    })
-
-    it('floors covering edges without crossing the measured CSS length', () => {
-        const snapped = floorCssLengthToPhysicalPixel(52.25, 1.2)
-        expect(snapped * 1.2).toBeCloseTo(Math.floor(52.25 * 1.2))
-        expect(snapped).toBeLessThanOrEqual(52.25)
     })
 })

@@ -30,7 +30,7 @@
     }
 </script>
 
-<IconButtonGroup size="xl" className="relative bottom-2 h-8 min-h-8 w-full items-start">
+<IconButtonGroup size="xl" className="relative bottom-2 mb-2 h-8 min-h-8 w-full items-start">
     {#if canEdit}
         <div class="flex h-8 items-start">
             <IconButton active={$CharConfigSubMenu === 0 && !devTool} onclick={() => selectSubMenu(0)}><UserIcon /></IconButton>

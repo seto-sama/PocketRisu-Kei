@@ -12,7 +12,7 @@
 <OverlayPortal>
 {#if isExpanded}
   <div
-    class="risu-layer-overlay fixed inset-0 flex justify-center items-center pointer-events-none"
+    class="risu-layer-overlay fixed inset-0 flex h-dvh justify-center items-center pointer-events-none"
   >
     <button
       class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl max-h-full overflow-y-auto transition-opacity duration-300 pointer-events-auto"

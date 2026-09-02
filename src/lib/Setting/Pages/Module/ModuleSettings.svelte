@@ -9,7 +9,7 @@
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
     import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
-    import { BotIcon, DownloadIcon, FolderCogIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
+    import { BotIcon, DownloadIcon, TagsIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
@@ -27,6 +27,8 @@
     import ShSelect from "src/lib/UI/GUI/ShSelect.svelte";
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import ModuleChatMenu from "src/lib/Setting/Pages/Module/ModuleChatMenu.svelte";
+    import AvatarFallback from "src/lib/UI/AvatarFallback.svelte";
+    import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
@@ -46,7 +48,7 @@
     let mcpImportSource = $state<string>(builtInMCPIds[0])
     let customMCPAddress = $state('')
     let mcpImporting = $state(false)
-    const personaFolders = $derived(DBState.db.personaFolders ?? [])
+    const personaTags = $derived(DBState.db.personaTags ?? [])
     const selectedMCPAddress = $derived(
         mcpImportSource === 'custom' ? customMCPAddress.trim() : mcpImportSource
     )
@@ -330,11 +332,11 @@
                 <BotIcon />
             </IconButton>
             <IconButton
-                title={language.moduleFolderManagement}
-                aria-label={language.moduleFolderManagement}
+                title={language.moduleTagManagement}
+                aria-label={language.moduleTagManagement}
                 onclick={() => (moduleFolderManagementOpen = true)}
             >
-                <FolderCogIcon />
+                <TagsIcon />
             </IconButton>
         {:else}
             <IconButton title={language.mcpImport.title} onclick={openMCPImportDialog}>
@@ -438,8 +440,9 @@
         <PresetPickerLayout
             title={language.personaModuleBinding}
             titleHelp={language.help.personaModuleBinding}
-            folders={personaFolders}
-            itemFolderIds={DBState.db.personas.map(persona => persona.folderId)}
+            folders={personaTags}
+            itemFolderIds={DBState.db.personas.map(persona => persona.tagIds)}
+            organizationKind="tag"
             itemNames={DBState.db.personas.map(persona => persona.name ?? '')}
             itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
             searchPlaceholder={language.personaSearch}
@@ -452,19 +455,19 @@
             close={closePersonaModuleModal}
             onSelectItem={togglePersonaModuleSelection}
             onFoldersChange={(next) => {
-                DBState.db.personaFolders = next
+                DBState.db.personaTags = next
                 void requestImmediateSave()
             }}
-            onAssignItem={(index, folderId) => {
+            onAssignItem={(index, tagId) => {
                 const persona = DBState.db.personas[index]
                 if (!persona) return
-                persona.folderId = folderId
+                persona.tagIds = togglePresetTag(persona.tagIds, tagId)
                 DBState.db.personas = [...DBState.db.personas]
                 void requestImmediateSave()
             }}
-            onDeleteFolder={(folderId) => {
+            onDeleteFolder={(tagId) => {
                 DBState.db.personas = DBState.db.personas.map(persona =>
-                    persona.folderId === folderId ? { ...persona, folderId: undefined } : persona
+                    ({ ...persona, tagIds: removePresetTag(persona.tagIds, tagId) })
                 )
                 void requestImmediateSave()
             }}

@@ -29,7 +29,7 @@
         --cp-bg-color: var(--risu-theme-bgcolor);
         --cp-border-color: var(--risu-theme-darkborderc);
         --cp-text-color: var(--risu-theme-textcolor);
-        --focus-color: var(--risu-theme-primary);
+        --focus-color: var(--risu-theme-borderc);
         --swatch-border-color: var(--color-black);
         --cp-input-color: var(--risu-theme-darkbg);
         --cp-button-hover-color: var(--risu-theme-selected);

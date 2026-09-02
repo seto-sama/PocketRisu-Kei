@@ -512,7 +512,7 @@
         },
         '.cm-tooltip.cm-completionInfo': {
             width: 'min(26rem, 48vw)',
-            maxHeight: 'min(22rem, 70vh)',
+            maxHeight: 'calc(100dvh - 1rem)',
             padding: '0',
             overflowY: 'auto',
             backgroundColor: 'var(--risu-theme-darkbg)',

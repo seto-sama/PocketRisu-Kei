@@ -61,7 +61,7 @@
         {/each}
     </div>
 {/if}
-<TextAreaInput autocomplete="off" bind:value={valueObject[selectedLang]} onInput={() => {
+<TextAreaInput autocomplete="off" commitMode="input" bind:value={valueObject[selectedLang]} onInput={() => {
     updateValue()
     onInput()
 }} className={className} />

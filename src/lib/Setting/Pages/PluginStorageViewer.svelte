@@ -384,7 +384,7 @@
 <SettingLayout variant="status" shownCount={displayed.length} totalCount={filtered.length} />
 
 <!-- List -->
-<SettingLayout variant="list" scrollable className="max-h-[75vh]">
+<SettingLayout variant="list">
     {#if loading}
         <div class="flex flex-col items-center gap-3 text-textcolor2 text-sm py-12">
             <RefreshCwIcon size={20} class="animate-spin" />

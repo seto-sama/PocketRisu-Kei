@@ -355,7 +355,7 @@
 
                             {#if plugin?.argMeta?.[arg]?.textarea}
                                 <TextAreaInput
-                                    commitMode="blur"
+                                    commitMode="debounce"
                                     className="mt-2"
                                     popupTitle={`${pluginTitle(plugin)} · ${plugin?.argMeta?.[arg]?.name || arg}`}
                                     bind:value={

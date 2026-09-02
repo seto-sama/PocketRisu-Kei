@@ -80,11 +80,13 @@ async function workflowMutationHeaders(
 
 export class RevenantWorkflowBusyError extends Error {
     readonly workflow?: RevenantWorkflow
+    readonly retryAfterMs?: number
 
-    constructor(workflow?: RevenantWorkflow) {
+    constructor(workflow?: RevenantWorkflow, retryAfterMs?: number) {
         super('A generation workflow is already active for this room')
         this.name = 'RevenantWorkflowBusyError'
         this.workflow = workflow
+        this.retryAfterMs = retryAfterMs
     }
 }
 
@@ -225,10 +227,18 @@ export async function beginRevenantWorkflow(arg: {
         headers: await revenantHeaders(true),
         body: JSON.stringify(arg),
     })
-    const body = await response.json().catch(() => ({})) as { workflow?: RevenantWorkflow, error?: string }
-    if (response.status === 409 && body.workflow) {
-        rememberWorkflow(body.workflow)
-        throw new RevenantWorkflowBusyError(body.workflow)
+    const body = await response.json().catch(() => ({})) as {
+        workflow?: RevenantWorkflow
+        error?: string
+        busyReason?: string
+        retryAfterMs?: number
+    }
+    if (
+        response.status === 409
+        && (body.workflow || body.busyReason === 'main_job_unregistered')
+    ) {
+        if (body.workflow) rememberWorkflow(body.workflow)
+        throw new RevenantWorkflowBusyError(body.workflow, body.retryAfterMs)
     }
     if (!response.ok || !body.workflow) {
         throw new Error(body.error || `Failed to create generation workflow: ${response.status}`)

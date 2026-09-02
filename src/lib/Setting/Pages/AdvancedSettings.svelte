@@ -9,6 +9,7 @@
 
     const requestItemIds = new Set([
         'adv.retries',
+        'adv.outputRepetition',
         'adv.genTime',
         'adv.sayNothing',
         'adv.autoFill',

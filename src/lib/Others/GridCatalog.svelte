@@ -11,19 +11,20 @@
         SearchIcon,
         TrashIcon,
         Undo2Icon,
+        CircleXIcon,
     } from "@lucide/svelte";
     import { language } from "src/lang";
     import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import MultiLangDisplay from "../UI/GUI/MultiLangDisplay.svelte";
-    import SideBarArrow from "../UI/GUI/SideBarArrow.svelte";
     import { makeAgoText } from "src/ts/util";
     import SettingTabs from "../UI/GUI/SettingTabs.svelte";
     import ShInput from "../UI/GUI/ShInput.svelte";
     import CharacterMasonryIcon from "../UI/CharacterMasonryIcon.svelte";
     import HorizontalMasonry from "../UI/HorizontalMasonry.svelte";
     import { readViewPreference, viewPreferenceKeys, writeViewPreference } from "src/ts/viewPreference";
+    import { doingAlert } from "src/ts/alert";
 
     interface Props {
         endGrid?: () => void;
@@ -55,6 +56,15 @@
 
     function selectAndClose(index = -1){
         changeChar(index);
+        endGrid();
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+        if (event.key !== 'Escape' || event.isComposing) return;
+        if (doingAlert() || document.querySelector('[aria-modal="true"][data-state="open"]')) return;
+
+        event.preventDefault();
+        event.stopPropagation();
         endGrid();
     }
 
@@ -143,10 +153,19 @@
     }
 </script>
 
-<div class="relative flex h-full min-w-0 grow justify-center bg-bg">
-    <SideBarArrow />
-    <section class="relative flex h-full w-full max-w-5xl flex-col overflow-hidden bg-darkbg">
-        <header class="shrink-0 border-b border-darkborderc px-4 py-4 sm:px-6">
+<svelte:window onkeydown={handleEscape} />
+
+<div class="relative flex h-full w-full min-w-0 grow justify-center bg-bgcolor">
+    <section class="relative flex h-full w-full max-w-5xl flex-col overflow-hidden bg-bgcolor">
+        <button
+            class="risu-layer-composer absolute right-2 top-2 flex items-center justify-center text-textcolor risu-interactive-accent"
+            aria-label={language.close}
+            title={language.close}
+            onclick={endGrid}
+        >
+            <CircleXIcon size={DBState.db.settingsCloseButtonSize} />
+        </button>
+        <header class="shrink-0 border-b border-darkborderc px-4 py-4 pr-14 sm:px-6 sm:pr-14">
             <div class="mb-3 flex items-baseline gap-2">
                 <h1 class="text-xl font-bold text-textcolor">{language.character}</h1>
                 <span class="text-xs text-textcolor2">

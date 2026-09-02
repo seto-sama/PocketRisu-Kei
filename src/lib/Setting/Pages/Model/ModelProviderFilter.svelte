@@ -126,7 +126,7 @@
                 </ShButton>
             </div>
 
-            <SettingLayout variant="list" scrollable className="max-h-[55vh]">
+            <SettingLayout variant="list">
                 {#if filteredProviders.length === 0}
                     <p class="text-sm text-textcolor2 py-6 text-center">
                         {language.modelProviderFilterNoMatch}

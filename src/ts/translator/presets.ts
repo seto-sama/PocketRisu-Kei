@@ -3,13 +3,13 @@ import * as fflate from "fflate";
 import { decryptBuffer, encryptBuffer } from "src/ts/util";
 import { decodeRPack, encodeRPack } from "src/ts/rpack/rpack_js.js";
 import { v4 as uuidv4 } from "uuid";
+import { normalizePresetTagFields, type PresetTagFields } from "src/ts/preset/tags";
 
-export interface TranslatorPreset {
+export interface TranslatorPreset extends PresetTagFields {
     id: string;
     name: string;
     prompt: string;
     maxResponse: number;
-    folderId?: string;
 }
 
 export interface TranslatorPresetStateLike {
@@ -17,7 +17,7 @@ export interface TranslatorPresetStateLike {
     translatorMaxResponse?: number;
     translatorPresets?: unknown[];
     translatorPresetId?: number;
-    translatorPresetFolders?: { id: string; name: string }[];
+    translatorPresetTags?: { id: string; name: string }[];
 }
 
 interface EncryptedTranslatorPresetFile {
@@ -36,7 +36,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
 
-type TranslatorPresetInput = Omit<TranslatorPreset, "id"> & { id?: string };
+type TranslatorPresetInput = Omit<TranslatorPreset, "id"> & {
+    id?: string;
+    folderId?: string | string[];
+};
 
 function isTranslatorPresetInput(value: unknown): value is TranslatorPresetInput {
     return (
@@ -46,12 +49,13 @@ function isTranslatorPresetInput(value: unknown): value is TranslatorPresetInput
         typeof value.prompt === "string" &&
         typeof value.maxResponse === "number" &&
         Number.isFinite(value.maxResponse) &&
-        (value.folderId === undefined || typeof value.folderId === "string")
+        (value.tagIds === undefined || (
+            Array.isArray(value.tagIds) && value.tagIds.every(id => typeof id === "string")
+        )) &&
+        (value.folderId === undefined || typeof value.folderId === "string" || (
+            Array.isArray(value.folderId) && value.folderId.every(id => typeof id === "string")
+        ))
     );
-}
-
-function isTranslatorPresetValue(value: unknown): value is TranslatorPreset {
-    return isTranslatorPresetInput(value) && typeof value.id === "string" && value.id.length > 0;
 }
 
 function getBytes(value: unknown): Uint8Array | null {
@@ -101,9 +105,9 @@ function sanitizeFileNamePart(value: string): string {
 
 export function createTranslatorPreset(
     name = "New Preset",
-    existing: Partial<TranslatorPreset> = {}
+    existing: Partial<TranslatorPreset> & { folderId?: unknown } = {}
 ): TranslatorPreset {
-    return {
+    return normalizePresetTagFields({
         id: typeof existing.id === "string" && existing.id.length > 0 ? existing.id : uuidv4(),
         name,
         prompt: typeof existing.prompt === "string" ? existing.prompt : "",
@@ -111,8 +115,9 @@ export function createTranslatorPreset(
             typeof existing.maxResponse === "number" && Number.isFinite(existing.maxResponse)
                 ? existing.maxResponse
                 : 1000,
-        folderId: typeof existing.folderId === "string" ? existing.folderId : undefined,
-    };
+        tagIds: existing.tagIds,
+        folderId: existing.folderId,
+    });
 }
 
 export function normalizeTranslatorPresetState<T extends TranslatorPresetStateLike>(state: T): T {
@@ -146,11 +151,7 @@ export function normalizeTranslatorPresetState<T extends TranslatorPresetStateLi
 export function syncCurrentTranslatorPresetToLegacyFields<T extends TranslatorPresetStateLike>(
     state: T
 ): T {
-    const preset = state.translatorPresets?.[state.translatorPresetId ?? 0];
-
-    if (!isTranslatorPresetValue(preset)) {
-        return normalizeTranslatorPresetState(state);
-    }
+    const preset = state.translatorPresets?.[state.translatorPresetId ?? 0] as TranslatorPreset;
 
     state.translatorPrompt = preset.prompt;
     state.translatorMaxResponse = preset.maxResponse;
@@ -161,20 +162,7 @@ export function syncCurrentTranslatorPresetToLegacyFields<T extends TranslatorPr
 export function getCurrentTranslatorPresetFromState<T extends TranslatorPresetStateLike>(
     state: T
 ): TranslatorPreset {
-    const presetId =
-        typeof state.translatorPresetId === "number" && Number.isInteger(state.translatorPresetId)
-            ? state.translatorPresetId
-            : -1;
-    const preset = Array.isArray(state.translatorPresets) ? state.translatorPresets[presetId] : undefined;
-
-    if (!isTranslatorPresetValue(preset)) {
-        const normalizedState = normalizeTranslatorPresetState(state);
-        const normalizedPreset =
-            normalizedState.translatorPresets?.[normalizedState.translatorPresetId ?? 0];
-        return isTranslatorPresetValue(normalizedPreset)
-            ? normalizedPreset
-            : getDefaultTranslatorPreset(normalizedState);
-    }
+    const preset = state.translatorPresets![state.translatorPresetId!] as TranslatorPreset;
 
     state.translatorPrompt = preset.prompt;
     state.translatorMaxResponse = preset.maxResponse;

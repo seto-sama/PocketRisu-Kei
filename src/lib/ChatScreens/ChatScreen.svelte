@@ -15,6 +15,7 @@
     import { supportsCustomChatBackdrop } from 'src/ts/storage/database.svelte';
     let openChatList = $state(false)
     let openModuleList = $state(false)
+    let localPortalTarget: HTMLDivElement | null = $state(null)
 
     $effect(() => {
         if ($openModuleListStore) {
@@ -51,7 +52,7 @@
 </script>
 
 {#if DBState.db.theme === 'waifu'}
-    <div class="grow h-full flex justify-center relative" style="{bgImg.length < 4 ? wallPaper : bgImg}">
+    <div bind:this={localPortalTarget} class="grow h-full flex justify-center relative" style="{bgImg.length < 4 ? wallPaper : bgImg}">
         <SideBarArrow />
         <BackgroundDom />
         {#if $selectedCharID >= 0}
@@ -62,29 +63,11 @@
             {/if}
         {/if}
         <div class="h-full w-2xl" style:width="{42 * (DBState.db.waifuWidth / 100)}rem" class:halfwp={$selectedCharID >= 0 && DBState.db.characters[$selectedCharID].viewScreen !== 'none'}>
-            <DefaultChatScreen customStyle={`${externalStyles}backdrop-filter: blur(4px);`} bind:openChatList bind:openModuleList/>
+            <DefaultChatScreen portalTarget={localPortalTarget} customStyle={`${externalStyles}backdrop-filter: blur(4px);`} bind:openChatList bind:openModuleList/>
         </div>
-    </div>
-{:else if DBState.db.theme === 'waifuMobile'}
-    <div class="grow h-full relative" style={bgImg.length < 4 ? wallPaper : bgImg}>
-        <SideBarArrow />
-        <BackgroundDom />
-        <div class="risu-layer-sticky w-full absolute bottom-0 left-0"
-            class:per33={$selectedCharID >= 0 && DBState.db.characters[$selectedCharID].viewScreen !== 'none'}
-            class:h-full={!($selectedCharID >= 0 && DBState.db.characters[$selectedCharID].viewScreen !== 'none')}
-        >
-            <DefaultChatScreen customStyle={`${externalStyles}backdrop-filter: blur(4px);`} bind:openChatList bind:openModuleList/>
-        </div>
-        {#if $selectedCharID >= 0}
-            {#if DBState.db.characters[$selectedCharID].viewScreen !== 'none'}
-                <div class="h-full w-full absolute bottom-0 left-0 max-w-full">
-                    <TransitionImage classType="mobile" src={getEmotion(DBState.db, $CharEmotion, 'plain')}/>
-                </div>
-            {/if}
-        {/if}
     </div>
 {:else}
-    <div class="grow h-full min-w-0 relative justify-center flex">
+    <div bind:this={localPortalTarget} class="grow h-full min-w-0 relative justify-center flex">
         <SideBarArrow />
         <BackgroundDom />
         <div style={defaultLayoutBackground} class="h-full w-full" class:max-w-6xl={DBState.db.classicMaxWidth}>
@@ -93,7 +76,7 @@
                     <ResizeBox />
                 {/if}
             {/if}
-            <DefaultChatScreen customStyle={defaultLayoutStyle} bind:openChatList bind:openModuleList/>
+            <DefaultChatScreen portalTarget={localPortalTarget} customStyle={defaultLayoutStyle} bind:openChatList bind:openModuleList/>
         </div>
     </div>
 {/if}
@@ -109,8 +92,5 @@
     }
     .halfwp{
         max-width: calc(50% - 5rem);
-    }
-    .per33{
-        height: 33.333333%;
     }
 </style>

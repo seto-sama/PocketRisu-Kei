@@ -2,7 +2,8 @@ import { derived, get, writable } from 'svelte/store'
 import { navigateToChatMessage } from '../chatMessageNavigation'
 import { forageStorage } from '../storage/autoStorage'
 import { ensureChatHydrated } from '../storage/chatStorage'
-import type { Chat, Database, PromptPresetFolder } from '../storage/database.svelte'
+import type { PresetTag } from '../preset/tags'
+import type { Chat, Database } from '../storage/database.svelte'
 import { DBState } from '../stores.svelte'
 import { applyBookmarkCompatibility, stripBookmarkCompatibility } from './bookmarkData'
 import type {
@@ -12,7 +13,7 @@ import type {
     GlobalBookmarkEntry,
 } from './bookmarkTypes'
 
-const emptyCatalog: BookmarkCatalog = { revision: 0, folders: [], entries: [] }
+const emptyCatalog: BookmarkCatalog = { revision: 0, tags: [], entries: [] }
 
 export const bookmarkCatalog = writable<BookmarkCatalog>(emptyCatalog)
 export const bookmarkCatalogLoaded = writable(false)
@@ -78,23 +79,21 @@ export async function renameBookmark(target: BookmarkTarget, name: string): Prom
     installCatalog(await forageStorage.realStorage.patchBookmark(target, { name }))
 }
 
-export async function assignBookmarkFolder(
+export async function assignBookmarkTags(
     target: BookmarkTarget,
-    folderId?: string,
+    tagIds: string[],
 ): Promise<void> {
-    installCatalog(await forageStorage.realStorage.patchBookmark(target, {
-        folderId: folderId || null,
-    }))
+    installCatalog(await forageStorage.realStorage.patchBookmark(target, { tagIds }))
 }
 
-export async function replaceBookmarkFolders(folders: PromptPresetFolder[]): Promise<void> {
-    installCatalog(await forageStorage.realStorage.replaceBookmarkFolders(folders))
+export async function replaceBookmarkTags(tags: PresetTag[]): Promise<void> {
+    installCatalog(await forageStorage.realStorage.replaceBookmarkTags(tags))
 }
 
-export async function mergeBookmarkFoldersForImport(
-    folders: unknown,
+export async function mergeBookmarkTagsForImport(
+    tags: unknown,
 ): Promise<Record<string, string>> {
-    const result = await forageStorage.realStorage.mergeBookmarkFolders(folders)
+    const result = await forageStorage.realStorage.mergeBookmarkTags(tags)
     installCatalog(result.catalog)
     return result.idMap
 }
@@ -108,7 +107,7 @@ export function fetchBookmarkCompatibility(
 export async function prepareBookmarkCompatibleChats(
     characterId: string,
     chats: Chat[],
-): Promise<{ chats: Chat[], folders: PromptPresetFolder[] }> {
+): Promise<{ chats: Chat[], tags: PresetTag[] }> {
     const compatibility = await fetchBookmarkCompatibility(
         chats.map(chat => ({ characterId, chatId: chat.id })),
     )
@@ -118,7 +117,7 @@ export async function prepareBookmarkCompatibleChats(
     return {
         chats: chats.map(chat =>
             applyBookmarkCompatibility(chat, compatibilityByChat.get(chat.id))),
-        folders: compatibility.folders,
+        tags: compatibility.tags,
     }
 }
 

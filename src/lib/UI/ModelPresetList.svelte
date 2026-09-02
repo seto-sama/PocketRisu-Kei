@@ -5,9 +5,10 @@
     import PresetBindingTrigger from "./PresetBindingTrigger.svelte";
     import PresetPickerLayout from "./PresetPickerLayout.svelte";
     import PresetPickerActions from "./PresetPickerActions.svelte";
-    import InlineNameInput from "./GUI/InlineNameInput.svelte";
+    import InlineEditableName from "./GUI/InlineEditableName.svelte";
     import { v4 as uuidv4 } from "uuid";
     import { ModelPresetTab, openSettings, SettingsRoute } from "src/ts/routing";
+    import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
     interface Props {
         value?: string;
@@ -35,11 +36,10 @@
         pickerOnly = false,
     }: Props = $props();
 
-    let editMode = $state(false);
     let selectedFolder = $state('all');
 
     let presets = $derived(DBState.db.modelPresets ?? []);
-    let folders = $derived(DBState.db.modelPresetFolders ?? []);
+    let tags = $derived(DBState.db.modelPresetTags ?? []);
     let visibleItemIndexes = $state<number[]>([]);
     let bound = $derived(value ? (presets.find(p => p.id === value) ?? null) : null);
     let selectedItemIndex = $derived(value ? presets.findIndex(preset => preset.id === value) : -1);
@@ -79,9 +79,9 @@
         DBState.db.modelPresets = next;
     }
 
-    function assignPresetToFolder(index: number, folderId: string | undefined) {
+    function assignPresetToTag(index: number, tagId: string | undefined) {
         if (!presets[index]) return;
-        presets[index].folderId = folderId;
+        presets[index].tagIds = togglePresetTag(presets[index].tagIds, tagId);
         DBState.db.modelPresets = [...presets];
     }
 
@@ -114,8 +114,9 @@
 {#if open}
     <PresetPickerLayout
         title={language.modelPresets}
-        {folders}
-        itemFolderIds={presets.map(preset => preset.folderId)}
+        folders={tags}
+        itemFolderIds={presets.map(preset => preset.tagIds)}
+        organizationKind="tag"
         itemNames={presets.map(preset => preset.name)}
         bind:visibleItemIndexes
         bind:selectedFolder
@@ -123,28 +124,29 @@
         readOnly={showConfigure}
         close={() => { open = false }}
         configure={showConfigure ? goToPresetSettings : undefined}
-        onFoldersChange={(next) => { DBState.db.modelPresetFolders = next }}
-        onAssignItem={assignPresetToFolder}
-        onDeleteFolder={(folderId) => {
+        onFoldersChange={(next) => { DBState.db.modelPresetTags = next }}
+        onAssignItem={assignPresetToTag}
+        onDeleteFolder={(tagId) => {
             DBState.db.modelPresets = presets.map(preset =>
-                preset.folderId === folderId ? { ...preset, folderId: undefined } : preset
+                ({ ...preset, tagIds: removePresetTag(preset.tagIds, tagId) })
             )
         }}
         {selectedItemIndex}
-        itemEditMode={editMode}
         onMoveItem={movePreset}
         onSelectItem={(index) => pick(presets[index].id)}
         onDuplicateItem={duplicatePreset}
         onDeleteItem={deletePreset}
+        itemRenameable
     >
-        {#snippet itemContent(index)}
-            {#if editMode}
-                <div class="min-w-0 grow">
-                    <InlineNameInput bind:value={DBState.db.modelPresets[index].name} size="default" placeholder="string" />
-                </div>
-            {:else}
-                <span class="truncate flex-1">{presets[index].name}</span>
-            {/if}
+        {#snippet itemContent(index, renameController)}
+            <InlineEditableName
+                controller={renameController}
+                bind:value={DBState.db.modelPresets[index].name}
+                size="default"
+                placeholder="string"
+                disabled={showConfigure}
+                onActivate={() => pick(presets[index].id)}
+            />
         {/snippet}
         {#snippet listFooter()}
             {#if blankable}
@@ -158,10 +160,7 @@
             {/if}
         {/snippet}
         {#if !showConfigure}
-            <PresetPickerActions
-                onCreate={createPreset}
-                onRename={() => { editMode = !editMode }}
-            />
+            <PresetPickerActions onCreate={createPreset} />
         {/if}
     </PresetPickerLayout>
 {/if}

@@ -16,11 +16,11 @@ import { getInlayMeta, setInlayMeta, type InlayAssetMeta } from './process/files
 import { PngChunk } from './pngChunk'
 import { reencodeImage } from './process/files/inlays'
 import {
-    remapBookmarkFolders,
+    remapBookmarkTags,
 } from './bookmarks/bookmarkData'
 import {
     finalizeImportedBookmarks,
-    mergeBookmarkFoldersForImport,
+    mergeBookmarkTagsForImport,
     prepareBookmarkCompatibleChats,
 } from './bookmarks/bookmarkService'
 
@@ -284,13 +284,13 @@ async function importChatsToCharacter(
     if (chatsJson.type !== 'risuAllChats' || chatsJson.ver !== 2 || !Array.isArray(chatsJson.data)) return []
 
     const importedChats: Chat[] = chatsJson.data
-    const bookmarkFolderIdMap = await mergeBookmarkFoldersForImport(chatsJson.bookmarkFolders)
+    const bookmarkTagIdMap = await mergeBookmarkTagsForImport(chatsJson.bookmarkTags)
 
     for (const chat of importedChats) {
         if (chat.bindedPersona && personaIdMap[chat.bindedPersona]) {
             chat.bindedPersona = personaIdMap[chat.bindedPersona]
         }
-        remapBookmarkFolders(chat, bookmarkFolderIdMap)
+        remapBookmarkTags(chat, bookmarkTagIdMap)
         chat.id = v4()
     }
 
@@ -523,7 +523,7 @@ export async function exportCharacterPackage(
                 ver: 2,
                 data: bookmarkExport.chats,
                 folders: char.chatFolders ?? [],
-                bookmarkFolders: bookmarkExport.folders,
+                bookmarkTags: bookmarkExport.tags,
             }, null, 2)
             const chatsPath = 'chats/chats.json'
             await zipWriter.write(chatsPath, chatsData, 6)

@@ -5,8 +5,8 @@
     import { alertConfirmMulti, alertSelect, notifySuccess } from "src/ts/alert";
     import { PinIcon, PinOffIcon } from "@lucide/svelte";
     import { openPersonaList, personaSelectCallback } from "src/ts/stores.svelte";
-    import { v4 } from "uuid";
     import ShButton from "../UI/GUI/ShButton.svelte";
+    import { bindPersonaToCurrentChat } from "src/ts/chatBindings";
 
     let currentChat = $derived(DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage])
 
@@ -17,15 +17,6 @@
     })
     let displayPersona = $derived(boundPersona ?? DBState.db.personas[DBState.db.selectedPersona])
     let isPersonaBound = $derived(!!boundPersona)
-
-    function bindPersona(personaIndex: number) {
-        const chat = getCurrentChat()
-        if (!chat) return
-        const persona = DBState.db.personas[personaIndex]
-        if (!persona.id) persona.id = v4()
-        chat.bindedPersona = persona.id
-        notifySuccess(language.personaBindedSuccess)
-    }
 
     function unbindPersona() {
         const chat = getCurrentChat()
@@ -44,7 +35,7 @@
                 ]
             )
             if (sel === 0) {
-                personaSelectCallback.set(bindPersona)
+                personaSelectCallback.set(bindPersonaToCurrentChat)
                 openPersonaList.set(true)
             } else if (sel === 1) {
                 unbindPersona()
@@ -56,9 +47,9 @@
                 language.cancel
             ]))
             if (sel === 0) {
-                bindPersona(DBState.db.selectedPersona)
+                bindPersonaToCurrentChat(DBState.db.selectedPersona)
             } else if (sel === 1) {
-                personaSelectCallback.set(bindPersona)
+                personaSelectCallback.set(bindPersonaToCurrentChat)
                 openPersonaList.set(true)
             }
         }

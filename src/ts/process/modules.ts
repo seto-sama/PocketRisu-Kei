@@ -11,16 +11,16 @@ import { HideIconStore, moduleBackgroundEmbedding } from "../stores.svelte"
 import {get} from "svelte/store"
 import { convertCharacterToModule, convertModuleToCharacter } from "../interchangeability"
 import { exportCharacterCard, importCharacterProcess } from "../characterCards"
+import { readDefaultAvatarImage } from "../avatarImage"
+import { normalizePresetTagFields, type PresetTagFields } from "../preset/tags"
 
 export interface MCPModule{
     url: string
 }
 
-export interface RisuModule{
+export interface RisuModule extends PresetTagFields {
     name: string
     description: string
-    /** Optional user-defined folder used by module pickers. */
-    folderId?: string
     lorebook?: loreBook[]
     regex?: customscript[]
     cjs?: string
@@ -252,7 +252,7 @@ export async function readModule(buf:Buffer):Promise<RisuModule> {
     }
 
     module.id = v4()
-    return module
+    return normalizePresetTagFields(module)
 }
 
 export async function importModule(){
@@ -275,7 +275,7 @@ export async function importModule(){
                 return
             }
             const module = convertCharacterToModule(char)
-            db.modules.push(module)
+            db.modules.push(normalizePresetTagFields(module))
         } catch (error) {
             console.error(error)
             alertError(language.errors.noData)
@@ -287,7 +287,7 @@ export async function importModule(){
         try {
             const buf = Buffer.from(fileData)
             const module = await readModule(buf)
-            db.modules.push(module)
+            db.modules.push(normalizePresetTagFields(module))
             notifySuccess(language.successImport)
         } catch (error) {
             console.error(error)
@@ -313,7 +313,7 @@ export async function importModule(){
                     return false
                 }
             }
-            db.modules.push(importData)
+            db.modules.push(normalizePresetTagFields(importData))
             notifySuccess(language.successImport)
             return
         }

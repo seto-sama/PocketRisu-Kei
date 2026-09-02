@@ -11,7 +11,6 @@ import {
     subscribeLLMTranslationCache,
     translateHTML,
 } from '../../ts/translator/translator'
-import { sleep } from '../../ts/util'
 
 type ParseMode = 'normal' | 'back' | 'pretranslate' | 'notrim'
 type ParseMessageMarkdown = (data: string, mode: ParseMode) => Promise<string>
@@ -262,7 +261,6 @@ export function createChatBodyRenderController(
             DBState.db.translatorType === 'llm'
             && DBState.db.translateBeforeHTMLFormatting
         ) {
-            await sleep(100)
             const cacheKey = options.translationCacheKey ?? options.data
             const translatedData = await runTranslationTask(
                 (signal) => translateHTML(
@@ -279,7 +277,7 @@ export function createChatBodyRenderController(
             )
             html = await options.parseMarkdown(translatedData, 'notrim')
         }
-        else if (!DBState.db.legacyTranslation) {
+        else {
             const marked = options.translationCacheKey
                 ?? await options.parseMarkdown(options.data, 'pretranslate')
             const cacheKey = DBState.db.translatorType === 'llm' ? marked : null
@@ -297,25 +295,6 @@ export function createChatBodyRenderController(
                 options.translationTaskKey,
             )
         }
-        else {
-            const marked = options.translationCacheKey
-                ?? await options.parseMarkdown(options.data, 'notrim')
-            const cacheKey = DBState.db.translatorType === 'llm' ? marked : null
-            html = await runTranslationTask(
-                (signal) => translateHTML(
-                    marked,
-                    false,
-                    options.charArg,
-                    options.chatId,
-                    options.retranslate,
-                    signal,
-                ),
-                cacheKey,
-                options.retranslate,
-                options.translationTaskKey,
-            )
-        }
-
         return html
     }
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { DynamicGUI, settingsOpen, sideBarStore, openPresetList, openModelPresetList, openModelProfileBrowser, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, MobileGUI, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, popUpEditorStore } from './ts/stores.svelte';
+    import { DynamicGUI, settingsOpen, sideBarClosing, sideBarStore, openPresetList, openModelPresetList, requestPreviewOpen, openModelProfileBrowser, openPersonaList, personaSelectCallback, openHypaV3PresetList, openThemePresetList, MobileGUI, loadedStore, alertStore, LoadingStatusState, bookmarkListOpen, popupStore, popUpEditorStore } from './ts/stores.svelte';
     import Sidebar from './lib/SideBars/Sidebar.svelte';
     import { DBState } from './ts/stores.svelte';
     import ChatScreen from './lib/ChatScreens/ChatScreen.svelte';
@@ -16,6 +16,7 @@
     import SavePopupIconComp from './lib/Others/SavePopupIcon.svelte';
     import Botpreset from './lib/Setting/botpreset.svelte';
     import QuickModelPresetPicker from './lib/UI/QuickModelPresetPicker.svelte';
+    import RequestPreviewModal from './lib/Others/RequestPreviewModal.svelte';
     import ModelProfileBrowser from './lib/Setting/modelProfileBrowser.svelte';
     import Themepreset from './lib/Setting/themepreset.svelte';
     import ListedPersona from './lib/Setting/listedPersona.svelte';
@@ -46,6 +47,18 @@
         sideBarStore.set(false)
     }
 
+    function focusOverlay(node: HTMLElement) {
+        let active = true
+        queueMicrotask(() => {
+            if (active) node.focus({ preventScroll: true })
+        })
+        return {
+            destroy() {
+                active = false
+            },
+        }
+    }
+
     $effect(() => {
         if ($loadedStore) {
             void ensureBookmarkCatalog().catch(error => {
@@ -53,11 +66,17 @@
             })
         }
     })
+
+    $effect(() => {
+        if (!$DynamicGUI || !$settingsOpen) return
+        sideBarClosing.set(false)
+        sideBarStore.set(false)
+    })
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<main class="flex bg-bg w-full h-full max-w-100vw text-textcolor" ondragover={(e) => {
+<main class="flex bg-bgcolor w-full h-full max-w-100vw text-textcolor" ondragover={(e) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'link'
 }} ondrop={async (e) => {
@@ -113,35 +132,63 @@
 
             <span class="text-sm mt-2 text-textcolor2">{LoadingStatusState.text}</span>
         </div>
-    {:else if $settingsOpen}
-        <Settings />
-    {:else if $MobileGUI}
-        <div class="w-full h-full flex flex-col" style="touch-action: pan-y pinch-zoom;">
-            <MobileHeader />
-            <MobileBody />
-            <MobileFooter />
-        </div>
     {:else}
-        {#if (!$DynamicGUI)}
-            <Sidebar
-                openGrid={openCharacterGrid}
-                onNavigate={() => {gridOpen = false}}
-                hidden={!$sideBarStore}
-            />
-        {:else}
-            <div class="risu-layer-chrome inset-0 w-full h-dvh flex flex-row items-center" class:fixed={$sideBarStore} class:hidden={!$sideBarStore} >
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div
+            class="risu-local-stack relative flex h-full w-full min-w-0"
+            inert={$settingsOpen || (!$MobileGUI && gridOpen)}
+            aria-hidden={$settingsOpen || (!$MobileGUI && gridOpen)}
+        >
+            {#if $MobileGUI}
+                <div class="w-full h-full flex flex-col" style="touch-action: pan-y pinch-zoom;">
+                    <MobileHeader />
+                    <MobileBody />
+                    <MobileFooter />
+                </div>
+            {:else}
+                {#if (!$DynamicGUI)}
+                    <Sidebar
+                        openGrid={openCharacterGrid}
+                        onNavigate={() => {gridOpen = false}}
+                        hidden={!$sideBarStore}
+                    />
+                {/if}
+                <ChatScreen />
+            {/if}
+        </div>
+
+        {#if gridOpen && !$MobileGUI && !$settingsOpen}
+            <div
+                class="risu-layer-local-focus fixed inset-0 flex h-dvh w-full min-w-0 overflow-hidden bg-bgcolor outline-none"
+                tabindex="-1"
+                use:focusOverlay
+            >
+                <GridChars endGrid={() => {gridOpen = false}} />
+            </div>
+        {/if}
+
+        {#if $settingsOpen}
+            <div
+                class="risu-layer-local-focus fixed inset-0 h-dvh w-full overflow-hidden bg-bgcolor outline-none"
+                tabindex="-1"
+                use:focusOverlay
+            >
+                <Settings />
+            </div>
+        {/if}
+
+        {#if !$MobileGUI && $DynamicGUI}
+            <div
+                class="risu-layer-local-focus inset-0 h-dvh w-full flex-row items-center"
+                class:fixed={$sideBarStore}
+                class:flex={$sideBarStore}
+                class:hidden={!$sideBarStore}
+            >
                 <Sidebar
                     openGrid={openCharacterGrid}
                     onNavigate={() => {gridOpen = false}}
                     hidden={false}
                 />
             </div>
-        {/if}
-        {#if gridOpen}
-            <GridChars endGrid={() => {gridOpen = false}} />
-        {:else}
-            <ChatScreen />
         {/if}
     {/if}
     <AlertComp />
@@ -153,6 +200,9 @@
     {/if}
     {#if $openModelPresetList}
         <QuickModelPresetPicker bind:open={$openModelPresetList} />
+    {/if}
+    {#if $requestPreviewOpen}
+        <RequestPreviewModal bind:open={$requestPreviewOpen} />
     {/if}
     {#if $openModelProfileBrowser}
         <ModelProfileBrowser close={() => {$openModelProfileBrowser = false}} />

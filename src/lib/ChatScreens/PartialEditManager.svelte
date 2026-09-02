@@ -11,6 +11,7 @@
     import OverlayPortal from 'src/lib/UI/GUI/OverlayPortal.svelte';
     import { isMobile } from 'src/ts/platform';
     import { layerZIndexes } from 'src/ts/gui/layers';
+    import { getVisualViewportBounds } from 'src/ts/gui/visualViewport';
     import {
         findAllOriginalRangesFromHtml,
         findAllOriginalRangesFromText,
@@ -265,10 +266,13 @@
 
         const width = button.offsetWidth || PARTIAL_EDIT_BUTTON_CELL_SIZE * 2 + PARTIAL_EDIT_BUTTON_GAP * 2;
         const height = button.offsetHeight || PARTIAL_EDIT_BUTTON_CELL_SIZE + paddingTop;
-        const maxLeft = Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, window.innerWidth - width - PARTIAL_EDIT_VIEWPORT_GUTTER);
-        const maxTop = Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, window.innerHeight - height - PARTIAL_EDIT_VIEWPORT_GUTTER);
+        const viewport = getVisualViewportBounds();
+        const minLeft = viewport.left + PARTIAL_EDIT_VIEWPORT_GUTTER;
+        const minTop = viewport.top + PARTIAL_EDIT_VIEWPORT_GUTTER;
+        const maxLeft = Math.max(minLeft, viewport.right - width - PARTIAL_EDIT_VIEWPORT_GUTTER);
+        const maxTop = Math.max(minTop, viewport.bottom - height - PARTIAL_EDIT_VIEWPORT_GUTTER);
 
-        return { width, height, maxLeft, maxTop };
+        return { width, height, minLeft, minTop, maxLeft, maxTop };
     }
 
     function applyEditButtonPosition(
@@ -281,8 +285,8 @@
         if (left > layout.maxLeft) left = anchor.right - layout.width;
         if (top > layout.maxTop) top = anchor.top - layout.height;
 
-        button.style.left = `${Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, Math.min(left, layout.maxLeft))}px`;
-        button.style.top = `${Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, Math.min(top, layout.maxTop))}px`;
+        button.style.left = `${Math.max(layout.minLeft, Math.min(left, layout.maxLeft))}px`;
+        button.style.top = `${Math.max(layout.minTop, Math.min(top, layout.maxTop))}px`;
     }
 
     function positionBlockButtons(anchor: DOMRect, button: HTMLElement) {
@@ -660,12 +664,16 @@
             document.addEventListener('mousedown', handleMouseDown);
         }
         document.addEventListener('scroll', handleScroll, true);
+        window.visualViewport?.addEventListener('resize', handleScroll);
+        window.visualViewport?.addEventListener('scroll', handleScroll);
         screenRoot.addEventListener('mouseleave', handleScreenLeave);
         return () => {
             document.removeEventListener('mousemove', handleMove);
             document.removeEventListener('selectionchange', handleSelectionChange);
             document.removeEventListener('mousedown', handleMouseDown);
             document.removeEventListener('scroll', handleScroll, true);
+            window.visualViewport?.removeEventListener('resize', handleScroll);
+            window.visualViewport?.removeEventListener('scroll', handleScroll);
             screenRoot.removeEventListener('mouseleave', handleScreenLeave);
             resetInteraction(true);
         };
@@ -835,7 +843,7 @@
                 fullwidth
                 size="sm"
                 actionBar={false}
-                optimaizedInput={false}
+                commitMode="input"
             />
         </div>
         {#snippet footer()}
@@ -984,6 +992,7 @@
         left: 0;
         right: 0;
         bottom: 0;
+        height: 100dvh;
         background: color-mix(in srgb, var(--risu-theme-darkbg) 60%, transparent);
         display: flex;
         align-items: center;
@@ -1058,7 +1067,7 @@
         padding: 16px;
         width: calc(100vw - 32px);
         max-width: 768px;
-        max-height: 80vh;
+        max-height: calc(100% - 32px);
         display: flex;
         flex-direction: column;
         gap: 16px;
@@ -1093,7 +1102,7 @@
         flex-direction: column;
         gap: 12px;
         overflow-y: auto;
-        max-height: calc(80vh - 160px);
+        max-height: calc(100% - 160px);
         padding: 4px;
     }
 

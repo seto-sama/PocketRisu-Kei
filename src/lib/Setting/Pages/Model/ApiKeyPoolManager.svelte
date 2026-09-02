@@ -1,6 +1,6 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import { PlusIcon, PencilIcon, TrashIcon } from "@lucide/svelte";
+    import { PlusIcon, SquarePenIcon, TrashIcon } from "@lucide/svelte";
     import { DBState } from "src/ts/stores.svelte";
     import {
         addApiKey,
@@ -170,7 +170,7 @@
                     </div>
                     <div class="no-sort flex gap-2 shrink-0">
                         <button class="text-textcolor2 risu-interactive-accent" title={language.edit} onclick={() => openEdit(entry.id)}>
-                            <PencilIcon size={18} />
+                            <SquarePenIcon size={18} />
                         </button>
                         <button class="text-textcolor2 risu-interactive-danger" title={language.remove} onclick={() => remove(entry.id, entry.name)}>
                             <TrashIcon size={18} />

@@ -155,7 +155,7 @@
   --height-124: 32rem;
   --height-138: 36rem;
 
-  --default-ring-color: var(--color-primary);
+  --default-ring-color: var(--color-borderc);
 }
 
 /*
@@ -211,6 +211,10 @@
   z-index: var(--risu-z-local-content);
 }
 
+@utility risu-layer-local-focus {
+  z-index: var(--risu-z-local-focus);
+}
+
 @utility risu-layer-local-control {
   z-index: var(--risu-z-local-control);
 }
@@ -248,6 +252,31 @@
   @apply hover:bg-selected;
 }
 
+/* Dense selectable rows keep their layout flush while painting an inset
+   surface, so adjacent hover/selected states remain visually separated. */
+.risu-selectable-row {
+  position: relative;
+  z-index: 0;
+}
+
+.risu-selectable-row::before {
+  content: "";
+  position: absolute;
+  inset: 0.125rem 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  transition: background-color 200ms ease;
+}
+
+.risu-selectable-row:not([data-selected="true"]):is(:hover, :focus-visible)::before {
+  background-color: color-mix(in srgb, var(--risu-theme-selected) 50%, transparent);
+}
+
+.risu-selectable-row[data-selected="true"]::before {
+  background-color: var(--risu-theme-selected);
+}
+
 @utility risu-interactive-primary {
   @apply hover:bg-primary/90;
 }
@@ -277,6 +306,15 @@
   height: 100vh;
   height: 100dvh;
   background-color: var(--risu-black-50);
+}
+
+/* Shared dialog geometry. Center and constrain content against the same
+   dynamic viewport used by the backdrop on both mobile and desktop. */
+@utility risu-modal-content-viewport {
+  top: 50vh;
+  top: 50dvh;
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
 }
 
 /*
@@ -637,7 +675,7 @@ html {
 }
 
 .risu-field-border:focus-within {
-  border-color: var(--risu-theme-primary);
+  border-color: var(--risu-theme-borderc);
 }
 
 .x-risu-risu-file {
@@ -701,6 +739,10 @@ html {
   to { opacity: 1; }
 }
 
+.x-risu-risu-inlay-placeholder {
+  min-height: 1px;
+}
+
 .x-risu-risu-inlay-image {
   @apply w-full flex justify-center;
   margin-block: 0;
@@ -712,6 +754,12 @@ html {
   max-width: 100%;
   filter: drop-shadow(0 0 0.5rem var(--risu-black-50));
   border-radius: 0.5rem;
+  cursor: zoom-in;
+}
+
+.x-risu-risu-inlay-image img:focus-visible {
+  outline: 2px solid var(--risu-theme-primary);
+  outline-offset: 3px;
 }
 
 .x-risu-risu-inlay-image video {
@@ -723,7 +771,7 @@ html {
 }
 
 .x-risu-risu-inlay-missing {
-  @apply w-full max-w-80 rounded-lg border border-darkborderc/70 bg-darkbg text-textcolor2 flex flex-col items-center justify-center text-center px-4 py-6 gap-1;
+  @apply w-full max-w-80 mx-auto rounded-lg border border-darkborderc/70 bg-darkbg text-textcolor2 flex flex-col items-center justify-center text-center px-4 py-6 gap-1;
   min-height: 120px;
   margin-block: 0;
 }

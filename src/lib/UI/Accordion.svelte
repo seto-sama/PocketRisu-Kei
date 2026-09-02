@@ -8,6 +8,7 @@
         styled?: boolean;
         help?: (keyof (typeof language.help))|'';
         disabled?: boolean;
+        topGap?: boolean;
         children?: import('svelte').Snippet;
         className?: string;
     }
@@ -17,6 +18,7 @@
         styled = false,
         help = '',
         disabled = false,
+        topGap = true,
         children,
         className = ""
     }: Props = $props();
@@ -35,11 +37,10 @@
 {#if disabled}
     {@render children?.()}
 {:else}
-    <!-- mt-2 is a legacy quirk of the original <Accordion styled> wrapper: -->
-    <!-- it baked the inter-section gap into the component itself. Kept here -->
-    <!-- so call sites stay untouched. Drop when call sites migrate to -->
-    <!-- ShAccordion direct + parent-controlled gap. -->
-    <div class="mt-2">
+    <!-- mt-2 is a legacy quirk of the original <Accordion styled> wrapper. -->
+    <!-- topGap lets an owning layout provide the leading gap while retaining -->
+    <!-- the legacy spacing between subsequent accordion sections. -->
+    <div class:mt-2={topGap}>
         <ShAccordion
             {name}
             {variant}

@@ -506,6 +506,7 @@
     <TextAreaInput
       fullwidth
       actionBar
+      commitMode="input"
       className="bg-darkbg"
       bind:textareaRef={summaryItemState.originalRef}
       bind:value={summary.text}
@@ -583,6 +584,7 @@
       <TextAreaInput
         fullwidth
         actionBar
+        commitMode="input"
         className="bg-darkbg"
         tabindex={-1}
         bind:value={rerolled}

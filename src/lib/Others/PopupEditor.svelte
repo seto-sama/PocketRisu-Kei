@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { AlignLeftIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, MenuIcon, PencilIcon, SaveIcon, SearchIcon, TextWrapIcon, XIcon } from '@lucide/svelte'
+    import { AlignLeftIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, EyeIcon, MenuIcon, SquarePenIcon, SaveIcon, SearchIcon, TextWrapIcon, XIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
     import { alertConfirm, notifyError } from 'src/ts/alert'
     import { textAreaTextSize } from 'src/ts/gui/guisize'
@@ -385,7 +385,7 @@
     size="xl"
     closeOnEscape={!previewSearchOpen && !editorSearchOpen}
     onRequestClose={() => void requestClose()}
-    contentClass="h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] sm:h-[90vh] sm:max-h-[90vh] gap-3 p-3 sm:p-4"
+    contentClass="h-[calc(100dvh-2rem)] gap-3 p-3 sm:p-4"
     bodyClass="flex min-h-0 flex-1 flex-col"
 >
     {#snippet title()}
@@ -523,6 +523,7 @@
                                             size="xs"
                                             height="20"
                                             actionBar={false}
+                                            commitMode="input"
                                             bind:value={previewVariables[index].value}
                                             onInput={() => updatePreviewVariable(index)}
                                         />
@@ -620,7 +621,7 @@
                                 <span>{language.search}</span>
                             </ShDropdownMenuItem>
                             <ShDropdownMenuItem onSelect={togglePreview} disabled={saving}>
-                                {#if previewing}<PencilIcon />{:else}<EyeIcon />{/if}
+                                {#if previewing}<SquarePenIcon />{:else}<EyeIcon />{/if}
                                 <span>{previewing ? language.popupEditorEdit : language.popupEditorPreview}</span>
                             </ShDropdownMenuItem>
                             <ShDropdownMenuItem onSelect={() => (documentationOpen = true)} disabled={saving}>

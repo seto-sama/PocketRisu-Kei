@@ -74,12 +74,49 @@ export const INLAY_VIDEO_EXTENSIONS = [
     'webm', 'mp4', 'mkv'
 ] as const
 
-export const INLAY_IMAGE_MAX_PIXELS = 1024 * 1024
+export const INLAY_IMAGE_SIZE_PIXELS = {
+    '1k': 1024 * 1024,
+    '2k': 2048 * 2048,
+    '4k': 4096 * 4096,
+    'original': Number.POSITIVE_INFINITY,
+} as const
 
-export function fitInlayImageSize(width: number, height: number): { width: number; height: number } {
+export const INLAY_IMAGE_MAX_PIXELS = INLAY_IMAGE_SIZE_PIXELS['1k']
+
+export function getInlayAssetUrl(id: string): string {
+    return `/api/asset/${Buffer.from(`inlay/${id}`, 'utf-8').toString('hex')}`
+}
+
+export function getInlayVideoThumbnailUrl(id: string): string {
+    return `/api/asset/${Buffer.from(`inlay_video_thumb/${id}`, 'utf-8').toString('hex')}`
+}
+
+export function getInlayThumbnailUrl(id: string): string {
+    return `/api/asset/${Buffer.from(`inlay_thumb/${id}`, 'utf-8').toString('hex')}`
+}
+
+export function buildInlayReference(id: string): string {
+    return `{{inlayed::${id}}}`
+}
+
+export function getInlayDownloadFileName(name: string, ext: string): string {
+    const safeExt = ext.trim() || 'bin'
+    const trimmedName = name.trim() || 'inlay-asset.bin'
+    const lastDot = trimmedName.lastIndexOf('.')
+    const withExtension = trimmedName.toLowerCase().endsWith(`.${safeExt.toLowerCase()}`)
+        ? trimmedName
+        : `${lastDot > 0 ? trimmedName.slice(0, lastDot) : trimmedName}.${safeExt}`
+    return withExtension.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+}
+
+export function fitInlayImageSize(
+    width: number,
+    height: number,
+    maxPixels = INLAY_IMAGE_MAX_PIXELS,
+): { width: number; height: number } {
     const currentPixels = width * height
-    if (currentPixels <= INLAY_IMAGE_MAX_PIXELS) return { width, height }
-    const scaleFactor = Math.sqrt(INLAY_IMAGE_MAX_PIXELS / currentPixels)
+    if (currentPixels <= maxPixels) return { width, height }
+    const scaleFactor = Math.sqrt(maxPixels / currentPixels)
     return {
         width: Math.max(1, Math.floor(width * scaleFactor)),
         height: Math.max(1, Math.floor(height * scaleFactor)),
@@ -179,6 +216,10 @@ export function __resetInlayStorageForTest(): void {
 
 class NodeInlayStorage {
     private nodeStorage = new NodeStorage()
+
+    async encodeWebp(data: Uint8Array, options: { lossy: boolean; quality: number }): Promise<Blob> {
+        return await this.nodeStorage.encodeInlayWebp(data, options)
+    }
 
     private serverKey(id: string): string {
         return `${INLAY_PREFIX}${id}`
@@ -453,9 +494,13 @@ export async function writeInlayImage(imgObj: HTMLImageElement, arg: { name?: st
     let drawWidth = 0
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
+    const db = getDatabase()
+    const compressionEnabled = db.inlayImageCompression
+    const size = compressionEnabled ? (db.inlayImageSize ?? '1k') : 'original'
+    const maxPixels = INLAY_IMAGE_SIZE_PIXELS[size]
     await new Promise((resolve) => {
         imgObj.onload = () => {
-            const fitted = fitInlayImageSize(imgObj.width, imgObj.height)
+            const fitted = fitInlayImageSize(imgObj.width, imgObj.height, maxPixels)
             drawHeight = fitted.height
             drawWidth = fitted.width
             canvas.width = drawWidth
@@ -464,11 +509,17 @@ export async function writeInlayImage(imgObj: HTMLImageElement, arg: { name?: st
             resolve(null)
         }
     })
-    const db = getDatabase()
-    const [mimeType, ext, quality]: [string, string, number?] = db.inlayImageLossless
-        ? ['image/png', 'png', undefined]
-        : ['image/webp', 'webp', 0.85]
-    const imageBlob = await new Promise<Blob>(resolve => canvas.toBlob(resolve, mimeType, quality))
+    const ext = compressionEnabled ? (db.inlayImageFormat ?? 'webp') : 'png'
+    const pngBlob = await new Promise<Blob>(resolve => canvas.toBlob(resolve, 'image/png', 1))
+    const imageBlob = compressionEnabled && ext === 'webp'
+        ? await getInlayStorage().encodeWebp(
+            new Uint8Array(await pngBlob.arrayBuffer()),
+            {
+                lossy: db.inlayImageLossy ?? true,
+                quality: db.inlayImageQuality ?? 0.85,
+            },
+        )
+        : pngBlob
     const imgid = arg.id ?? v4()
     await setInlayAsset(imgid, { name: arg.name ?? imgid, data: imageBlob, ext, height: drawHeight, width: drawWidth, type: 'image' })
     return `${imgid}`
@@ -588,20 +639,24 @@ export async function listInlayExplorerItems(forceRefresh = false): Promise<Inla
         return []
     }
 
-    const [infos, metas] = await Promise.all([
-        getInlayInfoStorage().getItems<InlayExplorerInfo>(ids),
-        getInlayMetas(ids),
-    ])
-
-    const items = ids.map((id) => buildExplorerItem(
-        id,
-        infos[id] ?? null,
-        metas[id] ?? null,
-    ))
+    const itemMap = await getInlayExplorerItemsBatch(ids)
+    const items = ids.map((id) => itemMap[id])
 
     _explorerItemsCache = items
     _explorerItemsCacheTime = Date.now()
     return items
+}
+
+export async function getInlayExplorerItemsBatch(ids: string[]): Promise<Record<string, InlayExplorerItem>> {
+    if (!Array.isArray(ids) || ids.length === 0) return {}
+    const [infos, metas] = await Promise.all([
+        getInlayInfoStorage().getItems<InlayExplorerInfo>(ids),
+        getInlayMetas(ids),
+    ])
+    return Object.fromEntries(ids.map(id => [
+        id,
+        buildExplorerItem(id, infos[id] ?? null, metas[id] ?? null),
+    ]))
 }
 
 export async function setInlayAsset(id: string, img: InlayAsset) {

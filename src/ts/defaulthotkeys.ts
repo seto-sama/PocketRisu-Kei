@@ -3,11 +3,29 @@ export interface Hotkey {
     ctrl?: boolean
     shift?: boolean
     alt?: boolean
+    disabled?: boolean
     action: string
 }
 
+export const hotkeyActionGroups = {
+    chatInput: ['focusInput'],
+    toolbar: ['translate', 'edit', 'copy', 'remove', 'reroll', 'unreroll'],
+    menu: ['home', 'settings', 'quickMenu', 'previewRequest', 'toggleLog'],
+    features: ['popupEditor', 'toggleCSS'],
+    sidebar: [
+        'quickSettings',
+        'toggleSidebarView',
+        'presets',
+        'persona',
+        'modelSelect',
+        'prevChar',
+        'nextChar',
+        'scrollToActiveChar',
+    ],
+} as const
+
 export function hotkeyMatches(hotkey: Hotkey | undefined, event: KeyboardEvent): boolean {
-    if (!hotkey?.key) return false
+    if (!hotkey?.key || hotkey.disabled) return false
     if ((hotkey.ctrl ?? false) !== event.ctrlKey) return false
     if ((hotkey.alt ?? false) !== event.altKey) return false
     if ((hotkey.shift ?? false) !== event.shiftKey) return false
@@ -27,7 +45,6 @@ export const defaultHotkeys: Hotkey[] = [
     { key: 'd', ctrl: true, alt: true, action: 'remove' },
     { key: 'e', ctrl: true, alt: true, action: 'edit' },
     { key: 'c', ctrl: true, alt: true, action: 'copy' },
-    { key: 'Enter', ctrl: true, alt: true, action: 'send' },
     { key: 's', ctrl: true, action: 'settings' },
     { key: 'h', ctrl: true, action: 'home' },
     { key: 'p', ctrl: true, action: 'presets' },
@@ -38,9 +55,18 @@ export const defaultHotkeys: Hotkey[] = [
     { key: ']', ctrl: true, action: 'nextChar' },
     { key: '`', ctrl: true, action: 'quickMenu' },
     { key: 'q', ctrl: true, action: 'quickSettings' },
+    { key: 'q', ctrl: true, alt: true, action: 'toggleSidebarView' },
     { key: 'l', ctrl: true, action: 'toggleLog' },
     { key: 'u', ctrl: true, action: 'previewRequest' },
     { key: ' ', action: 'focusInput' },
     { key: 'g', ctrl: true, action: 'scrollToActiveChar' },
     { key: 'x', ctrl: true, action: 'popupEditor' },
 ]
+
+const supportedHotkeyActions: ReadonlySet<string> = new Set(
+    defaultHotkeys.map((hotkey) => hotkey.action),
+)
+
+export function isSupportedHotkey(hotkey: Hotkey): boolean {
+    return supportedHotkeyActions.has(hotkey.action)
+}

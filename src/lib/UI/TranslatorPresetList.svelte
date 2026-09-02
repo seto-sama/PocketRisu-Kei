@@ -24,7 +24,7 @@
     let selectedFolder = $state('all')
     let visibleItemIndexes = $state<number[]>([])
     const presets = $derived(DBState.db.translatorPresets ?? [])
-    const folders = $derived(DBState.db.translatorPresetFolders ?? [])
+    const tags = $derived(DBState.db.translatorPresetTags ?? [])
     const selectedItemIndex = $derived(presets.findIndex(preset => preset.id === value))
     const selectedPreset = $derived(selectedItemIndex >= 0 ? presets[selectedItemIndex] : undefined)
 
@@ -43,8 +43,9 @@
 {#if open}
     <PresetPickerLayout
         title={`${language.translate} ${language.presets}`}
-        {folders}
-        itemFolderIds={presets.map(preset => preset.folderId)}
+        folders={tags}
+        itemFolderIds={presets.map(preset => preset.tagIds)}
+        organizationKind="tag"
         itemNames={presets.map(preset => preset.name)}
         itemDragDataKey="translatorPresetIndex"
         bind:selectedFolder

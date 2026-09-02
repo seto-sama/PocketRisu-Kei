@@ -43,7 +43,7 @@
 </script>
 
 <script lang="ts">
-    import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, MessageSquareOffIcon, MessageSquarePlusIcon, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
+    import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
     import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
@@ -87,6 +87,9 @@
         deleteBookmark,
         ensureBookmarkCatalog,
     } from "src/ts/bookmarks/bookmarkService";
+    import { canonicalizeInlayTokens } from "src/ts/util/inlayTokens";
+    import { addGeneratedInlayToCharacter, GeneratedInlayAssetError, type GeneratedImageAssetTarget } from "src/ts/imageGeneration/addInlayToCharacter";
+    import { isTextLikelyDifferentFromUiLanguage } from "src/ts/translator/textLanguage";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -145,6 +148,9 @@
         translationRecoveryScope?: RevenantChatTranslationRecoveryScope | null;
         translationRecoveryTarget?: RevenantChatMessageTranslationTarget | null;
         getScrollController?: () => ChatScrollController | null;
+        adjacentSwipeMessages?: readonly string[];
+        isImageGeneration?: boolean;
+        isLastMessage?: boolean;
     }
 
     let {
@@ -177,6 +183,9 @@
         translationRecoveryScope,
         translationRecoveryTarget,
         getScrollController = () => null,
+        adjacentSwipeMessages = [],
+        isImageGeneration = false,
+        isLastMessage = false,
     }: Props = $props();
 
     function toggleMessageRole() {
@@ -187,8 +196,50 @@
         invalidateChatMessageRender(idx)
     }
 
+    let addingImageGenerationAsset = $state(false)
+
+    async function addImageGenerationAsset() {
+        if (addingImageGenerationAsset) return
+        const currentCharacter = DBState.db.characters[selIdState.selId]
+        if (currentCharacter?.type !== 'character') return
+        const currentMessage = currentCharacter.chats[currentCharacter.chatPage]?.message?.[idx]
+        if (!currentMessage || currentMessage.kind !== 'imageGeneration') return
+
+        addingImageGenerationAsset = true
+        try {
+            const actions: { id: GeneratedImageAssetTarget, label: string }[] = [
+                { id: 'icon', label: language.charIcon },
+                { id: 'emotion', label: language.emotionImage },
+                { id: 'additional', label: language.additionalAssets },
+            ]
+            const selected = await alertConfirmMulti(language.addInlayImagePrompt, actions)
+            if (selected < 0 || !actions[selected]) return
+
+            await addGeneratedInlayToCharacter(currentMessage.data, currentCharacter, actions[selected].id)
+            currentCharacter.reloadKeys = (currentCharacter.reloadKeys ?? 0) + 1
+            await requestImmediateSave({ characterIds: [currentCharacter.chaId] })
+            notifySuccess(language.inlayImageAddedToAssets)
+        }
+        catch (error) {
+            alertError(error instanceof GeneratedInlayAssetError
+                ? language.inlayGallery.inlayMissing
+                : error)
+        }
+        finally {
+            addingImageGenerationAsset = false
+        }
+    }
+
     let msgDisplay = $state('')
     let translated = $state(false)
+    const lastOutputAutoTranslationEligible = $derived(
+        DBState.db.autoTranslate === true
+        && DBState.db.autoTranslateLastOutputOnly === true
+        && !isStreamingDisplay
+        && role === 'char'
+        && isLastMessage
+        && isTextLikelyDifferentFromUiLanguage(message, DBState.db.language)
+    )
     const showFloatingToolbarDetails = $derived(Boolean(
         messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())
         || DBState.db.translatorType === 'llm' && ((editMode && originalEditTranslationKey !== null) || translated)
@@ -272,9 +323,10 @@
 
     async function edit(nextMessage:string){
         const msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
-        msg.data = nextMessage
+        const canonicalMessage = canonicalizeInlayTokens(nextMessage)
+        msg.data = canonicalMessage
         if (msg.swipes && msg.swipeId !== undefined) {
-            msg.swipes[msg.swipeId] = nextMessage
+            msg.swipes[msg.swipeId] = canonicalMessage
         }
     }
 
@@ -390,10 +442,7 @@
         if(DBState.db.translateBeforeHTMLFormatting){
             return source
         }
-        if(!DBState.db.legacyTranslation){
-            return await ParseMarkdown(source, character, 'pretranslate', idx, getCbsCondition())
-        }
-        return await ParseMarkdown(source, character, 'notrim', idx, getCbsCondition())
+        return await ParseMarkdown(source, character, 'pretranslate', idx, getCbsCondition())
     }
 
     function getTranslationTarget(): RevenantChatMessageTranslationTarget | null {
@@ -934,7 +983,6 @@
     <div
         class="chat-toolbar-sticky-layer chat-toolbar-sticky-footer-layer"
         class:chat-toolbar-above-fixed-composer={DBState.db.fixedChatTextarea}
-        class:chat-toolbar-streaming-layer={isStreamingDisplay}
     >
         <div class="chat-toolbar-sticky-footer">
             <div class="chat-toolbar-sticky-footer-content">
@@ -951,11 +999,11 @@
 
 {#snippet textBox()}
     {#if editTranslationMode}
-        <TextAreaInput bind:value={editTranslationText} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
+        <TextAreaInput bind:value={editTranslationText} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             saveTranslationEdit()
         }} />
     {:else if editMode}
-        <TextAreaInput bind:value={editDraft} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
+        <TextAreaInput bind:value={editDraft} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             void cancelOriginalEdit()
         }} />
     {:else if isComment}
@@ -1023,6 +1071,8 @@
                 {revenantTranslationRecoverySnapshot}
                 {translationPending}
                 {autoTranslationSuppressed}
+                {lastOutputAutoTranslationEligible}
+                {adjacentSwipeMessages}
                 modelShortName={
                     messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
                 }
@@ -1398,7 +1448,7 @@
             title={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
             onclick={toggleCurrentTextEdit}
             oncontextmenu={editOppositeText}>
-            <PencilIcon />
+            <SquarePenIcon />
 
             {#if showNames}
                 <span class="ml-1">{language.edit}</span>
@@ -1462,10 +1512,17 @@
 
 {#snippet minorMenuItems()}
     {#if idx > -1}
-        <ShDropdownMenuItem disabled={generationOwned} onSelect={toggleMessageRole}>
-            <ArrowLeftRightIcon />
-            <span>{language.changeMessageRole}</span>
-        </ShDropdownMenuItem>
+        {#if isImageGeneration}
+            <ShDropdownMenuItem disabled={generationOwned || addingImageGenerationAsset} onSelect={addImageGenerationAsset}>
+                <ImagePlusIcon />
+                <span>{language.addInlayImageToAssets}</span>
+            </ShDropdownMenuItem>
+        {:else}
+            <ShDropdownMenuItem disabled={generationOwned} onSelect={toggleMessageRole}>
+                <ArrowLeftRightIcon />
+                <span>{language.changeMessageRole}</span>
+            </ShDropdownMenuItem>
+        {/if}
 
         <ShDropdownMenuItem disabled={generationOwned} class={isBookmarked ? 'button-icon-bookmark text-primary' : 'button-icon-bookmark'} onSelect={toggleBookmark}>
             <BookmarkIcon />
@@ -1790,7 +1847,7 @@
         {#if DBState.db.theme === 'mobilechat' && !blankMessage}
             <div class={role === 'user' ? "flex items-start w-full justify-end" : "flex items-start"}>
                 {#if role !== 'user'}
-                    {@render senderIcon({rounded: true})}
+                    {@render senderIcon({rounded: DBState.db.roundIcons})}
                 {/if}
                 <div
                     class="bg-darkbg rounded-lg p-3 max-w-[70%] mx-2"
@@ -1812,33 +1869,8 @@
                     {/if}
                 </div>
                 {#if role === 'user'}
-                    {@render senderIcon({rounded: true})}
+                    {@render senderIcon({rounded: DBState.db.roundIcons})}
                 {/if}
-            </div>
-        {:else if DBState.db.theme === 'cardboard' && !blankMessage}
-            <div class="w-full flex flex-col px-0 sm:px-4 py-4 relative">
-                <div class="bg-linear-to-b from-bgcolor to-darkbg rounded-lg shadow-lg border-darkborderc border p-4 flex flex-col">
-                    <div class="flex gap-4 mt-2 flex-col sm:flex-row">
-                        {#if !hideSender}
-                            <div class="flex flex-col items-center">
-                                <div class="sm:h-96 sm:w-72 sm:min-w-72 w-48 h-64">
-                                    {@render senderIcon({rounded: false, styleFix:'height:100%;width:100%;'})}
-                                </div>
-                                <h2 class="text-base font-bold text-textcolor2 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
-                            </div>
-                        {/if}
-                        {#if editMode}
-                            <textarea class="grow h-138 sm:h-96 overflow-y-auto bg-transparent text-textcolor p-2 mb-2 resize-none message-edit-area" bind:value={editDraft}></textarea>
-                        {:else}
-                            <div class="grow h-138 sm:h-96 overflow-y-auto p-2 mb-2 sm:mb-0">
-                                {@render textBox()}
-                            </div>
-                        {/if}
-                    </div>
-                </div>
-                <div class="absolute bottom-0 right-0 bg-darkbg p-2 rounded-md border border-darkborderc text-textcolor2">
-                    {@render iconButtons({applyTextColors: false})}
-                </div>
             </div>
         {:else if DBState.db.theme === 'customHTML' && !blankMessage && renderedGuiHtml}
             {@render renderGuiHtmlPart(renderedGuiHtml)}
@@ -1919,17 +1951,13 @@
         width: calc(100% + var(--chat-shell-inline-padding) + var(--chat-shell-inline-padding));
         max-width: none;
         margin: 0 calc(0px - var(--chat-shell-inline-padding));
-        margin-top: 0.25rem;
+        /* Keep the footer on one compositor surface in Firefox so its
+           one-pixel separator retains the same raster phase after scrolling. */
+        transform: translateZ(0);
     }
 
     .chat-toolbar-sticky-footer-layer.chat-toolbar-above-fixed-composer {
-        bottom: var(--chat-composer-sticky-height, 0px);
-    }
-
-    /* Keep the actively streaming sticky footer on one compositor surface so
-       its one-pixel separator does not follow fractional scroll raster phases. */
-    .chat-toolbar-sticky-footer-layer.chat-toolbar-streaming-layer {
-        transform: translateZ(0);
+        bottom: var(--chat-fixed-composer-height, 0px);
     }
 
     .chat-toolbar-message {

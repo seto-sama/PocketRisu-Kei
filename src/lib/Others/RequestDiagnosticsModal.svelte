@@ -16,7 +16,7 @@
     import ShBadge from 'src/lib/UI/GUI/ShBadge.svelte'
     import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
     import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
-    import type { AlertGenerationInfoStoreData } from 'src/ts/alert'
+    import { requestDiagnosticsTabs, type AlertGenerationInfoStoreData, type RequestDiagnosticsTab } from 'src/ts/alert'
     import { aiLawApplies, getFetchData } from 'src/ts/globalApi.svelte'
     import { resolveRequestDiagnosticContext } from 'src/ts/requestDiagnostics'
     import { DBState, selectedCharID } from 'src/ts/stores.svelte'
@@ -33,17 +33,18 @@
         onOpenChange?: (open: boolean) => void
     } = $props()
 
-    let selectedTab = $state(0)
+    let selectedTab = $state<RequestDiagnosticsTab>(requestDiagnosticsTabs.overview)
     let requestLog = $state<FetchLog | null>(null)
     let requestLogLoading = $state(false)
     let requestLogError = $state<string | null>(null)
     let loadedRequestKey = $state('')
     let loadRevision = 0
+    let wasOpen = false
 
     const tabs = $derived([
-        { label: language.requestDiagnostics.overview, value: 0 },
-        { label: language.requestDiagnostics.requestLog, value: 1 },
-        { label: language.requestDiagnostics.prompt, value: 2 },
+        { label: language.requestDiagnostics.overview, value: requestDiagnosticsTabs.overview },
+        { label: language.requestDiagnostics.prompt, value: requestDiagnosticsTabs.prompt },
+        { label: language.requestDiagnostics.requestLog, value: requestDiagnosticsTabs.requestLog },
     ])
 
     const message = $derived.by(() => {
@@ -94,15 +95,6 @@
         return `${(milliseconds / 1000).toFixed(1)}s`
     }
 
-    function formatPromptContent(content: unknown): string {
-        if (typeof content === 'string') return content
-        try {
-            return JSON.stringify(content, null, 2)
-        } catch {
-            return String(content ?? '')
-        }
-    }
-
     async function loadRequestLog(force = false) {
         if (!requestKey) {
             loadRevision += 1
@@ -134,18 +126,21 @@
     }
 
     $effect(() => {
-        if (open && selectedTab === 1) void loadRequestLog()
+        if (open && selectedTab === requestDiagnosticsTabs.requestLog) void loadRequestLog()
     })
 
     $effect(() => {
-        if (!open) {
-            selectedTab = 0
+        if (open && !wasOpen) {
+            selectedTab = info?.initialTab ?? requestDiagnosticsTabs.overview
+        } else if (!open) {
+            selectedTab = requestDiagnosticsTabs.overview
             loadRevision += 1
             requestLog = null
             requestLogError = null
             requestLogLoading = false
             loadedRequestKey = ''
         }
+        wasOpen = open
     })
 </script>
 
@@ -163,8 +158,8 @@
 
     <SettingTabs tabs={tabs} bind:selected={selectedTab} className="mb-3" />
 
-    <div class="max-h-[65vh] min-h-80 overflow-y-auto pr-1">
-        {#if selectedTab === 0}
+    <div class="min-h-80 pr-1">
+        {#if selectedTab === requestDiagnosticsTabs.overview}
             <div class="flex flex-col gap-4">
                 <section>
                     <h2 class="mb-2 mt-0 flex items-center gap-2 text-sm font-semibold text-textcolor">
@@ -248,7 +243,7 @@
                     </section>
                 {/if}
             </div>
-        {:else if selectedTab === 1}
+        {:else if selectedTab === requestDiagnosticsTabs.requestLog}
             {#if requestLogLoading}
                 <div class="flex min-h-64 items-center justify-center gap-2 text-sm text-textcolor2">
                     <RefreshCwIcon size={16} class="animate-spin" />
@@ -276,7 +271,7 @@
                     <div class="mt-1 max-w-md text-sm text-textcolor2">{language.requestDiagnostics.noRequestLogDesc}</div>
                 </div>
             {/if}
-        {:else if selectedTab === 2}
+        {:else if selectedTab === requestDiagnosticsTabs.prompt}
             {#if !promptInfo || Object.keys(promptInfo).length === 0}
                 <div class="flex min-h-64 flex-col items-center justify-center rounded-md border border-dashed border-darkborderc bg-bgcolor/20 px-6 text-center">
                     <FileTextIcon size={40} class="mb-3 text-textcolor2 opacity-60" />
@@ -300,22 +295,6 @@
                                         <span class="font-medium text-textcolor">{toggle.key}</span>
                                         <span>{toggle.value}</span>
                                     </ShBadge>
-                                {/each}
-                            </div>
-                        {/if}
-                    </section>
-
-                    <section>
-                        <h2 class="mb-2 mt-0 flex items-center gap-2 text-sm font-semibold text-textcolor"><FileTextIcon size={16} />{language.requestDiagnostics.promptMessages}</h2>
-                        {#if (promptInfo.promptText?.length ?? 0) === 0}
-                            <div class="rounded-md border border-darkborderc bg-bgcolor/30 p-4 text-sm text-textcolor2">{language.promptInfoEmptyText}</div>
-                        {:else}
-                            <div class="flex flex-col gap-2">
-                                {#each promptInfo.promptText ?? [] as block, index}
-                                    <article class="overflow-hidden rounded-md border border-darkborderc bg-bgcolor/30">
-                                        <header class="border-b border-darkborderc/60 px-3 py-2 text-xs font-semibold uppercase text-textcolor2">{block.role} · {index + 1}</header>
-                                        <pre class="m-0 max-h-72 overflow-auto whitespace-pre-wrap break-words p-3 text-sm text-textcolor">{formatPromptContent(block.content)}</pre>
-                                    </article>
                                 {/each}
                             </div>
                         {/if}

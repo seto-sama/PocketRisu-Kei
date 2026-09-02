@@ -33,6 +33,7 @@ import { isChatStub, purgeUnsupportedGroupChats } from "./storage/database.svelt
 import { startSyncReceiver } from "./syncReceiver.svelte";
 import { ConflictError } from "./storage/nodeStorage";
 import { purgeOrphanAssets } from './storage/orphanAssets';
+import { isNodeServer } from './platform';
 
 /**
  * Loads the application data.
@@ -47,37 +48,47 @@ export async function loadData() {
                 await forageStorage.Init()
 
                 LoadingStatusState.text = "Loading Local Save File..."
-                let gotStorage: Uint8Array = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
-                LoadingStatusState.text = "Decoding Local Save File..."
-                if (checkNullish(gotStorage)) {
-                    createdFreshDatabase = true
-                    // Build the complete default database in memory first. Persisting
-                    // `{}` here would leave the server and patcher baselines without
-                    // required roots such as characters, presets, and personas.
-                    setDatabase({} as Database)
+                if (isNodeServer) {
+                    const projection = await forageStorage.getDatabaseProjection<Database>()
+                    if (projection.database === null) {
+                        createdFreshDatabase = true
+                        // Build the complete default database in memory first. The
+                        // first-run PUT below is revision-gated, so concurrent new
+                        // clients cannot overwrite whichever initialization wins.
+                        setDatabase({} as Database)
+                    } else {
+                        setPatchSyncBaseline(safeStructuredClone(projection.database))
+                        setDatabase(projection.database)
+                    }
                 } else {
-                    try {
-                        const decoded = await decodeRisuSave(gotStorage)
-                        setPatchSyncBaseline(safeStructuredClone(decoded))
-                        console.log(decoded)
-                        setDatabase(decoded)
-                    } catch (error) {
-                        console.error(error)
-                        const backups = await getDbBackups()
-                        let backupLoaded = false
-                        for (const backup of backups) {
-                            try {
-                                LoadingStatusState.text = `Reading Backup File ${backup}...`
-                                const backupData: Uint8Array = await forageStorage.getItem(`database/dbbackup-${backup}.bin`) as unknown as Uint8Array
-                                const backupDecoded = await decodeRisuSave(backupData)
-                                setPatchSyncBaseline(safeStructuredClone(backupDecoded))
-                                setDatabase(backupDecoded)
-                                backupLoaded = true
-                                break
-                            } catch (error) { }
-                        }
-                        if (!backupLoaded) {
-                            throw "Forage: Your save file is corrupted"
+                    const gotStorage = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
+                    LoadingStatusState.text = "Decoding Local Save File..."
+                    if (checkNullish(gotStorage)) {
+                        createdFreshDatabase = true
+                        setDatabase({} as Database)
+                    } else {
+                        try {
+                            const decoded = await decodeRisuSave(gotStorage)
+                            setPatchSyncBaseline(safeStructuredClone(decoded))
+                            setDatabase(decoded)
+                        } catch (error) {
+                            console.error(error)
+                            const backups = await getDbBackups()
+                            let backupLoaded = false
+                            for (const backup of backups) {
+                                try {
+                                    LoadingStatusState.text = `Reading Backup File ${backup}...`
+                                    const backupData = await forageStorage.getItem(`database/dbbackup-${backup}.bin`) as unknown as Uint8Array
+                                    const backupDecoded = await decodeRisuSave(backupData)
+                                    setPatchSyncBaseline(safeStructuredClone(backupDecoded))
+                                    setDatabase(backupDecoded)
+                                    backupLoaded = true
+                                    break
+                                } catch (error) { }
+                            }
+                            if (!backupLoaded) {
+                                throw "Forage: Your save file is corrupted"
+                            }
                         }
                     }
                 }
@@ -113,30 +124,40 @@ export async function loadData() {
                     changeLanguage(mappedLanguage)
                 }
 
-                const initializedStorage = encodeRisuSaveLegacy(getDatabase())
-                const initialEtag = forageStorage.getDbEtag()
-                try {
-                    await forageStorage.setItem(
-                        'database/database.bin',
-                        initializedStorage,
-                        initialEtag ?? undefined,
-                    )
-                } catch (error) {
-                    // Another device may have initialized the same empty server
-                    // after our read. Keep its database instead of overwriting it.
-                    if (!(error instanceof ConflictError)) throw error
-                    createdFreshDatabase = false
-                }
+                if (isNodeServer) {
+                    const initialized = await forageStorage.initializeDatabase(getDatabase(), 0)
+                    // If another client initialized revision 0 first, its state is
+                    // authoritative. In either case, read back the exact relational
+                    // projection used by the normal patch protocol.
+                    if (initialized.conflict) createdFreshDatabase = false
+                    const persisted = await forageStorage.getDatabaseProjection<Database>()
+                    if (persisted.database === null) {
+                        throw new Error('Initial database projection was not persisted')
+                    }
+                    setPatchSyncBaseline(safeStructuredClone(persisted.database))
+                    setDatabase(persisted.database)
+                } else {
+                    const initializedStorage = encodeRisuSaveLegacy(getDatabase())
+                    const initialEtag = forageStorage.getDbEtag()
+                    try {
+                        await forageStorage.setItem(
+                            'database/database.bin',
+                            initializedStorage,
+                            initialEtag ?? undefined,
+                        )
+                    } catch (error) {
+                        if (!(error instanceof ConflictError)) throw error
+                        createdFreshDatabase = false
+                    }
 
-                // Read back the server-visible representation so the patcher hash
-                // and the live database start from exactly the persisted object.
-                const persistedStorage = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
-                if (checkNullish(persistedStorage)) {
-                    throw new Error('Initial database write did not persist database.bin')
+                    const persistedStorage = await forageStorage.getItem('database/database.bin') as unknown as Uint8Array
+                    if (checkNullish(persistedStorage)) {
+                        throw new Error('Initial database write did not persist database.bin')
+                    }
+                    const persistedDatabase = await decodeRisuSave(persistedStorage)
+                    setPatchSyncBaseline(safeStructuredClone(persistedDatabase))
+                    setDatabase(persistedDatabase)
                 }
-                const persistedDatabase = await decodeRisuSave(persistedStorage)
-                setPatchSyncBaseline(safeStructuredClone(persistedDatabase))
-                setDatabase(persistedDatabase)
             }
             LoadingStatusState.text = "Loading Plugins..."
             try {
@@ -305,7 +326,7 @@ async function maybeRunScheduledBackups(): Promise<boolean> {
     if (snapshotEnabled) {
         const latestSnapshot = await fetchLatestManualSnapshotTimestamp(auth)
         if (isDue(latestSnapshot, snapshotDays)) {
-            const result = await SaveManualSnapshot()
+            const result = await SaveManualSnapshot(language.backupCreatedAutomatically)
             ran = !!result || ran
         }
     }
@@ -313,7 +334,7 @@ async function maybeRunScheduledBackups(): Promise<boolean> {
     if (serverEnabled) {
         const latestBackup = await fetchLatestServerBackupTimestamp(auth)
         if (isDue(latestBackup, serverDays)) {
-            const result = await SaveServerBackup()
+            const result = await SaveServerBackup(language.backupCreatedAutomatically)
             ran = !!result || ran
         }
     }
@@ -348,7 +369,7 @@ async function maybeRunBootBackupReminder() {
     let total: number | null = null
     try {
         const auth = await forageStorage.createAuth()
-        const res = await fetchWithTimeout('/api/db/stats', { headers: { 'risu-auth': auth } })
+        const res = await fetchWithTimeout('/api/db/stats?scope=backup', { headers: { 'risu-auth': auth } })
         if (res.ok) {
             const stats = await res.json()
             if (typeof stats?.estimatedBackupSize === 'number') estimate = stats.estimatedBackupSize
