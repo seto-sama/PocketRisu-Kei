@@ -697,6 +697,7 @@ const getPluginPermission = async (pluginName: string, permissionDesc: PluginPer
                 : permissionDesc === 'replacer' ? language.replacerPermissionConsent.replace("{}", pluginName)
                 : permissionDesc === 'provider' ? language.providerPermissionConsent.replace("{}", pluginName)
                 : permissionDesc === 'sendChat' ? language.sendChatConsent.replace("{}", pluginName)
+                : permissionDesc === 'inlay' ? language.inlayPermissionConsent.replace("{}", pluginName)
                 : `Error`
             if(alertTitle === 'Error'){
                 return false;
@@ -834,7 +835,10 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             let provs = get(customProviderStore)
             provs.push(name)
             pluginV2.providers.set(name, async (arg, abortSignal) => {
-               await getPluginPermission(plugin.name, 'provider', 'periodically');
+               const conf = await getPluginPermission(plugin.name, 'provider', 'periodically');
+               if(!conf){
+                   return { success: false, content: `Provider permission denied for plugin '${plugin.name}'` };
+               }
                //mode is overridden to v3, due to vulnerabilities using mode.
                //Alternative to mode will be added in future
                arg.mode = 'v3'
@@ -897,6 +901,10 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         loadPlugins: oldApis.loadPlugins,
         readImage: oldApis.readImage,
         readInlay: async (id: string) => {
+            const conf = await getPluginPermission(plugin.name, 'inlay', 'periodically');
+            if(!conf){
+                return null;
+            }
             return await getInlayAsset(id);
         },
         saveAsset: oldApis.saveAsset,

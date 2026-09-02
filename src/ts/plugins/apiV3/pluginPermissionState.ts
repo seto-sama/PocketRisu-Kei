@@ -1,7 +1,7 @@
-export type PluginPermissionDesc = 'fetchLogs' | 'db' | 'mainDom' | 'replacer' | 'provider' | 'sendChat'
+export type PluginPermissionDesc = 'fetchLogs' | 'db' | 'mainDom' | 'replacer' | 'provider' | 'sendChat' | 'inlay'
 
 export const pluginPermissionDescs: readonly PluginPermissionDesc[] = [
-    'fetchLogs', 'db', 'mainDom', 'replacer', 'provider', 'sendChat',
+    'fetchLogs', 'db', 'mainDom', 'replacer', 'provider', 'sendChat', 'inlay',
 ]
 
 export const permissionKeyOf = (pluginName: string, permissionDesc: PluginPermissionDesc) =>
