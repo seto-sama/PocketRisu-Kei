@@ -15,13 +15,12 @@
     import { DBState } from 'src/ts/stores.svelte'
     import { getModelsDevCatalog } from 'src/ts/preset/registry/remote'
     import { estimateModelsDevUsageCost } from 'src/ts/model/usagePricing'
+    import HorizontalWheelScroller from '../../UI/components/HorizontalWheelScroller.svelte'
 
     type UsagePeriod = 'day' | 'week' | 'month' | 'custom'
 
     const LIST_LIMIT = 100
     const MAX_CHART_BUCKETS = 60
-    const CHART_DRAG_THRESHOLD_PX = 4
-    const CHART_CLICK_SUPPRESSION_MS = 250
 
     interface UsageEntry {
         jobId: string
@@ -86,68 +85,6 @@
     let entrySearch = $state('')
     let period = $state<UsagePeriod>('week')
     let filtersOpen = $state(false)
-    let chartDragging = $state(false)
-
-    function dragChart(node: HTMLDivElement) {
-        const scroller = node.parentElement as HTMLDivElement
-        let startX = 0
-        let startScrollLeft = 0
-        let moved = false
-        let suppressClickUntil = 0
-
-        function stopDrag() {
-            window.removeEventListener('mousemove', handleMouseMove)
-            window.removeEventListener('mouseup', handleMouseUp)
-            window.removeEventListener('blur', handleMouseUp)
-            if (!moved) return
-
-            suppressClickUntil = performance.now() + CHART_CLICK_SUPPRESSION_MS
-            chartDragging = false
-        }
-
-        function handleMouseDown(event: MouseEvent) {
-            if (event.button !== 0 || scroller.scrollWidth <= scroller.clientWidth) return
-
-            startX = event.clientX
-            startScrollLeft = scroller.scrollLeft
-            moved = false
-            window.addEventListener('mousemove', handleMouseMove)
-            window.addEventListener('mouseup', handleMouseUp)
-            window.addEventListener('blur', handleMouseUp)
-        }
-
-        function handleMouseMove(event: MouseEvent) {
-            const distance = event.clientX - startX
-            if (!moved && Math.abs(distance) < CHART_DRAG_THRESHOLD_PX) return
-
-            moved = true
-            chartDragging = true
-            scroller.scrollLeft = startScrollLeft - distance
-            event.preventDefault()
-        }
-
-        function handleMouseUp() {
-            stopDrag()
-        }
-
-        function handleClick(event: MouseEvent) {
-            if (performance.now() > suppressClickUntil) return
-            event.preventDefault()
-            event.stopPropagation()
-        }
-
-        node.addEventListener('mousedown', handleMouseDown, true)
-        node.addEventListener('click', handleClick, true)
-
-        return {
-            destroy() {
-                stopDrag()
-                node.removeEventListener('mousedown', handleMouseDown, true)
-                node.removeEventListener('click', handleClick, true)
-            },
-        }
-    }
-
     function showCumulativeActivity() {
         let mdTable = "| Type | Value |\n| --- | --- |\n"
         const statistics = DBState.db.statics
@@ -478,7 +415,7 @@
                 {language.cumulativeActivity}
             </Button>
         {/snippet}
-        <div class="grid grid-cols-4 items-end gap-2 min-w-[40rem] overflow-x-auto pb-1">
+        <div class="grid grid-cols-1 items-end gap-2 pb-1 md:grid-cols-4">
             <div class="flex flex-col gap-1 text-xs text-subtext min-w-0">
                 <span>{language.usageDateFilter}</span>
                 <Select bind:value={period} size="sm" onchange={(e) => {
@@ -491,7 +428,7 @@
                     <SelectOption value="custom">{language.usagePeriodCustom}</SelectOption>
                 </Select>
             </div>
-            <div class="col-span-3 grid grid-cols-2 gap-2 min-w-0">
+            <div class="grid min-w-0 grid-cols-1 gap-2 md:col-span-3 md:grid-cols-2">
                 <div class="flex flex-col gap-1 text-xs text-subtext min-w-0">
                     <span>{language.usageStartDate}</span>
                     <DateTimeInput bind:value={rangeStart} onchange={() => period = 'custom'} />
@@ -539,16 +476,16 @@
                     <span><span class="inline-block size-2 rounded-full bg-palette-1 mr-1"></span>{language.usageEstimatedCost}</span>
                 </div>
             </div>
-            <div
-                class={chartScrollable ? 'overflow-x-auto pb-2 -mb-2' : 'overflow-x-hidden'}
-                style:touch-action="pan-x pan-y pinch-zoom"
+            <HorizontalWheelScroller
+                enabled={chartScrollable}
+                className={chartScrollable ? 'overflow-x-auto pb-2 -mb-2' : 'overflow-x-hidden'}
+                style="touch-action: pan-x pan-y pinch-zoom"
                 role="region"
                 aria-label={language.usageChartTitle}
             >
                 <div
-                    class={`h-44 box-border px-4 ${chartScrollable ? 'cursor-grab' : ''} ${chartDragging ? '!cursor-grabbing select-none' : ''}`}
+                    class="h-44 box-border px-4"
                     style:min-width={chartScrollable ? `${chartBuckets.length * 24}px` : '100%'}
-                    use:dragChart
                 >
                     <div class="relative h-40">
                         <svg
@@ -584,9 +521,7 @@
                                         {#snippet trigger(props)}
                                             <div
                                                 {...props}
-                                                class={`w-full h-full flex items-end justify-center ${chartScrollable
-                                                    ? chartDragging ? 'cursor-grabbing' : 'cursor-grab'
-                                                    : 'cursor-help'}`}
+                                                class="w-full h-full flex items-end justify-center cursor-help"
                                             >
                                                 <div
                                                     class="w-full max-w-4 flex flex-col rounded-t-sm overflow-hidden"
@@ -628,7 +563,7 @@
                         {/each}
                     </div>
                 </div>
-            </div>
+            </HorizontalWheelScroller>
         </div>
 
         <SettingLayout variant="panel" className="!mb-0">
