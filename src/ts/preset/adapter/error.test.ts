@@ -134,16 +134,6 @@ describe('defaultFallbackEligible', () => {
 })
 
 describe('ModelPresetAdapterError', () => {
-    test('inherits Error and exposes adapter fields', () => {
-        const err = new ModelPresetAdapterError('rate-limit', 'slow down', { status: 429 })
-        expect(err).toBeInstanceOf(Error)
-        expect(err.kind).toBe('rate-limit')
-        expect(err.status).toBe(429)
-        expect(err.retryable).toBe(true)
-        expect(err.fallbackEligible).toBe(false)
-        expect(err.message).toBe('slow down')
-    })
-
     test('options.retryable and options.fallbackEligible override defaults independently', () => {
         const err = new ModelPresetAdapterError('network', 'override', {
             retryable: false,

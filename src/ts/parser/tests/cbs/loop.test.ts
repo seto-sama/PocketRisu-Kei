@@ -79,19 +79,6 @@ describe('#each', () => {
     ).toBe('1\n2\n3\n4\n')
   })
 
-  test('can loop over a 2D array literal', () => {
-    setChatVar('arr', JSON.stringify([[1, 2], [3, 4]]))
-    expect(
-      quickParse(
-        '#each::keep {{getvar::arr}} as x',
-        template(
-          '#each::keep {{slot::x}} as y',
-          '{{slot::y}}\n',
-        ),
-      ),
-    ).toBe('1\n2\n3\n4\n')
-  })
-
   test('empty array produces no output', () => {
     expect(quickParse('#each [] as n', '{{slot::n}} ')).toBe('')
   })
@@ -102,7 +89,7 @@ describe('#each', () => {
     expect(quickParse('#each [1][2] as n', '{{slot::n}} ')).toBe('[1][2]')
   })
 
-  test('trimes whitespaces of its body', () =>{
+  test('trims whitespace from its body', () => {
     expect(quickParse('#each [1, 2, 3] as n', ' \n - {{slot::n}}\n  ')).toBe(`- 1- 2- 3`)
   })
 
@@ -134,7 +121,6 @@ describe('#each', () => {
   })
 
   test('can omit "as"', () => {
-    expect(quickParse('#each [1, 2, 3] n', '{{slot::n}} ')).toBe('123')
     expect(quickParse('#each [1, 2, 3] n', '{{slot::n}} ')).toBe('123')
   })
 

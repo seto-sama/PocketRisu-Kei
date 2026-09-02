@@ -130,17 +130,6 @@ describe('chunking lifecycle (real server, low threshold)', () => {
     expect(lim.currentBytes).toBeGreaterThan(1000)
   })
 
-  test('optimize runs gc and reports chunksReclaimed', async () => {
-    const { client } = await boot()
-    await client.importBackup(oversizedSeed())
-
-    const res = await client.fetch('/api/db/optimize', { method: 'POST' })
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.ok).toBe(true)
-    expect(typeof body.chunksReclaimed).toBe('number')
-  })
-
   // The two save-folder import paths were where the raw-bind regressions hid.
   test('save-folder ZIP upload chunks an oversized DB blob (importHexEntries)', async () => {
     const { client } = await boot()

@@ -180,7 +180,7 @@
       style={`--particle-rise: -${Math.max(28, Number(size) - 6)}px`}
       aria-hidden="true"
     >
-      {#each selectionParticles as particle}
+      {#each selectionParticles as particle (particle.id)}
         <span
           class="avatar-selection-particle"
           style={`--x: ${particle.x}; --size: ${particle.size}; --duration: ${particle.duration};`}

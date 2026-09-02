@@ -1,30 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockDb, state } = vi.hoisted(() => ({
-    mockDb: { db: {} as any },
-    state: {
-        body: '',
-        status: 200,
-        fetchCount: 0,
-        persistent: null as unknown,
-    },
-}))
-
+const storeStub = vi.hoisted(() => ({ DBState: { db: {} as any } }))
+vi.mock('src/ts/stores.svelte', () => storeStub)
 vi.mock('src/ts/globalApi.svelte', () => ({
-    fetchNative: vi.fn(async () => {
-        state.fetchCount++
-        return new Response(state.body, { status: state.status })
-    }),
+    fetchNative: () => Promise.reject(new Error('default fetch must not be used in this test')),
 }))
-
 vi.mock('src/ts/storage/persistentKv', () => ({
-    readPersistentJson: vi.fn(async () => state.persistent),
-    writePersistentJson: vi.fn(async (_key: string, value: unknown) => {
-        state.persistent = value
-    }),
+    readPersistentJson: () => Promise.reject(new Error('default cache must not be used in this test')),
+    writePersistentJson: () => Promise.reject(new Error('default cache must not be used in this test')),
 }))
-
-vi.mock('src/ts/stores.svelte', () => ({ DBState: mockDb }))
 
 import {
     getModelsDevCatalog,
@@ -33,8 +17,34 @@ import {
     isRefetchGuarded,
     resetModelsDevRuntimeForTests,
     syncRemoteRegistry,
+    type RemoteRegistryDependencies,
 } from './remote'
 import { getOfficialRegistryId } from './loader'
+
+const NOW = 1_800_000_000_000
+let testDb: Record<string, any>
+const state = {
+    body: '',
+    status: 200,
+    fetchCount: 0,
+    persistent: null as unknown,
+}
+
+function dependencies(
+    overrides: RemoteRegistryDependencies = {},
+): RemoteRegistryDependencies {
+    return {
+        db: testDb,
+        now: () => NOW,
+        fetchImpl: async () => {
+            state.fetchCount += 1
+            return new Response(state.body, { status: state.status })
+        },
+        readCache: async () => state.persistent as any,
+        writeCache: async (_key, value) => { state.persistent = value },
+        ...overrides,
+    }
+}
 
 function catalog() {
     return {
@@ -66,7 +76,7 @@ function catalog() {
 }
 
 beforeEach(() => {
-    mockDb.db = {}
+    testDb = {}
     state.body = JSON.stringify(catalog())
     state.status = 200
     state.fetchCount = 0
@@ -76,14 +86,15 @@ beforeEach(() => {
 
 describe('syncRemoteRegistry', () => {
     it('downloads models.dev into the separate cache and exposes profiles', async () => {
-        const result = await syncRemoteRegistry()
+        const deps = dependencies()
+        const result = await syncRemoteRegistry(false, deps)
 
         expect(result).toMatchObject({ ok: true, changed: true, downloaded: true })
         expect(state.fetchCount).toBe(1)
         expect((state.persistent as any).catalog.demo.models.chat).toBeTruthy()
-        expect((await getModelsDevCatalog())?.demo.models.chat.cost)
+        expect((await getModelsDevCatalog(deps))?.demo.models.chat.cost)
             .toEqual({ input: 1, output: 4, cache_read: 0.1 })
-        expect(mockDb.db.modelProfileRegistryCache).toBeUndefined()
+        expect(testDb.modelProfileRegistryCache).toBeUndefined()
 
         const entry = getOfficialRegistry().registries[getOfficialRegistryId()]
         expect(entry?.profiles?.['demo:chat']).toBeTruthy()
@@ -94,12 +105,12 @@ describe('syncRemoteRegistry', () => {
     it('hydrates a fresh persistent cache without a network request', async () => {
         state.persistent = {
             schemaVersion: 1,
-            fetchedAt: Date.now(),
+            fetchedAt: NOW,
             contentHash: 'cached',
             catalog: catalog(),
         }
 
-        const result = await syncRemoteRegistry()
+        const result = await syncRemoteRegistry(false, dependencies())
 
         expect(result).toMatchObject({ ok: true, changed: false, downloaded: false })
         expect(state.fetchCount).toBe(0)
@@ -109,7 +120,7 @@ describe('syncRemoteRegistry', () => {
 
     it('keeps Developer profiles visible when models.dev fails', async () => {
         state.status = 503
-        const result = await syncRemoteRegistry()
+        const result = await syncRemoteRegistry(false, dependencies())
 
         expect(result.ok).toBe(false)
         const profiles = getOfficialRegistry().registries[getOfficialRegistryId()]?.profiles
@@ -120,20 +131,27 @@ describe('syncRemoteRegistry', () => {
     })
 
     it('force refreshes even when the in-memory catalog is fresh', async () => {
-        await syncRemoteRegistry()
-        await syncRemoteRegistry(true)
-        expect(state.fetchCount).toBe(2)
+        const deps = dependencies()
+        await syncRemoteRegistry(false, deps)
+        const updated = catalog() as any
+        updated.demo.models.next = { ...updated.demo.models.chat, id: 'next', name: 'Next' }
+        state.body = JSON.stringify(updated)
+
+        await syncRemoteRegistry(true, deps)
+
+        expect(getOfficialRegistry().registries[getOfficialRegistryId()]?.profiles)
+            .toHaveProperty('demo:next')
     })
 
     it('migrates the legacy hidden filter and leaves later providers off', async () => {
-        mockDb.db = {
+        testDb = {
             modelProfileHiddenProviderIds: [],
             modelProfileProviderFilterInitialized: true,
         }
-        await syncRemoteRegistry()
+        await syncRemoteRegistry(false, dependencies())
 
-        expect(mockDb.db.modelProfileVisibleProviderIds).toEqual(['demo'])
-        expect(mockDb.db.modelProfileHiddenProviderIds).toBeUndefined()
+        expect(testDb.modelProfileVisibleProviderIds).toEqual(['demo'])
+        expect(testDb.modelProfileHiddenProviderIds).toBeUndefined()
 
         const updated = catalog() as any
         updated.newcomer = {
@@ -142,9 +160,9 @@ describe('syncRemoteRegistry', () => {
             name: 'Newcomer',
         }
         state.body = JSON.stringify(updated)
-        await syncRemoteRegistry(true)
+        await syncRemoteRegistry(true, dependencies())
 
-        expect(mockDb.db.modelProfileVisibleProviderIds).toEqual(['demo'])
+        expect(testDb.modelProfileVisibleProviderIds).toEqual(['demo'])
     })
 })
 
@@ -157,7 +175,7 @@ describe('registry identifiers and refresh gate', () => {
 
     it('uses a six-hour freshness interval', () => {
         expect(isRefetchGuarded(undefined)).toBe(false)
-        expect(isRefetchGuarded(Date.now() - 60_000)).toBe(true)
-        expect(isRefetchGuarded(Date.now() - 7 * 60 * 60 * 1000)).toBe(false)
+        expect(isRefetchGuarded(NOW - 60_000, NOW)).toBe(true)
+        expect(isRefetchGuarded(NOW - 7 * 60 * 60 * 1000, NOW)).toBe(false)
     })
 })

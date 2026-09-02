@@ -51,6 +51,24 @@ export interface GeminiCacheTurn {
     finish(promptTokens: number | undefined): void
 }
 
+const pendingCacheTasks = new Set<Promise<void>>()
+
+function trackCacheTask(task: Promise<unknown>): void {
+    const observed = task.then(
+        () => undefined,
+        err => console.warn('[gemini-cache] background step failed', err),
+    )
+    pendingCacheTasks.add(observed)
+    void observed.finally(() => pendingCacheTasks.delete(observed))
+}
+
+/** Waits until all cache side effects already in flight have settled. */
+export async function settleGeminiCacheTasks(): Promise<void> {
+    while (pendingCacheTasks.size > 0) {
+        await Promise.all([...pendingCacheTasks])
+    }
+}
+
 // Pre-request step. Returns null when caching does not participate in this
 // request (off / no cache point / session disabled / unrecognized URL / empty
 // suffix) — the caller then sends the original body and skips finish().
@@ -127,7 +145,7 @@ function beginTurn(args: Parameters<typeof beginGeminiCacheTurn>[0]): GeminiCach
         // consecutive-invalidation auto-off guard.
         if (pre.countsTowardGuard) bumpGeminiCacheInvalidationCount(key)
         removeGeminiCacheEntry(key)
-        void client.remove(pre.staleCacheName)
+        trackCacheTask(client.remove(pre.staleCacheName))
     } else if (pre.action === 'apply') {
         // Empty-suffix guard: generateContent requires non-empty contents, so a
         // cache covering the entire prompt (e.g. a reroll whose cachePoint sits
@@ -148,10 +166,10 @@ function beginTurn(args: Parameters<typeof beginGeminiCacheTurn>[0]): GeminiCach
             // this turn uncached.
             if (!appliedCache || pre.action !== 'apply') return
             removeGeminiCacheEntry(key)
-            void client.remove(pre.cacheName)
+            trackCacheTask(client.remove(pre.cacheName))
         },
         finish: (promptTokens) => {
-            void runPostResponse({
+            trackCacheTask(runPostResponse({
                 key,
                 generation,
                 pre,
@@ -164,7 +182,7 @@ function beginTurn(args: Parameters<typeof beginGeminiCacheTurn>[0]): GeminiCach
                 contents,
                 boundaryIndex: args.boundaryIndex,
                 promptTokens,
-            }).catch((err) => console.warn('[gemini-cache] post-response step failed', err))
+            }))
         },
     }
 }
@@ -192,6 +210,7 @@ function isCacheKeyGenerationCurrent(key: string, generation: number): boolean {
 // Test-only: drop the per-key generation map so each test starts clean.
 export function resetGeminiCacheWiringRuntime(): void {
     cacheKeyGeneration.clear()
+    pendingCacheTasks.clear()
 }
 
 // Post-response side effects, driven by the pure after-response decision.
@@ -250,7 +269,7 @@ async function runPostResponse(args: {
         // failure handling so a stale turn's 403 cannot disable the newest session
         // (which may use a different, working credential).
         if (!isCacheKeyGenerationCurrent(args.key, args.generation)) {
-            if (result.ok && result.name) void args.client.remove(result.name)
+            if (result.ok && result.name) await args.client.remove(result.name)
             return
         }
         if (!result.ok || !result.name) {
@@ -281,6 +300,6 @@ async function runPostResponse(args: {
         }))
         // One-active-cache invariant: the replaced cache is deleted only after
         // the new one is registered.
-        if (post.create.replaceCacheName) void args.client.remove(post.create.replaceCacheName)
+        if (post.create.replaceCacheName) await args.client.remove(post.create.replaceCacheName)
     }
 }

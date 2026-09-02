@@ -161,6 +161,8 @@ export const helpEn = {
             "Namespace is a unique identifier for the module. it is used to prevent conflicts between modules, and for interaction of presets, other modules and etc. if you are not sure what to put, leave it blank.",
         moduleIntergration:
             "You can enable modules by putting the module namespace in the module intergartion sections. if you want to enable multiple modules, you can seperate them by comma. for example, `module1,module2,module3`. this is for advanced users, who wants to vary the use of modules by presets.",
+        personaModuleBinding:
+            "Only personas selected here will have this module enabled in chats where they are active.",
         customCSS: "Custom CSS for styling.",
         globalCustomCSS: "Global custom CSS that remains active when switching themes.",
         betaMobileGUI: "If enabled, it will use beta mobile GUI on small (less than 800px) screens. requires refresh.",

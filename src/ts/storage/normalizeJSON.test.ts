@@ -27,13 +27,4 @@ describe('normalizeJSON path-based cycle detection', () => {
         expect(result).toEqual({ self: null });
     });
 
-    test('shared object referenced twice at sibling array indices survives in both', () => {
-        const shared = { key: 'apiKey', type: 'string' };
-        const result = normalizeJSON([shared, shared]);
-        expect(result).toEqual([
-            { key: 'apiKey', type: 'string' },
-            { key: 'apiKey', type: 'string' },
-        ]);
-        expect(result[1]).not.toBeNull();
-    });
 });

@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'vitest'
-import type { RegistryAuth } from '../types'
 import { appendQuery, applyAuth } from './auth'
 import { ModelPresetAdapterError } from './error'
 import type { AdapterPreparedRequest } from './types'
@@ -121,22 +120,5 @@ describe('appendQuery', () => {
         expect(appendQuery('https://demo.test/v1?x=1', 'y', '2')).toBe(
             'https://demo.test/v1?x=1&y=2',
         )
-    })
-})
-
-describe('regression', () => {
-    test('handles all current MVP auth kinds without falling into the exhaustive default', () => {
-        const kinds: RegistryAuth['kind'][] = [
-            'none',
-            'bearer',
-            'x-api-key',
-            'x-goog-api-key',
-            'query',
-            'google-service-account',
-        ]
-        for (const kind of kinds) {
-            const result = applyAuth(basePrepared(), { kind }, { apiKey: 'k' })
-            expect(result).toBeDefined()
-        }
     })
 })

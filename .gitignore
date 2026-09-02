@@ -58,4 +58,9 @@ dist.zip
 
 # Due to Cargo.lock makes the project build fail, we ignore it
 Cargo.lock
-test/fixtures/
+# Local compatibility fixtures stay ignored except for the reviewed,
+# deterministic upstream backup used by upstream-import.test.ts.
+test/fixtures/*
+!test/fixtures/upstream/
+test/fixtures/upstream/*
+!test/fixtures/upstream/upstream-backup.bin

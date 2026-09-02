@@ -62,17 +62,29 @@ export type CharacterChatIndexItem = {
     name: string
 }
 
-const inlayImageExts = [
+export const INLAY_IMAGE_EXTENSIONS = [
     'jpg', 'jpeg', 'png', 'gif', 'webp', 'avif'
-]
+] as const
 
-const inlayAudioExts = [
+export const INLAY_AUDIO_EXTENSIONS = [
     'wav', 'mp3', 'ogg', 'flac'
-]
+] as const
 
-const inlayVideoExts = [
+export const INLAY_VIDEO_EXTENSIONS = [
     'webm', 'mp4', 'mkv'
-]
+] as const
+
+export const INLAY_IMAGE_MAX_PIXELS = 1024 * 1024
+
+export function fitInlayImageSize(width: number, height: number): { width: number; height: number } {
+    const currentPixels = width * height
+    if (currentPixels <= INLAY_IMAGE_MAX_PIXELS) return { width, height }
+    const scaleFactor = Math.sqrt(INLAY_IMAGE_MAX_PIXELS / currentPixels)
+    return {
+        width: Math.max(1, Math.floor(width * scaleFactor)),
+        height: Math.max(1, Math.floor(height * scaleFactor)),
+    }
+}
 
 const INLAY_PREFIX = 'inlay/'
 const INLAY_INFO_PREFIX = 'inlay_info/'
@@ -414,19 +426,19 @@ export async function postInlayAsset(img: { name: string, data: Uint8Array }) {
     const extention = img.name.split('.').at(-1)
     const imgObj = new Image()
 
-    if (inlayImageExts.includes(extention)) {
+    if (INLAY_IMAGE_EXTENSIONS.includes(extention as typeof INLAY_IMAGE_EXTENSIONS[number])) {
         imgObj.src = URL.createObjectURL(new Blob([asBuffer(img.data)], { type: `image/${extention}` }))
         return await writeInlayImage(imgObj, { name: img.name, ext: extention })
     }
 
-    if (inlayAudioExts.includes(extention)) {
+    if (INLAY_AUDIO_EXTENSIONS.includes(extention as typeof INLAY_AUDIO_EXTENSIONS[number])) {
         const audioBlob = new Blob([asBuffer(img.data)], { type: `audio/${extention}` })
         const imgid = v4()
         await setInlayAsset(imgid, { name: img.name, data: audioBlob, ext: extention, type: 'audio' })
         return `${imgid}`
     }
 
-    if (inlayVideoExts.includes(extention)) {
+    if (INLAY_VIDEO_EXTENSIONS.includes(extention as typeof INLAY_VIDEO_EXTENSIONS[number])) {
         const videoBlob = new Blob([asBuffer(img.data)], { type: `video/${extention}` })
         const imgid = v4()
         await setInlayAsset(imgid, { name: img.name, data: videoBlob, ext: extention, type: 'video' })
@@ -443,15 +455,9 @@ export async function writeInlayImage(imgObj: HTMLImageElement, arg: { name?: st
     const ctx = canvas.getContext('2d')
     await new Promise((resolve) => {
         imgObj.onload = () => {
-            drawHeight = imgObj.height
-            drawWidth = imgObj.width
-            const maxPixels = 1024 * 1024
-            const currentPixels = drawHeight * drawWidth
-            if (currentPixels > maxPixels) {
-                const scaleFactor = Math.sqrt(maxPixels / currentPixels)
-                drawWidth = Math.floor(drawWidth * scaleFactor)
-                drawHeight = Math.floor(drawHeight * scaleFactor)
-            }
+            const fitted = fitInlayImageSize(imgObj.width, imgObj.height)
+            drawHeight = fitted.height
+            drawWidth = fitted.width
             canvas.width = drawWidth
             canvas.height = drawHeight
             ctx.drawImage(imgObj, 0, 0, drawWidth, drawHeight)

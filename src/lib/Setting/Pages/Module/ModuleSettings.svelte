@@ -240,7 +240,7 @@
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
                     data-sortable-key={rmodule.id}
-                    class="mt-2 flex flex-wrap items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing"
+                    class={`mt-2 flex ${modelBindingMode ? 'flex-wrap' : ''} items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing`}
                     role="button"
                     tabindex="0"
                     onclick={() => {
@@ -250,7 +250,7 @@
                         mode = 2
                     }}
                 >
-                    <div class="flex flex-col min-w-0 grow basis-full sm:basis-0">
+                    <div class={`flex flex-col min-w-0 grow ${modelBindingMode ? 'basis-full sm:basis-0' : ''}`}>
                         <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
                             {#if rmodule.mcp}
                                 <Waypoints size={16} class="shrink-0 text-textcolor2" />
@@ -263,7 +263,7 @@
                         role="toolbar"
                         tabindex="-1"
                         aria-label={rmodule.name}
-                        class="no-sort shrink-0 w-full sm:w-auto mt-2 sm:mt-0 sm:ml-2 flex flex-wrap items-center justify-end gap-2"
+                        class={`no-sort shrink-0 ${modelBindingMode ? 'w-full sm:w-auto mt-2 sm:mt-0' : 'ml-2'} flex flex-wrap items-center justify-end gap-2`}
                         onclick={(e) => e.stopPropagation()}
                     >
                         {#if modelBindingMode && !rmodule.mcp}
@@ -355,8 +355,8 @@
 
     {#if personaModuleTarget}
         <PresetPickerLayout
-            title="페르소나 연동 설정"
-            titleHelp="체크된 페르소나가 사용 중인 채팅에서만 해당 모듈이 활성화됩니다."
+            title={language.personaModuleBinding}
+            titleHelp={language.help.personaModuleBinding}
             folders={personaFolders}
             itemFolderIds={DBState.db.personas.map(persona => persona.folderId)}
             itemNames={DBState.db.personas.map(persona => persona.name ?? '')}

@@ -39,23 +39,30 @@ function model(overrides: Record<string, unknown> = {}) {
 }
 
 describe('buildModelsDevRegistry', () => {
-    test('turns an OpenAI-compatible provider/model into a complete snapshot', () => {
-        const catalog = {
+    function buildDemoSnapshot() {
+        const registry = buildModelsDevRegistry({
             demo: provider({ models: { chat: model() } as any }),
-        }
-        const registry = buildModelsDevRegistry(catalog)
-        const snapshot = resolveSnapshot(registry, 'demo:chat')
+        })
+        return { registry, snapshot: resolveSnapshot(registry, 'demo:chat') }
+    }
 
-        expect(Object.keys(registry.registries)).toEqual([MODELS_DEV_REGISTRY_ID])
-        expect(snapshot.adapterKind).toBe('openai-compatible')
-        expect(snapshot.endpoint.url).toBe('https://api.demo.test/v1/chat/completions')
-        expect(snapshot.auth).toEqual({ kind: 'bearer', fields: ['apiKey'] })
-        expect(snapshot.uiSchema.fields.filter((field) => field.key === 'apiKey')).toHaveLength(1)
-        expect(snapshot.uiSchema.fields.find((field) => field.key === 'apiKey'))
-            .toMatchObject({ widget: 'secret', visibility: 'info', group: 'credentials' })
-        expect(snapshot.modelId).toBe('chat')
-        expect(snapshot.schema.some((field) => field.key === 'modelId')).toBe(false)
-        expect(snapshot.uiSchema.fields.some((field) => field.key === 'modelId')).toBe(false)
+    test('routes an OpenAI-compatible model with bearer authentication', () => {
+        const { registry, snapshot } = buildDemoSnapshot()
+
+        expect(registry.registries).toHaveProperty(MODELS_DEV_REGISTRY_ID)
+        expect(snapshot).toMatchObject({
+            adapterKind: 'openai-compatible',
+            endpoint: { url: 'https://api.demo.test/v1/chat/completions' },
+            auth: { kind: 'bearer', fields: ['apiKey'] },
+            modelId: 'chat',
+        })
+        expect(snapshot.uiSchema.fields.filter(field => field.key === 'apiKey')).toHaveLength(1)
+        expect(snapshot.schema.some(field => field.key === 'modelId')).toBe(false)
+    })
+
+    test('maps model capabilities and published token limits', () => {
+        const { snapshot } = buildDemoSnapshot()
+
         expect(snapshot.capabilities).toEqual(
             expect.arrayContaining(['streaming', 'vision', 'tools', 'json', 'reasoning']),
         )
@@ -64,97 +71,102 @@ describe('buildModelsDevRegistry', () => {
             contextWindowTokens: 128000,
             maxOutputTokens: 16384,
         })
-        expect(snapshot.schema.find((field) => field.key === 'reasoning_effort')
-            ?.enum?.map((option) => option.value)).toEqual(['low', 'high'])
-        expect(snapshot.schema.find((field) => field.key === 'reasoning_effort'))
-            .toMatchObject({ labelKey: 'reasoningEffort', helpKey: 'reasoningEffort' })
-        expect(snapshot.uiSchema.groups.map((group) => group.id)).toEqual(
-            expect.arrayContaining(['connection', 'generation']),
-        )
-        expect(snapshot.uiSchema.fields.find((field) => field.key === 'reasoning_effort'))
-            .toMatchObject({ visibility: 'basic', layout: 'row', group: 'connection' })
-        expect(snapshot.schema.find((field) => field.key === 'max_tokens')?.max).toBe(16384)
-        expect(snapshot.schema.find((field) => field.key === 'max_tokens')?.mapsTo)
-            .toEqual({ target: 'body', path: 'max_tokens' })
-        expect(snapshot.uiSchema.fields.find((field) => field.key === 'max_tokens'))
-            .toMatchObject({
-                widget: 'slider',
-                visibility: 'basic',
-                layout: 'row',
-                disableable: true,
-                group: 'generation',
-            })
-        expect(snapshot.uiSchema.fields.find((field) => field.key === 'temperature'))
-            .toMatchObject({
-                widget: 'slider',
-                layout: 'row',
-                disableable: true,
-                fixed: 2,
-                group: 'generation',
-            })
-
-        const profile = registry.registries[MODELS_DEV_REGISTRY_ID]?.profiles?.['demo:chat']
-        expect(profile).toMatchObject({
-            modelReleaseDate: '2026-01-01',
+        expect(snapshot.schema.find(field => field.key === 'max_tokens')).toMatchObject({
+            max: 16384,
+            mapsTo: { target: 'body', path: 'max_tokens' },
         })
+    })
+
+    test('exposes supported generation controls once', () => {
+        const { snapshot } = buildDemoSnapshot()
+        const uiByKey = new Map(snapshot.uiSchema.fields.map(field => [field.key, field]))
+
+        expect(uiByKey.get('apiKey')).toMatchObject({
+            widget: 'secret', visibility: 'info', group: 'credentials',
+        })
+        const reasoning = snapshot.schema.find(field => field.key === 'reasoning_effort')
+        expect(reasoning).toMatchObject({
+            labelKey: 'reasoningEffort',
+            helpKey: 'reasoningEffort',
+        })
+        expect(reasoning?.enum?.map(option => option.value)).toEqual(['low', 'high'])
+        expect(uiByKey.get('max_tokens')).toMatchObject({
+            widget: 'slider', visibility: 'basic', disableable: true, group: 'generation',
+        })
+        expect(uiByKey.get('temperature')).toMatchObject({
+            widget: 'slider', disableable: true, group: 'generation',
+        })
+    })
+
+    test('keeps release metadata out of the human description', () => {
+        const { registry } = buildDemoSnapshot()
+        const profile = registry.registries[MODELS_DEV_REGISTRY_ID]?.profiles?.['demo:chat']
+
+        expect(profile).toMatchObject({ modelReleaseDate: '2026-01-01' })
         expect(profile?.description).not.toContain('Released:')
         expect(profile?.description).not.toContain('Knowledge cutoff:')
     })
 
-    test('adds token-budget reasoning controls to Claude and Gemini profiles', () => {
-        const anthropic = provider({
-            id: 'anthropic',
-            name: 'Anthropic',
+    test.each([
+        {
+            providerId: 'anthropic',
             npm: '@ai-sdk/anthropic',
+            modelId: 'claude-sonnet',
+            family: 'claude',
+            reasoningKey: 'effort',
+            reasoningPath: 'output_config.effort',
+        },
+        {
+            providerId: 'google',
+            npm: '@ai-sdk/google',
+            modelId: 'gemini-pro',
+            family: 'gemini',
+            reasoningKey: 'thinkingLevel',
+            reasoningPath: 'generationConfig.thinkingConfig.thinkingLevel',
+        },
+    ] as const)('adds token-budget reasoning controls to $providerId profiles', (fixture) => {
+        const entry = provider({
+            id: fixture.providerId,
+            npm: fixture.npm,
             models: {
-                'claude-sonnet': model({ id: 'claude-sonnet', family: 'claude' }),
+                [fixture.modelId]: model({ id: fixture.modelId, family: fixture.family }),
             } as any,
         })
+        const snapshot = resolveSnapshot(
+            buildModelsDevRegistry({ [fixture.providerId]: entry }),
+            `${fixture.providerId}:${fixture.modelId}`,
+        )
+        const reasoning = snapshot.schema.find(field => field.key === fixture.reasoningKey)
+
+        expect(reasoning?.enum?.map(option => option.value)).toEqual(['low', 'high', 'budget'])
+        expect(reasoning?.mapsTo).toEqual({ target: 'body', path: fixture.reasoningPath })
+        expect(snapshot.schema.find(field => field.key === 'thinking_tokens')).toMatchObject({
+            type: 'integer',
+            default: 1024,
+            min: 1024,
+        })
+        expect(snapshot.uiSchema.fields.find(field => field.key === 'thinking_tokens'))
+            .toMatchObject({
+                widget: 'number-input',
+                visibility: 'basic',
+                group: 'connection',
+                showIf: { key: fixture.reasoningKey, equals: 'budget' },
+            })
+    })
+
+    test('maps Gemini output limits into generationConfig', () => {
         const google = provider({
             id: 'google',
-            name: 'Google',
             npm: '@ai-sdk/google',
-            models: {
-                'gemini-pro': model({ id: 'gemini-pro', family: 'gemini' }),
-            } as any,
+            models: { 'gemini-pro': model({ id: 'gemini-pro', family: 'gemini' }) } as any,
         })
-        const registry = buildModelsDevRegistry({ anthropic, google })
-        const claude = resolveSnapshot(registry, 'anthropic:claude-sonnet')
-        const gemini = resolveSnapshot(registry, 'google:gemini-pro')
+        const snapshot = resolveSnapshot(
+            buildModelsDevRegistry({ google }),
+            'google:gemini-pro',
+        )
 
-        expect(claude.schema.find((field) => field.key === 'effort')
-            ?.enum?.map((option) => option.value)).toEqual(['low', 'high', 'budget'])
-        expect(gemini.schema.find((field) => field.key === 'thinkingLevel')
-            ?.enum?.map((option) => option.value)).toEqual(['low', 'high', 'budget'])
-        expect(claude.schema.find((field) => field.key === 'effort')?.mapsTo)
-            .toEqual({ target: 'body', path: 'output_config.effort' })
-        expect(gemini.schema.find((field) => field.key === 'thinkingLevel')?.mapsTo)
-            .toEqual({
-                target: 'body',
-                path: 'generationConfig.thinkingConfig.thinkingLevel',
-            })
-        expect(gemini.schema.find((field) => field.key === 'maxOutputTokens')?.mapsTo)
+        expect(snapshot.schema.find(field => field.key === 'maxOutputTokens')?.mapsTo)
             .toEqual({ target: 'body', path: 'generationConfig.maxOutputTokens' })
-        for (const [snapshot, reasoningKey] of [
-            [claude, 'effort'],
-            [gemini, 'thinkingLevel'],
-        ] as const) {
-            expect(snapshot.schema.find((field) => field.key === 'thinking_tokens'))
-                .toMatchObject({
-                    type: 'integer',
-                    labelKey: 'thinkingTokens',
-                    helpKey: 'thinkingBudgetHelp',
-                    default: 1024,
-                    min: 1024,
-                })
-            expect(snapshot.uiSchema.fields.find((field) => field.key === 'thinking_tokens'))
-                .toMatchObject({
-                    widget: 'number-input',
-                    visibility: 'basic',
-                    group: 'connection',
-                    showIf: { key: reasoningKey, equals: 'budget' },
-                })
-        }
     })
 
     test('adds opt-in thinking input/output flags to DeepSeek provider profiles', () => {
@@ -318,7 +330,7 @@ describe('buildModelsDevRegistry', () => {
         expect(profile?.description).toBe('A demo model. Model metadata supplied by models.dev.')
     })
 
-    test('adds a Completions/Responses selector to GPT models on any provider', () => {
+    function buildGatewayFamilySnapshots() {
         const gateway = provider({
             id: 'other-gateway',
             name: 'Other Gateway',
@@ -336,8 +348,14 @@ describe('buildModelsDevRegistry', () => {
             } as any,
         })
         const registry = buildModelsDevRegistry({ 'other-gateway': gateway })
-        const gpt = resolveSnapshot(registry, 'other-gateway:openai/gpt-5')
-        const claude = resolveSnapshot(registry, 'other-gateway:anthropic/claude-sonnet')
+        return {
+            gpt: resolveSnapshot(registry, 'other-gateway:openai/gpt-5'),
+            claude: resolveSnapshot(registry, 'other-gateway:anthropic/claude-sonnet'),
+        }
+    }
+
+    test('adds a Completions/Responses selector only to GPT-family models', () => {
+        const { gpt, claude } = buildGatewayFamilySnapshots()
         const mode = gpt.schema.find((field) => field.key === 'openaiApiMode')
 
         expect(mode).toMatchObject({
@@ -351,6 +369,11 @@ describe('buildModelsDevRegistry', () => {
             visibility: 'basic',
         })
         expect(claude.schema.some((field) => field.key === 'openaiApiMode')).toBe(false)
+    })
+
+    test('adds supported verbosity controls to GPT-family models', () => {
+        const { gpt } = buildGatewayFamilySnapshots()
+
         expect(gpt.schema.find((field) => field.key === 'verbosity')?.enum?.map(option => option.value))
             .toEqual(['low', 'medium', 'high'])
         expect(gpt.schema.find((field) => field.key === 'verbosity'))
@@ -475,7 +498,7 @@ describe('buildModelsDevRegistry', () => {
         expect(entry?.baseProviders?.['google-vertex']?.displayName).toBe('Google Vertex AI')
     })
 
-    test('builds Amazon Bedrock Converse and Mantle models with regional auth fields', () => {
+    function buildBedrockSnapshots() {
         const bedrock = provider({
             id: 'amazon-bedrock',
             name: 'Amazon Bedrock',
@@ -504,17 +527,20 @@ describe('buildModelsDevRegistry', () => {
             } as any,
         })
         const registry = buildModelsDevRegistry({ 'amazon-bedrock': bedrock })
-        const profiles = registry.registries[MODELS_DEV_REGISTRY_ID]?.profiles ?? {}
-        const native = resolveSnapshot(
-            registry,
-            'amazon-bedrock:global.anthropic.claude-sonnet',
-        )
-        const mantle = resolveSnapshot(
-            registry,
-            'amazon-bedrock:openai.gpt-5.6-sol',
-        )
+        return {
+            expectedProfileCount: Object.keys(bedrock.models).length,
+            profileCount: Object.keys(
+                registry.registries[MODELS_DEV_REGISTRY_ID]?.profiles ?? {},
+            ).length,
+            native: resolveSnapshot(registry, 'amazon-bedrock:global.anthropic.claude-sonnet'),
+            mantle: resolveSnapshot(registry, 'amazon-bedrock:openai.gpt-5.6-sol'),
+        }
+    }
 
-        expect(Object.keys(profiles)).toHaveLength(3)
+    test('builds native Amazon Bedrock Converse models with regional auth', () => {
+        const { native, profileCount, expectedProfileCount } = buildBedrockSnapshots()
+
+        expect(profileCount).toBe(expectedProfileCount)
         expect(native.adapterKind).toBe('amazon-bedrock')
         expect(native.endpoint).toEqual({ kind: 'amazon-bedrock' })
         expect(native.auth).toEqual({
@@ -531,6 +557,10 @@ describe('buildModelsDevRegistry', () => {
                 semantic: 'maxOutputTokens',
                 mapsTo: { target: 'body', path: 'inferenceConfig.maxTokens' },
             })
+    })
+
+    test('builds Amazon Bedrock Mantle models on the Responses wire format', () => {
+        const { mantle } = buildBedrockSnapshots()
 
         expect(mantle.adapterKind).toBe('openai-responses')
         expect(mantle.endpoint).toEqual({
@@ -581,7 +611,7 @@ describe('buildModelsDevRegistry', () => {
         expect(snapshot.schema.some((field) => field.key === 'cloudflareGatewayId')).toBe(false)
     })
 
-    test('routes AI Gateway models by Cloudflare REST format while keeping token auth', () => {
+    function buildCloudflareGatewaySnapshot(modelId: string) {
         const gateway = provider({
             id: 'cloudflare-ai-gateway',
             name: 'Cloudflare AI Gateway',
@@ -610,15 +640,12 @@ describe('buildModelsDevRegistry', () => {
             } as any,
         })
         const registry = buildModelsDevRegistry({ 'cloudflare-ai-gateway': gateway })
-        const profiles = registry.registries[MODELS_DEV_REGISTRY_ID]?.profiles ?? {}
-        const claude = resolveSnapshot(
-            registry,
-            'cloudflare-ai-gateway:anthropic/claude-opus-4-8',
-        )
-        const gpt = resolveSnapshot(registry, 'cloudflare-ai-gateway:openai/gpt-5')
-        const sol = resolveSnapshot(registry, 'cloudflare-ai-gateway:openai/gpt-5.6-sol')
+        return resolveSnapshot(registry, `cloudflare-ai-gateway:${modelId}`)
+    }
 
-        expect(Object.keys(profiles)).toHaveLength(3)
+    test('routes Anthropic AI Gateway models through the Messages format', () => {
+        const claude = buildCloudflareGatewaySnapshot('anthropic/claude-opus-4-8')
+
         expect(claude.adapterKind).toBe('anthropic-messages')
         expect(claude.endpoint).toEqual({ kind: 'cloudflare-ai', path: 'messages' })
         expect(claude.auth).toEqual({ kind: 'bearer', fields: ['cloudflareApiToken'] })
@@ -628,24 +655,24 @@ describe('buildModelsDevRegistry', () => {
         expect(claude.schema.some((field) => field.key === 'cloudflareGatewayId')).toBe(false)
         expect(claude.uiSchema.fields.some((field) => field.key === 'cloudflareGatewayId'))
             .toBe(false)
-        expect(gpt.endpoint).toEqual({ kind: 'cloudflare-ai', path: 'responses' })
-        expect(gpt.adapterKind).toBe('openai-responses')
-        expect(gpt.schema.find((field) => field.key === 'openaiApiMode')).toMatchObject({
-            default: 'responses',
-            enum: [
-                { value: 'completions', label: 'Chat Completions' },
-                { value: 'responses', label: 'Responses' },
-            ],
-        })
-        expect(sol.endpoint).toEqual({ kind: 'cloudflare-ai', path: 'responses' })
-        expect(sol.schema.find((field) => field.key === 'openaiApiMode')).toMatchObject({
-            default: 'responses',
-            enum: [
-                { value: 'completions', label: 'Chat Completions' },
-                { value: 'responses', label: 'Responses' },
-            ],
-        })
     })
+
+    test.each(['openai/gpt-5', 'openai/gpt-5.6-sol'])(
+        'routes %s AI Gateway models through the Responses format',
+        (modelId) => {
+            const snapshot = buildCloudflareGatewaySnapshot(modelId)
+
+            expect(snapshot.endpoint).toEqual({ kind: 'cloudflare-ai', path: 'responses' })
+            expect(snapshot.adapterKind).toBe('openai-responses')
+            expect(snapshot.schema.find(field => field.key === 'openaiApiMode')).toMatchObject({
+                default: 'responses',
+                enum: [
+                    { value: 'completions', label: 'Chat Completions' },
+                    { value: 'responses', label: 'Responses' },
+                ],
+            })
+        },
+    )
 
     test('does not misroute a provider model whose SDK override changes the explicit recipe wire', () => {
         const vertex = provider({
@@ -665,29 +692,28 @@ describe('buildModelsDevRegistry', () => {
         expect(profiles).toEqual({})
     })
 
-    test('filters unsupported wire packages, non-text output, local URLs, and templates', () => {
-        const catalog: ModelsDevCatalog = {
-            unsupported: provider({
-                id: 'unsupported',
-                npm: '@ai-sdk/amazon-bedrock',
-                models: { chat: model() } as any,
-            }),
-            audio: provider({
-                id: 'audio',
-                models: { speech: model({ id: 'speech', modalities: { input: ['text'], output: ['audio'] } }) } as any,
-            }),
-            local: provider({
-                id: 'local',
-                api: 'http://localhost:11434/v1',
-                models: { chat: model() } as any,
-            }),
-            templated: provider({
-                id: 'templated',
-                api: 'https://${REGION}.example.test/v1',
-                models: { chat: model() } as any,
-            }),
-        }
-        const profiles = buildModelsDevRegistry(catalog)
+    test.each([
+        ['unsupported wire package', 'unsupported', provider({
+            id: 'unsupported',
+            npm: '@ai-sdk/amazon-bedrock',
+            models: { chat: model() } as any,
+        })],
+        ['non-text output', 'audio', provider({
+            id: 'audio',
+            models: { speech: model({ id: 'speech', modalities: { input: ['text'], output: ['audio'] } }) } as any,
+        })],
+        ['local endpoint', 'local', provider({
+            id: 'local',
+            api: 'http://localhost:11434/v1',
+            models: { chat: model() } as any,
+        })],
+        ['unresolved endpoint template', 'templated', provider({
+            id: 'templated',
+            api: 'https://${REGION}.example.test/v1',
+            models: { chat: model() } as any,
+        })],
+    ] as const)('filters a provider with %s', (_reason, id, entry) => {
+        const profiles = buildModelsDevRegistry({ [id]: entry } as ModelsDevCatalog)
             .registries[MODELS_DEV_REGISTRY_ID]?.profiles
         expect(profiles).toEqual({})
     })

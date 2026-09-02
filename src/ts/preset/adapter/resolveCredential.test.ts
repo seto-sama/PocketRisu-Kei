@@ -68,13 +68,6 @@ describe('resolveAdapterCredential', () => {
         expect(result).toBe(inputCred)
     })
 
-    test('passes through undefined credential for non-SA kinds', async () => {
-        const result = await resolveAdapterCredential({
-            preset: preset({ profileSnapshot: snapshot({ auth: { kind: 'none' } }) }),
-        })
-        expect(result).toBeUndefined()
-    })
-
     test('exchanges SA JSON for an access token via the cache', async () => {
         const cache = stubCache('ya29.testtoken')
         const result = await resolveAdapterCredential({

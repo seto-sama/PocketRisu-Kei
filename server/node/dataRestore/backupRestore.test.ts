@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
-import { access, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import Database from 'better-sqlite3'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import pkg from './index.cjs'
 
 const {
@@ -31,6 +31,21 @@ const {
         skippedExisting: number
     }>
 }
+
+const temporaryDirectories = new Set<string>()
+
+async function makeTemporaryDirectory(prefix: string): Promise<string> {
+    const directory = await mkdtemp(join(tmpdir(), prefix))
+    temporaryDirectories.add(directory)
+    return directory
+}
+
+afterEach(async () => {
+    await Promise.all([...temporaryDirectories].map((directory) =>
+        rm(directory, { recursive: true, force: true }),
+    ))
+    temporaryDirectories.clear()
+})
 
 function backupEntry(name: string, value: Buffer) {
     const nameBuffer = Buffer.from(name)
@@ -66,7 +81,7 @@ describe('restoreMissingAssetsFromBackupFile', () => {
     })
 
     it('restores target assets only and never overwrites an existing row', async () => {
-        const dir = await mkdtemp(join(tmpdir(), 'pocketrisu-asset-restore-'))
+        const dir = await makeTemporaryDirectory('pocketrisu-asset-restore-')
         const missingValue = Buffer.from('missing asset')
         const missingName = `${createHash('sha256').update(missingValue).digest('hex')}.png`
         const existingValue = Buffer.from('newer current asset')
@@ -109,7 +124,7 @@ describe('restoreMissingAssetsFromBackupFile', () => {
     })
 
     it('rejects a hash-mismatched target without writing any target', async () => {
-        const dir = await mkdtemp(join(tmpdir(), 'pocketrisu-asset-restore-'))
+        const dir = await makeTemporaryDirectory('pocketrisu-asset-restore-')
         const goodValue = Buffer.from('good')
         const goodName = `${createHash('sha256').update(goodValue).digest('hex')}.png`
         const badName = `${'0'.repeat(64)}.png`
@@ -129,7 +144,7 @@ describe('restoreMissingAssetsFromBackupFile', () => {
     })
 
     it('rejects truncated framing before opening a write transaction', async () => {
-        const dir = await mkdtemp(join(tmpdir(), 'pocketrisu-asset-restore-'))
+        const dir = await makeTemporaryDirectory('pocketrisu-asset-restore-')
         const value = Buffer.from('complete asset')
         const name = `${createHash('sha256').update(value).digest('hex')}.png`
         const complete = backupEntry(name, value)
@@ -148,7 +163,7 @@ describe('restoreMissingAssetsFromBackupFile', () => {
 
 describe('createBackupRestoreService', () => {
     it('owns the full backup restore flow and replaces the old asset set', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'pocketrisu-full-restore-'))
+        const root = await makeTemporaryDirectory('pocketrisu-full-restore-')
         const savePath = join(root, 'save')
         const inlayDir = join(savePath, 'inlays')
         await mkdir(savePath, { recursive: true })
@@ -276,7 +291,7 @@ describe('createLegacyRestoreService', () => {
     })
 
     it('imports a legacy save-folder entry set and clears incompatible old data', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'pocketrisu-legacy-restore-'))
+        const root = await makeTemporaryDirectory('pocketrisu-legacy-restore-')
         const db = freshDb()
         const set = db.prepare(
             'INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)',

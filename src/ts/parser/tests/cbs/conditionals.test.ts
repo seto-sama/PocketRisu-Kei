@@ -266,13 +266,6 @@ describe('#when', () => {
       expect(quickParse('#when::0::and::1::or::1', 'CBS')).toBe(`0  9`)
     })
 
-    test.skip('Lower precedence than other operators', () => {
-      // FIXME: left-hand/right-hand must be evaluated first, then or
-      // Given #when::a::tis::3::or::b::tis::7
-      //   AS-IS: a::tis::3 -> 1, 1::or::7 -> 1, 1::tis::7 -> 0
-      //   TO-BE: a::tis::3 -> 1, b::tis::7 -> 1, 1::or::1 -> 1
-      expect(quickParse('#when::3::tis::3::or::7::tis::7', 'CBS')).toBe(`0 CBS 9`)
-    })
   })
 
   describe('Operators: whitespaces', () => {
@@ -331,14 +324,13 @@ describe('#when', () => {
       expect(quickParse('#when::0', 'CBS\n{{:else}}\nSBC')).toBe(`0 SBC 9`)
     })
 
-    test('with ::keep', () => {
+    test('::keep preserves branch whitespace except for the standalone :else delimiter line', () => {
       const revBody = [...indentedBody].reverse().join('')
 
-      // FIXME: Unexpected line break removal before the {{:else}}
+      // The delimiter line and its separating newline are syntax, not part of either branch.
       expect(quickParse('#when::keep::1', `${indentedBody}{{:else}}${revBody}`)).toBe(
         `0 ${indentedBody.replace(/\n$/, '')} 9`,
       )
-      // FIXME: Unexpected line break removal after the {{:else}}
       expect(quickParse('#when::keep::0', `${indentedBody}{{:else}}${revBody}`)).toBe(
         `0 ${revBody.replace(/^\n/, '')} 9`,
       )
@@ -357,15 +349,15 @@ ABC
       expect(risuChatParser(nestedTemplate('0', '0'))).toBe(`ABC`)
     })
 
-    test('works in an #each', () => {
+    test('evaluates the current #each slot value', () => {
       const template = `{{#each [1, 2, 3] as n}}
-{{#when::n::is::2}}
+{{#when::{{slot::n}}::is::2}}
 CBS{{slot::n}}
 {{:else}}
 SBC{{slot::n}}
 {{/}}
 {{/}}`
-      expect(risuChatParser(template)).toBe(`SBC1SBC2SBC3`)
+      expect(risuChatParser(template)).toBe(`SBC1CBS2SBC3`)
     })
   })
 })

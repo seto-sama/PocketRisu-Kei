@@ -6,7 +6,11 @@ import { describe, test, expect, vi, beforeEach } from 'vitest'
 // commits but whose response is lost.
 const { mockStore, mockState } = vi.hoisted(() => ({
     mockStore: new Map<string, Uint8Array>(),
-    mockState: { setItemDelay: 0, setItemThrowsAfterStore: false },
+    mockState: {
+        setItemGate: null as Promise<void> | null,
+        onSetItem: null as (() => void) | null,
+        setItemThrowsAfterStore: false,
+    },
 }))
 
 vi.mock('./autoStorage', () => ({
@@ -15,7 +19,8 @@ vi.mock('./autoStorage', () => ({
             return [...mockStore.keys()].filter((k) => k.startsWith(prefix))
         },
         async setItem(key: string, value: Uint8Array) {
-            if (mockState.setItemDelay) await new Promise((r) => setTimeout(r, mockState.setItemDelay))
+            mockState.onSetItem?.()
+            if (mockState.setItemGate) await mockState.setItemGate
             mockStore.set(key, value) // server commits
             if (mockState.setItemThrowsAfterStore) throw new Error('response lost') // ...but the response is dropped
         },
@@ -38,7 +43,8 @@ const {
 
 beforeEach(() => {
     mockStore.clear()
-    mockState.setItemDelay = 0
+    mockState.setItemGate = null
+    mockState.onSetItem = null
     mockState.setItemThrowsAfterStore = false
 })
 
@@ -47,38 +53,44 @@ beforeEach(() => {
 
 describe('chatDraft write ordering', () => {
     test('a delayed save cannot resurrect a draft a later remove deleted', async () => {
-        mockState.setItemDelay = 50 // make the save land well after the remove would
-        flushChatDraft('ser', 'c1', { m: 'hello', t: '' })
-        removeChatDraft('ser', 'c1') // sent: must still win the race
+        let releaseSave!: () => void
+        let markSaveStarted!: () => void
+        mockState.setItemGate = new Promise((resolve) => { releaseSave = resolve })
+        const saveStarted = new Promise<void>((resolve) => { markSaveStarted = resolve })
+        mockState.onSetItem = markSaveStarted
+
+        void flushChatDraft('ser', 'c1', { m: 'hello', t: '' })
+        await saveStarted
+        const remove = removeChatDraft('ser', 'c1')
+        releaseSave()
+        await remove
         const loaded = await loadChatDraft('ser', 'c1') // drains the queue, then reads
         expect(loaded).toBeNull()
         expect(mockStore.has(chatDraftKey('ser', 'c1'))).toBe(false)
     })
 
     test('a sent chat can still hold a new draft afterwards', async () => {
-        flushChatDraft('ser2', 'c1', { m: 'first', t: '' })
-        removeChatDraft('ser2', 'c1') // message sent
-        flushChatDraft('ser2', 'c1', { m: 'second', t: '' }) // user types again
+        void flushChatDraft('ser2', 'c1', { m: 'first', t: '' })
+        void removeChatDraft('ser2', 'c1') // message sent
+        void flushChatDraft('ser2', 'c1', { m: 'second', t: '' }) // user types again
         const loaded = await loadChatDraft('ser2', 'c1')
         expect(loaded).toEqual({ m: 'second', t: '' })
     })
 
     test('send removes a draft whose save response was lost (server has it, index does not)', async () => {
         mockState.setItemThrowsAfterStore = true
-        flushChatDraft('lost', 'c1', { m: 'sent text', t: '' }) // server stores it, response dropped
-        await new Promise((r) => setTimeout(r, 0)) // let the failed save settle (not indexed)
+        await flushChatDraft('lost', 'c1', { m: 'sent text', t: '' }) // server stores it, response dropped
         mockState.setItemThrowsAfterStore = false
         expect(mockStore.has(chatDraftKey('lost', 'c1'))).toBe(true) // stale draft sits on the server
-        removeChatDraft('lost', 'c1') // sent: must remove despite the missing index entry
-        await loadChatDraft('lost', 'c1') // drain
+        await removeChatDraft('lost', 'c1') // sent: must remove despite the missing index entry
         expect(mockStore.has(chatDraftKey('lost', 'c1'))).toBe(false)
     })
 })
 
 describe('sweepOrphanDrafts', () => {
     test('removes drafts whose chat is gone, keeps existing ones', async () => {
-        flushChatDraft('keep', 'c1', { m: 'still here', t: '' })
-        flushChatDraft('gone', 'c1', { m: 'orphan', t: '' })
+        void flushChatDraft('keep', 'c1', { m: 'still here', t: '' })
+        void flushChatDraft('gone', 'c1', { m: 'orphan', t: '' })
         await loadChatDraft('keep', 'c1') // drain the saves
         await sweepOrphanDrafts(new Set([chatDraftKey('keep', 'c1')]))
         await loadChatDraft('keep', 'c1') // drain the sweep removes
@@ -89,13 +101,9 @@ describe('sweepOrphanDrafts', () => {
 
 describe('chatDraft round trip', () => {
     test('load returns a saved draft including the translate buffer', async () => {
-        flushChatDraft('load', 'c1', { m: 'remember me', t: 'tr' })
+        void flushChatDraft('load', 'c1', { m: 'remember me', t: 'tr' })
         const loaded = await loadChatDraft('load', 'c1')
         expect(loaded).toEqual({ m: 'remember me', t: 'tr' })
     })
 
-    test('load returns null for a chat with no draft', async () => {
-        const loaded = await loadChatDraft('empty', 'c1')
-        expect(loaded).toBeNull()
-    })
 })

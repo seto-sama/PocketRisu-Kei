@@ -104,6 +104,11 @@ describe('createLLMTransportFetch', () => {
 
     test('resolves generation context for every adapter dispatch', async () => {
         let chatId = 'first'
+        const dispatchedChatIds: string[] = []
+        fetchNativeMock.mockImplementation(async (_url, options) => {
+            dispatchedChatIds.push(options.generationRequest.job.chatId)
+            return new Response('{}', { status: 200 })
+        })
         const fetchImpl = createLLMTransportFetch({
             interceptor: 'model_preset',
             getGenerationRequest: () => ({
@@ -119,7 +124,6 @@ describe('createLLMTransportFetch', () => {
         chatId = 'second'
         await fetchImpl('https://api.example.com/v1/chat/completions', { method: 'POST', body: '{}' })
 
-        expect(fetchNativeMock.mock.calls[0][1].generationRequest.job.chatId).toBe('first')
-        expect(fetchNativeMock.mock.calls[1][1].generationRequest.job.chatId).toBe('second')
+        expect(dispatchedChatIds).toEqual(['first', 'second'])
     })
 })

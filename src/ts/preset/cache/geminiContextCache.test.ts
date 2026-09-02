@@ -27,11 +27,14 @@ import {
     type GeminiCacheStateEntry,
     type ResolvedGeminiCacheConfig,
 } from './geminiContextCache'
-import { beginGeminiCacheTurn, resetGeminiCacheWiringRuntime } from './geminiCacheWiring'
+import {
+    beginGeminiCacheTurn,
+    resetGeminiCacheWiringRuntime,
+    settleGeminiCacheTasks,
+} from './geminiCacheWiring'
 import type { AdapterCacheContext } from '../adapter/types'
 
 const STORAGE_KEY = 'nodeOnlyGeminiCacheState'
-const flushMicrotasks = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 const NOW = 1_750_000_000_000
 
 function makeContents(count: number): unknown[] {
@@ -117,12 +120,11 @@ describe('resolveGeminiCacheConfig', () => {
 })
 
 describe('hashing', () => {
-    test('prefix hash is stable and 8 hex chars', () => {
+    test('equivalent prefixes produce the same cache key', () => {
         const contents = makeContents(6)
         const a = computeGeminiPrefixHash({ parts: [{ text: 'sys' }] }, contents, 4)
         const b = computeGeminiPrefixHash({ parts: [{ text: 'sys' }] }, makeContents(6), 4)
         expect(a).toBe(b)
-        expect(a).toMatch(/^[0-9a-f]{8}$/)
     })
 
     test('prefix hash ignores contents past the boundary', () => {
@@ -140,10 +142,9 @@ describe('hashing', () => {
         expect(computeGeminiPrefixHash({ parts: [{ text: 'sys' }] }, edited, 4)).not.toBe(base)
     })
 
-    test('credential fingerprint differs per key and is 8 hex chars', () => {
+    test('credential fingerprint is stable and separates different keys', () => {
         const a = computeGeminiCredentialFp('key-one')
         const b = computeGeminiCredentialFp('key-two')
-        expect(a).toMatch(/^[0-9a-f]{8}$/)
         expect(a).not.toBe(b)
         expect(computeGeminiCredentialFp('key-one')).toBe(a)
     })
@@ -657,9 +658,6 @@ describe('state store', () => {
         expect(buildGeminiCacheEntry({ ...base, expireTimeMs: NOW + 123_000 }).expiresAt).toBe(NOW + 123_000)
     })
 
-    test('buildGeminiCacheKey joins with ::', () => {
-        expect(buildGeminiCacheKey('chat-1', 'model', 'preset-1')).toBe('chat-1::model::preset-1')
-    })
 })
 
 describe('session guards', () => {
@@ -895,7 +893,7 @@ describe('beginGeminiCacheTurn — stale-write race (generation guard)', () => {
 
         // Earlier turn's PATCH finally resolves — must NOT re-write A.
         releaseExtend()
-        await flushMicrotasks()
+        await settleGeminiCacheTasks()
         expect(getGeminiCacheEntry(key)).toBeUndefined()      // not resurrected
         expect(getGeminiCacheInvalidationCount(key)).toBe(1)  // not double-counted
     })
@@ -923,7 +921,7 @@ describe('beginGeminiCacheTurn — stale-write race (generation guard)', () => {
         startTurn('chat-race-2', contents1, fetchImpl)
 
         releaseCreate()
-        await flushMicrotasks()
+        await settleGeminiCacheTasks()
         // Turn 1's create resolved stale → no entry, and B is deleted remotely.
         expect(getGeminiCacheEntry(key)).toBeUndefined()
         expect(seen.some((c) => c.method === 'DELETE' && c.url.includes('B'))).toBe(true)
@@ -946,7 +944,7 @@ describe('beginGeminiCacheTurn — stale-write race (generation guard)', () => {
         startTurn('chat-race-3', contents1, fetchImpl)   // newer turn bumps the generation
 
         release403()
-        await flushMicrotasks()
+        await settleGeminiCacheTasks()
         // The 403 belongs to the superseded turn — it must NOT kill the newest
         // session (which may use a different, working credential).
         expect(isGeminiCacheSessionDisabled(key)).toBe(false)

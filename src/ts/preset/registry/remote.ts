@@ -23,6 +23,29 @@ interface PersistedModelsDevCache {
     catalog: ModelsDevCatalog
 }
 
+interface RemoteRegistryDb {
+    modelProfileVisibleProviderIds?: string[]
+    modelProfileProviderFilterInitialized?: boolean
+    modelProfileHiddenProviderIds?: string[]
+    modelProfileRegistryLastFetched?: number
+}
+
+export interface RemoteRegistryDependencies {
+    fetchImpl?: typeof fetchNative
+    readCache?: <T>(key: string) => Promise<T | null>
+    writeCache?: <T>(key: string, value: T) => Promise<void>
+    now?: () => number
+    db?: RemoteRegistryDb
+}
+
+interface ResolvedRemoteRegistryDependencies {
+    fetchImpl: typeof fetchNative
+    readCache: <T>(key: string) => Promise<T | null>
+    writeCache: <T>(key: string, value: T) => Promise<void>
+    now: () => number
+    db: RemoteRegistryDb
+}
+
 export interface SyncResult {
     ok: boolean
     changed: boolean
@@ -37,20 +60,37 @@ let runtimeHash: string | undefined
 let hydratePromise: Promise<void> | undefined
 let syncToken = 0
 
-export function isRefetchGuarded(lastFetched: number | undefined): boolean {
+export function isRefetchGuarded(
+    lastFetched: number | undefined,
+    now = Date.now(),
+): boolean {
     return lastFetched !== undefined && lastFetched > 0
-        && Date.now() - lastFetched < REFRESH_INTERVAL_MS
+        && now - lastFetched < REFRESH_INTERVAL_MS
 }
 
 export function isOfficialRegistryId(registryId: string | undefined): boolean {
     return registryId === getOfficialRegistryId() || registryId === LEGACY_OFFICIAL_REGISTRY_ID
 }
 
-async function hydrateRuntimeCache(): Promise<void> {
+function resolveDependencies(
+    dependencies: RemoteRegistryDependencies,
+): ResolvedRemoteRegistryDependencies {
+    return {
+        fetchImpl: dependencies.fetchImpl ?? fetchNative,
+        readCache: dependencies.readCache ?? readPersistentJson,
+        writeCache: dependencies.writeCache ?? writePersistentJson,
+        now: dependencies.now ?? Date.now,
+        db: dependencies.db ?? DBState.db,
+    }
+}
+
+async function hydrateRuntimeCache(
+    dependencies: ResolvedRemoteRegistryDependencies,
+): Promise<void> {
     if (!hydratePromise) {
         hydratePromise = (async () => {
             try {
-                const cached = await readPersistentJson<PersistedModelsDevCache>(MODELS_DEV_CACHE_KEY)
+                const cached = await dependencies.readCache<PersistedModelsDevCache>(MODELS_DEV_CACHE_KEY)
                 if (!cached
                     || cached.schemaVersion !== 1
                     || !Number.isFinite(cached.fetchedAt)
@@ -58,7 +98,7 @@ async function hydrateRuntimeCache(): Promise<void> {
                     || !validateModelsDevCatalog(cached.catalog)) {
                     return
                 }
-                adoptCatalog(cached.catalog, cached.fetchedAt, cached.contentHash)
+                adoptCatalog(cached.catalog, cached.fetchedAt, cached.contentHash, dependencies)
             } catch {
                 // A broken cache must never hide built-in Developer profiles or
                 // prevent a fresh network fetch.
@@ -68,7 +108,12 @@ async function hydrateRuntimeCache(): Promise<void> {
     await hydratePromise
 }
 
-function adoptCatalog(catalog: ModelsDevCatalog, fetchedAt: number, contentHash: string): void {
+function adoptCatalog(
+    catalog: ModelsDevCatalog,
+    fetchedAt: number,
+    contentHash: string,
+    dependencies: ResolvedRemoteRegistryDependencies,
+): void {
     runtimeCatalog = catalog
     runtimeRegistry = buildModelsDevRegistry(catalog, fetchedAt)
     runtimeFetchedAt = fetchedAt
@@ -78,21 +123,21 @@ function adoptCatalog(catalog: ModelsDevCatalog, fetchedAt: number, contentHash:
         .map(provider => provider.id)
     const visibleProviderIds = resolveProviderFilterVisibleIds(
         providerIds,
-        DBState.db.modelProfileVisibleProviderIds,
-        DBState.db.modelProfileProviderFilterInitialized === true,
-        DBState.db.modelProfileHiddenProviderIds,
+        dependencies.db.modelProfileVisibleProviderIds,
+        dependencies.db.modelProfileProviderFilterInitialized === true,
+        dependencies.db.modelProfileHiddenProviderIds,
     )
-    DBState.db.modelProfileVisibleProviderIds = [...visibleProviderIds].sort()
+    dependencies.db.modelProfileVisibleProviderIds = [...visibleProviderIds].sort()
     // The old inverse representation is no longer needed after the current
     // catalog has supplied the IDs required to migrate it.
-    delete DBState.db.modelProfileHiddenProviderIds
-    DBState.db.modelProfileProviderFilterInitialized = true
+    delete dependencies.db.modelProfileHiddenProviderIds
+    dependencies.db.modelProfileProviderFilterInitialized = true
 
     // This DB field is only a tiny reactive revision marker. The catalog itself
     // lives in the dedicated persistent KV cache above, never in the main DB.
-    DBState.db.modelProfileRegistryLastFetched = Math.max(
-        Date.now(),
-        (DBState.db.modelProfileRegistryLastFetched ?? 0) + 1,
+    dependencies.db.modelProfileRegistryLastFetched = Math.max(
+        dependencies.now(),
+        (dependencies.db.modelProfileRegistryLastFetched ?? 0) + 1,
     )
 }
 
@@ -120,17 +165,21 @@ function mergeWithSpecial(registry: RegistryCache | undefined): RegistryCache {
     }
 }
 
-export async function syncRemoteRegistry(force = false): Promise<SyncResult> {
+export async function syncRemoteRegistry(
+    force = false,
+    dependencyOverrides: RemoteRegistryDependencies = {},
+): Promise<SyncResult> {
+    const dependencies = resolveDependencies(dependencyOverrides)
     try {
-        await hydrateRuntimeCache()
-        if (!force && runtimeRegistry && isRefetchGuarded(runtimeFetchedAt)) {
+        await hydrateRuntimeCache(dependencies)
+        if (!force && runtimeRegistry && isRefetchGuarded(runtimeFetchedAt, dependencies.now())) {
             return { ok: true, changed: false, downloaded: false }
         }
 
         const token = ++syncToken
         let response: Response
         try {
-            response = await fetchNative(MODELS_DEV_API_URL, { method: 'GET' })
+            response = await dependencies.fetchImpl(MODELS_DEV_API_URL, { method: 'GET' })
         } catch (error) {
             return {
                 ok: false,
@@ -162,13 +211,13 @@ export async function syncRemoteRegistry(force = false): Promise<SyncResult> {
             return { ok: true, changed: false, downloaded: false }
         }
 
-        const fetchedAt = Date.now()
+        const fetchedAt = dependencies.now()
         const contentHash = hashText(raw)
         const changed = runtimeHash !== contentHash
-        adoptCatalog(catalog, fetchedAt, contentHash)
+        adoptCatalog(catalog, fetchedAt, contentHash, dependencies)
 
         try {
-            await writePersistentJson<PersistedModelsDevCache>(MODELS_DEV_CACHE_KEY, {
+            await dependencies.writeCache<PersistedModelsDevCache>(MODELS_DEV_CACHE_KEY, {
                 schemaVersion: 1,
                 fetchedAt,
                 contentHash,
@@ -203,8 +252,10 @@ export function getOfficialRegistry(): RegistryCache {
  * first when necessary. Pricing intentionally stays in this runtime catalog
  * instead of being copied into persisted model-preset snapshots.
  */
-export async function getModelsDevCatalog(): Promise<ModelsDevCatalog | undefined> {
-    await syncRemoteRegistry()
+export async function getModelsDevCatalog(
+    dependencies: RemoteRegistryDependencies = {},
+): Promise<ModelsDevCatalog | undefined> {
+    await syncRemoteRegistry(false, dependencies)
     return runtimeCatalog
 }
 

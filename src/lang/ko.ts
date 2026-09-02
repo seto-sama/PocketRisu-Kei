@@ -1188,6 +1188,7 @@ export const languageKorean = {
   enableGlobal: "글로벌 활성화",
   chatModulesInfo:
     "모듈을 이 채팅 한정으로 활성화/비활성화합니다. 우클릭 또는 길게 눌러 캐릭터 한정으로 활성화/비활성화할 수 있습니다.",
+  personaModuleBinding: "페르소나 연동 설정",
   sideMenuRerollButton: "햄버거 메뉴 리롤 버튼",
   persistentStorage: "영구 저장소",
   persistentStorageSuccess: "저장소가 영구적으로 설정되었습니다.",

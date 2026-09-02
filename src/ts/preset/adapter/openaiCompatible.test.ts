@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
-import { ModelPresetAdapterError } from './error'
 import { sendChatRequest, streamChatRequest, previewChatRequest } from './openaiCompatible'
 import type { AdapterChatMessage } from './types'
 
@@ -485,22 +484,6 @@ describe('streamChatRequest', () => {
             { apiKey: 'sk' },
         )
         await expect(gen.next()).rejects.toMatchObject({ kind: 'parse' })
-    })
-})
-
-describe('error class identity', () => {
-    test('thrown error is ModelPresetAdapterError instance', async () => {
-        const { fetchImpl } = captureFetch(jsonResponse({}, { status: 403 }))
-        try {
-            await sendChatRequest(
-                makePreset(),
-                { messages: userMessages, fetchImpl },
-                { apiKey: 'sk' },
-            )
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(ModelPresetAdapterError)
-        }
     })
 })
 

@@ -37,21 +37,22 @@ describe('generation normalized projection', () => {
     })
 
     it('projects an OpenAI-compatible JSON journal with the shared adapter parser', async () => {
+        const journal = Buffer.from(JSON.stringify({
+            choices: [{ message: { role: 'assistant', content: 'summary' } }],
+        }))
         const projection = await projectGenerationJournal({
             adapterKind: 'openai-compatible',
             streaming: false,
             responseStatus: 200,
             responseHeaders: { 'content-type': 'application/json' },
-        }, Buffer.from(JSON.stringify({
-            choices: [{ message: { role: 'assistant', content: 'summary' } }],
-        })))
+        }, journal)
 
         expect(projection).toEqual({
             schemaVersion: 1,
             source: 'server',
             adapterKind: 'openai-compatible',
             content: 'summary',
-            journalBytes: 66,
+            journalBytes: journal.length,
         })
     })
 

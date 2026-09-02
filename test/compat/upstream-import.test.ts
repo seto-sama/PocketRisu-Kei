@@ -4,11 +4,12 @@
  * Verifies that a .bin backup exported from upstream RisuAI can be
  * imported into NodeOnly and that core data survives a round-trip.
  *
- * Requires: test/fixtures/upstream/upstream-backup.bin
- * (not tracked in git — see .gitignore)
+ * Fixture: test/fixtures/upstream/upstream-backup.bin
+ * Deterministic, synthetic, and tracked so this suite cannot silently skip.
  */
 import { describe, test, expect, afterAll } from 'vitest'
-import { existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { spawnServer, type ServerHandle } from './helpers/spawnServer.js'
 import { createClient } from './helpers/client.js'
@@ -17,39 +18,32 @@ import { normalizeBackup, fingerprintAssets } from './helpers/normalize.js'
 const FIXTURE_PATH = path.resolve(
   import.meta.dirname, '..', 'fixtures', 'upstream', 'upstream-backup.bin',
 )
-const HAS_FIXTURE = existsSync(FIXTURE_PATH)
-
+// Reviewed synthetic fixture. Updating this digest requires re-running the
+// privacy/content inspection before the replacement binary is committed.
+const REVIEWED_FIXTURE_SHA256 = '92d91f94903edecd892ab209ec94f10e86823df90963fbccfb9c7a7b21f1e9d4'
 const servers: ServerHandle[] = []
 afterAll(async () => {
   await Promise.allSettled(servers.map(s => s.cleanup()))
 })
 
-describe.skipIf(!HAS_FIXTURE)('upstream backup import', () => {
-  let upstreamBin: Buffer
-
-  test('fixture file is readable', () => {
-    upstreamBin = readFileSync(FIXTURE_PATH)
-    expect(upstreamBin.length).toBeGreaterThan(0)
-  })
-
+describe('upstream backup import', () => {
   test('upstream .bin can be decoded locally', () => {
-    upstreamBin = upstreamBin ?? readFileSync(FIXTURE_PATH)
+    const upstreamBin = readFileSync(FIXTURE_PATH)
+    expect(createHash('sha256').update(upstreamBin).digest('hex'))
+      .toBe(REVIEWED_FIXTURE_SHA256)
     const { normalized } = normalizeBackup(upstreamBin)
-    expect(normalized.characterCount).toBeGreaterThan(0)
-  })
-
-  test('upstream .bin imports into NodeOnly server', async () => {
-    upstreamBin = upstreamBin ?? readFileSync(FIXTURE_PATH)
-    const srv = await spawnServer()
-    servers.push(srv)
-    const client = await createClient(srv.port, srv.password)
-
-    const result = await client.importBackup(upstreamBin)
-    expect(result.ok).toBe(true)
+    expect(normalized).toMatchObject({
+      characterCount: 2,
+      personaCount: 1,
+    })
+    expect(normalized.characters.map(character => character.chaId)).toEqual([
+      'fixture-character-alpha',
+      'fixture-character-beta',
+    ])
   })
 
   test('imported upstream data survives re-export', async () => {
-    upstreamBin = upstreamBin ?? readFileSync(FIXTURE_PATH)
+    const upstreamBin = readFileSync(FIXTURE_PATH)
     const before = normalizeBackup(upstreamBin)
 
     const srv = await spawnServer()
@@ -77,8 +71,9 @@ describe.skipIf(!HAS_FIXTURE)('upstream backup import', () => {
   })
 
   test('upstream assets survive import with intact payload', async () => {
-    upstreamBin = upstreamBin ?? readFileSync(FIXTURE_PATH)
+    const upstreamBin = readFileSync(FIXTURE_PATH)
     const beforeFingerprints = fingerprintAssets(upstreamBin)
+    expect(beforeFingerprints).not.toHaveLength(0)
 
     const srv = await spawnServer()
     servers.push(srv)

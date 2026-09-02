@@ -1112,6 +1112,7 @@ export const languageEnglish = {
     edit: "Edit",
     enableGlobal: "Enable Globally",
     chatModulesInfo: "You can enable or disable modules for this chat. You can also enable for this character by right clicking or long pressing the enable button.",
+    personaModuleBinding: "Persona Module Binding",
     sideMenuRerollButton: "Side Menu Reroll Button",
     persistentStorage: "Persistent Storage",
     persistentStorageSuccess: "Storage is successfully persisted",

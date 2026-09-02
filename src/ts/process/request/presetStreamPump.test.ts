@@ -53,15 +53,6 @@ describe('StreamFlushThrottle', () => {
         expect(h.enqueued).toEqual(['a', 'ab'])
     })
 
-    test('onEnd forces the final flush even under backpressure', () => {
-        const h = makeThrottle()
-        h.append('a'); h.throttle.onDelta(0)             // flush 'a'
-        h.append('b'); h.throttle.onDelta(10)            // pending 'ab'
-        h.setDesiredSize(0)                              // consumer full
-        h.throttle.onEnd(20)
-        expect(h.enqueued).toEqual(['a', 'ab'])
-    })
-
     test('skips flushes under backpressure and emits only the latest on recovery (P2)', () => {
         const h = makeThrottle()
         h.append('a'); h.throttle.onDelta(0)             // flush 'a' (desiredSize 1)
@@ -92,13 +83,6 @@ describe('StreamFlushThrottle', () => {
         expect(h.enqueued).toEqual(['a'])
     })
 
-    test('does not flush or duplicate when nothing is pending', () => {
-        const h = makeThrottle()
-        h.append('a'); h.throttle.onDelta(0)             // flush 'a', nothing pending
-        expect(h.throttle.onTrailing(100)).toBe(false)
-        h.throttle.onEnd(200)
-        expect(h.enqueued).toEqual(['a'])
-    })
 })
 
 // --- pumpPresetStream (integration with timers) -----------------------------

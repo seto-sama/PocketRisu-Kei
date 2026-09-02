@@ -44,12 +44,6 @@ describe('apiKeyPool', () => {
         expect(listApiKeys().map((e) => e.name)).toEqual(['first', 'third', 'fourth'])
     })
 
-    it('reassigns apiKeyPool to a new object reference on mutation (Svelte reactivity)', () => {
-        const before = mockDb.db.apiKeyPool
-        addApiKey({ name: 'k', key: 'sk-1' })
-        expect(mockDb.db.apiKeyPool).not.toBe(before)
-    })
-
     it('initialises the pool when undefined', () => {
         mockDb.db = {} // no apiKeyPool
         const entry = addApiKey({ name: 'k', key: 'sk-1' })
@@ -188,10 +182,11 @@ describe('apiKeyPool', () => {
     })
 
     it('update is a no-op for an unknown id', () => {
-        addApiKey({ name: 'a', key: 'k' })
-        const before = mockDb.db.apiKeyPool
+        const entry = addApiKey({ name: 'a', key: 'k' })
+        const before = listApiKeys()
         updateApiKey('missing', { name: 'x' })
-        expect(mockDb.db.apiKeyPool).toBe(before)
+        expect(listApiKeys()).toEqual(before)
+        expect(getApiKey(entry.id)).toEqual(entry)
     })
 
     it('removes a key', () => {

@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { resetGeminiContextCacheRuntime } from '../cache/geminiContextCache'
+import {
+    resetGeminiCacheWiringRuntime,
+    settleGeminiCacheTasks,
+} from '../cache/geminiCacheWiring'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
-import { ModelPresetAdapterError } from './error'
 import * as serviceAccountCache from './googleServiceAccount/cache'
 import { sendGoogleChatRequest, streamGoogleChatRequest } from './googleGemini'
 import type { AdapterCacheContext, AdapterChatMessage } from './types'
@@ -869,26 +872,11 @@ describe('vision (Stage 3)', () => {
     })
 })
 
-describe('error class identity', () => {
-    test('thrown error is ModelPresetAdapterError', async () => {
-        const { fetchImpl } = captureFetch(jsonResponse({}, { status: 500 }))
-        try {
-            await sendGoogleChatRequest(
-                makePreset(),
-                { messages: messagesWithSystem, fetchImpl },
-                { apiKey: 'k' },
-            )
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(ModelPresetAdapterError)
-        }
-    })
-})
-
 describe('context caching wiring', () => {
     beforeEach(() => {
         localStorage.clear()
         resetGeminiContextCacheRuntime()
+        resetGeminiCacheWiringRuntime()
     })
 
     afterEach(() => {
@@ -955,7 +943,8 @@ describe('context caching wiring', () => {
         expect(calls[0].body.contents).toHaveLength(3)
         expect(calls[0].body.systemInstruction).toBeDefined()
         // Fire-and-forget creation lands after the response returned.
-        await vi.waitFor(() => expect(calls).toHaveLength(2))
+        await settleGeminiCacheTasks()
+        expect(calls).toHaveLength(2)
         expect(calls[1].method).toBe('POST')
         expect(calls[1].url).toBe('https://demo.test/v1beta/cachedContents')
         expect(calls[1].headers['x-goog-api-key']).toBe('k')
@@ -1000,7 +989,8 @@ describe('context caching wiring', () => {
             + '/publishers/google/models/gemini-demo:generateContent',
         )
         expect(calls[0].headers['Authorization']).toBe('Bearer ya29.access-token')
-        await vi.waitFor(() => expect(calls).toHaveLength(2))
+        await settleGeminiCacheTasks()
+        expect(calls).toHaveLength(2)
         expect(calls[1].method).toBe('POST')
         // cachedContents is rooted at the location, not the publisher segment.
         expect(calls[1].url).toBe(
@@ -1023,7 +1013,8 @@ describe('context caching wiring', () => {
             { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
             { apiKey: VERTEX_SA_JSON },
         )
-        await vi.waitFor(() => expect(calls).toHaveLength(2))
+        await settleGeminiCacheTasks()
+        expect(calls).toHaveLength(2)
         const turnTwoMessages: AdapterChatMessage[] = [
             ...turnOneMessages,
             { role: 'assistant', content: 'reply 2' },
@@ -1046,7 +1037,8 @@ describe('context caching wiring', () => {
             { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
-        await vi.waitFor(() => expect(calls).toHaveLength(2))
+        await settleGeminiCacheTasks()
+        expect(calls).toHaveLength(2)
         const turnTwoMessages: AdapterChatMessage[] = [
             ...turnOneMessages,
             { role: 'assistant', content: 'reply 2' },
@@ -1066,7 +1058,7 @@ describe('context caching wiring', () => {
         ])
         expect(calls[2].body.systemInstruction).toBeUndefined()
         // Fresh hit (full TTL remaining, no growth) → no extend/recreate calls.
-        await new Promise((r) => setTimeout(r, 20))
+        await settleGeminiCacheTasks()
         expect(calls).toHaveLength(3)
     })
 
@@ -1077,7 +1069,8 @@ describe('context caching wiring', () => {
             { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
-        await vi.waitFor(() => expect(calls).toHaveLength(2))
+        await settleGeminiCacheTasks()
+        expect(calls).toHaveLength(2)
         const editedMessages: AdapterChatMessage[] = [
             { role: 'system', content: 'You are factual.' },
             { role: 'user', content: 'turn 1 EDITED', cachePoint: true },
@@ -1090,7 +1083,8 @@ describe('context caching wiring', () => {
             { apiKey: 'k' },
         )
         // Recreation is also fire-and-forget: wait for DELETE + chat + POST.
-        await vi.waitFor(() => expect(calls).toHaveLength(5))
+        await settleGeminiCacheTasks()
+        expect(calls).toHaveLength(5)
         const remove = calls.find((c) => c.method === 'DELETE')
         expect(remove?.url).toBe('https://demo.test/v1beta/cachedContents/created-1')
         const chat = calls.find((c, i) => i >= 2 && c.url.includes(':generateContent'))
@@ -1113,7 +1107,8 @@ describe('context caching wiring', () => {
             { messages, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
-        await vi.waitFor(() => expect(calls).toHaveLength(2))
+        await settleGeminiCacheTasks()
+        expect(calls).toHaveLength(2)
         // Reroll: identical prompt — the cache boundary equals the contents
         // length, so applying would leave contents empty. Must send uncached.
         await sendGoogleChatRequest(
@@ -1123,7 +1118,7 @@ describe('context caching wiring', () => {
         )
         expect(calls[2].body.cachedContent).toBeUndefined()
         expect(calls[2].body.contents).toHaveLength(3)
-        await new Promise((r) => setTimeout(r, 20))
+        await settleGeminiCacheTasks()
         expect(calls).toHaveLength(3)
     })
 
@@ -1134,7 +1129,7 @@ describe('context caching wiring', () => {
             { messages: messagesWithSystem, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
-        await new Promise((r) => setTimeout(r, 20))
+        await settleGeminiCacheTasks()
         expect(calls).toHaveLength(1)
         expect(calls[0].body.cachedContent).toBeUndefined()
     })
@@ -1159,7 +1154,8 @@ describe('context caching wiring', () => {
         expect(calls[0].body.cachedContent).toBeUndefined()
         expect(calls[0].body.systemInstruction).toBeDefined()
         // Fire-and-forget creation: cache the systemInstruction only (no contents).
-        await vi.waitFor(() => expect(calls).toHaveLength(2))
+        await settleGeminiCacheTasks()
+        expect(calls).toHaveLength(2)
         expect(calls[1].method).toBe('POST')
         expect(calls[1].url).toBe('https://demo.test/v1beta/cachedContents')
         expect(calls[1].body).toEqual({
@@ -1177,7 +1173,8 @@ describe('context caching wiring', () => {
             { messages: systemOnlyCachePoint, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
-        await vi.waitFor(() => expect(calls).toHaveLength(2))
+        await settleGeminiCacheTasks()
+        expect(calls).toHaveLength(2)
         const turnTwo: AdapterChatMessage[] = [
             { role: 'system', content: 'You are factual.', cachePoint: true },
             { role: 'user', content: 'turn 1' },
@@ -1213,7 +1210,8 @@ describe('context caching wiring', () => {
             { messages, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
-        await vi.waitFor(() => expect(calls).toHaveLength(2))
+        await settleGeminiCacheTasks()
+        expect(calls).toHaveLength(2)
         // The chat cachePoint (boundary 1) is the larger cacheable prefix: the
         // create body holds systemInstruction + the first user turn, not just
         // the systemInstruction.
@@ -1236,7 +1234,8 @@ describe('context caching wiring', () => {
             { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )) { /* drain */ }
-        await vi.waitFor(() => expect(calls).toHaveLength(2))
+        await settleGeminiCacheTasks()
+        expect(calls).toHaveLength(2)
         expect(calls[1].method).toBe('POST')
         expect(calls[1].url).toBe('https://demo.test/v1beta/cachedContents')
     })
@@ -1263,8 +1262,7 @@ describe('context caching wiring', () => {
         )
         expect(result.text).toBe('ok')
         // chat (1) + failed create POST (2). No retry, no extra chat call.
-        await vi.waitFor(() => expect(calls).toHaveLength(2))
-        await new Promise((r) => setTimeout(r, 20))
+        await settleGeminiCacheTasks()
         expect(calls).toHaveLength(2)
         const chatCalls = calls.filter((c) => c.url.includes(':generateContent'))
         expect(chatCalls).toHaveLength(1)
@@ -1296,7 +1294,8 @@ describe('context caching wiring', () => {
             { messages: turnOneMessages, fetchImpl, cache: makeCacheContext() },
             { apiKey: 'k' },
         )
-        await vi.waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
+        await settleGeminiCacheTasks()
+        expect(calls.some((c) => c.method === 'POST')).toBe(true)
         const turnTwoMessages: AdapterChatMessage[] = [
             ...turnOneMessages,
             { role: 'assistant', content: 'reply 2' },

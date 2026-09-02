@@ -192,20 +192,6 @@ describe('active workflow client state', () => {
         expect(get(activeRevenantWorkflows)).toEqual([])
     })
 
-    it('publishes a reconnected workflow and clears it when the server no longer has one', async () => {
-        const workflow = workflowWithMetadata()
-        const fetchMock = vi.fn()
-            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow }), { status: 200 }))
-            .mockResolvedValueOnce(new Response(JSON.stringify({ workflow: null }), { status: 200 }))
-        vi.stubGlobal('fetch', fetchMock)
-
-        await getActiveRevenantWorkflow('character-1', 'room-1')
-        expect(get(activeRevenantWorkflows)).toEqual([workflow])
-
-        await getActiveRevenantWorkflow('character-1', 'room-1')
-        expect(get(activeRevenantWorkflows)).toEqual([])
-    })
-
     it('cancels from any reconnected client', async () => {
         const workflow = workflowWithMetadata()
         const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

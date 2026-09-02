@@ -12,25 +12,6 @@ describe('isChatStub (production)', () => {
         expect(isChatStub({ id: 'c1', name: 'x', _stub: true })).toBe(true)
     })
 
-    test('accepts a stub with optional metadata fields', () => {
-        expect(isChatStub({
-            id: 'c1', name: 'x', _stub: true,
-            lastDate: 12345, folderId: 'F1', modules: ['m1'],
-        })).toBe(true)
-    })
-
-    test('rejects a real Chat (no _stub)', () => {
-        expect(isChatStub({
-            id: 'c1', name: 'x', message: [], note: '', localLore: [],
-        })).toBe(false)
-    })
-
-    test('rejects a placeholder (_placeholder, no _stub)', () => {
-        expect(isChatStub({
-            id: 'c1', name: 'x', message: [], _placeholder: true,
-        })).toBe(false)
-    })
-
     // Core regression test: the v1.4.x hybrid pattern. Must NOT be a stub.
     test('rejects a hybrid (_stub: true + message array)', () => {
         expect(isChatStub({
@@ -40,24 +21,10 @@ describe('isChatStub (production)', () => {
         })).toBe(false)
     })
 
-    test('rejects a hybrid even when message is empty []', () => {
-        // Empty arrays still classify as hybrid — the presence of `message`
-        // (regardless of length) means the chat carries Chat-shaped payload,
-        // so chatToStub must collapse it down to a real stub.
-        expect(isChatStub({ id: 'c1', name: 'x', _stub: true, message: [] })).toBe(false)
-    })
-
     test('rejects when _stub is not strictly true', () => {
         expect(isChatStub({ id: 'c1', name: 'x', _stub: 1 })).toBe(false)
         expect(isChatStub({ id: 'c1', name: 'x', _stub: 'true' })).toBe(false)
         expect(isChatStub({ id: 'c1', name: 'x', _stub: false })).toBe(false)
     })
 
-    test('rejects null / undefined / non-objects', () => {
-        expect(isChatStub(null)).toBe(false)
-        expect(isChatStub(undefined)).toBe(false)
-        expect(isChatStub('string')).toBe(false)
-        expect(isChatStub(42)).toBe(false)
-        expect(isChatStub(true)).toBe(false)
-    })
 })

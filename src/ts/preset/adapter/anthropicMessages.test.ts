@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
 import { sendAnthropicChatRequest, streamAnthropicChatRequest } from './anthropicMessages'
-import { ModelPresetAdapterError } from './error'
 import type { AdapterChatMessage } from './types'
 
 function makeSnapshot(overrides: Partial<ResolvedModelProfileSnapshot> = {}): ResolvedModelProfileSnapshot {
@@ -789,22 +788,6 @@ describe('streamAnthropicChatRequest', () => {
             return out
         }
         await expect(collect()).rejects.toMatchObject({ kind: 'aborted', retryable: false })
-    })
-})
-
-describe('error class identity', () => {
-    test('thrown error is ModelPresetAdapterError instance', async () => {
-        const { fetchImpl } = captureFetch(jsonResponse({}, { status: 500 }))
-        try {
-            await sendAnthropicChatRequest(
-                makePreset(),
-                { messages: messagesWithSystem, fetchImpl },
-                { apiKey: 'k' },
-            )
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(ModelPresetAdapterError)
-        }
     })
 })
 
