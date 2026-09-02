@@ -16,6 +16,16 @@ import { importCharacterProcess } from "./characterCards";
 import { importCharacterPackage } from "./characterPackage";
 import { PngChunk } from "./pngChunk";
 import { PRODUCT_NAME } from "./branding";
+import {
+    remapBookmarkFolders,
+} from './bookmarks/bookmarkData'
+import {
+    finalizeImportedBookmarks,
+    mergeBookmarkFoldersForImport,
+    prepareBookmarkCompatibleChats,
+} from './bookmarks/bookmarkService'
+
+const BOOKMARK_FOLDER_DATA_CLASS = 'bookmark-folder-data'
 
 export function createNewCharacter() {
     let db = getDatabase()
@@ -195,6 +205,10 @@ export async function exportChat(page:number){
         }
         const chat = char.chats[page]
         const date = new Date().toJSON();
+        const bookmarkExport = mode === '0' || mode === '2'
+            ? await prepareBookmarkCompatibleChats(char.chaId, [chat])
+            : { chats: [chat], folders: [] }
+        const compatibleChat = bookmarkExport.chats[0]
         const htmlChatParse = async (v:string) => {
             v = parseMarkdownSafe(v)
 
@@ -220,8 +234,9 @@ export async function exportChat(page:number){
             const stringl = Buffer.from(JSON.stringify({
                 type: 'risuChat',
                 ver: 2,
-                data: chat,
-                folders: folders
+                data: compatibleChat,
+                folders: folders,
+                bookmarkFolders: bookmarkExport.folders,
             }), 'utf-8')
     
             await downloadFile(`${char.name}_${date}_chat`.replace(/[<>:"/\\|?*\.\,]/g, "") + '.json', stringl)
@@ -327,7 +342,11 @@ export async function exportChat(page:number){
                             ${chatContentHTML}
                         </div>
                         <div class="idat">${
-                            JSON.stringify(chat).replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                            JSON.stringify(compatibleChat).replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                        }</div>
+                        <div class="idat ${BOOKMARK_FOLDER_DATA_CLASS}">${
+                            JSON.stringify(bookmarkExport.folders)
+                                .replace(/</g, '&lt;').replace(/>/g, '&gt;')
                         }</div>
                     </body>
                 </html>
@@ -475,13 +494,24 @@ export async function importChat(){
                     db.characters[selectedID].chatFolders = []
                 }
                 db.characters[selectedID].chatFolders.push(...folders)
+                const bookmarkFolderIdMap = await mergeBookmarkFoldersForImport(json.bookmarkFolders)
                 chats.forEach(chat => {
                     if(chat.folderId && folderIdMap[chat.folderId]){
                         chat.folderId = folderIdMap[chat.folderId]
                     }
+                    remapBookmarkFolders(chat, bookmarkFolderIdMap)
                     chat.id = v4()
                 })
-                db.characters[selectedID].chats.unshift(...chats.map(c => normalizeChat(c)))
+                const importedChats = chats.map(c => normalizeChat(c))
+                db.characters[selectedID].chats.unshift(...importedChats)
+                await requestImmediateSave({
+                    characterIds: [db.characters[selectedID].chaId],
+                    chatTargets: importedChats.map(chat => ({
+                        characterId: db.characters[selectedID].chaId,
+                        chatId: chat.id,
+                    })),
+                })
+                await finalizeImportedBookmarks(importedChats)
                 notifySuccess(language.successImport)
                 return
             }
@@ -528,8 +558,23 @@ export async function importChat(){
             const doc = new DOMParser().parseFromString(Buffer.from(dat.data).toString('utf-8'), 'text/html')
             const chat = doc.querySelector('.idat').textContent
             const json = JSON.parse(chat)
-            if(json.message && json.note && json.name && json.localLore){
-                db.characters[selectedID].chats.unshift(normalizeChat(json))
+            const bookmarkFolderData = doc.querySelector(`.${BOOKMARK_FOLDER_DATA_CLASS}`)?.textContent
+            const bookmarkFolderIdMap = await mergeBookmarkFoldersForImport(
+                bookmarkFolderData ? JSON.parse(bookmarkFolderData) : undefined,
+            )
+            if(!(checkNullish(json.message) || checkNullish(json.note) || checkNullish(json.name) || checkNullish(json.localLore))){
+                remapBookmarkFolders(json, bookmarkFolderIdMap)
+                json.id = v4()
+                const importedChat = normalizeChat(json)
+                db.characters[selectedID].chats.unshift(importedChat)
+                await requestImmediateSave({
+                    characterIds: [db.characters[selectedID].chaId],
+                    chatTargets: [{
+                        characterId: db.characters[selectedID].chaId,
+                        chatId: importedChat.id,
+                    }],
+                })
+                await finalizeImportedBookmarks([importedChat])
                 notifySuccess(language.successImport)
             }
             else{
@@ -559,13 +604,14 @@ export async function exportAllChats() {
             }
         }
 
-        const allChats = char.chats
+        const bookmarkExport = await prepareBookmarkCompatibleChats(char.chaId, char.chats)
         const allFolders = char.chatFolders
         const stringl = Buffer.from(JSON.stringify({
             type: 'risuAllChats',
             ver: 2,
-            data: allChats,
-            folders: allFolders
+            data: bookmarkExport.chats,
+            folders: allFolders,
+            bookmarkFolders: bookmarkExport.folders,
         }), 'utf-8')
         await downloadFile(`${char.name}_all_chats_${date}`.replace(/[<>:"/\\|?*.,]/g, "") + '.json', stringl)
         notifySuccess(language.successExport)

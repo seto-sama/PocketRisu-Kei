@@ -44,7 +44,7 @@
 
 <script lang="ts">
     import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, MessageSquareOffIcon, MessageSquarePlusIcon, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
-    import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy } from "src/ts/globalApi.svelte"
+    import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
     import { getModelInfo } from "src/ts/model/modellist"
@@ -80,6 +80,13 @@
     import ChatAdaptiveAction from "./ChatAdaptiveAction.svelte";
     import ShDropdownMenuItem from "../UI/GUI/ShDropdownMenuItem.svelte";
     import ShTooltip from "../UI/GUI/ShTooltip.svelte";
+    import {
+        bookmarkKey,
+        bookmarkKeys,
+        createBookmark,
+        deleteBookmark,
+        ensureBookmarkCatalog,
+    } from "src/ts/bookmarks/bookmarkService";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -773,13 +780,18 @@
         }
     }
 
-    let isBookmarked = $derived(
-        DBState.db.characters[selIdState.selId]
-            ?.chats[DBState.db.characters[selIdState.selId].chatPage]
-            ?.bookmarks?.includes(DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]?.chatId) ?? false
-    );
+    let bookmarkTarget = $derived.by(() => {
+        const character = DBState.db.characters[selIdState.selId]
+        const chat = character?.chats[character.chatPage]
+        const messageId = chat?.message[idx]?.chatId
+        return character?.chaId && chat?.id && messageId
+            ? { characterId: character.chaId, chatId: chat.id, messageId }
+            : null
+    })
+    let isBookmarked = $derived(bookmarkTarget ? $bookmarkKeys.has(bookmarkKey(bookmarkTarget)) : false)
 
     async function toggleBookmark() {
+        await ensureBookmarkCatalog()
         const chat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage];
         
         if(!chat.message[idx]) return;
@@ -787,27 +799,29 @@
         let messageId = chat.message[idx]?.chatId;
         const messageContent = chat.message[idx]?.data;
 
-        if (!messageId) {
+        const assignedMessageId = !messageId;
+        if (assignedMessageId) {
             messageId = uuidv4();
             chat.message[idx].chatId = messageId;
         }
 
-        chat.bookmarks ??= [];
-        chat.bookmarkNames ??= {};
-
-        const bookmarkIndex = chat.bookmarks.indexOf(messageId);
-
-        if (bookmarkIndex > -1) {
-            chat.bookmarks.splice(bookmarkIndex, 1);
-            delete chat.bookmarkNames[messageId];
+        const characterId = DBState.db.characters[selIdState.selId].chaId;
+        const target = { characterId, chatId: chat.id, messageId };
+        if (assignedMessageId) {
+            await requestImmediateSave({
+                characterIds: [characterId],
+                chatTargets: [{ characterId, chatId: chat.id }],
+            })
+        }
+        if (isBookmarked) {
+            await deleteBookmark(target);
         } else {
-            chat.bookmarks.push(messageId);
-
             const msgSender = chat.message[idx]?.role === 'user' ? getUserName() : name;
-            const newName= await alertInput(language.bookmarkAskNameOrDefault, [], chat.bookmarkNames[messageId] || '');
+            const newName= await alertInput(language.bookmarkAskNameOrDefault, [], '');
+            let bookmarkName: string;
 
             if (newName && newName.trim() !== '') {
-                chat.bookmarkNames[messageId] = newName;
+                bookmarkName = newName.trim();
             } else {
                 let defaultName;
 
@@ -823,11 +837,10 @@
                 if (!defaultName) {
                     defaultName = messageContent.slice(0, 50) + '...';
                 }
-                chat.bookmarkNames[messageId] = msgSender + '| ' + defaultName;
+                bookmarkName = msgSender + '| ' + defaultName;
             }
+            await createBookmark(target, bookmarkName);
         }
-
-        chat.bookmarks = [...chat.bookmarks];
     }
 </script>
 

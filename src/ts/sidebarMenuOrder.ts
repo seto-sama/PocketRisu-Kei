@@ -1,11 +1,13 @@
 export const SIDEBAR_MENU_HOME = 'core:home'
 export const SIDEBAR_MENU_CHARACTERS = 'core:characters'
+export const SIDEBAR_MENU_BOOKMARKS = 'core:bookmarks'
 export const SIDEBAR_MENU_SETTINGS = 'core:settings'
 export const SIDEBAR_MENU_DEFAULT_DIVIDER = 'divider:plugins'
 
 export const SIDEBAR_MENU_CORE_KEYS = [
     SIDEBAR_MENU_HOME,
     SIDEBAR_MENU_CHARACTERS,
+    SIDEBAR_MENU_BOOKMARKS,
     SIDEBAR_MENU_SETTINGS,
 ] as const
 
@@ -36,7 +38,18 @@ export function normalizeSidebarMenuOrder(value: unknown): string[] {
     const source = Array.isArray(value) ? value : DEFAULT_SIDEBAR_MENU_ORDER
     const unique = [...new Set(source.filter((key): key is string => typeof key === 'string' && key.length > 0))]
     const missingCore = SIDEBAR_MENU_CORE_KEYS.filter((key) => !unique.includes(key))
-    return [...unique, ...missingCore]
+    const normalized = [...unique]
+    for (const key of missingCore) {
+        if (key === SIDEBAR_MENU_BOOKMARKS) {
+            const settingsIndex = normalized.indexOf(SIDEBAR_MENU_SETTINGS)
+            if (settingsIndex >= 0) {
+                normalized.splice(settingsIndex, 0, key)
+                continue
+            }
+        }
+        normalized.push(key)
+    }
+    return normalized
 }
 
 export function normalizeSidebarMenuHidden(value: unknown): string[] {

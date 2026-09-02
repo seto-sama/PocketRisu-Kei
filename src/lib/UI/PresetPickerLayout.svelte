@@ -36,6 +36,13 @@
         readOnly?: boolean;
         visibleItemIndexes?: number[];
         emptyMessage?: string;
+        noSearchResultsMessage?: string;
+        folderEmptyMessage?: string;
+        folderNamePrompt?: string;
+        folderRenamePrompt?: string;
+        folderDeleteConfirm?: string;
+        newFolderLabel?: string;
+        allowFolderAssignmentDrag?: boolean;
         selectedItemIndex?: number;
         itemEditMode?: boolean;
         onMoveItem?: (fromIndex: number, toIndex: number) => void;
@@ -71,6 +78,13 @@
         readOnly = false,
         visibleItemIndexes = $bindable([]),
         emptyMessage = $bindable(''),
+        noSearchResultsMessage = language.presetNoSearchResults,
+        folderEmptyMessage = language.presetFolderEmpty,
+        folderNamePrompt = language.presetFolderNamePrompt,
+        folderRenamePrompt = language.presetFolderRenamePrompt,
+        folderDeleteConfirm = language.presetFolderDeleteConfirm,
+        newFolderLabel = language.presetNewFolder,
+        allowFolderAssignmentDrag = false,
         selectedItemIndex = -1,
         itemEditMode = false,
         onMoveItem,
@@ -108,7 +122,7 @@
                 return inFolder && (!normalizedSearchQuery
                     || (itemSearchTexts[index] ?? itemNames[index] ?? '').toLocaleLowerCase().includes(normalizedSearchQuery));
             });
-        emptyMessage = normalizedSearchQuery ? language.presetNoSearchResults : language.presetFolderEmpty;
+        emptyMessage = normalizedSearchQuery ? noSearchResultsMessage : folderEmptyMessage;
     });
 
     function folderCount(id: string) {
@@ -118,7 +132,7 @@
     }
 
     async function createFolder() {
-        const name = (await alertInput(language.presetFolderNamePrompt))?.trim();
+        const name = (await alertInput(folderNamePrompt))?.trim();
         if (!name) return;
         const id = uuidv4();
         onFoldersChange([...folders, { id, name }]);
@@ -126,12 +140,12 @@
     }
 
     async function renameFolder(id: string, oldName: string) {
-        const name = (await alertInput(language.presetFolderRenamePrompt, [], oldName))?.trim();
+        const name = (await alertInput(folderRenamePrompt, [], oldName))?.trim();
         if (name) onFoldersChange(folders.map(folder => folder.id === id ? { ...folder, name } : folder));
     }
 
     async function deleteFolder(id: string) {
-        if (!await alertConfirm(language.presetFolderDeleteConfirm)) return;
+        if (!await alertConfirm(folderDeleteConfirm)) return;
         onDeleteFolder(id);
         onFoldersChange(folders.filter(folder => folder.id !== id));
         if (selectedFolder === id) selectedFolder = 'all';
@@ -166,6 +180,10 @@
 
     function reorderItems(orderedKeys: string[], draggedKey: string) {
         if (readOnly) return;
+        if (!onMoveItem) {
+            restoreItemDragPosition();
+            return;
+        }
         const source = Number(draggedKey);
         const newPosition = orderedKeys.indexOf(draggedKey);
         const nextKey = orderedKeys[newPosition + 1];
@@ -287,7 +305,7 @@
             </div>
             {#if !readOnly}
                 <button class="shrink-0 mt-2 w-full flex items-center gap-2 rounded-md px-2 py-2 text-sm text-textcolor2 risu-interactive-accent risu-interactive-surface" onclick={createFolder}>
-                    <FolderPlusIcon size={18}/><span>{language.presetNewFolder}</span>
+                    <FolderPlusIcon size={18}/><span>{newFolderLabel}</span>
                 </button>
             {/if}
         </aside>
@@ -302,7 +320,7 @@
             {#if itemContent && onSelectItem}
                 <ShSortableList
                     className="grow min-h-0 overflow-y-auto flex flex-col gap-1 [&>*]:shrink-0"
-                    disabled={readOnly || !onMoveItem || itemEditMode}
+                    disabled={readOnly || itemEditMode || (!onMoveItem && !allowFolderAssignmentDrag)}
                     dataTransferKey={itemDragDataKey}
                     dragPreviewText={(key) => itemNames[Number(key)] || 'Unnamed Preset'}
                     onReorder={(orderedKeys, event) => {
@@ -328,7 +346,7 @@
                             data-sortable-no-scale
                             class="preset-picker-item w-full h-10 min-w-0 flex items-center rounded-md text-left text-textcolor px-2 {index === selectedItemIndex ? '' : 'risu-interactive-surface'}"
                             class:bg-selected={index === selectedItemIndex}
-                            class:cursor-grab={!readOnly && !!onMoveItem && !itemEditMode}
+                            class:cursor-grab={!readOnly && !itemEditMode && (!!onMoveItem || allowFolderAssignmentDrag)}
                             onclick={() => { if (!itemEditMode) onSelectItem(index) }}
                             onkeydown={(e) => { if (!itemEditMode && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelectItem(index) } }}>
                             {@render itemContent(index)}

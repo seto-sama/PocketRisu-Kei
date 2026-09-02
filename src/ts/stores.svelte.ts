@@ -97,7 +97,37 @@ export function invalidateChatMessageRender(messageIndex: number) {
         [messageIndex]: (pointers[messageIndex] ?? 0) + 1,
     }))
 }
-export const ScrollToMessageStore = $state({ value: -1, exact: false })
+export const ScrollToMessageStore = $state({
+    value: -1,
+    exact: false,
+    targetCharacterId: '',
+    targetChatId: '',
+    targetMessageId: '',
+})
+
+export function requestMessageScroll(request: {
+    index: number
+    exact?: boolean
+    characterId?: string
+    chatId?: string
+    messageId?: string
+}) {
+    // Write the numeric trigger last so reactive consumers always observe a
+    // complete target identity when the request becomes active.
+    ScrollToMessageStore.exact = request.exact ?? false
+    ScrollToMessageStore.targetCharacterId = request.characterId ?? ''
+    ScrollToMessageStore.targetChatId = request.chatId ?? ''
+    ScrollToMessageStore.targetMessageId = request.messageId ?? ''
+    ScrollToMessageStore.value = request.index
+}
+
+export function clearMessageScrollRequest() {
+    ScrollToMessageStore.value = -1
+    ScrollToMessageStore.exact = false
+    ScrollToMessageStore.targetCharacterId = ''
+    ScrollToMessageStore.targetChatId = ''
+    ScrollToMessageStore.targetMessageId = ''
+}
 export const OpenRealmStore = writable(false)
 export const HideIconStore = writable(false)
 export const CustomCSSStore = writable('')

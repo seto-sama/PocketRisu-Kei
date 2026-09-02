@@ -6,7 +6,7 @@
     import ShDropdownMenuContent from 'src/lib/UI/GUI/ShDropdownMenuContent.svelte';
     import ShDropdownMenuItem from 'src/lib/UI/GUI/ShDropdownMenuItem.svelte';
     import IconButtonGroup from 'src/lib/UI/GUI/IconButtonGroup.svelte';
-    import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
+    import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, clearMessageScrollRequest, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
     import { onDestroy, tick, untrack } from 'svelte';
     import Chat from "./Chat.svelte";
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
@@ -589,18 +589,41 @@ import { isMobile } from 'src/ts/platform'
     }
     $effect(() => {
         if(ScrollToMessageStore.value !== -1){
-            const index = ScrollToMessageStore.value
+            const requestedIndex = ScrollToMessageStore.value
             const exact = ScrollToMessageStore.exact
-            ScrollToMessageStore.value = -1
-            ScrollToMessageStore.exact = false
-            scrollToMessage(index, exact)
+            const targetCharacterId = ScrollToMessageStore.targetCharacterId
+            const targetChatId = ScrollToMessageStore.targetChatId
+            const targetMessageId = ScrollToMessageStore.targetMessageId
+
+            // A room switch can render the old screen for a tick and lazy
+            // hydration can render an empty placeholder for longer. Keep the
+            // request pending until the identified destination is ready.
+            if (targetCharacterId && currentCharacter?.chaId !== targetCharacterId) return
+            if (targetChatId && currentChatSlot?.id !== targetChatId) return
+            if (!currentChatReady) return
+
+            const index = targetMessageId
+                ? currentChat.findIndex(message => message?.chatId === targetMessageId)
+                : requestedIndex
+            clearMessageScrollRequest()
+            if (index < 0) return
+
+            void (async () => {
+                // Let the room-scoped history depth reset and message wrappers
+                // mount before starting the scroll controller's own polling.
+                await tick()
+                await tick()
+                if (targetCharacterId && currentCharacter?.chaId !== targetCharacterId) return
+                if (targetChatId && currentChatSlot?.id !== targetChatId) return
+                await scrollToMessage(index, exact)
+            })()
         }
     })
 
     async function scrollToMessage(index: number, exact = false){
         // Forces the loading of past messages not rendered on the screen
         // Request-status toast navigation should only move the viewport. The
-        // loading veil and highlight belong to bookmark/history navigation.
+        // loading veil is reserved for bookmark/history navigation.
         if (!exact) isScrollingToMessage = true
         try {
             const totalMessages = currentChat.length
@@ -661,16 +684,13 @@ import { isMobile } from 'src/ts/platform'
                 }
 
                 if(chatContainer){
-                    chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
+                    chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant', followLayout: true })
                     // Small delay and scroll again to ensure position is correct after any final layout adjustments
                     await sleep(50)
-                    chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant' })
+                    element = chatScreenRoot?.querySelector(`[data-chat-index="${index}"]`) ?? element
+                    chatScrollController?.scrollToElement(element as HTMLElement, { block: 'start', behavior: 'instant', followLayout: true })
                 }
 
-                element.classList.add('ring-2')
-                setTimeout(() => {
-                    element.classList.remove('ring-2')
-                }, 2000)
             }
         } finally {
             if (!exact) isScrollingToMessage = false

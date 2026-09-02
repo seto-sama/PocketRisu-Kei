@@ -13,6 +13,7 @@
     QuickSettings,
 
     additionalHamburgerMenu,
+    bookmarkListOpen,
 
     leftBarCollapsed
 
@@ -33,6 +34,7 @@
     ChevronsLeftIcon,
     ArrowRightIcon,
     SearchIcon,
+    BookmarkCheckIcon,
   } from "@lucide/svelte";
     import {
   addCharacter,
@@ -74,6 +76,7 @@
     import ShInput from "../UI/GUI/ShInput.svelte";
     import {
       DEFAULT_SIDEBAR_MENU_ORDER,
+      SIDEBAR_MENU_BOOKMARKS,
       SIDEBAR_MENU_CHARACTERS,
       SIDEBAR_MENU_HOME,
       SIDEBAR_MENU_SETTINGS,
@@ -419,6 +422,16 @@
 </button>
 <button
   class="flex items-center justify-center py-2 flex-col gap-1 w-full"
+  onclick={() => {
+    reseter();
+    bookmarkListOpen.set(true)
+  }}
+>
+  <BookmarkCheckIcon />
+  <span class="text-xs">{language.bookmarks}</span>
+</button>
+<button
+  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
   class:text-textcolor2={!$settingsOpen}
   onclick={() => {
     if ($settingsOpen) {
@@ -515,6 +528,14 @@
                   {:else if menuKey === SIDEBAR_MENU_CHARACTERS}
                     <BarIcon onClick={openCharacters}>
                       <LayoutGridIcon />
+                    </BarIcon>
+                  {:else if menuKey === SIDEBAR_MENU_BOOKMARKS}
+                    <BarIcon onClick={() => {
+                      if (editMode) return
+                      reseter()
+                      bookmarkListOpen.set(true)
+                    }}>
+                      <BookmarkCheckIcon />
                     </BarIcon>
                   {:else if menuKey === SIDEBAR_MENU_SETTINGS}
                     <BarIcon onClick={openSettings}>

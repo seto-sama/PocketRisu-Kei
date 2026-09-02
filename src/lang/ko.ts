@@ -1953,6 +1953,14 @@ export const languageKorean = {
     "북마크 이름을 입력하세요. 입력하지 않으면 자동으로 할당됩니다.",
   bookmarkAskNameOrCancel:
     "북마크 이름을 입력하세요. 입력하지 않으면 이름 변경이 취소됩니다.",
+  bookmarkSearchPlaceholder: "북마크, 캐릭터, 채팅방 검색...",
+  bookmarkNoSearchResults: "일치하는 북마크가 없습니다.",
+  bookmarkFolderNamePrompt: "북마크 폴더 이름을 입력하세요",
+  bookmarkFolderRenamePrompt: "새 북마크 폴더 이름을 입력하세요",
+  bookmarkFolderDeleteConfirm:
+    "이 폴더를 삭제하시겠습니까? 폴더 안의 북마크는 미분류로 이동합니다.",
+  bookmarkTargetMissing: "북마크한 메시지를 찾을 수 없습니다.",
+  bookmarkOperationFailed: "북마크 작업에 실패했습니다.",
   collapseAll: "모두 접기",
   expandAll: "모두 펼치기",
   hideErrorDetails: "오류 세부사항 숨기기",

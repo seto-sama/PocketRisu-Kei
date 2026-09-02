@@ -2217,6 +2217,8 @@ export interface Chat{
     lastDate?:number
     bookmarks?: string[];
     bookmarkNames?: { [chatId: string]: string };
+    /** Original-compatible bookmark fields are present only during import/export. */
+    bookmarkFolderIds?: { [chatId: string]: string };
     supaMemory?: boolean
     savedToggleValues?: Record<string, string>
     modelBinding?: ModelBindingSet

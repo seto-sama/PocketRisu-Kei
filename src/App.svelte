@@ -36,6 +36,7 @@
     import Toaster from './lib/UI/GUI/Toaster.svelte';
     import RequestStatusToaster from './lib/UI/GUI/RequestStatusToaster.svelte';
     import sendSound from './etc/send.mp3'
+    import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
 
     let gridOpen = $state(false)
     let keepingSessionAlive = $state(false)
@@ -44,6 +45,14 @@
         gridOpen = true
         sideBarStore.set(false)
     }
+
+    $effect(() => {
+        if ($loadedStore) {
+            void ensureBookmarkCatalog().catch(error => {
+                console.error('[bookmarks] Initial catalog load failed', error)
+            })
+        }
+    })
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
