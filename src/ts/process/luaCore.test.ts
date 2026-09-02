@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { invokeLuaMode, luaMayListenForEditMode, registerLuaCoreApis, type LuaCoreAdapter } from './luaCore'
+import { invokeLuaMode, luaMayListenForEditMode, registerLuaCoreApis, type LuaCoreAdapter, type LuaCoreChat } from './luaCore'
 
 function apiHarness() {
     const functions: Record<string, (...args: any[]) => any> = {}
     let stopped = false
-    let chat = { message: [{ role: 'char', data: 'hello' }], note: 'note' }
+    let chat: LuaCoreChat = { message: [{ role: 'char', data: 'hello' }], note: 'note' }
     const character = { name: 'Alice', firstMessage: 'first' }
     const variables: Record<string, string> = {}
     const adapter: LuaCoreAdapter = {
@@ -43,6 +43,33 @@ describe('Lua core', () => {
         expect(harness.chat.message.at(-1)).toEqual({ role: 'user', data: 'next' })
         expect(harness.character.name).toBe('Updated')
         expect(harness.stopped).toBe(true)
+    })
+
+    it('preserves message metadata when setFullChat rewrites Lua-visible fields', () => {
+        const harness = apiHarness()
+        harness.chat.message = [{
+            role: 'char',
+            data: 'before',
+            time: 10,
+            chatId: 'message-1',
+            swipes: ['before', 'alternate'],
+            swipeId: 1,
+            generationInfo: { model: 'model-a' },
+        }]
+
+        harness.functions.setFullChatMain('allowed', JSON.stringify([
+            { role: 'char', data: 'after', time: 20 },
+        ]))
+
+        expect(harness.chat.message[0]).toEqual({
+            role: 'char',
+            data: 'after',
+            time: 20,
+            chatId: 'message-1',
+            swipes: ['before', 'alternate'],
+            swipeId: 1,
+            generationInfo: { model: 'model-a' },
+        })
     })
 
     it('does not retain state from a previous cached-engine invocation', () => {

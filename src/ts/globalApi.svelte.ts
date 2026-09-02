@@ -26,6 +26,7 @@ import {
     rebaseChatWorkingCopy,
     shouldPersistTrackedChat,
 } from './storage/chatWorkingCopy';
+import { reissueMessageIds } from './chatClone';
 import { preparePatchConflictRebase } from "./storage/patchRebase";
 import {
     isClientWritableCharacterField,
@@ -2663,10 +2664,12 @@ export async function createPersistedChatCopy(
     type: 'Copy' | 'Branch',
     prepare?: (copy: Chat) => void,
 ): Promise<Chat> {
+    const sourceMessageIds = source.message.map(message => message.chatId)
     const copy = normalizeChat(cloneChatValue(source))
     copy.name = createChatCopyName(copy.name, type, character.chats)
     copy.id = uuidv4()
     prepare?.(copy)
+    reissueMessageIds(copy, sourceMessageIds)
 
     return createPersistedChat(character, copy)
 }
