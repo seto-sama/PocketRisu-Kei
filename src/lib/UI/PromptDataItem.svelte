@@ -236,12 +236,12 @@
     {#if promptItem.type === 'plain' || promptItem.type === 'jailbreak' || promptItem.type === 'cot'}
         <div data-disclosure-field>
             <div data-disclosure-label>{language.prompt}</div>
-            <div data-disclosure-control><TextAreaInput bind:value={promptItem.text} /></div>
+            <div data-disclosure-control><TextAreaInput bind:value={promptItem.text} popupTitle={getName(promptItem)} /></div>
         </div>
     {:else if promptItem.type === 'chatML'}
         <div data-disclosure-field>
             <div data-disclosure-label>{language.prompt}</div>
-            <div data-disclosure-control><TextAreaInput bind:value={promptItem.text} /></div>
+            <div data-disclosure-control><TextAreaInput bind:value={promptItem.text} popupTitle={getName(promptItem)} /></div>
         </div>
     {/if}
 
@@ -297,7 +297,7 @@
         {#if promptItem.innerFormat}
             <div data-disclosure-field>
                 <div data-disclosure-label>{language.innerFormat}</div>
-                <div data-disclosure-control><TextAreaInput bind:value={promptItem.innerFormat}/></div>
+                <div data-disclosure-control><TextAreaInput bind:value={promptItem.innerFormat} popupTitle={getName(promptItem)}/></div>
             </div>
         {/if}
         <div data-disclosure-row>

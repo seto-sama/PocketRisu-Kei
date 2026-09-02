@@ -256,6 +256,7 @@
                 className="mt-2"
                 bind:value={userValues[fieldKey] as string}
                 placeholder={uiField.placeholder ?? ''}
+                popupTitle={localizedLabel}
                 fullwidth
                 autocomplete="off"
                 height="default"
@@ -265,6 +266,7 @@
                 className="mt-2"
                 bind:value={stringArrayText}
                 placeholder={uiField.placeholder ?? ''}
+                popupTitle={localizedLabel}
                 fullwidth
                 autocomplete="off"
                 height="default"
@@ -378,6 +380,7 @@
         <TextAreaInput
             bind:value={userValues[fieldKey] as string}
             placeholder={uiField.placeholder ?? ''}
+            popupTitle={localizedLabel}
             fullwidth
             autocomplete="off"
             height="24"
@@ -429,6 +432,7 @@
         <TextAreaInput
             bind:value={stringArrayText}
             placeholder={uiField.placeholder ?? ''}
+            popupTitle={localizedLabel}
             fullwidth
             autocomplete="off"
             height="default"
@@ -437,6 +441,7 @@
         <TextAreaInput
             bind:value={jsonText}
             placeholder={uiField.placeholder ?? '{}'}
+            popupTitle={localizedLabel}
             fullwidth
             autocomplete="off"
             height="32"

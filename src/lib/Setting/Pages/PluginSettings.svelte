@@ -1,13 +1,13 @@
 <script lang="ts">
-    import { PlusIcon, TrashIcon, LinkIcon, CodeXmlIcon, PowerIcon, PowerOffIcon, ShieldIcon, SquarePenIcon } from "@lucide/svelte";
+    import { DownloadIcon, PlusIcon, TrashIcon, LinkIcon, PowerIcon, PowerOffIcon, ShieldIcon, SquarePenIcon, UploadIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import { alertConfirm, alertMd, alertSelect, notifySuccess } from "src/ts/alert";
+    import { alertConfirm, alertMd, notifySuccess } from "src/ts/alert";
     import { TriangleAlert } from '@lucide/svelte';
 
-    import { DBState, hotReloading, showPopupEditor } from "src/ts/stores.svelte";
-    import { checkPluginUpdate, importPlugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
-    import { requestImmediateSave } from "src/ts/globalApi.svelte";
+    import { DBState, showPopupEditor } from "src/ts/stores.svelte";
+    import { checkPluginUpdate, createBlankPlugin, getBlankPluginSource, importPlugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
+    import { downloadFile, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { resetPluginPermission } from "src/ts/plugins/apiV3/v3.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
@@ -16,7 +16,6 @@
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import { hotReloadPluginFiles } from "src/ts/plugins/apiV3/developMode";
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
     import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
@@ -80,6 +79,7 @@
         showPopupEditor({
             value: originalScript,
             title: pluginTitle(plugin),
+            mode: 'plain',
             onSave: (nextScript) => {
                 if (nextScript === originalScript) return true
 
@@ -97,6 +97,24 @@
             },
         })
     }
+
+    function openNewPluginEditor() {
+        showPopupEditor({
+            value: getBlankPluginSource(),
+            title: language.createPlugin,
+            mode: 'plain',
+            onSave: async (script) => {
+                const created = await createBlankPlugin(script)
+                if (created) notifySuccess(language.pluginCreated)
+                return created
+            },
+        })
+    }
+
+    function pluginFileName(plugin: RisuPlugin) {
+        const safeName = plugin.name.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').trim()
+        return `${safeName || 'plugin'}.js`
+    }
 </script>
 
 {#snippet content()}
@@ -105,34 +123,19 @@
     {#snippet control()}
     <IconButtonGroup size="lg">
         <IconButton
-            onclick={() => {
-                importPlugin()
-            }}
+            title={language.createPlugin}
+            aria-label={language.createPlugin}
+            onclick={openNewPluginEditor}
         >
             <PlusIcon />
         </IconButton>
 
         <IconButton
-            onclick={async () => {
-                const v = parseInt(await alertSelect([
-                    "Import plugin with hot reload",
-                    "Download plugin template",
-                    language.cancel
-                ]))
-                switch(v){
-                    case 0:
-                        await hotReloadPluginFiles()
-                        break;
-                    case 1:{
-                        const a = document.createElement('a');
-                        a.href = '/plugin_start.7z';
-                        a.download = 'plugin_starter.7z';
-                        document.body.appendChild(a);
-                    }
-                }
-            }}
+            title={language.importPlugin}
+            aria-label={language.importPlugin}
+            onclick={() => void importPlugin()}
         >
-            <CodeXmlIcon />
+            <UploadIcon />
         </IconButton>
     </IconButtonGroup>
     {/snippet}
@@ -169,15 +172,10 @@
                     <span class="truncate">{pluginTitle(plugin)}</span>
                 </span>
                 <span class="text-xs text-textcolor2 truncate">{pluginDescription(plugin)}</span>
-                {#if hotReloading.includes(plugin.name)}
-                    <span class="text-xs rounded bg-amber-700 mt-1 px-2 py-0.5 text-white w-fit">
-                        Hot
-                    </span>
-                {/if}
             </div>
             <IconButtonGroup size="default" className="no-sort shrink-0 ml-2">
             {#if plugin.version === 2 || plugin.version === "2.1"}
-                <IconButton className="text-yellow-400" onclick={(e) => {
+                <IconButton title={language.pluginV2WarningTitle} aria-label={language.pluginV2WarningTitle} className="text-yellow-400" onclick={(e) => {
                     e.stopPropagation()
                     alertMd(language.pluginV2Warning);
                 }} >
@@ -193,7 +191,8 @@
                             target="_blank"
                             rel="nofollow noopener noreferrer"
                             class="inline-flex size-6 shrink-0 items-center justify-center text-textcolor2 risu-interactive-accent"
-                            title={link.hoverText}
+                            title={link.hoverText ?? link.link}
+                            aria-label={link.hoverText ?? link.link}
                             onclick={(e) => { e.stopPropagation() }}
                         >
                             <LinkIcon></LinkIcon>
@@ -206,6 +205,8 @@
                 {#await checkPluginUpdate(plugin) then updateInfo}
                     {#if updateInfo}
                         <IconButton
+                            title={language.updatePlugin}
+                            aria-label={language.updatePlugin}
                             className="text-green-400"
                             onclick={async (e) => {
                                 e.stopPropagation()
@@ -224,6 +225,8 @@
             {/if}
 
             <IconButton
+                title={plugin.enabled ? language.disablePlugin : language.enablePlugin}
+                aria-label={plugin.enabled ? language.disablePlugin : language.enablePlugin}
                 active={plugin.enabled}
                 activeColor="primary"
                 onclick={async (e) => {
@@ -243,6 +246,7 @@
 
             <IconButton
                 title={language.resetPluginPermission}
+                aria-label={language.resetPluginPermission}
                 onclick={async (e) => {
                     e.stopPropagation()
                     const v = await alertConfirm(
@@ -258,7 +262,8 @@
             </IconButton>
 
             <IconButton
-                title={language.edit}
+                title={language.editPlugin}
+                aria-label={language.editPlugin}
                 onclick={(e) => {
                     e.stopPropagation()
                     openPluginScriptEditor(index, plugin)
@@ -267,8 +272,21 @@
                 <SquarePenIcon />
             </IconButton>
 
+            <IconButton
+                title={language.exportPlugin}
+                aria-label={language.exportPlugin}
+                onclick={async (e) => {
+                    e.stopPropagation()
+                    await downloadFile(pluginFileName(plugin), plugin.script)
+                }}
+            >
+                <DownloadIcon />
+            </IconButton>
+
             <!--Also, remove button.-->
             <IconButton
+                title={language.removePlugin}
+                aria-label={language.removePlugin}
                 tone="destructive"
                 onclick={async (e) => {
                     e.stopPropagation()
@@ -300,7 +318,7 @@
             </span>
             <!--List up args-->
         {:else if Object.keys(plugin.arguments).filter((i) => !i.startsWith("hidden_")).length > 0 && showParams.includes(pluginKey(plugin, index))}
-            <div class="flex flex-col mt-1 mb-2 bg-dark-900/50 p-3 rounded-md border border-darkborderc">
+            <div class="flex flex-col mt-2 bg-dark-900/50 p-3 rounded-md border border-darkborderc">
                 {#each Object.keys(plugin.arguments) as arg}
                     {#if !arg.startsWith("hidden_")}
                         {#if typeof(plugin?.argMeta?.[arg]?.divider) === 'string'}
@@ -318,7 +336,7 @@
                         {/if}
                         <span class="mb-2 mt-6">{plugin?.argMeta?.[arg]?.name || arg}</span>
                         {#if plugin?.argMeta?.[arg]?.description}
-                            <span class="mb-2 text-sm text-textcolor2">{plugin?.argMeta?.[arg]?.description}</span>
+                            <span class="mb-2 text-xs text-textcolor2">{plugin?.argMeta?.[arg]?.description}</span>
                         {/if}
                         {#if Array.isArray(plugin.arguments[arg])}
                             <SelectInput
@@ -336,6 +354,7 @@
                             {#if plugin?.argMeta?.[arg]?.textarea}
                                 <TextAreaInput
                                     className="mt-2"
+                                    popupTitle={`${pluginTitle(plugin)} · ${plugin?.argMeta?.[arg]?.name || arg}`}
                                     bind:value={
                                         DBState.db.plugins[index].realArg[arg] as string
                                     }

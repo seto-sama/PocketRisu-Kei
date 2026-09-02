@@ -6,7 +6,7 @@
     import { v4 as uuidv4 } from "uuid";
     import ShTooltip from "./GUI/ShTooltip.svelte";
     import SettingLayout from "../Setting/Wrappers/SettingLayout.svelte";
-    import ShSortableList from "./GUI/ShSortableList.svelte";
+    import ShSortableList, { restoreSortableDragOrigin, type SortableDragOrigin } from "./GUI/ShSortableList.svelte";
     import IconButton from "./GUI/IconButton.svelte";
     import IconButtonGroup from "./GUI/IconButtonGroup.svelte";
     import OverlayPortal from "./GUI/OverlayPortal.svelte";
@@ -43,6 +43,8 @@
         onDuplicateItem?: (index: number) => void;
         onExportItem?: (index: number) => void;
         onDeleteItem?: (index: number) => void;
+        showDuplicateItem?: (index: number) => boolean;
+        showExportItem?: (index: number) => boolean;
         itemContent?: Snippet<[number]>;
         itemActions?: Snippet<[number]>;
         listFooter?: Snippet;
@@ -76,6 +78,8 @@
         onDuplicateItem,
         onExportItem,
         onDeleteItem,
+        showDuplicateItem = () => true,
+        showExportItem = () => true,
         itemContent,
         itemActions,
         listFooter,
@@ -84,6 +88,8 @@
 
     let draggingFolderId = $state<string | null>(null);
     let itemDropTarget = $state<string | null>(null);
+    let itemDroppedOnFolder = false;
+    let itemDragOrigin: SortableDragOrigin | null = null;
     const folderIds = $derived(new Set(folders.map(folder => folder.id)));
     const normalizedSearchQuery = $derived(searchQuery.trim().toLocaleLowerCase());
 
@@ -139,15 +145,21 @@
         const rawIndex = e.dataTransfer?.getData(itemDragDataKey);
         const index = rawIndex ? Number(rawIndex) : -1;
         if (Number.isInteger(index) && index >= 0) {
+            itemDroppedOnFolder = true;
             onAssignItem(index, folderId === 'all' || folderId === 'uncategorized' ? undefined : folderId);
         }
         itemDropTarget = null;
+    }
+
+    function restoreItemDragPosition() {
+        restoreSortableDragOrigin(itemDragOrigin);
     }
 
     function dragItemOverFolder(folderId: string, e: DragEvent) {
         if (readOnly) return;
         e.preventDefault();
         e.stopPropagation();
+        restoreItemDragPosition();
         onFolderDragOver();
         if (!draggingFolderId) itemDropTarget = folderId;
     }
@@ -200,7 +212,12 @@
     </div>
 
     <div class="flex min-h-0 grow border-t border-darkborderc max-sm:flex-col">
-        <aside class="w-48 shrink-0 border-r border-darkborderc p-2 flex flex-col min-h-0 max-sm:w-full max-sm:h-44 max-sm:border-r-0 max-sm:border-b">
+        <aside
+            class="w-48 shrink-0 border-r border-darkborderc p-2 flex flex-col min-h-0 max-sm:w-full max-sm:h-44 max-sm:border-r-0 max-sm:border-b"
+            ondragover={() => {
+                if (!draggingFolderId) restoreItemDragPosition();
+            }}
+        >
             <div class="min-h-0 grow overflow-y-auto">
                 <div class="flex flex-col gap-1">
                     {#each [
@@ -288,8 +305,22 @@
                     disabled={readOnly || !onMoveItem || itemEditMode}
                     dataTransferKey={itemDragDataKey}
                     dragPreviewText={(key) => itemNames[Number(key)] || 'Unnamed Preset'}
-                    onReorder={(orderedKeys, event) => reorderItems(orderedKeys, event.item.getAttribute('data-sortable-key') ?? '')}
-                    onDragEnd={() => { itemDropTarget = null }}
+                    onReorder={(orderedKeys, event) => {
+                        if (!itemDroppedOnFolder) reorderItems(orderedKeys, event.item.getAttribute('data-sortable-key') ?? '');
+                    }}
+                    onDragStart={(_key, event) => {
+                        itemDroppedOnFolder = false;
+                        itemDragOrigin = {
+                            item: event.item,
+                            parent: event.from,
+                            nextSibling: event.item.nextSibling,
+                        };
+                    }}
+                    onDragEnd={() => {
+                        itemDropTarget = null;
+                        itemDroppedOnFolder = false;
+                        itemDragOrigin = null;
+                    }}
                 >
                     {#each visibleItemIndexes as index (index)}
                         <div role="button" tabindex={itemEditMode ? -1 : 0}
@@ -305,8 +336,8 @@
                                 <IconButtonGroup className="-my-2 -ml-2 -mr-2 shrink-0 py-2 pl-5 pr-2" onclick={(e) => e.stopPropagation()}>
                                     {@render itemActions?.(index)}
                                     {#if !readOnly}
-                                        {#if onDuplicateItem}<IconButton onclick={() => onDuplicateItem(index)}><CopyIcon /></IconButton>{/if}
-                                        {#if onExportItem}<IconButton onclick={() => onExportItem(index)}><DownloadIcon /></IconButton>{/if}
+                                        {#if onDuplicateItem && showDuplicateItem(index)}<IconButton onclick={() => onDuplicateItem(index)}><CopyIcon /></IconButton>{/if}
+                                        {#if onExportItem && showExportItem(index)}<IconButton onclick={() => onExportItem(index)}><DownloadIcon /></IconButton>{/if}
                                         {#if onDeleteItem}<IconButton tone="destructive" onclick={() => onDeleteItem(index)}><TrashIcon /></IconButton>{/if}
                                     {/if}
                                 </IconButtonGroup>

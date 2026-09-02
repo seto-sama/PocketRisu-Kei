@@ -70,8 +70,7 @@
 
     function addPreset() {
         const preset = createTranslatorPreset();
-        preset.folderId = selectedFolder !== "all" && selectedFolder !== "uncategorized"
-            ? selectedFolder : undefined;
+        preset.folderId = undefined;
         DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
         DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
         normalizeTranslatorPresetState(DBState.db);
@@ -115,8 +114,6 @@
             if (!file) return;
             const preset = await decodeTranslatorPresetFile(file.data);
             preset.id = uuidv4();
-            preset.folderId = selectedFolder !== "all" && selectedFolder !== "uncategorized"
-                ? selectedFolder : undefined;
             DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
             DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
             normalizeTranslatorPresetState(DBState.db);

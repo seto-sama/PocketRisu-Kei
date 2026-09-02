@@ -1254,6 +1254,8 @@ export const languageKorean = {
   confirmRemoveModuleFeature: "정말로 이 기능을 삭제하시겠습니까?",
   editModule: "모듈 수정",
   importModule: "모듈 임포트",
+  moduleFolderManagement: "모듈 폴더 관리",
+  moduleDuplicated: "모듈이 복제되었습니다.",
   download: "다운로드",
   edit: "수정",
   enableGlobal: "글로벌 활성화",
@@ -2081,6 +2083,16 @@ export const languageKorean = {
   resetPluginPermissionConfirm:
     '플러그인 "{}"의 저장된 권한 응답(허용/거부 이력)을 모두 삭제하시겠습니까?\n\n다음에 플러그인이 권한을 요청할 때 다시 묻게 됩니다.',
   resetPluginPermissionDone: '"{}"의 권한 응답을 초기화했습니다',
+  createPlugin: "플러그인 만들기",
+  importPlugin: "플러그인 불러오기",
+  exportPlugin: "플러그인 내보내기",
+  editPlugin: "플러그인 편집",
+  enablePlugin: "플러그인 켜기",
+  disablePlugin: "플러그인 끄기",
+  removePlugin: "플러그인 삭제",
+  updatePlugin: "플러그인 업데이트 설치",
+  pluginCreated: "플러그인을 만들었습니다.",
+  pluginV2WarningTitle: "구형 플러그인 API 경고",
   pluginV2Warning:
     "플러그인 V2 및 V2.1은 안전하지 않다고 간주되며, 향후 버전에서는 동작이 중단됩니다. **이 버전의 플러그인을 사용하지 마세요.** 이 플러그인의 개발자라면 가능한 한 빨리 V3로 업데이트해주세요.",
   partialBackupFirstConfirm:

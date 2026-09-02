@@ -198,7 +198,7 @@
                     let newPreset = safeStructuredClone(prebuiltPresets.OAI2)
                     newPreset.id = uuidv4()
                     newPreset.name = `New Preset`
-                    newPreset.folderId = selectedFolder !== 'all' && selectedFolder !== 'uncategorized' ? selectedFolder : undefined
+                    newPreset.folderId = undefined
                     botPresets.push(newPreset)
 
                     DBState.db.botPresets = botPresets
@@ -208,7 +208,6 @@
                     await importPreset()
                     const after = DBState.db.botPresets.length
                     if (after > before) {
-                        assignPresetToFolder(after - 1, selectedFolder)
                         changeToPreset(after - 1)
                         notifySuccess(language.presetImported)
                     }

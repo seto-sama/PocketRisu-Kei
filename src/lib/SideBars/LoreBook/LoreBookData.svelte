@@ -298,7 +298,7 @@
 
             <div data-disclosure-field>
                 <div data-disclosure-label>{language.prompt}</div>
-                <div data-disclosure-control><TextAreaInput autocomplete="off" bind:value={value.content} /></div>
+                <div data-disclosure-control><TextAreaInput autocomplete="off" bind:value={value.content} popupTitle={value.comment || language.prompt} /></div>
             </div>
             <TokenCount value={value.content} className="mb-2" />
 

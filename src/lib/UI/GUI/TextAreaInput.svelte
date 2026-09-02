@@ -1,4 +1,5 @@
 <div
+    bind:this={containerRef}
     class={"risu-field-border risu-local-stack risu-local-stack-focus relative flex flex-col n-scroll rounded-md shadow-xs text-textcolor focus-within:outline-hidden"
         + (margin === 'top' ? ' mt-4' : margin === 'bottom' ? ' mb-4' : margin === 'both' ? ' mt-2 mb-2' : '')
         + ((className) ? (' ' + className) : '')}
@@ -142,6 +143,7 @@
         onLongPress?: (event: MouseEvent) => void;
         contentClassName?: string;
         style?: string;
+        popupTitle?: string;
     }
 
     let {
@@ -167,6 +169,7 @@
         onLongPress = undefined,
         contentClassName = '',
         style = '',
+        popupTitle = '',
     }: Props = $props();
     // `actionBar` prop overrides per-field; otherwise follow the accessibility toggle.
     const showActionBar = $derived(actionBar ?? DBState.db.showInputActionBar ?? true)
@@ -174,6 +177,42 @@
     let copiedTimer: ReturnType<typeof setTimeout> | null = null
     let inpa = $state(0)
     let autoHeight = $state('44px')
+    let containerRef: HTMLDivElement
+
+    const labelText = (element: Element | null) => {
+        const text = element?.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+        return text.length <= 120 ? text : ''
+    }
+
+    const inferPopupTitle = () => {
+        if(popupTitle.trim()) return popupTitle.trim()
+
+        const disclosureLabel = containerRef
+            ?.closest('[data-disclosure-field]')
+            ?.querySelector(':scope > [data-disclosure-label]')
+        const disclosureTitle = labelText(disclosureLabel)
+        if(disclosureTitle) return disclosureTitle
+
+        if(textareaRef?.labels?.length){
+            const associatedTitle = labelText(textareaRef.labels[0])
+            if(associatedTitle) return associatedTitle
+        }
+
+        let current: Element | null = containerRef
+        for(let depth = 0; current && depth < 3; depth += 1){
+            const previous = current.previousElementSibling
+            if(previous){
+                const directLabel = previous.matches('label, span, h1, h2, h3, h4')
+                    ? previous
+                    : previous.querySelector(':scope > label, :scope > span, :scope > h1, :scope > h2, :scope > h3, :scope > h4')
+                const inferredTitle = labelText(directLabel)
+                if(inferredTitle) return inferredTitle
+            }
+            current = current.parentElement
+        }
+
+        return ''
+    }
 
     const scheduleAutoResize = () => {
         if(!autoResize) return
@@ -210,6 +249,7 @@
     const openPopupEditor = () => {
         showPopupEditor({
             value,
+            title: inferPopupTitle(),
             onSave: (nextValue) => {
                 value = nextValue
                 onInput()

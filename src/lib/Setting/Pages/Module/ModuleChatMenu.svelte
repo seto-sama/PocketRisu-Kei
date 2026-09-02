@@ -2,6 +2,8 @@
     import { Waypoints } from "@lucide/svelte";
     import { language } from "src/lang";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
+    import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
+    import InlineNameInput from "src/lib/UI/GUI/InlineNameInput.svelte";
     import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { AddonSettingsTab, openAddonSettings } from "src/ts/routing";
@@ -10,13 +12,29 @@
     interface Props {
         close?: (id: string) => void;
         alertMode?: boolean;
+        folderManagement?: boolean;
+        onCreateModule?: () => void;
+        onImportModule?: () => void;
+        onDuplicateModule?: (index: number) => void;
+        onExportModule?: (index: number) => void;
+        onDeleteModule?: (index: number) => void;
     }
 
-    let { close = () => {}, alertMode = false }: Props = $props();
+    let {
+        close = () => {},
+        alertMode = false,
+        folderManagement = false,
+        onCreateModule,
+        onImportModule,
+        onDuplicateModule,
+        onExportModule,
+        onDeleteModule,
+    }: Props = $props();
     let moduleSearch = $state('');
     let selectedFolder = $state('all');
     let visibleModuleIndexes = $state<number[]>([]);
     let emptyModuleMessage = $state('');
+    let editMode = $state(false);
     const moduleFolders = $derived(DBState.db.moduleFolders ?? []);
 
     function currentCharacter() {
@@ -101,6 +119,7 @@
     function selectModule(index: number) {
         const rmodule = DBState.db.modules[index];
         if (!rmodule) return;
+        if (folderManagement) return;
         if (alertMode) close(rmodule.id);
     }
 
@@ -116,20 +135,26 @@
 
 <PresetPickerLayout
     title={language.modules}
-    titleHelp={language.chatModulesInfo}
+    titleHelp={folderManagement ? undefined : language.chatModulesInfo}
     folders={moduleFolders}
     itemFolderIds={DBState.db.modules.map((rmodule) => rmodule.folderId)}
     itemNames={DBState.db.modules.map((rmodule) => rmodule.name)}
     itemSearchTexts={DBState.db.modules.map((rmodule) => `${rmodule.name}\n${rmodule.description ?? ''}`)}
     searchPlaceholder={language.search}
     itemDragDataKey="moduleIndex"
-    readOnly
+    readOnly={!folderManagement}
+    itemEditMode={folderManagement && editMode}
     bind:selectedFolder
     bind:searchQuery={moduleSearch}
     bind:visibleItemIndexes={visibleModuleIndexes}
     bind:emptyMessage={emptyModuleMessage}
     onMoveItem={moveModule}
     onSelectItem={selectModule}
+    onDuplicateItem={folderManagement ? onDuplicateModule : undefined}
+    onExportItem={folderManagement ? onExportModule : undefined}
+    onDeleteItem={folderManagement ? onDeleteModule : undefined}
+    showDuplicateItem={(index) => !DBState.db.modules[index]?.mcp}
+    showExportItem={(index) => !DBState.db.modules[index]?.mcp}
     close={closePicker}
     onFoldersChange={(next) => {
         DBState.db.moduleFolders = next;
@@ -142,23 +167,33 @@
         );
         void requestImmediateSave();
     }}
-    configure={openModuleSettings}
+    configure={folderManagement ? undefined : openModuleSettings}
 >
     {#snippet itemContent(index)}
         {@const rmodule = DBState.db.modules[index]}
-        <div class="min-w-0 grow flex items-center gap-2">
-            {#if rmodule.mcp}
-                <Waypoints size={18} class="shrink-0 text-textcolor2" />
-            {/if}
-            <div class="min-w-0 grow truncate">
-                <span class:isModuleGlobal={isGlobal(rmodule.id)}>{rmodule.name}</span>
-                {#if rmodule.description}
-                    <span class="text-textcolor2"> / {rmodule.description}</span>
-                {/if}
+        {#if folderManagement && editMode}
+            <div class="min-w-0 grow">
+                <InlineNameInput
+                    bind:value={DBState.db.modules[index].name}
+                    size="default"
+                    placeholder="string"
+                />
             </div>
-        </div>
+        {:else}
+            <div class="min-w-0 grow flex items-center gap-2">
+                {#if rmodule.mcp}
+                    <Waypoints size={18} class="shrink-0 text-textcolor2" />
+                {/if}
+                <div class="min-w-0 grow truncate">
+                    <span class:isModuleGlobal={isGlobal(rmodule.id)}>{rmodule.name}</span>
+                    {#if rmodule.description}
+                        <span class="text-textcolor2"> / {rmodule.description}</span>
+                    {/if}
+                </div>
+            </div>
+        {/if}
 
-        {#if !alertMode}
+        {#if !alertMode && !folderManagement}
             <!-- The switch is chat-scoped on left click and character-scoped on right click/long press. -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <div
@@ -177,6 +212,14 @@
             </div>
         {/if}
     {/snippet}
+
+    {#if folderManagement}
+        <PresetPickerActions
+            onCreate={onCreateModule}
+            onImport={onImportModule}
+            onRename={() => { editMode = !editMode; }}
+        />
+    {/if}
 
 </PresetPickerLayout>
 

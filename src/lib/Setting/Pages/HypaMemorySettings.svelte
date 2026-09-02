@@ -106,7 +106,7 @@
 
     function addPreset() {
         const next = createHypaV3Preset();
-        next.folderId = selectedFolder !== "all" && selectedFolder !== "uncategorized" ? selectedFolder : undefined;
+        next.folderId = undefined;
         DBState.db.hypaV3Presets = [...DBState.db.hypaV3Presets, next];
         DBState.db.hypaV3PresetId = DBState.db.hypaV3Presets.length - 1;
     }
@@ -142,7 +142,7 @@
             const obj = JSON.parse(Buffer.from(file.data).toString("utf-8"));
             if (obj.type !== "risu" || !obj.data) throw new Error(language.hypaV3Settings.invalidPresetError);
             const next = createHypaV3Preset(obj.data.name || "Imported Preset", obj.data.settings || {});
-            next.folderId = selectedFolder !== "all" && selectedFolder !== "uncategorized" ? selectedFolder : obj.data.folderId;
+            next.folderId = obj.data.folderId;
             DBState.db.hypaV3Presets = [...DBState.db.hypaV3Presets, next];
             DBState.db.hypaV3PresetId = DBState.db.hypaV3Presets.length - 1;
             notifySuccess(language.successImport);

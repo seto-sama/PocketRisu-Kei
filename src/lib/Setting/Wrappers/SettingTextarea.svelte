@@ -45,6 +45,7 @@
             className="mt-2"
             bind:value={localValue}
             placeholder={item.options?.placeholder}
+            popupTitle={getLabel(item)}
         />
         {#if item.options?.showTokenCount}
             <TokenCount value={localValue} className="mt-1" />
@@ -59,6 +60,7 @@
         className="mt-2 mb-4"
         bind:value={localValue}
         placeholder={item.options?.placeholder}
+        popupTitle={getLabel(item)}
     />
     {#if item.options?.showTokenCount}
         <TokenCount value={localValue} className="mb-4" />

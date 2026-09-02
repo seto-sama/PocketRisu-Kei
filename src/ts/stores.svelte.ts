@@ -259,9 +259,6 @@ export function showPopupEditor(options: PopupEditorOptions) {
     popUpEditorStore.open = true
 }
 
-//Set might be more ideal, however since Svelte doesn't support reactive Sets, using array for now
-export const hotReloading = $state<string[]>([])
-
 const resetChatRenderState = () => {
     ReloadChatPointer.set({})
     resetScriptCache()
