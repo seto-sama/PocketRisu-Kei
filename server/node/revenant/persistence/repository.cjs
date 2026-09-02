@@ -188,6 +188,7 @@ function claimGenerationWorkflowClientAction(
     actionId,
     clientId,
     leaseMs = CLIENT_ACTION_LEASE_MS,
+    isClientConnected,
 ) {
     return db.transaction(() => {
         const workflow = stmtGetWorkflow.get(workflowId);
@@ -197,10 +198,19 @@ function claimGenerationWorkflowClientAction(
         if (metadata.action?.actionId !== actionId) return null;
         const now = Date.now();
         const current = metadata.clientClaim;
+        // The lease protects a genuinely connected page from parallel side
+        // effects. A page-scoped client id disappears on refresh, though, so a
+        // disconnected owner must not keep the claim until the lease timeout.
+        // Callers without connection state retain the conservative lease-only
+        // behavior used by offline repository consumers and tests.
+        const currentOwnerConnected = typeof isClientConnected === 'function'
+            ? isClientConnected(String(current?.clientId || ''))
+            : true;
         if (
             current?.clientId
             && current.clientId !== clientId
             && Number(current.expiresAt) > now
+            && currentOwnerConnected
         ) {
             return { busy: true, action: metadata.action, claim: current };
         }

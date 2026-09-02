@@ -64,6 +64,7 @@ function installRevenantJobRoutes(app, deps) {
     });
     const journalStore = deps.generationJournalStore ?? generationJournalStore;
     const routeGetGenerationJob = deps.getGenerationJob ?? getGenerationJob;
+    const routeCreateGenerationJob = deps.createGenerationJob ?? createGenerationJob;
 
     // Unlike the legacy local-network proxy jobs, revenant jobs may target an
     // external provider. Metadata lives in save/revenant/revenant.db while exact
@@ -235,8 +236,9 @@ function installRevenantJobRoutes(app, deps) {
             requestLog,
             ...(workflowDependency ? { workflowDependency } : {}),
         } : undefined;
+        let persistedJob;
         try {
-            createGenerationJob({
+            persistedJob = routeCreateGenerationJob({
                 jobId,
                 chatId: req.body?.chatId,
                 jobType,
@@ -304,6 +306,7 @@ function installRevenantJobRoutes(app, deps) {
                     const runtimeJob = generationRuntimeJobs.get(reusableJob.jobId);
                     res.send({
                         jobId: reusableJob.jobId,
+                        createdAt: reusableJob.createdAt,
                         heartbeatSec: runtimeJob?.heartbeatSec,
                         reused: true,
                     });
@@ -339,7 +342,11 @@ function installRevenantJobRoutes(app, deps) {
             void job.runPromise;
         }
 
-        res.send({ jobId, heartbeatSec: job.heartbeatSec });
+        res.send({
+            jobId,
+            createdAt: persistedJob.createdAt,
+            heartbeatSec: job.heartbeatSec,
+        });
     });
 
     app.get('/api/generation/jobs/recoverable', async (req, res, next) => {

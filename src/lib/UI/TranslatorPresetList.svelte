@@ -11,6 +11,7 @@
         showConfigure?: boolean
         compact?: boolean
         open?: boolean
+        onConfigure?: () => void
     }
 
     let {
@@ -19,6 +20,7 @@
         showConfigure = false,
         compact = false,
         open = $bindable(false),
+        onConfigure = () => {},
     }: Props = $props()
 
     let selectedFolder = $state('all')
@@ -36,6 +38,7 @@
 
     function configure() {
         open = false
+        onConfigure()
         openSettings(SettingsRoute.Language)
     }
 </script>

@@ -1,20 +1,64 @@
 import { get } from "svelte/store"
 import { getDatabase, type character } from "../storage/database.svelte"
-import { alertError, notifyError } from "../alert"
-import { fetchNative, globalFetch, readImage } from "../globalApi.svelte"
+import { notifyError } from "../alert"
+import { globalFetch, readImage } from "../globalApi.svelte"
 import { CharEmotion } from "../stores.svelte"
 import { processZip } from "./processzip"
 import random from "lodash/random"
 import { getApiKey } from "../preset/apiKeyPool"
 import { setInlayMetaFields, writeInlayImage } from "./files/inlays"
 import { getCurrentImageGenerationPreset } from "../imageGeneration/presets"
+import { v4 as uuidv4 } from 'uuid'
+import { createRevenantGenerationAuth } from './revenant/transport/client'
+import { serviceComfyBridgeJob } from './revenant/workflow/comfyBridge'
+import { getComfyBridgeId } from './revenant/workflow/comfyBridgeId'
 
 // Vite replaces this expression at build time. With the default (undefined/false),
 // the minifier removes the optional provider branches from production bundles.
 const ENABLE_EXTRA_IMAGE_PROVIDERS = import.meta.env.VITE_EXTRA_IMAGE_PROVIDERS === 'TRUE'
-const NOVELAI_IMAGE_GENERATION_URL = 'https://image.novelai.net/ai/generate-image'
 const NOVELAI_MAX_SEED = 2**32 - 1
 const COMFYUI_MAX_SEED = 999_999_999
+
+interface NodeImageGenerationJob {
+    jobId: string
+    status: 'queued' | 'waiting_client' | 'generating' | 'completed' | 'failed' | 'interrupted'
+    progress?: { value: number, max: number, node?: string }
+    error?: string
+    resultBase64?: string
+    resultFormat?: string
+}
+
+async function runNodeImageGenerationJob(arg: {
+    jobId: string
+    provider: 'novelai' | 'comfyui'
+    spec: Record<string, unknown>
+}): Promise<NodeImageGenerationJob> {
+    const headers = {
+        'content-type': 'application/json',
+        'risu-auth': await createRevenantGenerationAuth(),
+    }
+    let response = await fetch('/api/image-generation/jobs?includeResult=1', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(arg),
+    })
+    let job = await response.json().catch(() => ({})) as NodeImageGenerationJob & { error?: string }
+    if (!response.ok) throw new Error(job.error || `Failed to start image generation: ${response.status}`)
+    if (arg.provider === 'comfyui') void serviceComfyBridgeJob(arg.jobId, job).catch(() => {})
+    while (job.status === 'queued' || job.status === 'waiting_client' || job.status === 'generating') {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        response = await fetch(
+            `/api/image-generation/jobs/${encodeURIComponent(arg.jobId)}?includeResult=1`,
+            { headers },
+        )
+        job = await response.json().catch(() => ({})) as NodeImageGenerationJob & { error?: string }
+        if (!response.ok) throw new Error(job.error || `Failed to read image generation: ${response.status}`)
+    }
+    if (job.status !== 'completed' || !job.resultBase64) {
+        throw new Error(job.error || `Image generation ended with status ${job.status}`)
+    }
+    return job
+}
 
 function createImageGenerationSeed(provider: string): number | undefined {
     if(provider === 'novelai') return random(0, NOVELAI_MAX_SEED)
@@ -333,29 +377,26 @@ export async function generateAIImage(
 
         }
         try {
-            const da = await globalFetch(NOVELAI_IMAGE_GENERATION_URL, reqlist)
+            const job = await runNodeImageGenerationJob({
+                jobId: `image:${uuidv4()}`,
+                provider: 'novelai',
+                spec: {
+                    apiKey: getImageApiKey('novelai', imageSettings.NAIApiKey),
+                    body: reqlist.body,
+                },
+            })
+            const result = Buffer.from(job.resultBase64!, 'base64')
 
             if(returnSdData === 'inlay'){
-                if(da.ok){
-                    const img = await processZip(da.data);
-                    return img
-                }
-                else{
-                    notifyError(Buffer.from(da.data).toString())
-                    return ''
-                }
+                return await processZip(result)
             }
 
-            else if(da.ok){
+            else {
                 let charemotions = get(CharEmotion)
-                const img = await processZip(da.data);
+                const img = await processZip(result);
                 const emos:[string, string,number][] = [[img, img, Date.now()]]
                 charemotions[currentChar.chaId] = emos
                 CharEmotion.set(charemotions)
-            }
-            else{
-                notifyError(Buffer.from(da.data).toString())
-                return false
             }
 
             return returnSdData
@@ -460,136 +501,19 @@ export async function generateAIImage(
     }
 
     if(imageSettings.sdProvider === 'comfyui'){
-        const {workflow} = imageSettings.comfyConfig
-        const baseUrl = new URL(imageSettings.comfyUiUrl)
-
-        const createUrl = (pathname: string, params: Record<string, string> = {}) => {
-            const url = imageSettings.comfyUiUrl.endsWith('/api') ? new URL(`${imageSettings.comfyUiUrl}${pathname}`) : new URL(pathname, baseUrl)
-            url.search = new URLSearchParams(params).toString()
-            return url.toString()
-        }
-
-        const fetchWrapper = async (url: string, options = {}) => {
-            const response = await globalFetch(url, options)
-            if (!response.ok) {
-                throw new Error(JSON.stringify(response.data))
-            }
-            return response.data
-        }
-
         try {
-            const prompt = JSON.parse(workflow)
-            // Replace prompt placeholders and randomize seed inputs. Inlay
-            // generation supplies one seed so the request and metadata match.
-            const keys = Object.keys(prompt)
-            for(let i = 0; i < keys.length; i++){
-                const node = prompt[keys[i]]
-                const inputKeys = Object.keys(node.inputs)
-                for(let j = 0; j < inputKeys.length; j++){
-                    let input = node.inputs[inputKeys[j]]
-                    if(typeof input === 'string'){
-                        input = input.replaceAll('{{risu_prompt}}', genPrompt)
-                        input = input.replaceAll('{{risu_neg}}', neg)
-                    }
-
-                    if(inputKeys[j] === 'seed' && typeof input === 'number'){
-                        input = requestedSeed ?? random(0, COMFYUI_MAX_SEED)
-                    }
-
-                    node.inputs[inputKeys[j]] = input
-                }
-            }
-
-            const { prompt_id: id } = await fetchWrapper(createUrl('/prompt'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: { 'prompt': prompt }
+            const job = await runNodeImageGenerationJob({
+                jobId: `image:${uuidv4()}`,
+                provider: 'comfyui',
+                spec: {
+                    prompt: genPrompt,
+                    negativePrompt: neg,
+                    seed: requestedSeed ?? random(0, COMFYUI_MAX_SEED),
+                    bridgeId: getComfyBridgeId(),
+                    timeoutSeconds: imageSettings.comfyConfig.timeout,
+                },
             })
-            let item
-
-            const startTime = Date.now()
-            const timeout = imageSettings.comfyConfig.timeout * 1000
-            while (!(item = (await (await fetchNative(createUrl('/history'), {
-                headers: { 'Content-Type': 'application/json' },
-                method: 'GET'
-            })).json())[id])) {
-                if (Date.now() - startTime >= timeout) {
-                    alertError("Error: Image generation took longer than expected.");
-                    return false
-                }
-                await new Promise(r => setTimeout(r, 1000))
-            } // Check history until the generation is complete.
-
-            const historyStatus = item?.status
-            const historyMessages = Array.isArray(historyStatus?.messages) ? historyStatus.messages : []
-            const failureEntry = [...historyMessages].reverse().find((entry: unknown) => {
-                if (!Array.isArray(entry)) return false
-                return entry[0] === 'execution_error' || entry[0] === 'execution_interrupted'
-            })
-            const statusText = typeof historyStatus?.status_str === 'string'
-                ? historyStatus.status_str
-                : 'unknown'
-            const failed = statusText === 'error'
-                || statusText === 'failed'
-                || failureEntry !== undefined
-
-            if (failed) {
-                const failureType = Array.isArray(failureEntry) && typeof failureEntry[0] === 'string'
-                    ? failureEntry[0]
-                    : 'execution_error'
-                const failureData = Array.isArray(failureEntry) && failureEntry[1] && typeof failureEntry[1] === 'object'
-                    ? failureEntry[1] as Record<string, unknown>
-                    : {}
-                const failedNode = failureData.node_id ?? failureData.node ?? 'unknown'
-                const exceptionType = typeof failureData.exception_type === 'string'
-                    ? failureData.exception_type
-                    : ''
-                const exceptionMessage = failureData.exception_message
-                    ?? failureData.error
-                    ?? failureData.message
-                    ?? failureType
-                const errorMessage = [exceptionType, String(exceptionMessage)]
-                    .filter((value, index, values) => value && values.indexOf(value) === index)
-                    .join(': ')
-
-                notifyError('ComfyUI 작업 실패', {
-                    source: 'comfyui',
-                    description: [
-                        `prompt_id=${id}`,
-                        `status=${statusText}`,
-                        `failed_node=${String(failedNode)}`,
-                        `error_message=${errorMessage}`
-                    ].join('\n')
-                })
-                return false
-            }
-
-            const genImgInfo = Object.values(item.outputs ?? {})
-                .flatMap((output: any) => Array.isArray(output?.images) ? output.images : [])
-                .find((image: any) => image && typeof image.filename === 'string')
-
-            if (!genImgInfo) {
-                notifyError('ComfyUI 이미지 출력 없음', {
-                    source: 'comfyui',
-                    description: [
-                        `prompt_id=${id}`,
-                        `status=${statusText}`,
-                        'failed_node=unknown',
-                        'error_message=Completed without a usable image output'
-                    ].join('\n')
-                })
-                return false
-            }
-
-            const imgResponse = await fetchNative(createUrl('/view', {
-                filename: genImgInfo.filename,
-                subfolder: genImgInfo.subfolder,
-                type: genImgInfo.type
-            }), {
-                headers: { 'Content-Type': 'application/json' },
-                method: 'GET'
-            })
-            const img64 = Buffer.from(await imgResponse.arrayBuffer()).toString('base64')
+            const img64 = job.resultBase64!
 
             if(returnSdData === 'inlay'){
                 return `data:image/png;base64,${img64}`

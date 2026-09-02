@@ -375,7 +375,7 @@ export const helpEn = {
         showFolderNameInIcon:
             "Show folder names on folder icons in the character grid. Makes large folder collections easier to scan.",
         showRequestStatus:
-            "Show a floating toast during model-preset requests with the live phase (connecting / thinking / responding / stalled), thinking and response token counts, and tokens-per-second. Memory-only; turning it off stops the display entirely.",
+            "Show a floating toast during model-preset and image-generation requests with the live phase (connecting / thinking / responding / stalled), thinking and response token counts, and tokens-per-second. Memory-only; turning it off stops the display entirely.",
         customBackground: "A custom chat background used by the Waifulike and Mobile Chat themes.",
         playMessageOnTranslateEnd:
             "Play a separate notification sound when translation finishes. Useful when automatic translation is enabled and you want an audible completion cue.",
@@ -744,7 +744,7 @@ export const helpEn = {
             "Style preset for the SD Core model (Photographic / Anime / 3D Model etc). Ignored on other models.",
 
         comfyUrl:
-            "URL of your local ComfyUI server (e.g. `http://localhost:8188`).",
+            "URL of the local ComfyUI server accessed by this browser (e.g. `http://localhost:8188`). During generation, the browser uses this URL and its local workflow to contact ComfyUI while Node coordinates only job state and the result, so no external firewall port is required.",
         comfyTimeout:
             "Maximum seconds to wait for a ComfyUI response. Use a longer value for complex workflows. (1–120)",
 

@@ -7,17 +7,19 @@ import {
 describe('coordinateRevenantGeneration', () => {
     test('exposes durable registration before the provider result', async () => {
         let finish!: (value: string) => void
+        const onJobCreated = vi.fn()
         const onProviderStarted = vi.fn()
         const providerResult = new Promise<string>(resolve => {
             finish = resolve
         })
         const coordinated = coordinateRevenantGeneration(async lifecycle => {
-            lifecycle.onJobCreated('job-1')
+            lifecycle.onJobCreated('job-1', 1000)
             lifecycle.onProviderStarted(1234)
             return providerResult
-        }, { onProviderStarted })
+        }, { onJobCreated, onProviderStarted })
 
         await expect(coordinated.registered).resolves.toBe('job-1')
+        expect(onJobCreated).toHaveBeenCalledWith('job-1', 1000)
         expect(onProviderStarted).toHaveBeenCalledOnce()
         expect(onProviderStarted).toHaveBeenCalledWith(1234)
         finish('done')
@@ -69,7 +71,7 @@ describe('coordinateRevenantGeneration', () => {
         })
 
         await expect(coordinated.result).resolves.toBe('stream')
-        lifecycle.onJobCreated('job-late')
+        lifecycle.onJobCreated('job-late', 2000)
 
         await expect(coordinated.registered).resolves.toBe('job-late')
     })

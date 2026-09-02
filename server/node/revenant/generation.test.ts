@@ -155,6 +155,52 @@ describe('revenant durable dispatch validation', () => {
     })
 })
 
+describe('manual image workflow validation', () => {
+    const context = {
+        schemaVersion: 1,
+        kind: 'image-generation',
+        comfyBridgeId: 'comfy-test-device',
+        operationId: 'image-operation-1',
+        messageId: 'image-message-1',
+        target: { characterId: 'character-1', roomId: 'room-1' },
+        prompt: 'portrait',
+        negativePrompt: '',
+        seed: 42,
+        label: 'NovelAI',
+    }
+
+    it('binds a manual image operation to its character and synthetic workflow room', () => {
+        expect(normalizeRevenantWorkflowContext(
+            context,
+            'character-1',
+            'image-generation:room-1',
+        )).toEqual(context)
+        expect(normalizeRevenantWorkflowContext(
+            context,
+            'character-1',
+            'room-2',
+        )).toBeUndefined()
+        expect(normalizeRevenantWorkflowContext(
+            context,
+            'character-2',
+            'image-generation:room-1',
+        )).toBeUndefined()
+    })
+
+    it('accepts only supported image result projections', () => {
+        expect(normalizeRevenantWorkflowContext(
+            { ...context, projection: 'reroll' },
+            'character-1',
+            'image-generation:room-1',
+        )).toMatchObject({ projection: 'reroll' })
+        expect(normalizeRevenantWorkflowContext(
+            { ...context, projection: 'replace-everything' },
+            'character-1',
+            'image-generation:room-1',
+        )).toBeUndefined()
+    })
+})
+
 describe('revenant workflow-dependent main dispatch', () => {
     const placeholder = '__RISU_REVENANT_HYPA_123e4567-e89b__'
     const dependency = { kind: 'hypav3-selection', placeholder }

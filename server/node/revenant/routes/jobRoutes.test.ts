@@ -21,6 +21,59 @@ vi.mock('../generationDb.cjs', () => repository)
 
 const { installRevenantJobRoutes } = await import('./jobRoutes.cjs') as any
 
+describe('generation job creation route', () => {
+    beforeEach(() => vi.clearAllMocks())
+
+    it('returns the durable creation time used by client timers', async () => {
+        const routes = new Map<string, Function>()
+        const app = {
+            get: vi.fn(),
+            post: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            put: vi.fn(),
+            delete: vi.fn(),
+        }
+        repository.createGenerationJob.mockReturnValue({
+            jobId: 'job-1',
+            createdAt: 1234,
+        })
+        const runGenerationProviderJob = vi.fn().mockResolvedValue(undefined)
+
+        installRevenantJobRoutes(app, {
+            checkProxyAuth: vi.fn().mockResolvedValue(true),
+            requireSyncClientId: vi.fn(() => true),
+            sanitizeGenerationTargetUrl: vi.fn((url: string) => url),
+            normalizeForwardHeaders: vi.fn(() => ({})),
+            createGenerationRuntimeJob: vi.fn(() => ({ heartbeatSec: 30 })),
+            runGenerationProviderJob,
+            scheduleGenerationDispatch: vi.fn(),
+            scheduleHypaWorkflowExecution: vi.fn(),
+            generationRuntimeJobs: new Map(),
+            countActiveGenerationJobs: vi.fn(() => 0),
+            maxActiveJobs: 10,
+            maxBodyBase64Bytes: 1024,
+            randomUUID: vi.fn(() => 'job-1'),
+            terminateGenerationWorkflow: vi.fn(),
+            createGenerationJob: repository.createGenerationJob,
+        })
+        const send = vi.fn()
+
+        await routes.get('/api/generation/jobs')?.(
+            {
+                body: { url: 'https://provider.example/v1/chat' },
+                headers: {},
+            },
+            { send, status: vi.fn() },
+            vi.fn(),
+        )
+
+        expect(send).toHaveBeenCalledWith({
+            jobId: 'job-1',
+            createdAt: 1234,
+            heartbeatSec: 30,
+        })
+    })
+})
+
 describe('generation journal snapshot route', () => {
     beforeEach(() => vi.clearAllMocks())
 

@@ -49,6 +49,7 @@ import {
 } from '../jobStatus'
 import { applyCancelledGenerationProjection } from './chatCancellation'
 import { serviceRevenantClientActions } from '../workflow/clientActions.svelte'
+import { observeRevenantServerImageActions } from '../workflow/imageWorkflow'
 import {
     clientActionRecoveryMode,
     recoveryStatusAction,
@@ -238,7 +239,7 @@ export function updateRevenantAuxiliaryRecoveryStatus(
             job.jobId,
             auxiliaryRequestKind(job.jobType),
             chatId,
-            job.dispatchedAt ?? Date.now(),
+            job.dispatchedAt!,
             statusId,
             '',
             job.workflowId,
@@ -409,6 +410,7 @@ export async function recoverRevenantGenerationsForChat(
     let recovered = 0
     try {
         let activeWorkflow = await getActiveRevenantWorkflow(character.chaId, chat.id)
+        if (activeWorkflow) observeRevenantServerImageActions(activeWorkflow)
         const hasWaitingClientStep = activeWorkflow?.steps.some(step =>
             step.status === 'waiting_client') === true
         const hypaMemoryCheckpoint = activeWorkflow?.steps

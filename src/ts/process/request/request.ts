@@ -50,7 +50,11 @@ import {
     type RequestKind,
 } from "src/ts/status/requestStatus";
 import { setRequestStatusAction } from "src/ts/status/requestStatusActions";
-import type { RevenantOperationContext, RevenantProviderJobSpec } from "../revenant";
+import type {
+    RevenantJobCreatedHandler,
+    RevenantOperationContext,
+    RevenantProviderJobSpec,
+} from "../revenant";
 import {
     appendRevenantJobRequestText,
     bindRevenantTerminalOutcome,
@@ -115,7 +119,7 @@ export interface requestDataArgument{
     revenantRoomId?:string
     /** Continuation prefix captured from that same room. */
     revenantContinuationPrefix?:string
-    onRevenantJobCreated?:(jobId:string) => void
+    onRevenantJobCreated?:RevenantJobCreatedHandler
     onRevenantJobRegistrationUnavailable?:(error?:unknown) => void
     onRevenantProviderStarted?:(startedAt:number) => void
     onRevenantTerminal?:(terminal:import('../revenant').RevenantGenerationTerminal) => void
@@ -423,9 +427,9 @@ async function executeModelPresetRequest(
     const callerOnJobCreated = arg.onRevenantJobCreated
     const targ:RequestDataArgumentExtended = {
         ...arg,
-        onRevenantJobCreated: jobId => {
+        onRevenantJobCreated: (jobId, createdAt) => {
             createdJobIds.push(jobId)
-            callerOnJobCreated?.(jobId)
+            callerOnJobCreated?.(jobId, createdAt)
         },
     }
     targ.mode = model
@@ -1032,10 +1036,10 @@ async function requestModelPreset(arg:RequestDataArgumentExtended, preset:ModelP
     let statusJobId:string|undefined
     const callerOnJobCreated = arg.onRevenantJobCreated
     const callerOnRegistrationUnavailable = arg.onRevenantJobRegistrationUnavailable
-    arg.onRevenantJobCreated = jobId => {
+    arg.onRevenantJobCreated = (jobId, createdAt) => {
         registrationSettled = true
         statusJobId = jobId
-        callerOnJobCreated?.(jobId)
+        callerOnJobCreated?.(jobId, createdAt)
     }
     arg.onRevenantJobRegistrationUnavailable = error => {
         if (registrationSettled) return

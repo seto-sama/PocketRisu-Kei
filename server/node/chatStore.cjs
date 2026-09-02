@@ -417,6 +417,35 @@ function createCanonicalChatService(options) {
         });
     }
 
+    async function commitServerMutation({
+        characterId,
+        chatId,
+        mutate,
+        reason = 'server-mutation',
+    }) {
+        return queueStorageOperation(async () => {
+            await ensureChatStore(characterId, chatId);
+            const currentChat = getChat(characterId, chatId);
+            if (!currentChat || !Array.isArray(currentChat.message)) {
+                throw new CanonicalChatCommitError(404, 'Target chat not found');
+            }
+            const candidate = structuredClone(currentChat);
+            const mutated = await mutate(candidate);
+            return commitCandidate({
+                characterId,
+                chatId,
+                candidate: mutated || candidate,
+                expectedEtag: computeChatEtag(currentChat),
+                reason,
+                persist: committedChat => persistNow({
+                    characterId,
+                    chatId,
+                    chat: committedChat,
+                }),
+            });
+        });
+    }
+
     async function publishCurrent(characterId, chatId, reason = 'canonical-handoff') {
         return queueStorageOperation(async () => {
             await ensureChatStore(characterId, chatId);
@@ -435,6 +464,7 @@ function createCanonicalChatService(options) {
     return {
         commitGenerationInput,
         commitGenerationResult,
+        commitServerMutation,
         commitUserEdit,
         publishCurrent,
     };

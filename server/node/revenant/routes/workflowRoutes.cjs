@@ -34,12 +34,14 @@ function installRevenantWorkflowRoutes(app, deps) {
         requireSyncClientId,
         scheduleHypaWorkflowExecution,
         scheduleRevenantPostprocess = () => {},
+        scheduleImageGenerationWorkflow = () => {},
         notifyRevenantWorkflowUpdated = () => {},
         terminateGenerationWorkflow,
         commitWorkflowInput = async () => {
             throw new Error('Workflow input commit service unavailable');
         },
         cancelGenerationStepExecution,
+        isSyncClientConnected,
         randomUUID,
     } = deps;
 
@@ -68,6 +70,31 @@ function installRevenantWorkflowRoutes(app, deps) {
                 context,
             };
             let result = createGenerationWorkflow(input);
+            if (!result.busy && context.kind === 'image-generation') {
+                const actionId = `image-generation:${context.operationId}`;
+                updateGenerationWorkflowStep(result.workflow.workflowId, 'image.generate', {
+                    status: 'running',
+                    metadata: {
+                        schemaVersion: 1,
+                        action: {
+                            schemaVersion: 1,
+                            actionId,
+                            kind: 'image.generate',
+                            payload: {
+                                prompt: context.prompt,
+                                negativePrompt: context.negativePrompt,
+                                seed: context.seed,
+                                target: context.target,
+                                messageId: context.messageId,
+                                projection: context.projection || 'append',
+                                bridgeId: context.comfyBridgeId,
+                            },
+                        },
+                    },
+                });
+                result = { ...result, workflow: getGenerationWorkflow(result.workflow.workflowId) };
+                scheduleImageGenerationWorkflow(result.workflow.workflowId);
+            }
             if (result.busy) {
                 const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
                 if (
@@ -139,7 +166,7 @@ function installRevenantWorkflowRoutes(app, deps) {
             return;
         }
         const jobs = listGenerationWorkflowJobs(workflow.workflowId);
-        if (!hasRegisteredMainJob(jobs)) {
+        if (!hasRegisteredMainJob(jobs) && workflow.context?.kind !== 'image-generation') {
             if (isUnregisteredWorkflowExpired(workflow, jobs)) {
                 await terminateGenerationWorkflow(workflow.workflowId, 'failed');
                 notifyRevenantWorkflowUpdated(getGenerationWorkflow(workflow.workflowId));
@@ -219,6 +246,8 @@ function installRevenantWorkflowRoutes(app, deps) {
             stepKey,
             actionId,
             String(req.headers['x-sync-client-id'] || ''),
+            undefined,
+            isSyncClientConnected,
         );
         if (!result) {
             res.status(404).send({ error: 'Pending workflow client action not found' });

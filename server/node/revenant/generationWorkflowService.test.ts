@@ -41,6 +41,7 @@ describe('generation workflow service', () => {
         }
         const markGenerationJobDone = vi.fn((job: any) => { job.done = true })
         const abortHypaWorkflowExecution = vi.fn()
+        const abortWorkflowWork = vi.fn(async () => {})
         const materializeCancelledWorkflow = vi.fn(async () => {})
         const service = createGenerationWorkflowService({
             finishGenerationWorkflow: vi.fn(),
@@ -57,6 +58,7 @@ describe('generation workflow service', () => {
             ]),
             markGenerationJobDone,
             abortHypaWorkflowExecution,
+            abortWorkflowWork,
             materializeCancelledWorkflow,
         })
 
@@ -70,6 +72,7 @@ describe('generation workflow service', () => {
 
         expect(terminationSettled).toBe(false)
         expect(abortHypaWorkflowExecution).toHaveBeenCalledWith('workflow-1')
+        expect(abortWorkflowWork).toHaveBeenCalledWith('workflow-1')
         expect(queuedAbort).toHaveBeenCalledOnce()
         expect(runningAbort).toHaveBeenCalledOnce()
         expect(running.cancelUpstream).toHaveBeenCalledOnce()

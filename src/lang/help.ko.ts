@@ -234,7 +234,7 @@ export const helpKo = {
         "fullscreen": "브라우저 전체 화면 모드로 전환합니다. 모바일에서는 주소창 같은 OS UI를 가려 더 큰 채팅 영역을 확보할 수 있습니다.",
         "hideRealm": "홈 화면의 Recently Uploaded 섹션을 접힌 상태로 시작합니다. 접혀있는 동안은 RisuRealm을 불러오지 않아 초기 로딩이 빨라집니다. 홈 화면에서 언제든 펼칠 수 있습니다.",
         "showFolderNameInIcon": "캐릭터 그리드에서 폴더에 해당하는 캐릭터 이름 위에 폴더 이름을 함께 표시합니다. 폴더가 많을 때 분류가 한눈에 들어옵니다.",
-        "showRequestStatus": "모델 프리셋 요청 중 우상단에 진행 상태(요청 중 / 사고 중 / 응답 중 / 멈춤), 사고·응답 토큰 수, 초당 토큰 속도를 떠 있는 토스트로 표시합니다. 메모리에만 쓰며, 끄면 표시가 완전히 멈춥니다.",
+        "showRequestStatus": "모델 프리셋 및 이미지 생성 요청 중 우상단에 진행 상태(요청 중 / 사고 중 / 응답 중 / 멈춤), 사고·응답 토큰 수, 초당 토큰 속도를 떠 있는 토스트로 표시합니다. 메모리에만 쓰며, 끄면 표시가 완전히 멈춥니다.",
         "customBackground": "Waifulike 및 Mobile Chat 테마의 채팅 배경에 사용할 커스텀 이미지입니다.",
         "playMessageOnTranslateEnd": "번역이 끝났을 때 별도 알림음을 재생합니다. 자동 번역이 켜진 상태에서 본문이 다 번역되었는지 소리로 알 수 있습니다.",
         "roundIcons": "캐릭터/페르소나 아이콘을 원형으로 표시합니다. 끄면 일반 이미지는 둥근 사각형으로, 세로 이미지는 세로로 긴 둥근 직사각형으로 표시합니다.",
@@ -447,7 +447,7 @@ export const helpKo = {
         "stabilityModel": "사용할 Stability 모델 (`ultra`/`core`/`sd3-large`/`sd3-medium`). ultra는 가장 비싸고 좋음, core는 빠르고 저렴.",
         "stabilityCoreStyle": "SD Core 모델용 스타일 프리셋 (Photographic/Anime/3D Model 등). 다른 모델에서는 무시됨.",
 
-        "comfyUrl": "로컬 ComfyUI 서버 URL (예: `http://localhost:8188`).",
+        "comfyUrl": "이 브라우저에서 접근할 로컬 ComfyUI 서버 URL (예: `http://localhost:8188`). 이미지 생성 시 브라우저가 이 주소와 로컬 워크플로우를 사용해 ComfyUI와 통신하며, Node는 작업 상태와 결과만 중계합니다. 따라서 외부 방화벽 포트를 열 필요가 없습니다.",
         "comfyTimeout": "ComfyUI 응답 대기 최대 시간(초). 복잡한 워크플로우는 더 길게 (1–120).",
 
         "falKey": "Fal.ai API 키 (`https://fal.ai/dashboard/keys`). Flux 모델 호출에 사용.",
