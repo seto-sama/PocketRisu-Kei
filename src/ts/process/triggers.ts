@@ -7,20 +7,17 @@ import { get } from "svelte/store";
 import { ReloadChatPointer, ReloadGUIPointer, selectedCharID, CurrentTriggerIdStore } from "../stores.svelte";
 import { processMultiCommand } from "./command";
 import { parseKeyValue, sleep } from "../util";
-import { alertError, alertInput, alertNormal, alertSelect } from "../alert";
+import { alertInput, alertNormal, alertSelect } from "../alert";
 import type { OpenAIChat } from "./index.svelte";
 import { HypaProcesser } from "./memory/hypamemory";
 import { requestChatData } from "./request/request";
 import { collectStreamingText } from "./request/shared";
 import { generateAIImageInlay } from "./stableDiff";
 import { runScripted } from "./scriptings";
-import { createTriggerV2Core, type TriggerV2Effect } from "./triggerV2Core";
+import type { TriggerV2Effect } from "./triggerV2Core";
 import { evaluateTriggerConditions, type TriggerConditionLike } from "./triggerConditionCore";
-import {
-    buildTriggerAction,
-    canExecuteTriggerAction,
-    normalizeTriggerActionResult,
-} from "./triggerActionCore";
+import { migrateTriggerV1ToV2ForRuntime } from "./triggerV1Migration";
+import { runRevenantTriggerProgram } from "./revenant/trigger/runtime";
 
 
 export interface triggerscript{
@@ -1066,10 +1063,14 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
         historyend: '',
         promptend: ''
     }
-    const triggers = char.triggerscript.map((v) => {
-        v.lowLevelAccess = CharacterlowLevelAccess
-        return v
-    }).concat(getModuleTriggers())
+    const characterTriggers: triggerscript[] = char.triggerscript.map((trigger) => ({
+        ...trigger,
+        lowLevelAccess: CharacterlowLevelAccess,
+    }))
+    const triggers = migrateTriggerV1ToV2ForRuntime([
+        ...characterTriggers,
+        ...getModuleTriggers(),
+    ])
     const db = getDatabase()
     const defaultVariables = parseKeyValue(char.defaultVariables).concat(parseKeyValue(db.templateDefaultVariables))
     let chat = arg.displayMode ? arg.chat : safeStructuredClone(arg.chat ?? char.chats[char.chatPage])
@@ -1247,69 +1248,41 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
         // long translated-chat loading), so keep the defensive draft only for
         // mutation-capable trigger runs.
         const databaseDraft = arg.displayMode ? db : safeStructuredClone(db)
-        const v2Core = createTriggerV2Core({
+        let abortRun = false
+        await runRevenantTriggerProgram({
             effects: trigger.effect as unknown as TriggerV2Effect[],
-            render: value => risuChatParser(String(value ?? ''), { chara: char }),
-            getVar,
-            setVar,
-            declareLocal: declareLocalVar,
-            clearLocals: clearLocalVarsAtIndent,
-            chat: coreChat,
-            character: char,
-            database: databaseDraft,
-            globalVar: key => databaseDraft.globalChatVariables?.[key] ?? 'null',
-        })
-        let loopIterations = 0
-
-        for(let index = 0; index < trigger.effect.length; index++){
-            const effect = trigger.effect[index]
-            if(mode === 'display' && !displayAllowList.includes(effect.type)){
-                continue
-            }
-            if(mode === 'request' && !requestAllowList.includes(effect.type)){
-                continue
-            }
-            
-            if(effect && 'indent' in effect && typeof effect.indent === 'number' && effect.indent >= 0){
-                currentIndent = effect.indent
-            } else if(!effect || !('indent' in effect)) {
-                currentIndent = 0
-            }
-
-            const coreStep = v2Core.step(index)
-            if(coreStep.handled){
-                index = coreStep.nextIndex
-                if(coreStep.mutations && !arg.displayMode){
-                    const selectedCharacter = get(selectedCharID)
-                    if(coreStep.mutations.character && db.characters[selectedCharacter]){
-                        Object.assign(db.characters[selectedCharacter], safeStructuredClone(coreStep.mutations.character))
-                        setCurrentCharacter(char)
-                    }
-                    if(coreStep.mutations.database){
-                        Object.assign(db, safeStructuredClone(coreStep.mutations.database))
-                    }
-                }
-                if(coreStep.looped && ++loopIterations > 100){
-                    await sleep(1)
-                    loopIterations = 0
-                }
-                if(coreStep.stop){
-                    break
-                }
-                continue
-            }
-
-            const triggerAction = buildTriggerAction(effect as unknown as TriggerV2Effect, {
-                read: v2Core.read,
+            core: {
                 render: value => risuChatParser(String(value ?? ''), { chara: char }),
-                outputVar: v2Core.outputVar,
-            })
-            if(triggerAction){
-                if(!canExecuteTriggerAction(triggerAction, trigger.lowLevelAccess === true)){
-                    continue
+                getVar,
+                setVar,
+                declareLocal: declareLocalVar,
+                clearLocals: clearLocalVarsAtIndent,
+                chat: coreChat,
+                character: char,
+                database: databaseDraft,
+                globalVar: key => databaseDraft.globalChatVariables?.[key] ?? 'null',
+            },
+            lowLevelAccess: trigger.lowLevelAccess === true,
+            shouldExecute: effect => mode === 'display'
+                ? displayAllowList.includes(String(effect.type))
+                : mode === 'request'
+                    ? requestAllowList.includes(String(effect.type))
+                    : true,
+            onIndent: indent => { currentIndent = indent },
+            onMutations: mutations => {
+                if(arg.displayMode) return
+                const selectedCharacter = get(selectedCharID)
+                if(mutations.character && db.characters[selectedCharacter]){
+                    Object.assign(db.characters[selectedCharacter], safeStructuredClone(mutations.character))
+                    setCurrentCharacter(char)
                 }
+                if(mutations.database){
+                    Object.assign(db, safeStructuredClone(mutations.database))
+                }
+            },
+            onLoopYield: async () => { await sleep(1) },
+            executeAction: async triggerAction => {
                 const payload = triggerAction.payload
-                let actionResult: unknown
                 switch(triggerAction.kind){
                     case 'log': console.log(payload.value); break
                     case 'prompt.append':
@@ -1337,11 +1310,11 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     }
                     case 'ui.command': await processMultiCommand(String(payload.command ?? '')); break
                     case 'ui.alert': alertNormal(String(payload.message ?? '')); break
-                    case 'ui.input': actionResult = await alertInput(String(payload.message ?? '')); break
-                    case 'ui.select': actionResult = await alertSelect(
+                    case 'ui.input': return alertInput(String(payload.message ?? ''))
+                    case 'ui.select': return alertSelect(
                         Array.isArray(payload.options) ? payload.options.map(String) : [],
                         String(payload.message ?? ''),
-                    ); break
+                    )
                     case 'ui.reload-display': ReloadGUIPointer.set(get(ReloadGUIPointer) + 1); break
                     case 'ui.reload-chat': ReloadChatPointer.update(value => {
                         const chatIndex = Number(payload.index) || 0
@@ -1352,19 +1325,15 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     case 'utility.similarity': {
                         const processer = new HypaProcesser()
                         await processer.addText(Array.isArray(payload.values) ? payload.values.map(String) : [])
-                        actionResult = await processer.similaritySearch(String(payload.source ?? ''))
-                        break
+                        return processer.similaritySearch(String(payload.source ?? ''))
                     }
-                    case 'utility.tokenize': actionResult = await tokenize(String(payload.text ?? '')); break
+                    case 'utility.tokenize': return tokenize(String(payload.text ?? ''))
                     case 'image.generate': {
                         const generated = await generateAIImageInlay(
                             String(payload.prompt ?? ''), char,
                             String(payload.negativePrompt ?? ''),
                         )
-                        if(generated){
-                            actionResult = generated
-                        }
-                        break
+                        return generated || undefined
                     }
                     case 'provider.llm': {
                         const prompt = String(payload.prompt ?? '')
@@ -1378,235 +1347,21 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                             moduleId: trigger.moduleId,
                         }, payload.mode as 'model'|'submodel')
                         if(result.type === 'streaming'){
-                            actionResult = { success: true, result: await collectStreamingText(result.result) }
+                            return { success: true, result: await collectStreamingText(result.result) }
                         }
                         else if(result.type === 'fail' || result.type === 'multiline'){
-                            actionResult = { success: false, result: result.result }
+                            return { success: false, result: result.result }
                         }
-                        else actionResult = { success: true, result: result.result }
-                        break
+                        return { success: true, result: result.result }
                     }
                 }
-                if(triggerAction.outputVar){
-                    setVar(triggerAction.outputVar, normalizeTriggerActionResult(triggerAction, actionResult))
-                }
-                continue
-            }
-            
-            // Browser effect adapter: the shared core has already consumed every
-            // environment-independent v2 effect before this dispatch.
-            switch(effect.type){
-                case'setvar': {
-                    const effectValue = risuChatParser(effect.value,{chara:char})
-                    const varKey  = risuChatParser(effect.var,{chara:char})
-                    let originalVar = Number(getVar(varKey))
-                    if(Number.isNaN(originalVar)){
-                        originalVar = 0
-                    }
-                    let resultValue = ''
-                    switch(effect.operator){
-                        case '=':{
-                            resultValue = effectValue
-                            break
-                        }
-                        case '+=':{
-                            resultValue = (originalVar + Number(effectValue)).toString()
-                            break
-                        }
-                        case '-=':{
-                            resultValue = (originalVar - Number(effectValue)).toString()
-                            break
-                        }
-                        case '*=':{
-                            resultValue = (originalVar * Number(effectValue)).toString()
-                            break
-                        }
-                        case '/=':{
-                            resultValue = (originalVar / Number(effectValue)).toString()
-                            break
-                        }
-                    }
-                    setVar(varKey, resultValue)
-                    break
-                }
-                case 'systemprompt':{
-                    const effectValue = risuChatParser(effect.value,{chara:char})
-                    additonalSysPrompt[effect.location] += effectValue + "\n\n"
-                    break
-                }
-                case 'impersonate':{
-                    const effectValue = risuChatParser(effect.value,{chara:char})
-                    if(effect.role === 'user'){
-                        chat.message.push({role: 'user', data: effectValue})
-                    }
-                    else if(effect.role === 'char'){
-                        chat.message.push({role: 'char', data: effectValue})
-                    }
-                    break
-                }
-                case 'command':{
-                    const effectValue = risuChatParser(effect.value,{chara:char})
-                    await processMultiCommand(effectValue)
-                    break
-                }
-                case 'stop':{
-                    stopSending = true
-                    break
-                }
-                case 'runtrigger':{
-                    if(arg.recursiveCount < 10 || trigger.lowLevelAccess){
-                        arg.recursiveCount++
-                        const r = await runTrigger(char,'manual',{
-                            chat,
-                            recursiveCount: arg.recursiveCount,
-                            additonalSysPrompt,
-                            stopSending,
-                            manualName: effect.value
-                        })
-                        if(r){
-                            additonalSysPrompt = r.additonalSysPrompt
-                            chat = r.chat
-                            stopSending = r.stopSending
-                        }
-                    }
-                    break
-                }
-                case 'cutchat':{
-                    const start = Number(risuChatParser(effect.start,{chara:char}))
-                    const end = Number(risuChatParser(effect.end,{chara:char}))
-                    chat.message = chat.message.slice(start,end)
-                    break
-                }
-                case 'modifychat':{
-                    const index = Number(risuChatParser(effect.index,{chara:char}))
-                    const value = risuChatParser(effect.value,{chara:char})
-                    if(chat.message[index]){
-                        chat.message[index].data = value
-                    }
-                    break
-                }
-
-                // low level access only
-                case 'showAlert':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-
-                    if(arg.displayMode){
-                        return
-                    }
-
-                    const effectValue = risuChatParser(effect.value,{chara:char})
-                    const inputVar = risuChatParser(effect.inputVar,{chara:char})
-
-                    switch(effect.alertType){
-                        case 'normal':{
-                            alertNormal(effectValue)
-                            break
-                        }
-                        case 'error':{
-                            alertError(effectValue)
-                            break
-                        }
-                        case 'input':{
-                            const val = await alertInput(effectValue)
-                            setVar(inputVar, val)
-                            break;
-                        }
-                        case 'select':{
-                            const val = await alertSelect(effectValue.split('§'))
-                            setVar(inputVar, val)
-                        }
-                    }
-                    break
-                }
-
-                case 'sendAIprompt':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-                    sendAIprompt = true
-                    break
-                }
-
-                case 'runLLM':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-                    const effectValue = risuChatParser(effect.value,{chara:char})
-                    const varName = effect.inputVar
-                    let promptbody:OpenAIChat[] = parseChatML(effectValue)
-                    if(!promptbody){
-                        promptbody = [{role:'user', content:effectValue}]
-                    }
-                    const result = await requestChatData({
-                        formated: promptbody,
-                        bias: {},
-                        currentChar: char,
-                        useStreaming: false,
-                        noMultiGen: true,
-                        moduleId: trigger.moduleId,
-                    }, 'model')
-
-                    if(result.type === 'fail' || result.type === 'streaming' || result.type === 'multiline'){
-                        setVar(varName, 'Error: ' + result.result)
-                    }
-                    else{
-                        setVar(varName, result.result)
-                    }
-
-                    break
-                }
-
-                case 'checkSimilarity':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-
-                    const processer = new HypaProcesser()
-                    const effectValue = risuChatParser(effect.value,{chara:char})
-                    const source = risuChatParser(effect.source,{chara:char})
-                    await processer.addText(effectValue.split('§'))
-                    const val = await processer.similaritySearch(source)
-                    setVar(effect.inputVar, val.join('§'))
-                    break
-                }
-
-                case 'extractRegex':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-
-                    const effectValue = risuChatParser(effect.value,{chara:char})
-                    const regex = new RegExp(effect.regex, effect.flags)
-                    const regexResult = regex.exec(effectValue)
-                    const result = effect.result.replace(/\$[0-9]+/g, (match) => {
-                        const index = Number(match.slice(1))
-                        return regexResult[index]
-                    }).replace(/\$&/g, regexResult[0]).replace(/\$\$/g, '$')
-
-                    setVar(effect.inputVar, result)
-                    break
-                }
-
-                case 'runImgGen':{
-                    if(!trigger.lowLevelAccess){
-                        break
-                    }
-
-                    const effectValue = risuChatParser(effect.value,{chara:char})
-                    const negValue = risuChatParser(effect.negValue,{chara:char})
-                    const inlay = await generateAIImageInlay(effectValue, char, negValue)
-                    if(!inlay){
-                        setVar(effect.inputVar, 'Error: Image generation failed')
-                        break
-                    }
-                    setVar(effect.inputVar, inlay)
-                    break
-                }
-
+                return undefined
+            },
+            executeUnhandled: async effect => {
+                const browserEffect = effect as unknown as triggerEffect
+                switch(browserEffect.type){
                 case 'triggerlua':{
-                    const triggerCodeResult = await runScripted(effect.code,{
+                    const triggerCodeResult = await runScripted(browserEffect.code,{
                         lowLevelAccess: trigger.lowLevelAccess,
                         mode: mode === 'manual' ? arg.manualName : mode,
                         setVar: setVar,
@@ -1622,61 +1377,64 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
                     chat = triggerCodeResult.chat
                     break
                 }
-
-                //V2 display/request state effects remain mode-specific below.
                 case 'v2GetDisplayState':{
                     if(!arg.displayMode){
-                        return
+                        abortRun = true
+                        return { stop: true }
                     }
-                    
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), arg.displayData ?? 'null')
+                    setVar(risuChatParser(browserEffect.outputVar, {chara:char}), arg.displayData ?? 'null')
                     break
                 }
                 case 'v2SetDisplayState':{
                     if(!arg.displayMode){
-                        return
+                        abortRun = true
+                        return { stop: true }
                     }
-                    arg.displayData = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
+                    arg.displayData = browserEffect.valueType === 'value' ? risuChatParser(browserEffect.value,{chara:char}) : getVar(risuChatParser(browserEffect.value,{chara:char}))
                     break
                 }
                 case 'v2GetRequestState':{
                     if(!arg.displayMode){
-                        return
+                        abortRun = true
+                        return { stop: true }
                     }
                     const json = JSON.parse(arg.displayData) as OpenAIChat[]
-                    const index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
+                    const index = browserEffect.indexType === 'value' ? Number(risuChatParser(browserEffect.index,{chara:char})) : Number(getVar(risuChatParser(browserEffect.index,{chara:char})))
                     const content = json?.[index]?.content ?? 'null'
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), content)
+                    setVar(risuChatParser(browserEffect.outputVar, {chara:char}), content)
                     break
                 }
                 case 'v2SetRequestState':{
                     if(!arg.displayMode){
-                        return
+                        abortRun = true
+                        return { stop: true }
                     }
                     const json = JSON.parse(arg.displayData) as OpenAIChat[]
-                    const index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
+                    const index = browserEffect.indexType === 'value' ? Number(risuChatParser(browserEffect.index,{chara:char})) : Number(getVar(risuChatParser(browserEffect.index,{chara:char})))
+                    const value = browserEffect.valueType === 'value' ? risuChatParser(browserEffect.value,{chara:char}) : getVar(risuChatParser(browserEffect.value,{chara:char}))
                     json[index].content = value
                     arg.displayData = JSON.stringify(json)
                     break
                 }
                 case 'v2GetRequestStateRole':{
                     if(!arg.displayMode){
-                        return
+                        abortRun = true
+                        return { stop: true }
                     }
                     const json = JSON.parse(arg.displayData) as OpenAIChat[]
-                    const index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
+                    const index = browserEffect.indexType === 'value' ? Number(risuChatParser(browserEffect.index,{chara:char})) : Number(getVar(risuChatParser(browserEffect.index,{chara:char})))
                     const content = json?.[index]?.role ?? 'null'
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), content)
+                    setVar(risuChatParser(browserEffect.outputVar, {chara:char}), content)
                     break
                 }
                 case 'v2SetRequestStateRole':{
                     if(!arg.displayMode){
-                        return
+                        abortRun = true
+                        return { stop: true }
                     }
                     const json = JSON.parse(arg.displayData) as OpenAIChat[]
-                    const index = effect.indexType === 'value' ? Number(risuChatParser(effect.index,{chara:char})) : Number(getVar(risuChatParser(effect.index,{chara:char})))
-                    const value = effect.valueType === 'value' ? risuChatParser(effect.value,{chara:char}) : getVar(risuChatParser(effect.value,{chara:char}))
+                    const index = browserEffect.indexType === 'value' ? Number(risuChatParser(browserEffect.index,{chara:char})) : Number(getVar(risuChatParser(browserEffect.index,{chara:char})))
+                    const value = browserEffect.valueType === 'value' ? risuChatParser(browserEffect.value,{chara:char}) : getVar(risuChatParser(browserEffect.value,{chara:char}))
                     if(value === 'user' || value === 'assistant' || value === 'system'){
                         json[index].role = value
                     }
@@ -1686,14 +1444,17 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
 
                 case 'v2GetRequestStateLength':{
                     if(!arg.displayMode){
-                        return
+                        abortRun = true
+                        return { stop: true }
                     }
                     const json = JSON.parse(arg.displayData) as OpenAIChat[]
-                    setVar(risuChatParser(effect.outputVar, {chara:char}), json.length.toString())
+                    setVar(risuChatParser(browserEffect.outputVar, {chara:char}), json.length.toString())
                     break
                 }
-            }
-        }
+                }
+            },
+        })
+        if(abortRun) return
     }
     
     let caculatedTokens = 0
