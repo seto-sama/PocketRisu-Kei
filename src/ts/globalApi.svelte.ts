@@ -310,6 +310,16 @@ interface ImmediateSaveOptions {
     chatTargets?: { characterId: string, chatId: string }[]
 }
 
+class ChatSaveError extends Error {
+    constructor(
+        readonly failedChats: [string, string][],
+        readonly projectionSaved: boolean,
+    ) {
+        super(`Failed to save ${failedChats.length} chat${failedChats.length === 1 ? '' : 's'}`)
+        this.name = 'ChatSaveError'
+    }
+}
+
 let requestImmediateSaveImpl: ((options?: ImmediateSaveOptions) => Promise<void> | void) = () => {}
 let patchSyncBaseline: Database | null = null
 
@@ -1060,8 +1070,16 @@ export async function saveDb() {
         for (const [chaId, chatId] of chatsBeforeProjection) {
             await persistChat(chaId, chatId)
         }
-        if (failedChats.length > 0) {
-            throw new Error(`Failed to save ${failedChats.length} chat${failedChats.length === 1 ? '' : 's'}`)
+        const hasIndependentProjectionChanges = !!(
+            toSave.root ||
+            toSave.botPreset ||
+            toSave.modules ||
+            toSave.plugins ||
+            toSave.pluginCustomStorage ||
+            toSave.character.length > 0
+        )
+        if (failedChats.length > 0 && !hasIndependentProjectionChanges) {
+            throw new ChatSaveError(failedChats, false)
         }
 
         // Non-Node stores retain their existing database.bin persistence path.
@@ -1339,14 +1357,17 @@ export async function saveDb() {
         for (const [chaId, chatId] of deferredNewCharacterChats) {
             await persistChat(chaId, chatId, { establishServerBaseline: true })
         }
-        if (failedChats.length > 0) {
-            throw new Error(`Failed to save ${failedChats.length} chat${failedChats.length === 1 ? '' : 's'}`)
-        }
 
         updateKnownChatsAfterSuccessfulSave(db, toSave)
 
         if (newEtag) {
             forageStorage.setDbEtag(newEtag)
+        }
+
+        // A stale or conflicting chat body must not roll back an unrelated
+        // settings/module projection that the server already accepted.
+        if (failedChats.length > 0) {
+            throw new ChatSaveError(failedChats, true)
         }
 
         return 'saved'
@@ -1377,7 +1398,15 @@ export async function saveDb() {
                     changed = true
                 }
             } catch (error) {
-                requeueTrackedChanges(toSave)
+                if (error instanceof ChatSaveError && error.projectionSaved) {
+                    const failedKeys = new Set(error.failedChats.map(([characterId, chatId]) => `${characterId}|${chatId}`))
+                    changeTracker.chat = [
+                        ...error.failedChats,
+                        ...changeTracker.chat.filter(([characterId, chatId]) => !failedKeys.has(`${characterId}|${chatId}`)),
+                    ]
+                } else {
+                    requeueTrackedChanges(toSave)
+                }
                 savetrys += 1
                 if (savetrys > 4) {
                     alertError(error)
