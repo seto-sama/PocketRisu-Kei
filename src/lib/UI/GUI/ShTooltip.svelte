@@ -24,7 +24,7 @@
     }: Props = $props()
 
     const contentClass = $derived(cn(
-        'max-w-96 max-h-80 overflow-y-auto break-keep bg-darkbg border border-darkborderc rounded-md px-3 py-2 text-xs text-textcolor shadow-lg z-50 leading-relaxed',
+        'risu-layer-dialog-menu max-w-96 max-h-80 overflow-y-auto break-keep bg-darkbg border border-darkborderc rounded-md px-3 py-2 text-xs text-textcolor shadow-lg leading-relaxed',
         className,
     ))
 </script>

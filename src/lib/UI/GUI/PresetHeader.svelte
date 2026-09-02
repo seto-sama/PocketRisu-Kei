@@ -1,7 +1,7 @@
 <script lang="ts">
     import { ChevronRightIcon } from "@lucide/svelte";
     import ShButton from "./ShButton.svelte";
-    import type { ShButtonVariant } from "./ShButton.svelte";
+    import type { ShButtonVariant } from "./ShButton.types";
 
     interface Props {
         label: string;

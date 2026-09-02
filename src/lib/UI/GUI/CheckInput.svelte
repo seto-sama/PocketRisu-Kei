@@ -11,6 +11,8 @@
         grayText?: boolean;
         card?: boolean;
         cardUncheckedFill?: boolean;
+        checkedColor?: 'default' | 'primary';
+        disabled?: boolean;
         children?: import('svelte').Snippet;
     }
 
@@ -25,12 +27,14 @@
         grayText = false,
         card = false,
         cardUncheckedFill = true,
+        checkedColor = 'default',
+        disabled = false,
         children
     }: Props = $props();
 </script>
 
 <label 
-    class={"flex items-center gap-2 cursor-pointer" + (className ? " " + className : "") + (grayText ? " text-textcolor2" : " text-textcolor")}
+    class={"flex items-center gap-2 " + (disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer") + (className ? " " + className : "") + (grayText ? " text-textcolor2" : " text-textcolor")}
     class:mr-2={margin}
     aria-describedby="{name} {check ? 'abled' : 'disabled'}"
     aria-labelledby="{name} {check ? 'abled' : 'disabled'}"
@@ -42,6 +46,7 @@
         class="hidden" 
         type="checkbox" 
         alt={name}
+        {disabled}
         bind:checked={check}
         onchange={() => {
             onChange(check)
@@ -52,8 +57,8 @@
     <span 
         class={"w-5 h-5 min-w-5 min-h-5 flex justify-center items-center transition-colors duration-200 "
             + (card
-                ? `rounded border ${check ? 'border-borderc bg-borderc' : `border-darkborderc ${cardUncheckedFill ? 'bg-darkbg/50 mix-blend-multiply' : 'bg-transparent'}`}`
-                : `rounded-md border-2 border-darkborderc ${check ? 'bg-darkborderc' : 'bg-darkbutton'}`)}
+                ? `rounded border ${check ? (checkedColor === 'primary' ? 'border-primary bg-primary' : 'border-borderc bg-borderc') : `border-darkborderc ${cardUncheckedFill ? 'bg-darkbg/50 mix-blend-multiply' : 'bg-transparent'}`}`
+                : `rounded-md border-2 ${check ? (checkedColor === 'primary' ? 'border-primary bg-primary' : 'border-darkborderc bg-darkborderc') : 'border-darkborderc bg-darkbutton'}`)}
         aria-hidden="true"
         aria-describedby="{name} {check ? 'abled' : 'disabled'}"
         aria-labelledby="{name} {check ? 'abled' : 'disabled'}"

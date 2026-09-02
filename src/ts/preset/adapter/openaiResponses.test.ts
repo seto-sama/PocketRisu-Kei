@@ -164,6 +164,70 @@ describe('OpenAI Responses Vision Quality', () => {
     })
 })
 
+describe('OpenAI Responses prompt cache key', () => {
+    test('uses the automatically generated key for GPT-5.6', async () => {
+        const prepared = await previewResponsesRequest(
+            makePreset(),
+            {
+                messages: [{ role: 'user', content: 'hello' }],
+                promptCacheKey: 'rk-12345678-abcdef123456',
+            },
+            { apiKey: 'sk-test' },
+        )
+
+        expect(prepared.body.prompt_cache_key).toBe('rk-12345678-abcdef123456')
+    })
+
+    test('keeps a manually configured additional-parameter key', async () => {
+        const preset = makePreset()
+        preset.additionalParamsText = 'prompt_cache_key=manual-key'
+
+        const prepared = await previewResponsesRequest(
+            preset,
+            {
+                messages: [{ role: 'user', content: 'hello' }],
+                promptCacheKey: 'rk-12345678-abcdef123456',
+            },
+            { apiKey: 'sk-test' },
+        )
+
+        expect(prepared.body.prompt_cache_key).toBe('manual-key')
+    })
+
+    test('treats an additional-parameter removal as disabling the automatic key', async () => {
+        const preset = makePreset()
+        preset.additionalParamsText = 'prompt_cache_key={{none}}'
+
+        const prepared = await previewResponsesRequest(
+            preset,
+            {
+                messages: [{ role: 'user', content: 'hello' }],
+                promptCacheKey: 'rk-12345678-abcdef123456',
+            },
+            { apiKey: 'sk-test' },
+        )
+
+        expect(prepared.body).not.toHaveProperty('prompt_cache_key')
+    })
+
+    test('does not add the automatic key to an earlier model', async () => {
+        const preset = makePreset()
+        preset.profileSnapshot.modelId = 'gpt-5.5'
+        preset.userValues = { modelId: 'gpt-5.5' }
+
+        const prepared = await previewResponsesRequest(
+            preset,
+            {
+                messages: [{ role: 'user', content: 'hello' }],
+                promptCacheKey: 'rk-12345678-abcdef123456',
+            },
+            { apiKey: 'sk-test' },
+        )
+
+        expect(prepared.body).not.toHaveProperty('prompt_cache_key')
+    })
+})
+
 describe('OpenAI Responses stream errors', () => {
     test('classifies an in-stream overload as retryable rate limiting', () => {
         expect(() => parseResponsesStreamEvent({

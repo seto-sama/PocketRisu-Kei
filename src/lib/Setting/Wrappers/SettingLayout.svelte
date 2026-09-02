@@ -5,6 +5,7 @@
     import { Collapsible } from 'bits-ui';
     import { ChevronDownIcon, FilterIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
+    import SettingRow from './SettingRow.svelte';
 
     let {
         variant,
@@ -188,41 +189,33 @@
         {@render children?.()}
     </section>
 {:else}
-    <div class="py-3 border-t border-darkborderc {className}" class:flex={!stacked} class:items-center={!stacked} class:justify-between={!stacked} class:gap-3={!stacked}>
-        <div class="flex flex-col min-w-0">
-            <span class="text-sm text-textcolor">{title}</span>
-            {#if description}
-                <p class="text-xs text-textcolor2 mt-0.5">{description}</p>
+    <SettingRow {title} {description} {stacked} {className}>
+        {#snippet control()}
+            {#if stacked}
+                {@render children?.()}
+            {:else if control}
+                {@render control()}
+            {:else if actions.length > 0}
+                <div class="flex items-center gap-2 flex-wrap justify-end">
+                    {#each actions as action}
+                        <ShButton variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
+                            {#if action.icon}
+                                {@const ActionIcon = action.icon}
+                                <ActionIcon />
+                            {/if}
+                            {action.label}
+                        </ShButton>
+                    {/each}
+                </div>
+            {:else if actionLabel && onAction}
+                <ShButton variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
+                    {#if actionIcon}
+                        {@const ActionIcon = actionIcon}
+                        <ActionIcon />
+                    {/if}
+                    {actionLabel}
+                </ShButton>
             {/if}
-        </div>
-        {#if stacked}
-            <div class="mt-2">{@render children?.()}</div>
-        {:else}
-            <div class="shrink-0">
-                {#if control}
-                    {@render control()}
-                {:else if actions.length > 0}
-                    <div class="flex items-center gap-2 flex-wrap justify-end">
-                        {#each actions as action}
-                            <ShButton variant={action.variant ?? 'outline'} size={action.size ?? 'sm'} onclick={action.onclick} disabled={action.disabled}>
-                                {#if action.icon}
-                                    {@const ActionIcon = action.icon}
-                                    <ActionIcon />
-                                {/if}
-                                {action.label}
-                            </ShButton>
-                        {/each}
-                    </div>
-                {:else if actionLabel && onAction}
-                    <ShButton variant={actionVariant} size={actionSize} onclick={onAction} disabled={actionDisabled}>
-                        {#if actionIcon}
-                            {@const ActionIcon = actionIcon}
-                            <ActionIcon />
-                        {/if}
-                        {actionLabel}
-                    </ShButton>
-                {/if}
-            </div>
-        {/if}
-    </div>
+        {/snippet}
+    </SettingRow>
 {/if}

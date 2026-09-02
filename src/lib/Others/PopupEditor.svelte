@@ -146,7 +146,7 @@
                             </ShButton>
                         {/snippet}
                     </ShDropdownMenuTrigger>
-                    <ShDropdownMenuContent side="top" align="start" class="z-[60] min-w-44">
+                    <ShDropdownMenuContent side="top" align="start" class="min-w-44">
                         <ShDropdownMenuItem onSelect={() => (wordWrap = !wordWrap)} disabled={saving}>
                             <TextWrapIcon />
                             <span>{language.popupEditorWordWrap}</span>

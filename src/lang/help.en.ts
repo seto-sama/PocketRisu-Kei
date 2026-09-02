@@ -117,7 +117,7 @@ export const helpEn = {
         gptVisionQuality: "Controls the detail or media resolution used for image inputs. Higher quality can recognize finer details but uses more input tokens and may increase latency.",
         genTimes:
             "This option is used to set the number of responses to generate on support models. other then first response will be act as cached reroll. this can reduce the cost of the model, but it can also increase the cost if you use it without reroll.",
-        requestretrys: "This option is used to set the number of request retrys when request fails.",
+        requestretrys: "Sets how many times a failed request is retried. Overload retries automatically wait about 1 second for attempts 1-3, 5 seconds for attempts 4-5, and 10 seconds thereafter, with a small random delay. A server-provided Retry-After value takes priority.",
         chatLoadInitialPages: "Number of recent chat messages to render when a chat screen opens. Higher values show more history immediately but can make long chats heavier to open.",
         chatLoadAdditionalPages: "Number of older chat messages to render each time you scroll to the top. Higher values reduce repeated loading but can make each load heavier.",
         emotionPrompt: "This option is used to set the prompt that is used to detect emotion. if it is blank, it will use the default prompt.",
@@ -305,6 +305,7 @@ export const helpEn = {
         localActivationInGlobalLorebook:
             "Show an \"Always active in this chat\" option on character lorebook entries. Enabled entries stay active in the current chat regardless of keyword matches.",
         requestInfoInsideChat: "Allow LLM request information such as sent prompts and token counts to be displayed inside the chat area.",
+        stickyChatToolbar: "Keep the toolbar and request information visible while scrolling through the chat.",
         inlayErrorResponse: "When a model request fails, show the error as an inlaid chat response.",
         bulkEnabling: "Show buttons in the lorebook editor for enabling or disabling multiple entries at once.",
         showTranslationLoading: "Show a loading indicator while message translation is in progress.",
@@ -333,8 +334,6 @@ export const helpEn = {
             "When prompt info inside chat is enabled, also store and display the actual prompt text sent to the model. This can make chats heavier, so use it mainly for debugging.",
         returnCSSError:
             "When custom CSS contains an error, display the error details at the corresponding style location.",
-        antiServerOverload:
-            "Automatically increase retry intervals when an API server responds as overloaded (for example 429 or 503). Helps reduce pressure on unstable providers.",
         claude1HourCaching:
             "Use Claude's 1-hour prompt cache TTL instead of the default 5-minute cache. This can save more cost for repeated contexts, but 1-hour cache pricing differs.",
         claudeBatching:

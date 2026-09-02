@@ -21,7 +21,7 @@
 </script>
 
 <Portal>
-<div class="risu-modal-backdrop z-40 flex justify-center items-center">
+<div class="risu-modal-backdrop risu-layer-dialog-base flex justify-center items-center">
     <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl w-72 max-h-full overflow-y-auto">
         <div class="flex items-center text-textcolor mb-4">
             <h2 class="mt-0 mb-0">{language.chatList}</h2>

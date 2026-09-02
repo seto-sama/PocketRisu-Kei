@@ -25,6 +25,7 @@ const {
     normalizeRevenantOperationContext,
 } = require('../generation.cjs');
 const { createClientGenerationProjection } = require('../generationProjection.cjs');
+const { generationJournalStore } = require('../generationJournal.cjs');
 const { findReusableActiveMainJob } = require('./policy.cjs');
 const {
     createGenerationJobCancellationService,
@@ -61,12 +62,27 @@ function installRevenantJobRoutes(app, deps) {
         notifyRevenantWorkflowUpdated,
         isJobActive: isRevenantJobActive,
     });
+    const journalStore = deps.generationJournalStore ?? generationJournalStore;
+    const routeGetGenerationJob = deps.getGenerationJob ?? getGenerationJob;
 
     // Unlike the legacy local-network proxy jobs, revenant jobs may target an
     // external provider. Metadata lives in save/revenant/revenant.db while exact
     // provider bytes are appended to save/revenant/<workflowId>/<jobId>.journal.
     // Standalone auxiliary jobs use save/revenant/<jobId>.journal. Provider wire
     // parsing is shared by the server projection worker and browser replay.
+    app.get('/api/generation/jobs/:jobId/journal/snapshot', async (req, res) => {
+        if (!await checkProxyAuth(req, res)) return;
+        const job = routeGetGenerationJob(req.params.jobId, false);
+        if (!job) {
+            res.status(404).send({ error: 'Generation job not found' });
+            return;
+        }
+        const bytes = journalStore.readAll(job.workflowId, job.jobId);
+        res.set('content-type', 'application/octet-stream');
+        res.set('x-risu-journal-offset', String(bytes.length));
+        res.send(bytes);
+    });
+
     app.post('/api/generation/jobs', async (req, res, next) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
@@ -383,8 +399,16 @@ function installRevenantJobRoutes(app, deps) {
             return;
         }
         if (job.jobType === 'model' && job.workflowId) {
-            res.status(400).send({ error: 'Workflow main generation jobs must be materialized' });
-            return;
+            const workflow = cancellationRepository.getGenerationWorkflow(job.workflowId, false);
+            // Active/completed workflows still own canonical materialization.
+            // A cancelled or failed workflow can no longer materialize through
+            // the postprocess queue. Let recovery acknowledge its abandoned
+            // job after retaining the user's newer canonical edit instead of
+            // rediscovering and locking that message on every page load.
+            if (!['cancelled', 'failed'].includes(workflow?.status)) {
+                res.status(400).send({ error: 'Workflow main generation jobs must be materialized' });
+                return;
+            }
         }
         if (isRevenantJobActive(job.status)) {
             res.status(409).send({ error: 'Generation job is not complete' });

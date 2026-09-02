@@ -11,6 +11,7 @@ const {
     putGenerationWorkflowExecution,
     getGenerationWorkflowExecution,
     listGenerationWorkflowJobs,
+    acknowledgeTerminalGenerationJobsForRoom,
 } = require('../generationDb.cjs');
 const {
     isValidRevenantWorkflowKey,
@@ -23,6 +24,7 @@ const {
 const {
     hasRegisteredMainJob,
     isUnregisteredWorkflowExpired,
+    shouldSupersedeFailedActiveWorkflow,
 } = require('./policy.cjs');
 
 function installRevenantWorkflowRoutes(app, deps) {
@@ -52,6 +54,11 @@ function installRevenantWorkflowRoutes(app, deps) {
             return;
         }
         try {
+            // Once the user explicitly starts another generation, output from
+            // older terminal workflows must never be drained back into this
+            // room. A cancelled partial that lost to a swipe deletion is
+            // superseded here, before the new durable input base is captured.
+            acknowledgeTerminalGenerationJobsForRoom(characterId, roomId);
             const input = {
                 workflowId: randomUUID(),
                 characterId,
@@ -62,9 +69,13 @@ function installRevenantWorkflowRoutes(app, deps) {
             let result = createGenerationWorkflow(input);
             if (result.busy) {
                 const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
-                if (isUnregisteredWorkflowExpired(result.workflow, jobs)) {
+                if (
+                    isUnregisteredWorkflowExpired(result.workflow, jobs)
+                    || shouldSupersedeFailedActiveWorkflow(result.workflow, jobs)
+                ) {
                     await terminateGenerationWorkflow(result.workflow.workflowId, 'failed');
                     notifyRevenantWorkflowUpdated(getGenerationWorkflow(result.workflow.workflowId));
+                    acknowledgeTerminalGenerationJobsForRoom(characterId, roomId);
                     result = createGenerationWorkflow({
                         ...input,
                         workflowId: randomUUID(),

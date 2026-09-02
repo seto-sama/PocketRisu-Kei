@@ -367,7 +367,7 @@
             </div>
 
         {#if DBState.db.characters[$selectedCharID].image !== ''}
-            <ShSettings spacing="divided" className="mt-4">
+            <ShSettings spacing="spaced" className="mt-4">
                 <ShSettings variant="row">
                     <span class="min-w-0 text-textcolor">{language.largePortrait}</span>
                     <ShSwitch bind:checked={(DBState.db.characters[$selectedCharID] as character).largePortrait}/>
@@ -377,7 +377,7 @@
 
 
     {:else if viewSubMenu === 1}
-        <ShSettings spacing="divided" className="mb-3">
+        <ShSettings spacing="spaced" className="mb-3">
             <ShSettings variant="row">
                 <span class="min-w-0 text-textcolor">{language.enableEmotionImages}</span>
                 <ShSwitch
@@ -886,7 +886,7 @@
         <span class="text-textcolor mt-2">{language.defaultVariables}<Help key="defaultVariables" /></span>
         <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].defaultVariables}></TextAreaInput>
 
-        <ShSettings spacing="divided" className="mt-4">
+        <ShSettings spacing="spaced" className="mt-4">
             <ShSettings variant="row">
                 <span class="min-w-0 text-textcolor">{language.utilityBot}<Help key="utilityBot" name={language.utilityBot}/></span>
                 <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].utilityBot}/>

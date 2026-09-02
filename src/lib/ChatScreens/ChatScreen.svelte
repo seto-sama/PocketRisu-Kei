@@ -69,7 +69,7 @@
     <div class="grow h-full relative" style={bgImg.length < 4 ? wallPaper : bgImg}>
         <SideBarArrow />
         <BackgroundDom />
-        <div class="w-full absolute z-10 bottom-0 left-0"
+        <div class="risu-layer-sticky w-full absolute bottom-0 left-0"
             class:per33={$selectedCharID >= 0 && DBState.db.characters[$selectedCharID].viewScreen !== 'none'}
             class:h-full={!($selectedCharID >= 0 && DBState.db.characters[$selectedCharID].viewScreen !== 'none')}
         >

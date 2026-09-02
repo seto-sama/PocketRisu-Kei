@@ -201,7 +201,7 @@
 />
 
 {#if $alertStore.type !== 'none' && $alertStore.type !== 'requestdata' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'branches' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress' && $alertStore.type !== 'confirmMulti' && $alertStore.type !== 'addchar'}
-    <div class="risu-modal-backdrop z-50 flex justify-center items-center">
+    <div class="risu-modal-backdrop risu-layer-dialog-alert flex justify-center items-center">
         <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
             {#if $alertStore.type === 'selectChar'}
                 <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">Select</h2>
@@ -212,7 +212,7 @@
             {/if}
 
             {#if $alertStore.type === 'login'}
-                <div class="risu-modal-backdrop z-50 flex justify-center items-center">
+                <div class="risu-modal-backdrop risu-layer-dialog-alert flex justify-center items-center">
                     <iframe src={hubURL + '/hub/login'} title="login" class="w-full h-full">
                     </iframe>
                 </div>
@@ -247,7 +247,7 @@
 
 {:else if $alertStore.type === 'cardexport'}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="risu-modal-backdrop flex flex-col z-50 items-center justify-center" role="button" tabindex="0" onclick={cancelCardExport}>
+    <div class="risu-modal-backdrop risu-layer-dialog-alert flex flex-col items-center justify-center" role="button" tabindex="0" onclick={cancelCardExport}>
         <div class="bg-darkbg rounded-md p-4 max-w-full flex flex-col w-2xl" role="button" tabindex="0" onclick={(e) => {
             e.stopPropagation()
         }}>
@@ -332,14 +332,14 @@
     <!-- Log Generator by dootaang, GPL3 -->
     <!-- Svelte, Typescript version by Kwaroran -->
     
-    <div class="risu-modal-backdrop z-50 flex justify-center items-center">
+    <div class="risu-modal-backdrop risu-layer-dialog-alert flex justify-center items-center">
         <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
             <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">{language.preview}</h2>
 
         </div>
     </div>
 {:else if $alertStore.type === 'branches'}
-    <div class="risu-modal-backdrop z-50 flex justify-center items-center overflow-x-auto overflow-y-auto">
+    <div class="risu-modal-backdrop risu-layer-dialog-alert flex justify-center items-center overflow-x-auto overflow-y-auto">
         {#if branchHover !== null}
             <div class="z-30 whitespace-pre-wrap p-4 text-textcolor bg-darkbg border-darkborderc border rounded-md absolute" style="top: {branchHover.y * 80 + 24}px; left: {(branchHover.x + 1) * 80 + 24}px">
                 {branchHover.content}
@@ -836,10 +836,7 @@
                                                 </ShButton>
                                             {/snippet}
                                         </ShDropdownMenuTrigger>
-                                        <!-- z-[45] sits between the base togglePresets dialog (z-40) and
-                                             nested alertConfirm/alertInput (z-50): the menu floats over
-                                             the list but is occluded by the confirm popups it triggers. -->
-                                        <ShDropdownMenuContent class="z-[45] min-w-40" align="end">
+                                        <ShDropdownMenuContent class="min-w-40" align="end">
                                             <ShDropdownMenuItem onSelect={async () => {
                                                 const idx = i
                                                 const presetName = DBState.db.togglePresets![idx].name

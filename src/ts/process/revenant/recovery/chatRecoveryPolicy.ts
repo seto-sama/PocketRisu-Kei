@@ -1,4 +1,4 @@
-import type { RevenantJobStatus } from '../types'
+import type { RevenantJobStatus, RevenantWorkflowStatus } from '../types'
 import { revenantTerminalRequestOutcome } from '../jobStatus'
 
 export const MAIN_JOB_REGISTRATION_GRACE_MS = 5000
@@ -37,4 +37,12 @@ export function recoveryStatusAction(
     if (status === 'queued') return options.startQueued === false ? 'none' : 'start'
     if (!wasObserved) return 'none'
     return revenantTerminalRequestOutcome(status) ?? 'none'
+}
+
+/** Terminal workflows cannot publish another generation result. */
+export function shouldDiscardTerminalWorkflowJob(
+    workflowStatus: RevenantWorkflowStatus | undefined,
+    jobIsActive: boolean,
+): boolean {
+    return !jobIsActive && (workflowStatus === 'cancelled' || workflowStatus === 'failed')
 }

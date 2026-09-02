@@ -159,6 +159,88 @@
 }
 
 /*
+  Application stacking scale. Each global tier advances by one step so a
+  component can derive the next tier without copying magic numbers. Component
+  internals should use the isolated local tiers instead of this global scale.
+*/
+:root {
+  --risu-z-step: 10;
+  --risu-z-sticky: var(--risu-z-step);
+  --risu-z-composer: calc(var(--risu-z-sticky) + var(--risu-z-step));
+  --risu-z-chrome: calc(var(--risu-z-composer) + var(--risu-z-step));
+  --risu-z-dialog-base: calc(var(--risu-z-chrome) + var(--risu-z-step));
+  --risu-z-dialog-menu: calc(var(--risu-z-dialog-base) + var(--risu-z-step));
+  --risu-z-dialog-alert: calc(var(--risu-z-dialog-menu) + var(--risu-z-step));
+  --risu-z-dialog-top: calc(var(--risu-z-dialog-alert) + var(--risu-z-step));
+  --risu-z-system-popover: calc(var(--risu-z-dialog-top) + var(--risu-z-step));
+  --risu-z-blocking: calc(var(--risu-z-system-popover) + var(--risu-z-step));
+
+  --risu-z-local-content: 0;
+  --risu-z-local-focus: 1;
+  --risu-z-local-control: var(--risu-z-step);
+  --risu-z-local-popover: calc(var(--risu-z-local-control) + var(--risu-z-step));
+}
+
+@utility risu-layer-sticky {
+  z-index: var(--risu-z-sticky);
+}
+
+@utility risu-layer-composer {
+  z-index: var(--risu-z-composer);
+}
+
+@utility risu-layer-chrome {
+  z-index: var(--risu-z-chrome);
+}
+
+@utility risu-layer-dialog-base {
+  z-index: var(--risu-z-dialog-base);
+}
+
+@utility risu-layer-dialog-menu {
+  z-index: var(--risu-z-dialog-menu);
+}
+
+@utility risu-layer-dialog-alert {
+  z-index: var(--risu-z-dialog-alert);
+}
+
+@utility risu-layer-dialog-top {
+  z-index: var(--risu-z-dialog-top);
+}
+
+@utility risu-layer-system-popover {
+  z-index: var(--risu-z-system-popover);
+}
+
+@utility risu-layer-blocking {
+  z-index: var(--risu-z-blocking);
+}
+
+@utility risu-local-stack {
+  isolation: isolate;
+  z-index: var(--risu-z-local-content);
+}
+
+@utility risu-local-stack-focus {
+  &:focus-within {
+    z-index: var(--risu-z-local-focus);
+  }
+}
+
+@utility risu-layer-local-content {
+  z-index: var(--risu-z-local-content);
+}
+
+@utility risu-layer-local-control {
+  z-index: var(--risu-z-local-control);
+}
+
+@utility risu-layer-local-popover {
+  z-index: var(--risu-z-local-popover);
+}
+
+/*
   Shared interaction vocabulary. These classes describe intent while the
   hover variant above keeps pointer hover and keyboard focus-visible aligned.
   Component-specific motion and layout effects should remain local.
@@ -690,10 +772,6 @@ html {
 
 .x-risu-risu-error h1 {
   @apply text-xl mb-2;
-}
-
-.z-100 {
-  z-index: 100;
 }
 
 .saving-animation {

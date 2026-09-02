@@ -1,7 +1,52 @@
+<script lang="ts" module>
+    type StickyAnchorCallback = (stuck: boolean) => void
+
+    interface StickyAnchorObserverRecord {
+        observer: IntersectionObserver
+        callbacks: Map<Element, StickyAnchorCallback>
+    }
+
+    const stickyAnchorObservers = new WeakMap<HTMLElement, StickyAnchorObserverRecord>()
+
+    function observeStickyAnchor(
+        root: HTMLElement,
+        anchor: HTMLElement,
+        callback: StickyAnchorCallback,
+    ) {
+        let record = stickyAnchorObservers.get(root)
+        if (!record) {
+            const callbacks = new Map<Element, StickyAnchorCallback>()
+            const observer = new IntersectionObserver((entries) => {
+                let fallbackRootTop: number | undefined
+                for (const entry of entries) {
+                    const rootTop = entry.rootBounds?.top
+                        ?? (fallbackRootTop ??= root.getBoundingClientRect().top)
+                    callbacks.get(entry.target)?.(!entry.isIntersecting && entry.boundingClientRect.top <= rootTop)
+                }
+            }, { root, threshold: 0 })
+            record = { observer, callbacks }
+            stickyAnchorObservers.set(root, record)
+        }
+
+        record.callbacks.set(anchor, callback)
+        record.observer.observe(anchor)
+
+        return () => {
+            record?.observer.unobserve(anchor)
+            record?.callbacks.delete(anchor)
+            if (record?.callbacks.size === 0) {
+                record.observer.disconnect()
+                stickyAnchorObservers.delete(root)
+            }
+        }
+    }
+</script>
+
 <script lang="ts">
     import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, CopyIcon, PowerOff, GitBranch, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
     import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy } from "src/ts/globalApi.svelte"
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme"
+    import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
     import { getModelInfo } from "src/ts/model/modellist"
     import { runLuaButtonTrigger } from 'src/ts/process/scriptings'
     import { risuChatParser } from "src/ts/process/scripts"
@@ -17,7 +62,7 @@
     import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
     import { copyLLMCache, getLLMCache, setLLMCache } from "../../ts/translator/translator"
-    import { getCurrentCharacter, getCurrentChat, normalizeChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
+    import { getCurrentCharacter, getCurrentChat, getStickyChatToolbarVariant, normalizeChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte"
@@ -26,7 +71,7 @@
     import { createRevenantChatTranslationRecovery, type RevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from "src/ts/process/revenant/recovery";
     import { resolveRequestDiagnosticContext } from "src/ts/requestDiagnostics";
     import type { RevenantChatMessageTranslationTarget } from "src/ts/process/revenant";
-    import IconButton from "../UI/GUI/IconButton.svelte";
+    import IconButton, { iconButtonSizeValues } from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";
     import { createSubscriber } from "svelte/reactivity";
@@ -46,7 +91,15 @@
     let originalEditTranslationKey = $state<string | null>(null)
     let bodyRoot:HTMLElement|null = $state(null)
     let partialEditRoot: HTMLDivElement | null = $state(null)
+    let floatingToolbarStuck = $state(false)
+    const chatToolbarRowHeight = `${iconButtonSizeValues.lg.cell}px`
+    const stickyChatToolbarVariant = $derived(getStickyChatToolbarVariant(DBState.db.theme))
     const generationInfoAlignsLeft = $derived(DBState.db.theme === '')
+    const floatingToolbarBackground = $derived(
+        DBState.db.theme === 'waifu'
+            ? `${DBState.db.textScreenColor ?? DEFAULT_TEXT_SCREEN_COLOR}80`
+            : 'color-mix(in srgb, var(--risu-theme-bgcolor) 72%, transparent)'
+    )
     let activeTranslationTasks = 0
     let cancelTranslationRequest: (() => void) | null = $state(null)
     let autoTranslationSuppressed = $state(false)
@@ -126,6 +179,10 @@
 
     let msgDisplay = $state('')
     let translated = $state(false)
+    const showFloatingToolbarDetails = $derived(Boolean(
+        messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())
+        || DBState.db.translatorType === 'llm' && ((editMode && originalEditTranslationKey !== null) || translated)
+    ))
     const translationTaskKey = $derived(renderCacheKey
         ? JSON.stringify([
             renderCacheKey,
@@ -584,6 +641,26 @@
         'max-w-3xl'
     )
 
+    function trackFloatingToolbar(node: HTMLElement) {
+        const anchor = node.previousElementSibling as HTMLElement | null
+        const scrollRoot = node.closest('.default-chat-screen') as HTMLElement | null
+        if (!anchor || !scrollRoot || typeof IntersectionObserver === 'undefined') {
+            floatingToolbarStuck = false
+            return
+        }
+
+        const stopObserving = observeStickyAnchor(scrollRoot, anchor, (stuck) => {
+            floatingToolbarStuck = stuck
+        })
+
+        return {
+            destroy() {
+                stopObserving()
+                floatingToolbarStuck = false
+            }
+        }
+    }
+
     $effect.pre(() => {
         displaya(message)
     });
@@ -815,6 +892,43 @@
             {/if}
         {/if}
     </IconButtonGroup>
+{/snippet}
+
+{#snippet floatingChatToolbar()}
+    <div
+        class="chat-toolbar-sticky-layer chat-toolbar-floating-layer"
+        class:chat-toolbar-is-stuck={floatingToolbarStuck}
+        use:trackFloatingToolbar
+    >
+        <div class="chat-toolbar-floating-card" style:--chat-toolbar-floating-bg={floatingToolbarBackground}>
+            <div class="chat-message-actions chat-toolbar-actions">
+                {@render iconButtons()}
+            </div>
+            {#if showFloatingToolbarDetails}
+                <div class="chat-toolbar-generation-info">
+                    {@render genInfo()}
+                </div>
+            {/if}
+        </div>
+    </div>
+{/snippet}
+
+{#snippet stickyChatFooter()}
+    <div
+        class="chat-toolbar-sticky-layer chat-toolbar-sticky-footer-layer"
+        class:chat-toolbar-above-fixed-composer={DBState.db.fixedChatTextarea}
+    >
+        <div class="chat-toolbar-sticky-footer">
+            <div class="chat-toolbar-sticky-footer-content">
+                <div class="chat-toolbar-generation-info">
+                    {@render genInfo()}
+                </div>
+                <div class="chat-message-actions chat-toolbar-actions">
+                    {@render iconButtons()}
+                </div>
+            </div>
+        </div>
+    </div>
 {/snippet}
 
 {#snippet textBox()}
@@ -1559,7 +1673,10 @@
      onclickcapture={handleButtonTriggerWithin}>
     <div class="text-textcolor grow max-w-full sm:px-4 py-4">
         {#if !blankMessage}
-            <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto py-6 px-4 sm:px-8 bg-bgcolor sm:rounded-lg">
+            <div
+                class="chat-message-shell flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto bg-bgcolor sm:rounded-lg"
+                class:chat-message-shell-sticky={DBState.db.stickyChatToolbar}
+            >
                 {#if !hideSender}
                     <!-- Header: icon + name -->
                     <div class="flex items-center gap-3 mb-4">
@@ -1570,18 +1687,22 @@
                     </div>
                 {/if}
                 <!-- Body: message text -->
-                <div class="mb-3 leading-relaxed">
+                <div class="chat-message-body mb-3 leading-relaxed">
                     {@render textBox()}
                 </div>
                 <!-- Footer: geninfo + buttons -->
-                <div class="flex flex-wrap items-center justify-between pt-2 border-t border-darkborderc border-opacity-30 text-textcolor2 gap-2">
-                    <div class="min-w-0">
-                        {@render genInfo()}
+                {#if DBState.db.stickyChatToolbar}
+                    {@render stickyChatFooter()}
+                {:else}
+                    <div class="flex flex-wrap items-center justify-between pt-2 border-t border-darkborderc border-opacity-30 text-textcolor2 gap-2">
+                        <div class="min-w-0">
+                            {@render genInfo()}
+                        </div>
+                        <div class="chat-message-actions w-auto ml-auto">
+                            {@render iconButtons()}
+                        </div>
                     </div>
-                    <div class="chat-message-actions w-auto ml-auto">
-                        {@render iconButtons()}
-                    </div>
-                </div>
+                {/if}
             </div>
         {:else if isComment}
             <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto px-4 sm:px-8">
@@ -1658,18 +1779,30 @@
             </div>
         {:else if DBState.db.theme === 'customHTML' && !blankMessage && renderedGuiHtml}
             {@render renderGuiHtmlPart(renderedGuiHtml)}
-        {:else if DBState.db.theme === 'standardRisu' && !blankMessage}
+        {:else if stickyChatToolbarVariant === 'floating' && !blankMessage}
             {@render senderIcon({rounded: DBState.db.roundIcons})}
-            <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
-                <div class="flexium items-center chat-width">
-                    {#if !blankMessage && !$HideIconStore && !hideSender}
+            <span
+                class="chat-toolbar-message flex flex-col ml-4 w-full max-w-full min-w-0"
+                style:--chat-toolbar-row-height={chatToolbarRowHeight}
+            >
+                <div class="chat-message-title flexium items-center chat-width">
+                    {#if !$HideIconStore && !hideSender}
                         <div class="chat-width text-xl unmargin text-textcolor flex items-center">
                             <span>{name}</span>
                         </div>
                     {/if}
-                    {@render iconButtons()}
+                    {#if !DBState.db.stickyChatToolbar}
+                        {@render iconButtons()}
+                    {/if}
                 </div>
-                {@render genInfo()}
+                {#if DBState.db.stickyChatToolbar}
+                    {#key DBState.db.theme}
+                        <span class="chat-toolbar-stick-anchor" aria-hidden="true"></span>
+                        {@render floatingChatToolbar()}
+                    {/key}
+                {:else}
+                    {@render genInfo()}
+                {/if}
                 {@render textBox()}
             </span>
         {:else}
@@ -1698,3 +1831,152 @@
     "border-warning": disabled === 'allBefore',
 }}></div>
 {/if}
+
+<style>
+    .chat-toolbar-sticky-layer {
+        position: sticky;
+        top: var(--chat-toolbar-sticky-top);
+        z-index: var(--risu-z-sticky);
+        isolation: isolate;
+        display: flex;
+        justify-content: flex-end;
+        width: 100%;
+        max-width: 100%;
+        margin-block: 0.25rem;
+        pointer-events: none;
+    }
+
+    .chat-toolbar-sticky-footer-layer {
+        top: auto;
+        bottom: 0;
+        width: calc(100% + var(--chat-shell-inline-padding) + var(--chat-shell-inline-padding));
+        max-width: none;
+        margin: 0 calc(0px - var(--chat-shell-inline-padding));
+        margin-top: 0.25rem;
+    }
+
+    .chat-toolbar-sticky-footer-layer.chat-toolbar-above-fixed-composer {
+        bottom: var(--chat-composer-sticky-height, 0px);
+    }
+
+    .chat-toolbar-message {
+        --chat-toolbar-sticky-top: max(2rem, calc(env(safe-area-inset-top) + 0.25rem));
+    }
+
+    .chat-message-title {
+        min-height: var(--chat-toolbar-row-height);
+    }
+
+    .chat-toolbar-stick-anchor {
+        align-self: flex-end;
+        width: 1px;
+        height: 1px;
+        margin-bottom: -1px;
+        transform: translateY(calc(0px - var(--chat-toolbar-row-height) - var(--chat-toolbar-sticky-top)));
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .chat-toolbar-floating-layer {
+        --chat-toolbar-sticky-top: inherit;
+        align-self: flex-end;
+        width: fit-content;
+        margin: calc(0px - var(--chat-toolbar-row-height)) 0 0.25rem;
+    }
+
+    .chat-toolbar-floating-card {
+        position: relative;
+        z-index: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.125rem;
+        width: fit-content;
+        max-width: 100%;
+        pointer-events: auto;
+    }
+
+    .chat-toolbar-is-stuck .chat-toolbar-floating-card::before {
+        content: "";
+        position: absolute;
+        inset: -0.25rem -0.375rem;
+        z-index: -1;
+        border: 1px solid color-mix(in srgb, var(--risu-theme-borderc) 50%, transparent);
+        border-radius: 0.5rem;
+        background: var(--chat-toolbar-floating-bg);
+        box-shadow: 0 0.375rem 1.25rem color-mix(in srgb, var(--risu-theme-darkbg) 40%, transparent);
+        -webkit-backdrop-filter: blur(12px) saturate(1.15);
+        backdrop-filter: blur(12px) saturate(1.15);
+        pointer-events: none;
+    }
+
+    .chat-toolbar-floating-card .chat-toolbar-generation-info {
+        width: 100%;
+    }
+
+    .chat-toolbar-floating-card .chat-toolbar-actions {
+        align-self: flex-end;
+        margin-left: 0;
+    }
+
+    .chat-toolbar-floating-card .chat-toolbar-generation-info :global(.chat-generation-info) {
+        width: 100%;
+    }
+
+    .chat-toolbar-sticky-footer {
+        width: 100%;
+        max-width: 100%;
+        padding: 0 var(--chat-shell-inline-padding) var(--chat-shell-block-padding);
+        background: var(--risu-theme-bgcolor);
+        color: var(--risu-theme-textcolor2);
+        pointer-events: auto;
+    }
+
+    .chat-toolbar-sticky-footer-content {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        width: 100%;
+        max-width: 100%;
+        padding-top: 0.5rem;
+        border-top: 1px solid color-mix(in srgb, var(--risu-theme-darkborderc) 30%, transparent);
+    }
+
+    .chat-message-shell {
+        --chat-shell-inline-padding: 1rem;
+        --chat-shell-block-padding: 1.5rem;
+        padding: var(--chat-shell-block-padding) var(--chat-shell-inline-padding);
+    }
+
+    .chat-message-shell.chat-message-shell-sticky {
+        padding-bottom: 0;
+    }
+
+    @media (min-width: 640px) {
+        .chat-message-shell {
+            --chat-shell-inline-padding: 2rem;
+        }
+
+        .chat-toolbar-sticky-footer {
+            border-radius: 0 0 0.5rem 0.5rem;
+        }
+    }
+
+    .chat-toolbar-generation-info {
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .chat-toolbar-generation-info :global(.chat-generation-info) {
+        width: auto;
+        max-width: 100%;
+    }
+
+    .chat-toolbar-actions {
+        flex: 0 0 auto;
+        margin-left: auto;
+    }
+</style>

@@ -6,7 +6,7 @@
     import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
     import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
     import ServerBackupList from 'src/lib/Setting/ServerBackupList.svelte'
-    import SettingRowLayout from 'src/lib/Setting/Wrappers/SettingRowLayout.svelte'
+    import SettingItemRow from 'src/lib/Setting/Wrappers/SettingItemRow.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import SettingRenderer from 'src/lib/Setting/SettingRenderer.svelte'
     import type { SettingItem } from 'src/ts/setting/types'
@@ -589,7 +589,7 @@
     {/if}
 
     <div class="mb-3 [&>*:first-child]:border-t-0">
-        <SettingRowLayout item={backupNowItem}>
+        <SettingItemRow item={backupNowItem}>
             {#snippet control()}
                 <div class="flex items-center gap-2 flex-wrap justify-end">
                     <ShButton variant="outline" size="sm" onclick={createManualSnapshot} disabled={manualSnapshotSaving}>
@@ -602,7 +602,7 @@
                     </ShButton>
                 </div>
             {/snippet}
-        </SettingRowLayout>
+        </SettingItemRow>
         <div class="border-t border-darkborderc">
             <SettingRenderer items={backupScheduleItems} target={backupScheduleTarget} layout="row" />
         </div>

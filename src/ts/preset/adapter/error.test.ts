@@ -6,6 +6,7 @@ import {
     extractErrorMessage,
     normalizeFetchError,
     normalizeHttpStatus,
+    parseRetryAfterMs,
     normalizeProviderStreamError,
 } from './error'
 
@@ -237,6 +238,23 @@ describe('normalizeHttpStatus', () => {
     test('outside common ranges -> unknown', () => {
         const err = normalizeHttpStatus(600)!
         expect(err.kind).toBe('unknown')
+    })
+})
+
+describe('parseRetryAfterMs', () => {
+    test('parses delta-seconds', () => {
+        expect(parseRetryAfterMs('2.5')).toBe(2_500)
+    })
+
+    test('parses an HTTP date relative to now', () => {
+        const now = Date.parse('2026-08-23T00:00:00Z')
+        expect(parseRetryAfterMs('Sun, 23 Aug 2026 00:00:07 GMT', now)).toBe(7_000)
+    })
+
+    test('ignores invalid and negative values', () => {
+        expect(parseRetryAfterMs('later')).toBeUndefined()
+        expect(parseRetryAfterMs('-1')).toBeUndefined()
+        expect(parseRetryAfterMs(null)).toBeUndefined()
     })
 })
 

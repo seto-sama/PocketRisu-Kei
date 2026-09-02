@@ -10,6 +10,7 @@
     import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte';
     import Portal from 'src/lib/UI/GUI/Portal.svelte';
     import { isMobile } from 'src/ts/platform';
+    import { layerZIndexes } from 'src/ts/gui/layers';
     import {
         findAllOriginalRangesFromHtml,
         findAllOriginalRangesFromText,
@@ -318,7 +319,7 @@
 
         blockButtonWrapper.style.position = 'fixed';
         blockButtonWrapper.style.gap = `${PARTIAL_EDIT_BUTTON_GAP}px`;
-        blockButtonWrapper.style.zIndex = '1000';
+        blockButtonWrapper.style.zIndex = layerZIndexes.systemPopover;
         positionBlockButtons(getLastContentRect(block), blockButtonWrapper);
     }
 
@@ -341,7 +342,7 @@
 
         dragButtonWrapper.style.position = 'fixed';
         dragButtonWrapper.style.gap = `${PARTIAL_EDIT_BUTTON_GAP}px`;
-        dragButtonWrapper.style.zIndex = '1000';
+        dragButtonWrapper.style.zIndex = layerZIndexes.systemPopover;
         positionDragButtons(anchor, dragButtonWrapper);
     }
 
@@ -987,7 +988,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        z-index: 10000;
+        z-index: var(--risu-z-blocking);
     }
 
     .partial-match-meta {

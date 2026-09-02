@@ -86,7 +86,7 @@
     <span class="text-textcolor2 mt-2 text-sm">{submenu === 0 ? language.globalLoreInfo : language.localLoreInfo}</span>
     <LoreBookList submenu={submenu} bind:listEditMode />
 {:else}
-    <ShSettings spacing="divided" className="mt-4">
+    <ShSettings spacing="spaced" className="mt-4">
         <ShSettings variant="row">
             <span class="min-w-0 text-textcolor">{language.useGlobalSettings}</span>
             <ShSwitch

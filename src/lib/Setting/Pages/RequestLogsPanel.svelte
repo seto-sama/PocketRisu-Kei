@@ -270,7 +270,7 @@
                                 {/snippet}
                             </Tooltip.Trigger>
                             <Tooltip.Content
-                                class="bg-darkbg border border-darkborderc rounded-md px-2 py-1 text-xs text-textcolor shadow-lg z-50"
+                                class="risu-layer-dialog-menu bg-darkbg border border-darkborderc rounded-md px-2 py-1 text-xs text-textcolor shadow-lg"
                                 sideOffset={4}
                             >
                                 {formatRequestLogTime(log)}

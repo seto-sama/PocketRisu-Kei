@@ -10,6 +10,7 @@
     import { AlertDialog } from 'bits-ui';
     import { cn } from 'src/lib/utils';
     import type { ShDialogTier } from './ShDialog.svelte';
+    import { dialogLayerClasses } from 'src/ts/gui/layers';
 
     interface Props {
         open?: boolean;
@@ -51,12 +52,6 @@
         lg: 'max-w-2xl',
     };
 
-    const tierClasses: Record<ShDialogTier, string> = {
-        base: 'z-40',
-        alert: 'z-50',
-        top: 'z-[60]',
-    };
-
     // w-[calc(100vw-2rem)] guarantees a 1rem gutter on each side at any
     // viewport (size class supplies max-width upper bound on desktop).
     const contentBase =
@@ -71,10 +66,10 @@
 <AlertDialog.Root bind:open {onOpenChange}>
     <AlertDialog.Portal>
         <AlertDialog.Overlay
-            class={cn('risu-modal-backdrop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0', tierClasses[tier])}
+            class={cn('risu-modal-backdrop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0', dialogLayerClasses[tier])}
         />
         <AlertDialog.Content
-            class={cn(contentBase, tierClasses[tier], sizeClasses[size], contentClass)}
+            class={cn(contentBase, dialogLayerClasses[tier], sizeClasses[size], contentClass)}
             escapeKeydownBehavior={closeOnEscape ? 'close' : 'ignore'}
             interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
         >

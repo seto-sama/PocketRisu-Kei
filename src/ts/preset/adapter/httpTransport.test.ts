@@ -41,7 +41,7 @@ describe('adapter HTTP transport', () => {
     test('normalizes provider HTTP errors before parsing JSON', async () => {
         const fetchImpl: typeof fetch = async () => new Response(
             JSON.stringify({ error: { message: 'slow down' } }),
-            { status: 429 },
+            { status: 429, headers: { 'Retry-After': '3' } },
         )
 
         await expect(sendPreparedJsonRequest(
@@ -52,6 +52,7 @@ describe('adapter HTTP transport', () => {
             kind: 'rate-limit',
             status: 429,
             message: 'slow down',
+            retryAfterMs: 3_000,
         })
     })
 

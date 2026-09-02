@@ -578,7 +578,7 @@
 
 <Portal>
 <!-- Modal Backdrop -->
-<div class="risu-modal-backdrop z-40 p-1 sm:p-2">
+<div class="risu-modal-backdrop risu-layer-dialog-base p-1 sm:p-2">
   <!-- Modal Wrapper -->
   <div class="flex justify-center w-full h-full">
     <!-- Modal Window -->

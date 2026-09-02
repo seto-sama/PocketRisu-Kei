@@ -132,6 +132,8 @@ vi.mock('../../ts/translator/translator', () => ({
 vi.mock('../../ts/storage/database.svelte', () => ({
     getCurrentCharacter: () => storeMocks.DBState.db.characters[0],
     getCurrentChat: () => storeMocks.DBState.db.characters[0].chats[0],
+    getStickyChatToolbarVariant: (theme: string) =>
+        theme === '' ? 'footer' : theme === 'standardRisu' || theme === 'waifu' ? 'floating' : null,
     normalizeChat: (chat: unknown) => chat,
     setCurrentChat: vi.fn(),
 }))
@@ -222,6 +224,7 @@ beforeEach(() => {
 afterEach(async () => {
     await Promise.all(mountedComponents.splice(0).map(component => unmount(component as never)))
     document.body.replaceChildren()
+    vi.unstubAllGlobals()
     vi.clearAllMocks()
 })
 
@@ -378,7 +381,11 @@ describe('Chat editing', () => {
         const editor = target.querySelector<HTMLTextAreaElement>('.message-edit-area')
         expect(editor).not.toBeNull()
         expect(editor?.value).toBe('User message')
-
+        const editorField = editor?.closest('.risu-field-border')
+        expect(editorField?.classList.contains('risu-local-stack')).toBe(true)
+        expect(editorField?.classList.contains('risu-local-stack-focus')).toBe(true)
+        expect(editorField?.classList.contains('z-20')).toBe(false)
+        expect(editorField?.classList.contains('focus-within:z-40')).toBe(false)
         editor!.value = 'Edited user message'
         editor!.dispatchEvent(new Event('input', { bubbles: true }))
         await tick()
@@ -1256,6 +1263,170 @@ describe('Chat editing', () => {
         const generationInfo = target.querySelector('.chat-generation-info')
         expect(generationInfo?.getAttribute('data-icon-size')).toBe('lg')
         expect((generationInfo as HTMLElement | null)?.style.minHeight).toBe('var(--icon-cell-size)')
+    })
+
+    it.each(['standardRisu', 'waifu'])('groups sticky controls into a floating toolbar for the %s theme', async (theme) => {
+        DBState.db.theme = theme
+        DBState.db.stickyChatToolbar = true
+        DBState.db.requestInfoInsideChat = true
+        DBState.db.textScreenColor = '#345678'
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'Long response',
+                name: 'Character',
+                role: 'char',
+                idx: -1,
+                firstMessage: true,
+                messageGenerationInfo: { model: 'test-model' },
+                totalLength: 1,
+            },
+        })
+        mountedComponents.push(component)
+        await tick()
+
+        const floatingToolbar = target.querySelector('.chat-toolbar-sticky-layer')
+        const floatingCard = floatingToolbar?.querySelector('.chat-toolbar-floating-card')
+        expect(floatingToolbar).not.toBeNull()
+        expect(floatingToolbar?.querySelector('.chat-generation-info')).not.toBeNull()
+        expect(floatingToolbar?.querySelector('.chat-message-actions')).not.toBeNull()
+        expect(floatingCard?.firstElementChild?.classList.contains('chat-toolbar-actions')).toBe(true)
+        expect(floatingCard?.lastElementChild?.classList.contains('chat-toolbar-generation-info')).toBe(true)
+        if (theme === 'waifu') {
+            expect(floatingCard?.getAttribute('style')).toContain('#34567880')
+        } else {
+            expect(floatingCard?.getAttribute('style')).toContain('var(--risu-theme-bgcolor)')
+        }
+    })
+
+    it('keeps the floating toolbar to one row when model and translation details are absent', async () => {
+        DBState.db.theme = 'waifu'
+        DBState.db.stickyChatToolbar = true
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'Response without details',
+                name: 'Character',
+                role: 'char',
+                idx: -1,
+                firstMessage: true,
+                totalLength: 1,
+            },
+        })
+        mountedComponents.push(component)
+        await tick()
+
+        const floatingCard = target.querySelector('.chat-toolbar-floating-card')
+        expect(floatingCard?.children).toHaveLength(1)
+        expect(floatingCard?.querySelector('.chat-toolbar-generation-info')).toBeNull()
+    })
+
+    it('shares one intersection observer and updates sticky state in both directions', async () => {
+        let observerCallback: IntersectionObserverCallback | undefined
+        const observe = vi.fn()
+        const unobserve = vi.fn()
+        const disconnect = vi.fn()
+        const IntersectionObserverMock = vi.fn(function (callback: IntersectionObserverCallback) {
+            observerCallback = callback
+            return { observe, unobserve, disconnect }
+        })
+        vi.stubGlobal('IntersectionObserver', IntersectionObserverMock)
+
+        DBState.db.theme = 'standardRisu'
+        DBState.db.stickyChatToolbar = true
+        const scrollRoot = document.createElement('div')
+        scrollRoot.className = 'default-chat-screen'
+        const firstTarget = document.createElement('div')
+        const secondTarget = document.createElement('div')
+        scrollRoot.append(firstTarget, secondTarget)
+        document.body.appendChild(scrollRoot)
+
+        const props = {
+            message: 'Observed response',
+            name: 'Character',
+            role: 'char',
+            idx: -1,
+            firstMessage: true,
+            totalLength: 1,
+        }
+        const firstComponent = mount(Chat, { target: firstTarget, props })
+        const secondComponent = mount(Chat, { target: secondTarget, props })
+        await tick()
+
+        expect(IntersectionObserverMock).toHaveBeenCalledTimes(1)
+        expect(observe).toHaveBeenCalledTimes(2)
+
+        const firstAnchor = firstTarget.querySelector('.chat-toolbar-stick-anchor') as HTMLElement
+        observerCallback?.([{
+            target: firstAnchor,
+            isIntersecting: true,
+            boundingClientRect: { top: 10 },
+        } as unknown as IntersectionObserverEntry], {} as IntersectionObserver)
+        await tick()
+        expect(firstTarget.querySelector('.chat-toolbar-sticky-layer')?.classList.contains('chat-toolbar-is-stuck')).toBe(false)
+
+        observerCallback?.([{
+            target: firstAnchor,
+            isIntersecting: false,
+            boundingClientRect: { top: -1 },
+        } as unknown as IntersectionObserverEntry], {} as IntersectionObserver)
+        await tick()
+        expect(firstTarget.querySelector('.chat-toolbar-sticky-layer')?.classList.contains('chat-toolbar-is-stuck')).toBe(true)
+
+        observerCallback?.([{
+            target: firstAnchor,
+            isIntersecting: true,
+            boundingClientRect: { top: 10 },
+        } as unknown as IntersectionObserverEntry], {} as IntersectionObserver)
+        await tick()
+        expect(firstTarget.querySelector('.chat-toolbar-sticky-layer')?.classList.contains('chat-toolbar-is-stuck')).toBe(false)
+
+        await unmount(firstComponent)
+        expect(unobserve).toHaveBeenCalledTimes(1)
+        expect(disconnect).not.toHaveBeenCalled()
+        await unmount(secondComponent)
+        expect(unobserve).toHaveBeenCalledTimes(2)
+        expect(disconnect).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the complete PocketRisu Standard footer sticky at the bottom', async () => {
+        DBState.db.theme = ''
+        DBState.db.stickyChatToolbar = true
+        DBState.db.fixedChatTextarea = true
+        DBState.db.requestInfoInsideChat = true
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'PocketRisu Standard response',
+                name: 'Character',
+                role: 'char',
+                idx: -1,
+                firstMessage: true,
+                totalLength: 1,
+            },
+        })
+        mountedComponents.push(component)
+        await tick()
+
+        const stickyFooter = target.querySelector('.chat-toolbar-sticky-footer')
+        const stickyShell = target.querySelector('.chat-message-shell-sticky')
+        expect(stickyShell).not.toBeNull()
+        expect(stickyFooter).not.toBeNull()
+        expect(stickyFooter?.querySelector('.chat-generation-info')).not.toBeNull()
+        expect(stickyFooter?.querySelector('.chat-message-actions')).not.toBeNull()
+        expect(stickyFooter?.classList.contains('chat-toolbar-floating-card')).toBe(false)
+        const stickyFooterLayer = target.querySelector('.chat-message-body')?.nextElementSibling
+        expect(stickyFooterLayer?.classList.contains('chat-toolbar-sticky-footer-layer')).toBe(true)
+        expect(stickyFooterLayer?.classList.contains('chat-toolbar-above-fixed-composer')).toBe(true)
     })
 
     it('hides the model label on mobile while retaining its icon', async () => {

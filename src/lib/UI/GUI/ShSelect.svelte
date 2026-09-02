@@ -265,7 +265,7 @@
             id={listboxId}
             bind:this={dropdownEl}
             role="listbox"
-            class="fixed z-50 max-h-64 overflow-y-auto rounded-md bg-darkbg shadow-md
+            class="risu-layer-dialog-menu fixed max-h-64 overflow-y-auto rounded-md bg-darkbg shadow-md
                    ring-1 ring-textcolor/10 p-1"
             style={dropdownStyle}
         >

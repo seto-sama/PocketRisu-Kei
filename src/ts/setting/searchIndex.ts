@@ -50,7 +50,7 @@ interface DeclarativeSource {
 }
 
 const advancedRequestIds = new Set([
-    'adv.retries', 'adv.genTime', 'adv.sayNothing', 'adv.autoFill', 'adv.antiOverload',
+    'adv.retries', 'adv.genTime', 'adv.sayNothing', 'adv.autoFill',
     'adv.exp.cachePoint', 'adv.toolUsage', 'adv.simpleTool', 'adv.banChar', 'adv.lbDepth',
     'adv.lbToken', 'adv.disableLbRecursive', 'adv.localActivationInCharacterLorebook', 'adv.bulkEnabling',
 ]);

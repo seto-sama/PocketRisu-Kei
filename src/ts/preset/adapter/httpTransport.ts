@@ -3,6 +3,7 @@ import {
     extractErrorMessage,
     normalizeFetchError,
     normalizeHttpStatus,
+    parseRetryAfterMs,
 } from './error'
 import type { AdapterPreparedRequest } from './types'
 
@@ -82,6 +83,8 @@ export async function deriveAdapterHttpError(
         // Status alone is enough to classify a failed HTTP response.
     }
     const message = extractErrorMessage(bodyText) ?? `HTTP ${response.status}`
-    return normalizeHttpStatus(response.status, message)
+    return normalizeHttpStatus(response.status, message, {
+        retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')),
+    })
         ?? new ModelPresetAdapterError('unknown', message, { status: response.status })
 }

@@ -1,8 +1,6 @@
 <script lang="ts">
     // shadcn-svelte DropdownMenu Content — RisuAI tokens. Portals to body.
-    // Default z-50; pass class="z-[45]" to override for menus that live
-    // inside a base-tier dialog (z-40) so nested alerts (z-50) cover them.
-    // See .agent/guide/ui.md "Dialog z-index 컨벤션".
+    // Menus sit one application layer above base dialogs and below alerts.
     import { DropdownMenu } from 'bits-ui';
     import { cn } from 'src/lib/utils';
 
@@ -22,7 +20,7 @@
         {sideOffset}
         {align}
         class={cn(
-            'z-50 min-w-32 rounded-md border border-darkborderc bg-darkbg text-textcolor p-1 shadow-md outline-none ' +
+            'risu-layer-dialog-menu min-w-32 rounded-md border border-darkborderc bg-darkbg text-textcolor p-1 shadow-md outline-none ' +
             'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
             'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 ' +

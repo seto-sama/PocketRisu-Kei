@@ -405,7 +405,7 @@
             </ShButton>
           {/snippet}
         </ShDropdownMenuTrigger>
-        <ShDropdownMenuContent align="start" class="z-[45] min-w-40">
+        <ShDropdownMenuContent align="start" class="min-w-40">
           {#each categories as category}
             <ShDropdownMenuItem
               onSelect={() => {

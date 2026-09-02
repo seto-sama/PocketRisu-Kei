@@ -117,7 +117,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <Portal>
 <div
-    class="risu-modal-backdrop z-30 flex justify-center items-center"
+    class="risu-modal-backdrop risu-layer-dialog-base flex justify-center items-center"
     onclick={(event) => {
         if (event.target === event.currentTarget) {
             close();

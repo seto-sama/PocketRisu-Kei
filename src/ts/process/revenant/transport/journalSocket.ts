@@ -11,6 +11,7 @@ export interface RevenantJournalSocketOptions {
     auth: string
     signal?: AbortSignal
     recovery?: boolean
+    initialOffset?: number
     onProviderStarted?: (startedAt: number) => void
     onHeaders?: (status: number, headers: Record<string, string>) => void
     onDone?: (terminal: ProxyJobWsDoneEvent) => void
@@ -39,7 +40,10 @@ export function openRevenantJournalSocket(
     return new ReadableStream<Uint8Array>({
         start(controller) {
             let ws: WebSocket | undefined
-            let receivedBytes = 0
+            let receivedBytes = Number.isSafeInteger(options.initialOffset)
+                && (options.initialOffset ?? 0) >= 0
+                ? options.initialOffset ?? 0
+                : 0
             let disposed = false
             let terminal = false
             let reconnectAttempts = 0

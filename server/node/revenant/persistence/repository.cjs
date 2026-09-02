@@ -69,6 +69,7 @@ const {
     stmtClaimWorkflowExecution,
     stmtFinishWorkflowExecution,
     stmtListWorkflowJobs,
+    stmtAcknowledgeTerminalRoomJobs,
     stmtDeleteCompletedWorkflowExecutions,
 } = createGenerationStatements(db);
 
@@ -480,6 +481,19 @@ function listGenerationWorkflowJobs(workflowId) {
     return stmtListWorkflowJobs.all(workflowId).map(row => rowToJob(row, false));
 }
 
+/** A new user generation supersedes partial output from older terminal work. */
+function acknowledgeTerminalGenerationJobsForRoom(characterId, roomId) {
+    const now = Date.now();
+    return stmtAcknowledgeTerminalRoomJobs.run(
+        now,
+        now,
+        characterId,
+        roomId,
+        characterId,
+        roomId,
+    ).changes;
+}
+
 function ensureGenerationStepExecution(input, status) {
     if (!input.workflowId) return undefined;
     const existing = stmtGetStepExecution.get(input.stepExecutionId);
@@ -758,7 +772,6 @@ function finishGenerationJob(jobId, status, finishReason, error = null, rawBytes
         status === 'generated' ? 'output_ready' : 'failed',
     );
     if (job?.job_type === 'model' && job.workflow_id && status !== 'generated') {
-        const terminalStatus = status === 'cancelled' ? 'cancelled' : 'failed';
         updateGenerationWorkflowStep(job.workflow_id, 'model.main', {
             status: 'failed',
             metadata: {
@@ -766,7 +779,14 @@ function finishGenerationJob(jobId, status, finishReason, error = null, rawBytes
                 error: String(error || finishReason || `Model generation ended as ${status}`),
             },
         });
-        cancelGenerationWorkflow(job.workflow_id, terminalStatus);
+        // A provider job is one round within the logical model step. The
+        // client may retry a pre-response failure by attaching another job to
+        // the same step execution, so only an explicit cancellation is
+        // terminal here. Exhausted retries and partial-stream failures are
+        // finalized by the client workflow boundary.
+        if (status === 'cancelled') {
+            cancelGenerationWorkflow(job.workflow_id, 'cancelled');
+        }
     }
     return true;
 }
@@ -908,6 +928,7 @@ module.exports = {
     claimGenerationWorkflowExecution,
     finishGenerationWorkflowExecution,
     listGenerationWorkflowJobs,
+    acknowledgeTerminalGenerationJobsForRoom,
     createGenerationJob,
     getGenerationJob,
     setGenerationJobGenerating,

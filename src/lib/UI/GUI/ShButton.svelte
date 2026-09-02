@@ -1,16 +1,12 @@
-<script lang="ts" module>
+<script lang="ts">
     // Sh button — vega-derived spec, sizes shifted +1 step for mixed
     // desktop/mobile use (NodeOnly is also accessed via Tailscale on phones).
     // See .agent/guide/ui.md "Sh* sizing scale" for the rationale and the
     // coordination with ShInput / ShToggle / SelectInput.
-    export type ShButtonVariant = 'default' | 'outline' | 'secondary' | 'ghost' | 'destructive' | 'attention' | 'warning' | 'success' | 'primary' | 'link';
-    export type ShButtonSize = 'default' | 'xs' | 'sm' | 'lg' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg';
-</script>
-
-<script lang="ts">
     import type { Snippet } from 'svelte';
     import type { HTMLAnchorAttributes, HTMLButtonAttributes } from 'svelte/elements';
     import { cn } from 'src/lib/utils';
+    import type { ShButtonSize, ShButtonVariant } from './ShButton.types';
 
     type Props = (HTMLButtonAttributes & HTMLAnchorAttributes) & {
         variant?: ShButtonVariant;

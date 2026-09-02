@@ -3,6 +3,7 @@ import {
     clientActionRecoveryMode,
     MAIN_JOB_REGISTRATION_GRACE_MS,
     recoveryStatusAction,
+    shouldDiscardTerminalWorkflowJob,
     shouldWaitForMainJobRegistration,
 } from './chatRecoveryPolicy'
 
@@ -36,6 +37,14 @@ describe('revenant chat recovery policy', () => {
         expect(recoveryStatusAction('queued', false, { startQueued: false })).toBe('none')
         expect(recoveryStatusAction('failed', false)).toBe('none')
         expect(recoveryStatusAction('generated', false)).toBe('none')
+    })
+
+    it('discards only inactive jobs whose workflow can no longer materialize', () => {
+        expect(shouldDiscardTerminalWorkflowJob('cancelled', false)).toBe(true)
+        expect(shouldDiscardTerminalWorkflowJob('failed', false)).toBe(true)
+        expect(shouldDiscardTerminalWorkflowJob('completed', false)).toBe(false)
+        expect(shouldDiscardTerminalWorkflowJob('active', false)).toBe(false)
+        expect(shouldDiscardTerminalWorkflowJob('cancelled', true)).toBe(false)
     })
 
 })

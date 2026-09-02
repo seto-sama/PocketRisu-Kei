@@ -5,7 +5,7 @@
     import Check from 'src/lib/UI/GUI/CheckInput.svelte';
     import Help from 'src/lib/Others/Help.svelte';
     import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
-    import SettingRowLayout from './SettingRowLayout.svelte';
+    import SettingItemRow from './SettingItemRow.svelte';
 
     interface Props {
         item: SettingItem;
@@ -35,11 +35,11 @@
 </script>
 
 {#if ctx.layout === 'row'}
-    <SettingRowLayout {item}>
+    <SettingItemRow {item}>
         {#snippet control()}
             <ShSwitch checked={!!localValue} {disabled} onCheckedChange={(v) => (localValue = v)} />
         {/snippet}
-    </SettingRowLayout>
+    </SettingItemRow>
 {:else}
     <div class="flex items-center {item.classes ?? 'mt-2'}" data-setting-id={item.id}>
         <Check bind:check={localValue} name={getLabel(item)} >

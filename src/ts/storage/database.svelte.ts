@@ -44,6 +44,14 @@ export function supportsCustomChatBackdrop(theme: string | undefined | null): bo
     return theme === 'waifu' || theme === 'mobilechat' || theme === 'cardboard'
 }
 
+export type StickyChatToolbarVariant = 'footer' | 'floating' | null
+
+export function getStickyChatToolbarVariant(theme: string | undefined | null): StickyChatToolbarVariant {
+    if (theme === '') return 'footer'
+    if (theme === 'standardRisu' || theme === 'waifu') return 'floating'
+    return null
+}
+
 function normalizePromptRole(role: unknown): 'user'|'bot'|'system'|null {
     if(role === 'user' || role === 'bot' || role === 'system'){
         return role
@@ -696,10 +704,8 @@ export function setDatabase(data:Database){
     data.useExperimentalGoogleTranslator ??= false
     data.thinkingType ??= 'budget'
     data.adaptiveThinkingEffort ??= 'high'
-    if(data.antiClaudeOverload){ //migration
-        data.antiClaudeOverload = false
-        data.antiServerOverloads = true
-    }
+    // The legacy toggle no longer controls retries; overload backoff is always on.
+    data.antiClaudeOverload = false
     data.hypaCustomSettings = {
         url: data.hypaCustomSettings?.url ?? "",
         key: data.hypaCustomSettings?.key ?? "",
@@ -773,6 +779,7 @@ export function setDatabase(data:Database){
     data.autoScrollToNewMessage ??= true
     data.alwaysScrollToNewMessage ??= false
     data.newMessageButtonStyle ??= 'bottom-center'
+    data.stickyChatToolbar ??= false
     data.echoMessage ??= "Echo Message"
     data.echoDelay ??= 0
     data.createFolderOnBranch ??= true
@@ -1257,6 +1264,7 @@ export interface Database{
     personaEnabledModules: Record<string, string[]>
     sideMenuRerollButton?:boolean
     requestInfoInsideChat?:boolean
+    stickyChatToolbar?:boolean
     additionalParams:[string, string][]
     antiClaudeOverload:boolean
     ollamaURL:string
@@ -1373,7 +1381,6 @@ export interface Database{
     thinkingTokens: number
     thinkingType: 'off' | 'budget' | 'adaptive'
     adaptiveThinkingEffort: 'low' | 'medium' | 'high' | 'max'
-    antiServerOverloads: boolean
     hypaCustomSettings: {
         url: string,
         key: string,

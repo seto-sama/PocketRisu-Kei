@@ -150,7 +150,7 @@
 
 </script>
 
-{#snippet toggles(items: sidebarToggle[], reverse: boolean = false, spacing: ShSettingsSpacing = 'divided')}
+{#snippet toggles(items: sidebarToggle[], reverse: boolean = false, spacing: ShSettingsSpacing = 'spaced')}
     {#each items as toggle, index}
         {#if toggle.type === 'group' && toggle.children.length > 0}
             <div class={spacing === 'divided' ? 'w-full mt-2' : 'w-full'}>
@@ -254,14 +254,14 @@
 
 {#if !noContainer && groupedToggles.length > 4}
     <div class="h-48 border-darkborderc p-2 border rounded-sm flex flex-col items-start mt-2 overflow-y-auto">
-        <ShSettings spacing="divided">
+        <ShSettings spacing="spaced">
             {#if hasJailbreakPrompt}
             <ShSettings variant="row" className="gap-0 px-0">
                 <span class="min-w-0 wrap-break-word pl-1 pr-2">{language.jailbreakToggle}</span>
                 <ShSwitch className="shrink-0" bind:checked={DBState.db.jailbreakToggle} />
             </ShSettings>
             {/if}
-            {@render toggles(groupedToggles, true, 'divided')}
+            {@render toggles(groupedToggles, true, 'spaced')}
             {#if chara && DBState.db.hypaV3}
             <ShSettings variant="row" className="gap-0 px-0">
                 <span class="flex items-center gap-1 pl-1 pr-2">
@@ -283,7 +283,7 @@
     </div>
 {:else}
     <ShSettings
-        spacing={noContainer ? 'spaced' : 'divided'}
+        spacing="spaced"
         className={noContainer ? 'mt-2' : ''}
     >
         {#if hasJailbreakPrompt}
@@ -292,7 +292,7 @@
             <ShSwitch className="shrink-0" bind:checked={DBState.db.jailbreakToggle} />
         </ShSettings>
         {/if}
-        {@render toggles(groupedToggles, false, noContainer ? 'spaced' : 'divided')}
+        {@render toggles(groupedToggles, false, 'spaced')}
         {#if DBState.db.hypaV3}
         <ShSettings variant="row" className="gap-0 px-0">
             <span class="flex items-center gap-1 pl-1 pr-2">

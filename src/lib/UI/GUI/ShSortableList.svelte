@@ -2,6 +2,7 @@
     import type { Snippet } from 'svelte';
     import Sortable, { type Options, type SortableEvent } from 'sortablejs';
     import { sortableOptions } from 'src/ts/util';
+    import { layerZIndexes } from 'src/ts/gui/layers';
 
     interface Props {
         children: Snippet;
@@ -80,7 +81,7 @@
         preview.style.opacity = '0.85';
         preview.style.transform = 'scale(0.9)';
         preview.style.transformOrigin = 'top left';
-        preview.style.zIndex = '9999';
+        preview.style.zIndex = layerZIndexes.systemPopover;
         if (previewText) {
             preview.className += ' px-4 py-2 rounded-sm text-sm whitespace-nowrap shadow-lg';
             preview.style.background = 'var(--risu-theme-darkbg)';

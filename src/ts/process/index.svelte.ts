@@ -78,6 +78,7 @@ import {
     type ChatCommitSnapshot,
 } from '../storage/chatWorkingCopy';
 import { compileModelPreset, type CompiledModelPreset } from "../preset/runtime/compilePreset";
+import { createOpenAiPromptCacheKey } from '../preset/cache/openaiPromptCacheKey';
 import {
     applyCancelledGenerationProjection,
     ensureGenerationMessageTarget,
@@ -740,7 +741,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         'personaPrompt':([] as OpenAIChat[])
     }
 
-    let promptTemplate = safeStructuredClone(DBState.db.promptTemplate)
+    const rawPromptTemplate = safeStructuredClone(DBState.db.promptTemplate)
+    const promptCacheKey = await createOpenAiPromptCacheKey(outgoingChat.id, rawPromptTemplate)
+    let promptTemplate = safeStructuredClone(rawPromptTemplate)
     const usingPromptTemplate = !!promptTemplate
     if(promptTemplate){
         let hasPostEverything = false
@@ -2165,6 +2168,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const requestMainGeneration = (lifecycle: RevenantGenerationLifecycle = {}) =>
         requestChatData({
             formated: formated,
+            promptCacheKey,
             biasString: biases,
             currentChar: currentChar,
             useStreaming: true,

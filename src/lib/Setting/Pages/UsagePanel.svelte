@@ -534,7 +534,7 @@
                                     </Tooltip.Trigger>
                                     <Tooltip.Portal>
                                         <Tooltip.Content
-                                            class="break-keep bg-darkbg border border-darkborderc rounded-md px-3 py-2 text-xs text-textcolor shadow-lg z-50 leading-relaxed tabular-nums"
+                                            class="risu-layer-dialog-menu break-keep bg-darkbg border border-darkborderc rounded-md px-3 py-2 text-xs text-textcolor shadow-lg leading-relaxed tabular-nums"
                                             sideOffset={4}
                                             collisionPadding={8}
                                         >

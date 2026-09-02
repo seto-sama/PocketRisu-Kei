@@ -2,6 +2,7 @@ import type { AdapterError, AdapterErrorKind } from './types'
 
 export interface AdapterErrorOptions {
     status?: number
+    retryAfterMs?: number
     retryable?: boolean
     fallbackEligible?: boolean
     cause?: unknown
@@ -10,6 +11,7 @@ export interface AdapterErrorOptions {
 export class ModelPresetAdapterError extends Error {
     readonly kind: AdapterErrorKind
     readonly status?: number
+    readonly retryAfterMs?: number
     readonly retryable: boolean
     readonly fallbackEligible: boolean
 
@@ -18,6 +20,7 @@ export class ModelPresetAdapterError extends Error {
         this.name = 'ModelPresetAdapterError'
         this.kind = kind
         this.status = options.status
+        this.retryAfterMs = options.retryAfterMs
         this.retryable = options.retryable ?? defaultRetryable(kind)
         this.fallbackEligible = options.fallbackEligible ?? defaultFallbackEligible(kind)
         if (options.cause !== undefined) {
@@ -30,6 +33,7 @@ export class ModelPresetAdapterError extends Error {
             kind: this.kind,
             message: this.message,
             status: this.status,
+            ...(this.retryAfterMs !== undefined ? { retryAfterMs: this.retryAfterMs } : {}),
             retryable: this.retryable,
             fallbackEligible: this.fallbackEligible,
             cause: (this as Error & { cause?: unknown }).cause,
@@ -124,36 +128,60 @@ export function extractErrorMessage(bodyText: string): string | null {
     return null
 }
 
-export function normalizeHttpStatus(status: number, message?: string): ModelPresetAdapterError | null {
+export function normalizeHttpStatus(
+    status: number,
+    message?: string,
+    options: Pick<AdapterErrorOptions, 'retryAfterMs'> = {},
+): ModelPresetAdapterError | null {
     if (status >= 200 && status < 300) return null
     if (status === 401 || status === 403) {
         return new ModelPresetAdapterError('auth', message ?? `HTTP ${status}`, {
             status,
+            ...options,
             retryable: false,
         })
     }
     if (status === 404) {
         return new ModelPresetAdapterError('not-found', message ?? `HTTP ${status}`, {
             status,
+            ...options,
             retryable: false,
         })
     }
     if (status === 408) {
-        return new ModelPresetAdapterError('timeout', message ?? `HTTP ${status}`, { status })
+        return new ModelPresetAdapterError('timeout', message ?? `HTTP ${status}`, { status, ...options })
     }
     if (status === 429) {
-        return new ModelPresetAdapterError('rate-limit', message ?? `HTTP ${status}`, { status })
+        return new ModelPresetAdapterError('rate-limit', message ?? `HTTP ${status}`, { status, ...options })
     }
     if (status >= 400 && status < 500) {
         return new ModelPresetAdapterError('invalid-request', message ?? `HTTP ${status}`, {
             status,
+            ...options,
             retryable: false,
         })
     }
     if (status >= 500 && status < 600) {
-        return new ModelPresetAdapterError('server', message ?? `HTTP ${status}`, { status })
+        return new ModelPresetAdapterError('server', message ?? `HTTP ${status}`, { status, ...options })
     }
-    return new ModelPresetAdapterError('unknown', message ?? `HTTP ${status}`, { status })
+    return new ModelPresetAdapterError('unknown', message ?? `HTTP ${status}`, { status, ...options })
+}
+
+/** Parses either Retry-After delta-seconds or an HTTP date into milliseconds. */
+export function parseRetryAfterMs(value: string | null, now: number = Date.now()): number | undefined {
+    const trimmed = value?.trim()
+    if (!trimmed) return undefined
+
+    if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(trimmed)) {
+        const seconds = Number(trimmed)
+        return Number.isFinite(seconds) && seconds >= 0
+            ? Math.ceil(seconds * 1_000)
+            : undefined
+    }
+
+    const timestamp = Date.parse(trimmed)
+    if (!Number.isFinite(timestamp)) return undefined
+    return Math.max(0, timestamp - now)
 }
 
 const TRANSIENT_OVERLOAD_PATTERN = /(?:\bhttp\s+(?:429|503|529)\b|too many requests|rate[\s_-]*limit|resource[_\s-]*exhausted|overload(?:ed)?)/i

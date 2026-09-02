@@ -1,12 +1,9 @@
 <script lang="ts" module>
-    // shadcn-svelte Dialog — ported to RisuAI theme tokens.
+    // shadcn-svelte Dialog — ported to RisuAI theme and layer tokens.
     // See _reference/shadcn-components/dialog/* for source patterns.
     export type ShDialogSize = 'sm' | 'default' | 'lg' | 'xl';
-    // Stacking tier — see .agent/guide/ui.md "Dialog z-index 컨벤션".
-    // base (z-40): 베이스 리스트/관리 다이얼로그 (위에 alert 떠야 함)
-    // alert (z-50): 기본. confirm/input/error/일반 팝업
-    // top (z-[60]): 모든 것 위에 떠야 하는 로딩 등 특수 케이스
-    export type ShDialogTier = 'base' | 'alert' | 'top';
+    import type { DialogLayerTier } from 'src/ts/gui/layers';
+    export type ShDialogTier = DialogLayerTier;
 </script>
 
 <script lang="ts">
@@ -14,6 +11,7 @@
     import { Dialog } from 'bits-ui';
     import { XIcon } from '@lucide/svelte';
     import { cn } from 'src/lib/utils';
+    import { dialogLayerClasses } from 'src/ts/gui/layers';
 
     interface Props {
         open?: boolean;
@@ -69,12 +67,6 @@
         xl: 'max-w-4xl',
     };
 
-    const tierClasses: Record<ShDialogTier, string> = {
-        base: 'z-40',
-        alert: 'z-50',
-        top: 'z-[60]',
-    };
-
     // w-[calc(100vw-2rem)] guarantees a 1rem gutter on each side at any
     // viewport (size class supplies max-width upper bound on desktop).
     const contentBase =
@@ -109,10 +101,10 @@
 <Dialog.Root bind:open {onOpenChange}>
     <Dialog.Portal>
         <Dialog.Overlay
-            class={cn('risu-modal-backdrop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0', tierClasses[tier], overlayClass)}
+            class={cn('risu-modal-backdrop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0', dialogLayerClasses[tier], overlayClass)}
         />
         <Dialog.Content
-            class={cn(contentBase, tierClasses[tier], sizeClasses[size], contentClass)}
+            class={cn(contentBase, dialogLayerClasses[tier], sizeClasses[size], contentClass)}
             escapeKeydownBehavior={closeOnEscape ? 'close' : 'ignore'}
             interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
             onEscapeKeydown={handleEscapeKeydown}

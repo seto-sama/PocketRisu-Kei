@@ -1765,7 +1765,7 @@ interface RisuaiPluginAPI {
      * ```typescript
      * await risuai.addTTSPreprocessor(async (ctx) => {
      *   if (ctx.ttsMode !== 'openai') return;
-     *   return { text: ctx.text.replace(/\*(.*?)\*/g, '') };
+     *   return { text: ctx.text.replace(/[*](.*?)[*]/g, '') };
      * });
      * ```
      */

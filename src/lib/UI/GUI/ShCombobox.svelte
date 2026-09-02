@@ -182,7 +182,7 @@
             bind:this={dropdownEl}
             id={listboxId}
             role="listbox"
-            class="fixed z-[100] max-h-64 overflow-y-auto rounded-md border border-darkborderc
+            class="risu-layer-system-popover fixed max-h-64 overflow-y-auto rounded-md border border-darkborderc
                    bg-darkbg shadow-lg p-1"
             style={dropdownStyle}
         >

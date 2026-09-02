@@ -364,4 +364,80 @@ describe('revenant canonical materializer', () => {
             }),
         )
     })
+
+    it('keeps a user deletion that wins the cancelled reroll target race', async () => {
+        const original = {
+            role: 'char', data: 'original', chatId: 'original-message',
+            swipes: ['original'], swipeId: 0,
+        }
+        const inputChat = {
+            id: 'room-1',
+            message: [
+                { role: 'user', data: 'hello', chatId: 'user-message' },
+                original,
+            ],
+        }
+        const rerollSnapshot = {
+            targetMessage: original,
+            targetIndex: 1,
+            trailingMessages: [],
+        }
+        const job = {
+            jobId: 'job-1', workflowId: 'workflow-1', jobType: 'model',
+            characterId: 'character-1', roomId: 'room-1', chatId: 'partial-message',
+            status: 'cancelled', rawBytes: 10,
+            projection: {
+                schemaVersion: 1, source: 'server', adapterKind: 'openai-compatible',
+                content: 'cancelled partial', journalBytes: 10,
+            },
+            rerollSnapshot,
+        }
+        const workflow = {
+            workflowId: 'workflow-1', status: 'cancelled',
+            context: {
+                inputCommit: { chat: inputChat },
+                postprocess: {
+                    chat: inputChat,
+                    character: { chaId: 'character-1' },
+                    messageChatId: 'partial-message',
+                    isContinuation: false,
+                    rerollSnapshot,
+                },
+            },
+            steps: [],
+        }
+        const repository = {
+            getGenerationJob: () => job,
+            getGenerationWorkflow: () => workflow,
+            listGenerationWorkflowJobs: () => [job],
+            getEarlierRecoverableGenerationWorkflowJob: () => undefined,
+            markGenerationMaterialized: vi.fn(() => true),
+            readGenerationJobRaw: vi.fn(() => Buffer.alloc(10)),
+            updateGenerationWorkflowStep: vi.fn(),
+        }
+        const publishCurrent = vi.fn(async () => true)
+        const service = createRevenantMaterializer({
+            repository,
+            canonicalChatService: {
+                commitGenerationResult: vi.fn(async () => {
+                    throw Object.assign(new Error('target changed'), {
+                        httpStatus: 409,
+                        conflicts: ['/message/original-message'],
+                    })
+                }),
+                publishCurrent,
+            },
+        })
+
+        await expect(service.materializeCancellation('workflow-1')).resolves.toEqual({
+            success: true,
+            discarded: true,
+        })
+        expect(repository.markGenerationMaterialized).toHaveBeenCalledWith('job-1')
+        expect(publishCurrent).toHaveBeenCalledWith(
+            'character-1',
+            'room-1',
+            'generation-cancelled-discarded',
+        )
+    })
 })

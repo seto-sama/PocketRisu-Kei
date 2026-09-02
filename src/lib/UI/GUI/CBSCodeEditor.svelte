@@ -33,6 +33,7 @@
     import { createRawSnippet, mount, onDestroy, onMount, unmount, type Component } from 'svelte'
     import IconButton from './IconButton.svelte'
     import { getCBSCompletionEntries } from 'src/ts/cbs'
+    import { layerZIndexes } from 'src/ts/gui/layers'
     import { getCBSHighlightRanges, type HighlightType } from 'src/ts/gui/highlight'
     import { language } from 'src/lang'
 
@@ -350,7 +351,7 @@
             top: '0.375rem !important',
             right: '0.375rem',
             left: 'auto',
-            zIndex: '20',
+            zIndex: layerZIndexes.localPopover,
             width: 'min(22rem, calc(100% - 0.75rem))',
             overflow: 'hidden',
             border: '1px solid var(--risu-theme-darkborderc)',

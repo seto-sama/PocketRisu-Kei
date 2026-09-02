@@ -80,6 +80,9 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
         headers[VERTEX_REQUEST_TYPE_HEADER] = 'shared'
     }
 
+    if (ctx.generatedBodyDefaults) {
+        Object.assign(body, structuredClone(ctx.generatedBodyDefaults))
+    }
     if (ctx.preset.customBody) {
         Object.assign(body, structuredClone(ctx.preset.customBody))
     }

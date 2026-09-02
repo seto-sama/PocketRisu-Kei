@@ -12,7 +12,7 @@
 <Portal>
 {#if isExpanded}
   <div
-    class="absolute w-full h-full z-40 flex justify-center items-center pointer-events-none"
+    class="risu-layer-dialog-base absolute w-full h-full flex justify-center items-center pointer-events-none"
   >
     <button
       class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl max-h-full overflow-y-auto transition-opacity duration-300 pointer-events-auto"
@@ -36,7 +36,7 @@
   </div>
 {:else}
   <button
-    class="fixed top-4 right-4 z-40 bg-darkbg p-2 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center"
+    class="risu-layer-dialog-base fixed top-4 right-4 bg-darkbg p-2 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center"
     type="button"
     style="opacity: 0.8;"
     onclick={toggleExpand}

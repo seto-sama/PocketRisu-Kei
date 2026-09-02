@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, tick, unmount } from 'svelte'
 import ShDialog from './ShDialog.svelte'
+import { dialogLayerClasses, type DialogLayerTier } from 'src/ts/gui/layers'
 
 const mounted: unknown[] = []
 
@@ -12,6 +13,19 @@ afterEach(async () => {
 })
 
 describe('ShDialog close requests', () => {
+    it.each<DialogLayerTier>(['base', 'alert', 'top'])('uses the shared %s dialog layer', async (tier) => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(ShDialog, {
+            target,
+            props: { open: true, tier },
+        })
+        mounted.push(component)
+        await tick()
+
+        expect(document.querySelector('[role="dialog"]')?.classList.contains(dialogLayerClasses[tier])).toBe(true)
+    })
+
     it('intercepts Escape and the close button without closing the dialog', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)

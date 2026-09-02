@@ -74,6 +74,13 @@ describe('openRevenantJournalSocket', () => {
         expect(FakeWebSocket.instances[0].url).toContain('recovery=1&offset=0')
     })
 
+    it('starts a live tail at the supplied snapshot offset', () => {
+        openRevenantJournalSocket({
+            jobId: 'job-caught-up', auth: 'auth', recovery: true, initialOffset: 42,
+        })
+        expect(FakeWebSocket.instances[0].url).toContain('offset=42')
+    })
+
     it('detaches a cancelled reader without cancelling the server job', async () => {
         const onDetached = vi.fn()
         const onCancelRequested = vi.fn()

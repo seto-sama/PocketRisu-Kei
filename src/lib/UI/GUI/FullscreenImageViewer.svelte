@@ -73,6 +73,12 @@
             onClose()
         }
     }
+
+    function handleBackdropClick(event: MouseEvent) {
+        if(event.target === event.currentTarget){
+            onClose()
+        }
+    }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -80,7 +86,7 @@
 {#if open}
     <Portal>
     <!-- Base tier keeps blocking alerts such as delete confirmation above the viewer. -->
-    <div class="fixed inset-0 z-40 flex overflow-hidden bg-bgcolor text-textcolor">
+    <div class="risu-layer-dialog-base fixed inset-0 flex overflow-hidden bg-bgcolor text-textcolor">
         <div class="relative flex flex-1 min-w-0 items-center justify-center overflow-hidden">
             <div class="absolute top-0 inset-x-0 z-10 flex items-center gap-3 px-4 py-3 bg-gradient-to-b from-darkbg/90 to-transparent pointer-events-none">
                 <div class="flex-1 min-w-0">
@@ -133,6 +139,8 @@
 
             <div
                 class="w-full h-full flex items-center justify-center px-16 py-14"
+                role="presentation"
+                onclick={handleBackdropClick}
             >
                 {#if loading}
                     <div class="flex flex-col items-center gap-4">

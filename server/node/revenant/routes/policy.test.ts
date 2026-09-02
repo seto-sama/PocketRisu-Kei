@@ -7,6 +7,7 @@ const {
     findReusableActiveMainJob,
     hasRegisteredMainJob,
     isUnregisteredWorkflowExpired,
+    shouldSupersedeFailedActiveWorkflow,
 } = require('./policy.cjs') as {
     UNREGISTERED_WORKFLOW_TIMEOUT_MS: number
     findReusableActiveMainJob: (
@@ -18,6 +19,10 @@ const {
         workflow: { createdAt: number },
         jobs: Array<Record<string, unknown>>,
         now?: number,
+    ) => boolean
+    shouldSupersedeFailedActiveWorkflow: (
+        workflow: { steps: Array<Record<string, unknown>> },
+        jobs: Array<Record<string, unknown>>,
     ) => boolean
 }
 
@@ -68,5 +73,22 @@ describe('generation route main-job race recovery', () => {
             registered,
             createdAt + UNREGISTERED_WORKFLOW_TIMEOUT_MS,
         )).toBe(false)
+    })
+
+    it('supersedes only failed workflows with no live main request', () => {
+        const failed = {
+            steps: [{ key: 'message.materialize', status: 'failed' }],
+        }
+        expect(shouldSupersedeFailedActiveWorkflow(failed, [
+            { jobType: 'model', status: 'generated' },
+        ])).toBe(true)
+        expect(shouldSupersedeFailedActiveWorkflow(failed, [
+            { jobType: 'model', status: 'generating' },
+        ])).toBe(false)
+        expect(shouldSupersedeFailedActiveWorkflow({
+            steps: [{ key: 'message.materialize', status: 'pending' }],
+        }, [
+            { jobType: 'model', status: 'generated' },
+        ])).toBe(false)
     })
 })

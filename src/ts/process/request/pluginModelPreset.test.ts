@@ -124,6 +124,17 @@ describe('plugin-backed ModelPreset dispatch', () => {
         expect(modelPresetRequestFailurePolicy(
             new ModelPresetAdapterError('server', 'temporarily unavailable', { status: 503 }),
         )).toEqual({ noRetry: false, failByServerError: true })
+
+        expect(modelPresetRequestFailurePolicy(
+            new ModelPresetAdapterError('server', 'bad gateway', { status: 502 }),
+        )).toEqual({ noRetry: false, failByServerError: false })
+
+        expect(modelPresetRequestFailurePolicy(
+            new ModelPresetAdapterError('rate-limit', 'slow down', {
+                status: 429,
+                retryAfterMs: 4_000,
+            }),
+        )).toEqual({ noRetry: false, failByServerError: true, retryAfterMs: 4_000 })
     })
 
     test('calls the registered addProvider function with preset-scoped parameters', async () => {

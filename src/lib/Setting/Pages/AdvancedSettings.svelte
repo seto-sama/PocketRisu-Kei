@@ -12,7 +12,6 @@
         'adv.genTime',
         'adv.sayNothing',
         'adv.autoFill',
-        'adv.antiOverload',
         'adv.exp.cachePoint',
         'adv.toolUsage',
         'adv.simpleTool',

@@ -292,6 +292,9 @@ function createCanonicalChatService(options) {
                 throw new CanonicalChatCommitError(
                     409,
                     error instanceof Error ? error.message : String(error),
+                    error instanceof ChatResultMergeConflict
+                        ? { conflicts: error.paths }
+                        : undefined,
                 );
             }
             return commitCandidate({

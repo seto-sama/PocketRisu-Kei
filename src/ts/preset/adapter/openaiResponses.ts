@@ -94,11 +94,18 @@ async function prepareResponsesBody(
     credential: AdapterCredential | undefined,
     stream: boolean,
 ): Promise<AdapterPreparedRequest> {
-    const prepared = await prepareAdapterRequest({ preset, credential, abortSignal: options.abortSignal })
-    applyOpenAiApiModeEndpoint(preset, prepared)
-    normalizeOpenAiResponsesBodyForMode(preset, prepared.body)
     const modelId = resolveWireModelId(preset, { vendorName: 'OpenAI Responses' })
     const supportsPromptCacheBreakpoints = modelId.startsWith('gpt-5.6')
+    const prepared = await prepareAdapterRequest({
+        preset,
+        credential,
+        abortSignal: options.abortSignal,
+        generatedBodyDefaults: supportsPromptCacheBreakpoints && options.promptCacheKey
+            ? { prompt_cache_key: options.promptCacheKey }
+            : undefined,
+    })
+    applyOpenAiApiModeEndpoint(preset, prepared)
+    normalizeOpenAiResponsesBodyForMode(preset, prepared.body)
     const imageDetail = resolveImageDetail(preset)
     prepared.body.model = modelId
     prepared.body.input = options.messages.flatMap(

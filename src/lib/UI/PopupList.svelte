@@ -37,7 +37,7 @@
 
 {#if popupStore.children}
     <Portal>
-    <div class="bg-darkbg border-darkborderc border rounded-md p-4 gap-2 flex flex-col fixed z-50 items-start" style={styleString}>
+    <div class="risu-layer-system-popover bg-darkbg border-darkborderc border rounded-md p-4 gap-2 flex flex-col fixed items-start" style={styleString}>
         {@render popupStore.children()}
     </div>
     </Portal>

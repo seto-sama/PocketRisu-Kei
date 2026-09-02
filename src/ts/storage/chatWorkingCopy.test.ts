@@ -18,6 +18,7 @@ import {
     isChatAwaitingGenerationCanonical,
     observeChatGenerationProjection,
     resolveChatGenerationCanonical,
+    shouldPersistTrackedChat,
 } from './chatWorkingCopy'
 
 describe('chat working copies', () => {
@@ -54,6 +55,19 @@ describe('chat working copies', () => {
         expect(latest.expectedEtag).toBe('first-commit-etag')
         acknowledgeChatCommit(latest)
         expect(listDirtyChatWorkingCopies()).toEqual([])
+    })
+
+    it('does not persist a clean streaming projection from a stale save marker', () => {
+        const projection = { id: 'room', message: [], isStreaming: true } as any
+
+        expect(shouldPersistTrackedChat('character', projection)).toBe(false)
+
+        markChatWorkingCopyDirty('character', 'room', 'base-etag')
+        expect(shouldPersistTrackedChat('character', projection)).toBe(true)
+        expect(shouldPersistTrackedChat('character', {
+            ...projection,
+            isStreaming: false,
+        })).toBe(true)
     })
 
     it('does not discard an unrelated dirty edit when a server projection is observed', () => {

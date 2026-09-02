@@ -6,7 +6,7 @@ import { nodeOnlyVer, type MessageGenerationInfo } from "./storage/database.svel
 import { alertStore as alertStoreImported, togglePresetsOpenStore } from "./stores.svelte"
 import { addLog } from "./log"
 import { nativeConsoleError } from "./log-capture"
-import type { ShButtonVariant } from "../lib/UI/GUI/ShButton.svelte"
+import type { ShButtonVariant } from "../lib/UI/GUI/ShButton.types"
 
 /**
  * Action descriptor for dialog buttons. Reusable across any alert type

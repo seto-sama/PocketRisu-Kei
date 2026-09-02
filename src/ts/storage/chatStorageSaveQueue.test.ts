@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const storage = vi.hoisted(() => {
     let etag: string | undefined
@@ -7,6 +7,11 @@ const storage = vi.hoisted(() => {
     return {
         calls,
         releases,
+        reset() {
+            calls.length = 0
+            releases.length = 0
+            etag = undefined
+        },
         realStorage: {
             saveChatContent: vi.fn(async (
                 _characterId: string,
@@ -27,7 +32,17 @@ const storage = vi.hoisted(() => {
 vi.mock('./autoStorage', () => ({ forageStorage: { realStorage: storage.realStorage } }))
 vi.mock('./database.svelte', () => ({ isChatStub: () => false }))
 
-const { saveChatToServer } = await import('./chatStorage')
+const { flushDirtyChatToServer, saveChatToServer } = await import('./chatStorage')
+const {
+    discardAllChatWorkingCopies,
+    isChatWorkingCopyDirty,
+    markChatWorkingCopyDirty,
+} = await import('./chatWorkingCopy')
+
+beforeEach(() => {
+    storage.reset()
+    discardAllChatWorkingCopies()
+})
 
 describe('chat save serialization', () => {
     it('queues an immediate follow-up edit until creation acknowledges its ETag', async () => {
@@ -51,5 +66,27 @@ describe('chat save serialization', () => {
 
         storage.releases.shift()?.()
         await edit
+    })
+
+    it('settles a dirty edit before reroll can install its live projection', async () => {
+        const chat = {
+            id: 'room',
+            message: [{ role: 'char', data: 'edited answer' }],
+        } as any
+        markChatWorkingCopyDirty('character', chat.id, 'base-etag')
+
+        const flush = flushDirtyChatToServer('character', 0, chat)
+        await vi.waitFor(() => expect(storage.calls).toEqual([
+            { expectedEtag: 'base-etag', data: 'edited answer' },
+        ]))
+        storage.releases.shift()?.()
+
+        await expect(flush).resolves.toBe(true)
+        expect(isChatWorkingCopyDirty('character', chat.id)).toBe(false)
+
+        chat.isStreaming = true
+        chat.message[0].data = ''
+        await expect(flushDirtyChatToServer('character', 0, chat)).resolves.toBe(false)
+        expect(storage.calls).toHaveLength(1)
     })
 })

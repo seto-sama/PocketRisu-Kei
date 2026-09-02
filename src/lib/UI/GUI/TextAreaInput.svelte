@@ -1,5 +1,5 @@
 <div
-    class={"risu-field-border relative flex flex-col n-scroll rounded-md shadow-xs text-textcolor focus-within:outline-hidden z-20 focus-within:z-40"
+    class={"risu-field-border risu-local-stack risu-local-stack-focus relative flex flex-col n-scroll rounded-md shadow-xs text-textcolor focus-within:outline-hidden"
         + (margin === 'top' ? ' mt-4' : margin === 'bottom' ? ' mb-4' : margin === 'both' ? ' mt-2 mb-2' : '')
         + ((className) ? (' ' + className) : '')}
     class:text-sm={size === 'sm' || (size === 'default' && $textAreaTextSize === 1)}
@@ -40,7 +40,7 @@
     <div class="relative flex-1 min-h-0 w-full">
     {#if !highlight || $disableHighlight}
         <textarea
-            class="w-full h-full bg-transparent resize-none absolute top-0 left-0 z-50 {autoResize ? 'overflow-y-hidden' : 'overflow-y-auto'} {contentClassName}"
+            class="risu-layer-local-content w-full h-full bg-transparent resize-none absolute top-0 left-0 {autoResize ? 'overflow-y-hidden' : 'overflow-y-auto'} {contentClassName}"
             class:px-4={padding}
             class:py-2={padding}
             {autocomplete}
@@ -85,7 +85,7 @@
 ></textarea>
 {:else}
     <div
-        class="w-full h-full bg-transparent resize-none absolute top-0 left-0 z-50 {autoResize ? 'overflow-y-hidden' : 'overflow-y-auto'} px-4 py-2 wrap-break-word whitespace-pre-wrap {contentClassName}"
+        class="risu-layer-local-content w-full h-full bg-transparent resize-none absolute top-0 left-0 {autoResize ? 'overflow-y-hidden' : 'overflow-y-auto'} px-4 py-2 wrap-break-word whitespace-pre-wrap {contentClassName}"
         contenteditable="true"
         bind:textContent={value}
         onkeydown={(e) => {
@@ -115,7 +115,7 @@
 {/if}
     </div>
     {#if showActionBar}
-        <IconButtonGroup size="sm" className="absolute bottom-0 right-0 z-60 px-1.5 py-1">
+        <IconButtonGroup size="sm" className="risu-layer-local-control absolute bottom-0 right-0 px-1.5 py-1">
             <IconButton title={language.copy} aria-label={language.copy} onclick={copyValue}>
                 {#if copied}
                     <CheckIcon class="text-success" />
@@ -135,7 +135,7 @@
             {/if}
         </IconButtonGroup>
     {/if}
-    <div class="hidden absolute z-100 bg-bgcolor border border-darkborderc p-2 flex-col" bind:this={autoCompleteDom}>
+    <div class="risu-layer-local-popover hidden absolute bg-bgcolor border border-darkborderc p-2 flex-col" bind:this={autoCompleteDom}>
         {#each autocompleteContents as content, i}
             <button class="w-full text-left py-1 px-2 bg-bgcolor" class:text-blue-500={selectingAutoComplete === i} onclick={() => {
                 insertContent(content)
