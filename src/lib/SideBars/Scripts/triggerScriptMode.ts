@@ -9,3 +9,10 @@ export function getTriggerScriptMode(value: triggerscript[] | null | undefined):
     if (firstEffectType === 'triggercode') return 'v1code';
     return 'v1';
 }
+
+export function getDisplayedTriggerScriptMode(
+    value: triggerscript[] | null | undefined,
+): Exclude<TriggerScriptMode, 'v1'> {
+    const mode = getTriggerScriptMode(value)
+    return mode === 'v1' ? 'v2' : mode
+}

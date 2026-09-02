@@ -111,10 +111,6 @@ export const advancedSettingsItems: SettingItem[] = [
 
     // Unrecommended Extra
     {
-        id: 'adv.depTrig', type: 'check', labelKey: 'showDeprecatedTriggerV1', bindKey: 'showDeprecatedTriggerV1',
-        helpKey: 'unrecommendedTriggerV1', helpUnrecommended: true
-    },
-    {
         id: 'adv.depTrigV2', type: 'check', labelKey: 'showDeprecatedTriggerV2', bindKey: 'showDeprecatedTriggerV2',
         helpKey: 'unrecommendedTriggerV2', helpUnrecommended: true
     },

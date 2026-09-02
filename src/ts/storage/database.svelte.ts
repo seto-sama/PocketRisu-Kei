@@ -1518,7 +1518,6 @@ export interface Database{
     bulkEnabling:boolean
     showTranslationLoading: boolean
     showPreviousChatSwipeButtons: boolean
-    showDeprecatedTriggerV1:boolean
     showDeprecatedTriggerV2:boolean
     returnCSSError:boolean
     checkCorruption?: boolean
