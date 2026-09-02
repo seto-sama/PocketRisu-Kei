@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Waypoints } from "@lucide/svelte";
+    import { WaypointsIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
@@ -182,7 +182,7 @@
         {:else}
             <div class="min-w-0 grow flex items-center gap-2">
                 {#if rmodule.mcp}
-                    <Waypoints size={18} class="shrink-0 text-textcolor2" />
+                    <WaypointsIcon size={18} class="shrink-0 text-textcolor2" />
                 {/if}
                 <div class="min-w-0 grow truncate">
                     <span class:isModuleGlobal={isGlobal(rmodule.id)}>{rmodule.name}</span>

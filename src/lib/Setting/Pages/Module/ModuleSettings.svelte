@@ -9,7 +9,7 @@
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
     import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
-    import { BotIcon, DownloadIcon, FolderCogIcon, TrashIcon, Globe, PlusIcon, HardDriveUpload, Waypoints } from "@lucide/svelte";
+    import { BotIcon, DownloadIcon, FolderCogIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
@@ -33,7 +33,6 @@
         id: v4(),
     })
     let mode = $state(0)
-    let editModuleIndex = $state(-1)
     let moduleSearch = $state('')
     let modelBindingMode = $state(false)
     let moduleFolderManagementOpen = $state(false)
@@ -257,11 +256,16 @@
         notifySuccess(language.moduleDeleted)
     }
 
-    function editModule(rmodule: RisuModule, index: number) {
+    function editModule(rmodule: RisuModule) {
         if (rmodule.mcp) return
         tempModule = rmodule
-        editModuleIndex = index
         mode = 2
+    }
+
+    function finishEditingModule() {
+        refreshModules()
+        void requestImmediateSave()
+        mode = 0
     }
 
     function builtInMCPLabel(id:BuiltInMCPId):string {
@@ -313,7 +317,7 @@
                 aria-label={language.importModule}
                 onclick={() => { void importModule() }}
             >
-                <HardDriveUpload />
+                <UploadIcon />
             </IconButton>
             <IconButton
                 className={modelBindingMode ? 'text-primary' : 'text-textcolor2'}
@@ -334,7 +338,7 @@
             </IconButton>
         {:else}
             <IconButton title={language.mcpImport.title} onclick={openMCPImportDialog}>
-                <Waypoints />
+                <WaypointsIcon />
             </IconButton>
         {/if}
         </IconButtonGroup>
@@ -358,17 +362,17 @@
                     class={`mt-2 flex ${modelBindingMode ? 'flex-wrap' : ''} items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing`}
                     role="button"
                     tabindex="0"
-                    onclick={() => editModule(rmodule, index)}
+                    onclick={() => editModule(rmodule)}
                     onkeydown={(event) => {
                         if (event.key !== 'Enter' && event.key !== ' ') return
                         event.preventDefault()
-                        editModule(rmodule, index)
+                        editModule(rmodule)
                     }}
                 >
                     <div class={`flex flex-col min-w-0 grow ${modelBindingMode ? 'basis-full sm:basis-0' : ''}`}>
                         <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
                             {#if rmodule.mcp}
-                                <Waypoints size={16} class="shrink-0 text-textcolor2" />
+                                <WaypointsIcon size={16} class="shrink-0 text-textcolor2" />
                             {/if}
                             <span class="truncate">{rmodule.name}</span>
                         </span>
@@ -406,7 +410,7 @@
                                 DBState.db.enabledModules = DBState.db.enabledModules
                             }}
                             >
-                                <Globe />
+                                <GlobeIcon />
                             </IconButton>
                             {#if !rmodule.mcp}
                                 <IconButton title={language.download} onclick={(e) => {
@@ -511,20 +515,36 @@
     </SettingPage>
 {:else if mode === 2}
     <SettingPage title={language.editModule}>
+    {#snippet control()}
+        <IconButtonGroup size="xl">
+            {#if tempModule.name !== ''}
+                <IconButton
+                    className="text-textcolor2"
+                    title={language.convertToCharacter}
+                    aria-label={language.convertToCharacter}
+                    onclick={async () => {
+                        if (!await alertConfirm(language.convertModuleToCharacterConfirm.replace('{}', tempModule.name))) return
+                        const char = convertModuleToCharacter(tempModule)
+                        DBState.db.characters.push(char)
+                        checkCharOrder()
+                        void requestImmediateSave()
+                        notifySuccess(language.successfullyConverted)
+                    }}
+                >
+                    <UserRoundIcon />
+                </IconButton>
+            {/if}
+            <IconButton
+                className="text-textcolor2"
+                title={language.backToList}
+                aria-label={language.backToList}
+                onclick={finishEditingModule}
+            >
+                <Undo2Icon />
+            </IconButton>
+        </IconButtonGroup>
+    {/snippet}
     <ModuleMenu bind:currentModule={tempModule}/>
-    {#if tempModule.name !== ''}
-        <ShButton className="mt-6" onclick={() => {
-            DBState.db.modules[editModuleIndex] = tempModule
-            notifySuccess(language.moduleUpdated)
-            mode = 0
-        }}>{language.editModule}</ShButton>
-        <ShButton className="mt-2" onclick={() => {
-            const char = convertModuleToCharacter(tempModule)
-            DBState.db.characters.push(char)
-            checkCharOrder()
-            notifySuccess(language.successfullyConverted)
-        }}>{language.convertToCharacter}</ShButton>
-    {/if}
     </SettingPage>
 {/if}
 

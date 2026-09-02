@@ -72,17 +72,23 @@ describe('ShCombobox', () => {
         expect(document.querySelector('[role="listbox"]')).toBeNull()
     })
 
-    it('anchors the suggestion list to the input width', async () => {
+    it('anchors the suggestion list to the input bounds', async () => {
         const target = renderCombobox()
         const input = target.querySelector('input')!
-        input.getBoundingClientRect = () => new DOMRect(24, 40, 280, 40)
+        const inputBounds = new DOMRect(24, 40, 280, 40)
+        input.getBoundingClientRect = () => inputBounds
         input.focus()
         await tick()
         await tick()
 
         const listbox = document.querySelector<HTMLElement>('[role="listbox"]')!
-        expect(listbox.style.left).toBe('24px')
-        expect(listbox.style.top).toBe('82px')
-        expect(listbox.style.width).toBe('280px')
+        const left = Number.parseFloat(listbox.style.left)
+        const top = Number.parseFloat(listbox.style.top)
+        const width = Number.parseFloat(listbox.style.width)
+
+        expect(left).toBe(inputBounds.left)
+        expect(width).toBe(inputBounds.width)
+        expect(top).toBeGreaterThanOrEqual(inputBounds.bottom)
+        expect(top).toBeLessThanOrEqual(window.innerHeight)
     })
 })

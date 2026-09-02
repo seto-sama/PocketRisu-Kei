@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { TriangleAlert, FlaskConicalIcon, CircleQuestionMarkIcon } from "@lucide/svelte";
+    import { TriangleAlertIcon, FlaskConicalIcon, CircleQuestionMarkIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { parseMarkdownSafe } from "src/ts/parser/parser.svelte";
     import ShTooltip from "src/lib/UI/GUI/ShTooltip.svelte";
@@ -30,7 +30,7 @@
                 </span>
             {:else if unrecommended}
                 <span class="text-draculared risu-interactive-accent">
-                    <TriangleAlert size={12} />
+                    <TriangleAlertIcon size={12} />
                 </span>
             {:else}
                 <CircleQuestionMarkIcon size={12} />

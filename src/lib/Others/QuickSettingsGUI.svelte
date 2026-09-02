@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { PackageIcon, Sailboat } from "@lucide/svelte";
+    import { PackageIcon, SailboatIcon } from "@lucide/svelte";
     import { QuickSettings } from "src/ts/stores.svelte";
     import OtherBotSettings from "../Setting/Pages/OtherBotSettings.svelte";
     import AddonSettings from "../Setting/Pages/AddonSettings.svelte";
@@ -15,7 +15,7 @@
         title={language.otherBots}
         onclick={() => QuickSettings.index = 0}
     >
-        <Sailboat />
+        <SailboatIcon />
     </IconButton>
     <IconButton
         active={QuickSettings.index === 1}

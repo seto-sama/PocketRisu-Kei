@@ -3,7 +3,7 @@
     import { language } from "src/lang";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     import { alertConfirm, alertMd, notifySuccess } from "src/ts/alert";
-    import { TriangleAlert } from '@lucide/svelte';
+    import { TriangleAlertIcon } from '@lucide/svelte';
 
     import { DBState, showPopupEditor } from "src/ts/stores.svelte";
     import { checkPluginUpdate, createBlankPlugin, getBlankPluginSource, importPlugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
@@ -19,6 +19,7 @@
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
     import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import { removePluginSidebarMenuItems } from "src/ts/sidebarMenuOrder";
 
     let showParams = $state<string[]>([])
     let pluginSearch = $state('')
@@ -179,7 +180,7 @@
                     e.stopPropagation()
                     alertMd(language.pluginV2Warning);
                 }} >
-                    <TriangleAlert />
+                    <TriangleAlertIcon />
                 </IconButton>
             {/if}
 
@@ -295,6 +296,7 @@
                             (plugin.displayName ?? plugin.name),
                     );
                     if (v) {
+                        removePluginSidebarMenuItems(DBState.db, plugin.name)
                         if (DBState.db.currentPluginProvider === plugin.name) {
                             DBState.db.currentPluginProvider = "";
                         }

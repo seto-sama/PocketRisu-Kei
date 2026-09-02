@@ -96,7 +96,7 @@
             {/if}
             {#if !readonly}
                 <IconButton title="Popup Editor" aria-label="Popup Editor" onclick={openPopupEditor}>
-                    <Maximize2 />
+                    <Maximize2Icon />
                 </IconButton>
             {/if}
         </IconButtonGroup>
@@ -112,7 +112,7 @@
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
     import { onDestroy, tick } from 'svelte';
   import { DBState, showPopupEditor } from 'src/ts/stores.svelte';
-    import { Maximize2, CopyIcon, CheckIcon, RefreshCwIcon } from '@lucide/svelte'
+    import { Maximize2Icon, CopyIcon, CheckIcon, RefreshCwIcon } from '@lucide/svelte'
     import { alertConfirm } from 'src/ts/alert'
     import { isSecureContext } from 'src/ts/secureContext'
     import { language } from 'src/lang'

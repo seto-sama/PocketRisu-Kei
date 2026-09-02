@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { TrashIcon, LinkIcon, SunIcon, MoonIcon, BookCopyIcon, FolderIcon, FolderOpen, PlusIcon } from "@lucide/svelte";
+    import { TrashIcon, LinkIcon, SunIcon, MoonIcon, BookCopyIcon, FolderIcon, FolderOpenIcon, PlusIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { language } from "../../../lang";
     import { getCurrentCharacter, getCurrentChat, type loreBook } from "../../../ts/storage/database.svelte";
@@ -170,7 +170,7 @@
         {:else}
             {#if value.mode === 'folder'}
                 {#if open}
-                    <FolderOpen size={itemIconSize} class="mr-2 shrink-0" />
+                    <FolderOpenIcon size={itemIconSize} class="mr-2 shrink-0" />
                 {:else}
                     <FolderIcon size={itemIconSize} class="mr-2 shrink-0" />
                 {/if}

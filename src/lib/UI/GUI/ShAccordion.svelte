@@ -9,7 +9,7 @@
 </script>
 
 <script lang="ts">
-    import { ChevronDown } from '@lucide/svelte';
+    import { ChevronDownIcon } from '@lucide/svelte';
     import { cn } from 'src/lib/utils';
     import type { Snippet } from 'svelte';
 
@@ -79,7 +79,7 @@
                     <span class="truncate">{name}</span>
                 {/if}
             </span>
-            <ChevronDown
+            <ChevronDownIcon
                 size={16}
                 class={cn(
                     'shrink-0 transition-transform duration-150',

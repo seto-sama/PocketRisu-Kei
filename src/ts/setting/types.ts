@@ -38,7 +38,7 @@ export type SettingType =
     | 'textarea'   // Multiline text (TextAreaInput)
     | 'slider'     // Slider (SliderInput)
     | 'select'     // Dropdown (SelectInput)
-    | 'radio'      // Vertical radio group (ShRadio)
+    | 'radio'      // Vertical single-choice group (ShChoiceGroup)
     | 'segmented'  // Sliding segmented control (SegmentedControl)
     | 'color'      // Color picker (ColorInput)
     | 'header'     // Section header (h2, span, warning)

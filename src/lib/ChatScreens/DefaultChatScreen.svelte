@@ -1,6 +1,6 @@
 <script lang="ts">
 
-    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, ZapIcon, Maximize2, Minimize2, WandSparklesIcon } from "@lucide/svelte";
+    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, LaughIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, StepForwardIcon, XIcon, BrainIcon, ArrowDownIcon, ZapIcon, Maximize2Icon, Minimize2Icon, WandSparklesIcon } from "@lucide/svelte";
     import ShDropdownMenu from 'src/lib/UI/GUI/ShDropdownMenu.svelte';
     import ShDropdownMenuTrigger from 'src/lib/UI/GUI/ShDropdownMenuTrigger.svelte';
     import ShDropdownMenuContent from 'src/lib/UI/GUI/ShDropdownMenuContent.svelte';
@@ -106,6 +106,8 @@ import { isMobile } from 'src/ts/platform'
     let chatScreenRoot: HTMLDivElement | null = $state(null)
     let composerHeight = $state(0)
     let composerToolbarOffset = $state(0)
+    let fixedComposerLeft = $state(0)
+    let fixedComposerWidth = $state(0)
     let chatScrollController: ChatScrollController | null = null
     let isScrollingToMessage = $state(false)
     let historyLoadInFlight = false
@@ -138,6 +140,66 @@ import { isMobile } from 'src/ts/platform'
             destroy() {
                 resizeObserver?.disconnect()
                 window.removeEventListener('resize', update)
+            },
+        }
+    }
+
+    function trackFixedComposerBounds(node: HTMLElement, enabled: boolean) {
+        const update = () => {
+            const bounds = node.getBoundingClientRect()
+            if (bounds.left !== fixedComposerLeft) fixedComposerLeft = bounds.left
+            if (bounds.width !== fixedComposerWidth) fixedComposerWidth = bounds.width
+        }
+        const observedElements: Element[] = []
+        for (let current: Element | null = node; current; current = current.parentElement) {
+            observedElements.push(current)
+        }
+        let resizeObserver: ResizeObserver | null = null
+        let tracking = false
+
+        const start = () => {
+            if (tracking) return
+            tracking = true
+            if (typeof ResizeObserver === 'undefined') {
+                window.addEventListener('resize', update)
+            }
+            else {
+                const observedWidths = new WeakMap<Element, number>()
+                resizeObserver = new ResizeObserver((entries) => {
+                    let horizontalLayoutChanged = false
+                    for (const entry of entries) {
+                        const width = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width
+                        if (observedWidths.get(entry.target) !== width) {
+                            observedWidths.set(entry.target, width)
+                            horizontalLayoutChanged = true
+                        }
+                    }
+                    if (horizontalLayoutChanged) update()
+                })
+                for (const element of observedElements) {
+                    observedWidths.set(element, element.getBoundingClientRect().width)
+                    resizeObserver.observe(element)
+                }
+            }
+            update()
+        }
+        const stop = () => {
+            if (!tracking) return
+            tracking = false
+            resizeObserver?.disconnect()
+            resizeObserver = null
+            window.removeEventListener('resize', update)
+        }
+
+        if (enabled) start()
+
+        return {
+            update(nextEnabled: boolean) {
+                if (nextEnabled) start()
+                else stop()
+            },
+            destroy() {
+                stop()
             },
         }
     }
@@ -1233,8 +1295,8 @@ import { isMobile } from 'src/ts/platform'
 
 <div
     class="w-full h-full relative"
-    class:nodeonly-standard-root={DBState.db.theme === ''}
     style={customStyle}
+    use:trackFixedComposerBounds={DBState.db.fixedChatTextarea}
 >
     {#if currentCharacter?.type === 'character'}
         <ImageGenerationDialog
@@ -1290,41 +1352,41 @@ import { isMobile } from 'src/ts/platform'
     {#if showNewMessageButton && DBState.db.newMessageButtonStyle !== 'off'}
         {#if (DBState.db.newMessageButtonStyle === 'bottom-center' || !DBState.db.newMessageButtonStyle)}
             <button class="risu-layer-chrome absolute bottom-16 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
-                <ArrowDown size={16} />
+                <ArrowDownIcon size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-right'}
             <button class="risu-layer-chrome absolute bottom-20 right-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
-                <ArrowDown size={16} />
+                <ArrowDownIcon size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-left'}
             <button class="risu-layer-chrome absolute bottom-20 left-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
-                <ArrowDown size={16} />
+                <ArrowDownIcon size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'floating-circle'}
             <button class="risu-layer-chrome absolute bottom-36 right-4 bg-primary text-white w-12 h-12 rounded-full shadow-lg flex items-center justify-center risu-interactive-primary transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
-                <ArrowDown size={20} />
+                <ArrowDownIcon size={20} />
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'right-center'}
             <button class="risu-layer-chrome absolute top-1/2 right-2 -translate-y-1/2 bg-primary text-white px-2 py-3 rounded-l-lg shadow-lg flex flex-col items-center gap-1 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
-                <ArrowDown size={12} />
+                <ArrowDownIcon size={12} />
                 <span class="text-xs writing-mode-vertical">{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'top-bar'}
             <button class="risu-layer-chrome absolute top-2 left-1/2 -translate-x-1/2 bg-primary text-white px-6 py-1.5 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors text-sm" onclick={scrollToBottom}>
-                <ArrowDown size={12} />
+                <ArrowDownIcon size={12} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
@@ -1343,7 +1405,10 @@ import { isMobile } from 'src/ts/platform'
     {:else}
         {#snippet composerCluster()}
             <div
-                    class="{DBState.db.fixedChatTextarea ? 'chat-composer-fixed-layer absolute risu-layer-composer pt-2 pb-2 right-0 bottom-0 bg-bgcolor' : 'mt-2 mb-2'} w-full"
+                    class="{DBState.db.fixedChatTextarea ? 'chat-composer-fixed-layer fixed risu-layer-composer pt-2 pb-2 bottom-0 bg-bgcolor' : 'mt-2 mb-2'} w-full"
+                    class:nodeonly-standard-composer={DBState.db.fixedChatTextarea && DBState.db.theme === ''}
+                    style:left={DBState.db.fixedChatTextarea ? `${fixedComposerLeft}px` : undefined}
+                    style:width={DBState.db.fixedChatTextarea ? `${fixedComposerWidth}px` : undefined}
                     use:trackComposerMetrics
             >
               <div class="mx-auto w-full {composerWidthClass} px-2">
@@ -1425,7 +1490,7 @@ import { isMobile } from 'src/ts/platform'
                 {#if DBState.db.useChatSticker}
                     <button type="button" onclick={()=>{toggleStickers = !toggleStickers}}
                          class={"shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit risu-interactive-primary-soft transition-colors cursor-pointer "+(toggleStickers ? 'text-green-500':'text-textcolor')}>
-                        <Laugh />
+                        <LaughIcon />
                     </button>
                 {/if}
 
@@ -1500,7 +1565,7 @@ import { isMobile } from 'src/ts/platform'
                         class="composer-expand-btn order-1 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors"
                         class:ml-auto={multiline}
                 >
-                    <Maximize2 />
+                    <Maximize2Icon />
                 </button>
 
                 {#if currentRoomHasMainGeneration || doingChatInputTranslate}
@@ -1520,7 +1585,7 @@ import { isMobile } from 'src/ts/platform'
                         {#if willResend}
                             <RefreshCcwIcon />
                         {:else}
-                            <Send />
+                            <SendIcon />
                         {/if}
                     </button>
                 {/if}
@@ -1759,7 +1824,9 @@ import { isMobile } from 'src/ts/platform'
         </div>
 
         {#if DBState.db.fixedChatTextarea}
-            {@render composerCluster()}
+            <Portal>
+                {@render composerCluster()}
+            </Portal>
         {/if}
 
     {/if}
@@ -1787,7 +1854,7 @@ import { isMobile } from 'src/ts/platform'
                 <span class="text-textcolor text-sm">{language.chatInputExpandTitle}</span>
                 <button onclick={exitFullscreen} aria-label="minimize"
                         class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors">
-                    <Minimize2 size={18} />
+                    <Minimize2Icon size={18} />
                 </button>
             </div>
             <textarea
@@ -1800,7 +1867,7 @@ import { isMobile } from 'src/ts/platform'
             <div class="flex justify-end mt-3">
                 <button onclick={sendFullscreen} aria-label="send"
                         class="flex items-center gap-1 px-4 h-10 rounded-full bg-primary text-white hover:bg-primary/80 transition-colors">
-                    <Send size={18} />
+                    <SendIcon size={18} />
                     <span>{language.send}</span>
                 </button>
             </div>

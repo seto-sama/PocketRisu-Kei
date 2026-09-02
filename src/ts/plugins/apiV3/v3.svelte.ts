@@ -5,6 +5,7 @@ import { SafeLocalPluginStorage, tagWhitelist } from "../pluginSafeClass";
 import { recordOwner, removeOwner, clearOwners } from "../pluginStorageMeta";
 import DOMPurify from 'dompurify';
 import { additionalChatMenu, additionalFloatingActionButtons, additionalHamburgerMenu, additionalSettingsMenu, bodyIntercepterStore, chatPanelStore, DBState, selectedCharID, type MenuDef } from "src/ts/stores.svelte";
+import { automaticPluginSidebarMenuKey, pluginSidebarMenuKey, rememberPluginSidebarMenuItem, removeSidebarMenuKeys } from "src/ts/sidebarMenuOrder";
 import { v4 } from "uuid";
 import { sleep } from "src/ts/util";
 import { alertConfirm, alertError, alertNormal } from "src/ts/alert";
@@ -1234,12 +1235,25 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 throw new Error("icon must be a string");
             }
             const id = providedId || v4()
+            const sameNameHamburgerCount = location === 'hamburger'
+                ? additionalHamburgerMenu.filter((item) => item.pluginName === plugin.name && item.name === name).length
+                : 0
+            const sidebarKey = location === 'hamburger'
+                ? (providedId
+                    ? pluginSidebarMenuKey(providedId)
+                    : automaticPluginSidebarMenuKey(plugin.name, name, sameNameHamburgerCount))
+                : undefined
             const menuDef:MenuDef = {
                 name,
+                pluginName: plugin.name,
+                sidebarKey,
                 icon,
                 iconType,
                 callback,
                 id
+            }
+            const rememberSidebarMenuOwner = () => {
+                if (sidebarKey) rememberPluginSidebarMenuItem(DBState.db, sidebarKey, plugin.name)
             }
 
             const buttonStores = [additionalFloatingActionButtons, additionalHamburgerMenu, additionalChatMenu]
@@ -1247,6 +1261,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 const existingIndex = store.findIndex(item => item.id === id)
                 if(existingIndex !== -1){
                     store[existingIndex] = menuDef
+                    if(store === additionalHamburgerMenu) rememberSidebarMenuOwner()
                     addPluginUnloadCallback(
                         plugin.name,
                         makeMenuUnloadCallback(id, store)
@@ -1266,6 +1281,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 }
                 case 'hamburger':{
                     additionalHamburgerMenu.push(menuDef)
+                    rememberSidebarMenuOwner()
                     addPluginUnloadCallback(
                         plugin.name,
                         makeMenuUnloadCallback(menuDef.id, additionalHamburgerMenu)
@@ -1326,6 +1342,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         registerMCP: registerMCPModule,
         unregisterMCP: unregisterMCPModule,
         unregisterUIPart: (id: string) => {
+            const hamburgerMenu = additionalHamburgerMenu.find((item) => item.id === id)
             const removeFromMenuStore = (menuStore: MenuDef[]) => {
                 const index = menuStore.findIndex(item => item.id === id);
                 if(index !== -1){
@@ -1336,6 +1353,10 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             removeFromMenuStore(additionalSettingsMenu);
             removeFromMenuStore(additionalFloatingActionButtons);
             removeFromMenuStore(additionalHamburgerMenu);
+            if(hamburgerMenu) removeSidebarMenuKeys(
+                DBState.db,
+                [hamburgerMenu.sidebarKey ?? pluginSidebarMenuKey(hamburgerMenu.id)],
+            )
             removeFromMenuStore(additionalChatMenu);
             removeChatPanel(id);
         },

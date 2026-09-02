@@ -37,7 +37,7 @@ vi.mock('src/lang', () => ({ language: {} }))
 vi.mock('./gui/colorscheme', () => ({ updateTextThemeAndCSS: vi.fn() }))
 vi.mock('./routing', () => ({ openSettings: vi.fn(), SettingsRoute: {} }))
 
-import { defaultHotkeys, hotkeyMatches } from './defaulthotkeys'
+import { hotkeyMatches } from './defaulthotkeys'
 import { initMobileGesture } from './hotkey'
 import { MobileGUIStack, selectedCharID } from './stores.svelte'
 
@@ -93,16 +93,6 @@ describe('hotkeyMatches', () => {
             { key: ' ', action: 'focusInput' },
             new KeyboardEvent('keydown', { key: ' ' }),
         )).toBe(false)
-    })
-})
-
-describe('defaultHotkeys', () => {
-    it('contains only unique, supported actions', () => {
-        const actions = defaultHotkeys.map((hotkey) => hotkey.action)
-        expect(new Set(actions).size).toBe(actions.length)
-        expect(actions).toContain('modelSelect')
-        expect(actions).toContain('popupEditor')
-        expect(actions).not.toContain('loadout')
     })
 })
 

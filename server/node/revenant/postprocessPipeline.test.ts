@@ -39,8 +39,9 @@ function recipe() {
 
 describe('revenant terminal postprocess pipeline', () => {
     it('runs Lua editOutput and regex before adding the assistant draft', async () => {
+        const input = recipe()
         const result = await runRevenantOutputStage({
-            text: 'answer', recipe: recipe(),
+            text: 'answer', recipe: input,
             job: { completedAt: 123, generationInfo: { model: 'test' } },
             transformOutput: pipelinePkg.runRevenantOutputTransform,
         })
@@ -50,7 +51,7 @@ describe('revenant terminal postprocess pipeline', () => {
         expect(result.chat.message.at(-1)).toMatchObject({
             role: 'char', data: 'answer-final', chatId: 'message-1', time: 123,
         })
-        expect(recipe().chat.message).toHaveLength(1)
+        expect(input.chat.message).toHaveLength(1)
     })
 
     it('runs output Lua and output triggers after the transformed message exists', async () => {

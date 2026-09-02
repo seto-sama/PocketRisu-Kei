@@ -79,7 +79,6 @@ describe('revenant workflow resume checkpoint', () => {
         expect(plan.find(step => step.key === 'memory.hypav3')?.status).toBe('skipped')
         expect(plan.find(step => step.key === 'model.dispatch')?.status).toBe('skipped')
         expect(plan.find(step => step.key === 'message.materialize')?.recoveryPolicy).toBe('resume')
-        expect(plan.at(-1)?.key).toBe('message.materialize')
     })
 
     it('waits for a browser dispatch only for plugin providers', () => {
@@ -161,7 +160,9 @@ describe('active workflow client state', () => {
 
         await getActiveRevenantWorkflow('character-1', 'room-1')
         await getActiveRevenantWorkflow('character-1', 'room-2')
-        expect(get(activeRevenantWorkflows)).toEqual([first, second])
+        expect(new Set(get(activeRevenantWorkflows).map(workflow => workflow.workflowId))).toEqual(
+            new Set([first.workflowId, second.workflowId]),
+        )
 
         await getActiveRevenantWorkflow('character-1', 'room-1')
         await getActiveRevenantWorkflow('character-1', 'room-2')

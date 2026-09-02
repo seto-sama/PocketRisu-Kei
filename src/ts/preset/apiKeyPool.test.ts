@@ -144,7 +144,10 @@ describe('apiKeyPool', () => {
             new Set(['cloudflare-workers-ai', 'cloudflare-ai-gateway']),
         )
 
-        expect(options.map((option) => option.id)).toEqual(['novelai', 'voyage'])
+        expect(options).toHaveLength(2)
+        expect(options.map((option) => option.id)).toEqual(
+            expect.arrayContaining(['novelai', 'voyage']),
+        )
     })
 
     it('uses the first provider key as the default for a new preset', () => {

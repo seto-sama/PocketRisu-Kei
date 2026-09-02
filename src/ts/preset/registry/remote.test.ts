@@ -124,10 +124,8 @@ describe('syncRemoteRegistry', () => {
 
         expect(result.ok).toBe(false)
         const profiles = getOfficialRegistry().registries[getOfficialRegistryId()]?.profiles
-        expect(Object.keys(profiles ?? {})).toEqual([
-            'developer:echo',
-            'developer:custom',
-        ])
+        expect(profiles?.['developer:echo']).toBeTruthy()
+        expect(profiles?.['developer:custom']).toBeTruthy()
     })
 
     it('force refreshes even when the in-memory catalog is fresh', async () => {

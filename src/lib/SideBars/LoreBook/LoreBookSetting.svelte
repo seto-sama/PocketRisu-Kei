@@ -2,7 +2,7 @@
     
     import { DBState } from 'src/ts/stores.svelte';
     import { language } from "../../../lang";
-    import { DownloadIcon, HardDriveUploadIcon, PlusIcon, SunIcon, LinkIcon, FolderPlusIcon, PencilIcon } from "@lucide/svelte";
+    import { DownloadIcon, UploadIcon, PlusIcon, SunIcon, LinkIcon, FolderPlusIcon, PencilIcon } from "@lucide/svelte";
     import { addLorebook, addLorebookFolder, exportLoreBook, importLoreBook } from "../../../ts/process/lorebook.svelte";
     import NumberInput from "../../UI/GUI/NumberInput.svelte";
     import ShSettings from "../../UI/GUI/ShSettings.svelte";
@@ -12,8 +12,10 @@
     import { selectedCharID } from "src/ts/stores.svelte";
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import ShChoiceGroup from "src/lib/UI/GUI/ShChoiceGroup.svelte";
 
-    let submenu = $state(0)
+    let submenu = $state('character')
+    let loreSubmenu = $derived(submenu === 'character' ? 0 : 1)
     let listEditMode = $state(false)
 
     function isAllCharacterLoreAlwaysActive() {
@@ -65,28 +67,25 @@
     }
 </script>
 
-<div class="flex w-full rounded-md border border-selected">
-    <button onclick={() => {
-        submenu = 0
-    }} class="flex min-h-10 flex-1 items-center justify-center p-2" class:bg-selected={submenu === 0}>
-        <span>{language.character}</span>
-    </button>
-    <button onclick={() => {
-        submenu = 1
-    }} class="flex min-h-10 flex-1 items-center justify-center border-r border-l border-selected p-2" class:bg-selected={submenu === 1}>
-        <span>{language.Chat}</span>
-    </button>
-    <button onclick={() => {
-        submenu = 2
-    }} class="flex min-h-10 flex-1 items-center justify-center p-2" class:bg-selected={submenu === 2}>
-        <span>{language.settings}</span>
-    </button>
-</div>
-{#if submenu !== 2}
-    <span class="text-textcolor2 mt-2 text-sm">{submenu === 0 ? language.globalLoreInfo : language.localLoreInfo}</span>
-    <LoreBookList submenu={submenu} bind:listEditMode />
+<ShChoiceGroup
+    variant="pill"
+    size="md"
+    name="lorebookSubmenu"
+    bind:value={submenu}
+    options={[
+        { value: 'character', label: language.character },
+        { value: 'chat', label: language.Chat },
+        { value: 'settings', label: language.settings },
+    ]}
+    activeColor="selected"
+    fullWidth
+    divided
+/>
+{#if submenu !== 'settings'}
+    <span class="text-textcolor2 mt-2 text-sm">{submenu === 'character' ? language.globalLoreInfo : language.localLoreInfo}</span>
+    <LoreBookList submenu={loreSubmenu} bind:listEditMode />
 {:else}
-    <ShSettings spacing="spaced" className="mt-4">
+    <ShSettings spacing="none" className="mt-4">
         <ShSettings variant="row">
             <span class="min-w-0 text-textcolor">{language.useGlobalSettings}</span>
             <ShSwitch
@@ -105,30 +104,30 @@
             </ShSettings>
             <ShSettings variant="row">
                 <span class="min-w-0 text-textcolor">{language.loreBookDepth}</span>
-                <NumberInput className="w-24" min={0} max={20} bind:value={DBState.db.characters[$selectedCharID].loreSettings.scanDepth} />
+                <NumberInput size="sm" className="w-24" min={0} max={20} bind:value={DBState.db.characters[$selectedCharID].loreSettings.scanDepth} />
             </ShSettings>
             <ShSettings variant="row">
                 <span class="min-w-0 text-textcolor">{language.loreBookToken}</span>
-                <NumberInput className="w-24" min={0} max={4096} bind:value={DBState.db.characters[$selectedCharID].loreSettings.tokenBudget} />
+                <NumberInput size="sm" className="w-24" min={0} max={4096} bind:value={DBState.db.characters[$selectedCharID].loreSettings.tokenBudget} />
             </ShSettings>
         {/if}
     </ShSettings>
 {/if}
-{#if submenu !== 2}
+{#if submenu !== 'settings'}
 
 <IconButtonGroup className="mt-2">
-    <IconButton onclick={() => {addLorebook(submenu)}}>
+    <IconButton onclick={() => {addLorebook(loreSubmenu)}}>
         <PlusIcon />
     </IconButton>
     <IconButton onclick={() => {
-        exportLoreBook(submenu === 0 ? 'global' : 'local')
+        exportLoreBook(submenu === 'character' ? 'global' : 'local')
     }}>
         <DownloadIcon />
     </IconButton>
     <IconButton onclick={() => {
-        importLoreBook(submenu === 0 ? 'global' : 'local')
+        importLoreBook(submenu === 'character' ? 'global' : 'local')
     }}>
-        <HardDriveUploadIcon />
+        <UploadIcon />
     </IconButton>
     <IconButton
         active={listEditMode}
@@ -162,7 +161,7 @@
         </button>
     {/if}
     <IconButton className="ml-auto" onclick={() => {
-        addLorebookFolder(submenu)
+        addLorebookFolder(loreSubmenu)
     }}>
         <FolderPlusIcon />
     </IconButton>

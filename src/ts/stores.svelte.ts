@@ -189,6 +189,8 @@ export const pluginAlertModalStore = $state({
 
 export type MenuDef = {
     name: string,
+    pluginName?: string,
+    sidebarKey?: string,
     icon: string,
     iconType:'html'|'img'|'none',
     callback: any,

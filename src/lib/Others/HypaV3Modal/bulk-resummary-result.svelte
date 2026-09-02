@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     LanguagesIcon,
-    RefreshCw,
+    RefreshCwIcon,
     CheckIcon,
     XIcon,
   } from "@lucide/svelte";
@@ -65,7 +65,7 @@
             disabled={bulkResummaryState.isProcessing}
             title={language.hypaV3Modal.retry}
           >
-            <RefreshCw />
+            <RefreshCwIcon />
           </IconButton>
           
           <!-- Apply Button -->
@@ -92,7 +92,7 @@
       <!-- Result Content -->
       {#if bulkResummaryState.isProcessing}
         <div class="py-4 text-center text-textcolor2">
-          <RefreshCw class="mr-2 inline animate-spin" />
+          <RefreshCwIcon class="mr-2 inline animate-spin" />
           {processingTitle}
         </div>
       {:else if bulkResummaryState.result}

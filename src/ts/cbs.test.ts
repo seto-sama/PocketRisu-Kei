@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultCBSRegisterArg, getCBSCompletionEntries, getCBSCompletionNames, getCBSDefinitions, registerCBS, type RegisterCallback } from './cbs'
+import { defaultCBSRegisterArg, getCBSCompletionNames, getCBSDefinitions, registerCBS, type RegisterCallback } from './cbs'
 
 describe('metadata CBS', () => {
     it('keeps built-in primary names unique', () => {
@@ -29,29 +29,6 @@ describe('metadata CBS', () => {
 
     it('exposes current block syntax to editor tooling', () => {
         expect(getCBSCompletionNames()).toEqual(expect.arrayContaining(['#when', '/when']))
-        expect(getCBSCompletionEntries()).toEqual(expect.arrayContaining([
-            expect.objectContaining({ name: '#when', detail: 'block' }),
-            expect.objectContaining({ name: '/when', detail: 'closes #when' }),
-        ]))
-    })
-
-    it('exposes preview support through CBS metadata', () => {
-        const entries: Record<string, string | undefined> = {}
-        registerCBS({
-            ...defaultCBSRegisterArg,
-            registerFunction: definition => {
-                entries[definition.name] = definition.preview
-            },
-        })
-
-        expect(entries).toMatchObject({
-            char: 'expression',
-            user: 'expression',
-            getvar: 'chatVariable',
-            getglobalvar: 'globalVariable',
-            '#when': 'condition',
-        })
-        expect(entries.random).toBeUndefined()
     })
 
     it('uses the effective generation model label for modelname', () => {

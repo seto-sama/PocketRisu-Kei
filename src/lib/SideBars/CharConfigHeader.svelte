@@ -2,7 +2,7 @@
     import {
         ActivityIcon,
         BookIcon,
-        Braces,
+        BracesIcon,
         Share2Icon,
         SmileIcon,
         UserIcon,
@@ -40,7 +40,7 @@
                 {#if DBState.db.ttsEnabled}
                     <IconButton active={$CharConfigSubMenu === 5 && !devTool} onclick={() => selectSubMenu(5)}><Volume2Icon /></IconButton>
                 {/if}
-                <IconButton active={$CharConfigSubMenu === 4 && !devTool} onclick={() => selectSubMenu(4)}><Braces /></IconButton>
+                <IconButton active={$CharConfigSubMenu === 4 && !devTool} onclick={() => selectSubMenu(4)}><BracesIcon /></IconButton>
             {/if}
             <IconButton active={$CharConfigSubMenu === 2 && !devTool} onclick={() => selectSubMenu(2)}><ActivityIcon /></IconButton>
             {#if character?.type === "character"}

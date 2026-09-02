@@ -5,7 +5,7 @@
     import { getCharImage } from '../../ts/characters';
     import { ParseMarkdown } from '../../ts/parser/parser.svelte';
     import BarIcon from '../SideBars/BarIcon.svelte';
-    import { ChevronRightIcon, User } from '@lucide/svelte';
+    import { ChevronRightIcon, UserIcon } from '@lucide/svelte';
     import { hubURL, isCharacterHasAssets } from 'src/ts/characterCards';
     import TextInput from '../UI/GUI/TextInput.svelte';
     import { openURL, downloadFile } from 'src/ts/globalApi.svelte';
@@ -216,7 +216,7 @@
                                 <BarIcon onClick={() => {
                                     alertStore.set({type: 'none',msg: char.chaId})
                                 }}>
-                                    <User/>
+                                    <UserIcon/>
                                 </BarIcon>
                             {:then im} 
                                 <BarIcon onClick={() => {
@@ -228,7 +228,7 @@
                             <BarIcon onClick={() => {
                                 alertStore.set({type: 'none',msg: char.chaId})
                             }}>
-                            <User/>
+                            <UserIcon/>
                             </BarIcon>
                         {/if}
                     {/each}

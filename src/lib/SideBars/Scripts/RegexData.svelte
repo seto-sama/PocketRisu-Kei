@@ -13,6 +13,7 @@
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import type { IconButtonSize } from "src/lib/UI/GUI/IconButton.svelte";
     import type { ActiveRegexScriptType } from "./regexScriptGroups";
+    import ShChoiceGroup from "src/lib/UI/GUI/ShChoiceGroup.svelte";
     interface Props {
         value: customscript;
         selectedTypes?: string[];
@@ -98,6 +99,16 @@
         ['No Newline Subfix', '<no_end_nl>'],
     ]
 
+    let selectedFlags = $derived(flags
+        .filter(([, flag]) => checkFlagContain(flag, value.flag))
+        .map(([, flag]) => flag)
+    )
+
+    function updateSelectedFlags(nextFlags: string[]) {
+        const changedFlag = flags.find(([, flag]) => nextFlags.includes(flag) !== checkFlagContain(flag, value.flag))?.[1]
+        if (changedFlag) toggleFlag(changedFlag)
+    }
+
     const scriptTypes = [
         ['editinput', language.editInput],
         ['editoutput', language.editOutput],
@@ -107,7 +118,18 @@
         ['disabled', language.disabled],
     ] as const
 
+    const flagOptions = flags.map(([label, value]) => ({ value, label }))
+    const scriptTypeOptions = scriptTypes.map(([value, label]) => ({ value, label }))
+
     const isTypeSelected = (type:string) => selectedTypes.includes(type)
+
+    function updateSelectedTypes(nextTypes: string[]) {
+        const changedType = scriptTypes.find(([type]) => nextTypes.includes(type) !== isTypeSelected(type))?.[0];
+        if (!changedType) return;
+
+        onToggleType(changedType);
+        $ReloadGUIPointer += 1;
+    }
 
     function toggleOpen(){
         if(isOpen){
@@ -173,28 +195,16 @@
     <div data-disclosure-field>
         <div data-disclosure-label>{language.scriptType}</div>
         <div data-disclosure-control>
-            <div class="grid w-full grid-cols-2 overflow-hidden rounded-md border border-darkborderc">
-                {#each scriptTypes as scriptType, i}
-                    <button
-                        type="button"
-                        class={"w-full border-darkborderc py-2 text-sm transition-colors " +
-                            (isTypeSelected(scriptType[0])
-                                ? "bg-selected risu-interactive-surface-solid"
-                                : "bg-darkbg hover:bg-darkborderc/30")}
-                        class:border-r-1={i % 2 === 0}
-                        class:border-b-1={i < scriptTypes.length - 2}
-                        class:text-textcolor2={!isTypeSelected(scriptType[0])}
-                        class:text-textcolor={isTypeSelected(scriptType[0])}
-                        aria-pressed={isTypeSelected(scriptType[0])}
-                        onclick={() => {
-                            onToggleType(scriptType[0])
-                            $ReloadGUIPointer += 1
-                        }}
-                    >
-                        <span>{scriptType[1]}</span>
-                    </button>
-                {/each}
-            </div>
+            <ShChoiceGroup
+                mode="multiple"
+                variant="grid"
+                size="md"
+                columns={2}
+                activeColor="selected"
+                values={selectedTypes}
+                options={scriptTypeOptions}
+                onValuesChange={updateSelectedTypes}
+            />
         </div>
     </div>
 
@@ -213,27 +223,17 @@
     </div>
     {#if value.ableFlag}
         <div>
-            <div class="grid w-full grid-cols-2 mt-2 mb-2 rounded-md border border-darkborderc overflow-hidden">
-                {#each flags as flag, i}
-                    <button
-                        type="button"
-                        class={"w-full border-darkborderc py-2 text-sm transition-colors " +
-                            (checkFlagContain(flag[1], value.flag)
-                                ? "bg-selected risu-interactive-surface-solid"
-                                : "bg-darkbg hover:bg-darkborderc/30")}
-                        class:border-r-1={i % 2 === 0}
-                        class:border-b-1={i < flags.length - 2}
-                        class:text-textcolor2={!checkFlagContain(flag[1], value.flag)}
-                        class:text-textcolor={checkFlagContain(flag[1], value.flag)}
-                        aria-pressed={checkFlagContain(flag[1], value.flag)}
-                        onclick={() => {
-                            toggleFlag(flag[1])
-                        }}
-                    >
-                        <span>{flag[0]}</span>
-                    </button>
-                {/each}
-            </div>
+            <ShChoiceGroup
+                mode="multiple"
+                variant="grid"
+                size="md"
+                columns={2}
+                activeColor="selected"
+                values={selectedFlags}
+                options={flagOptions}
+                onValuesChange={updateSelectedFlags}
+                className="mt-2 mb-2"
+            />
 
             <div data-disclosure-row>
                 <span class="flex items-center text-sm text-textcolor">

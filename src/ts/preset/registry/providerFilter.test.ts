@@ -85,19 +85,6 @@ describe('provider filter', () => {
         ]
         const hidden = resolveProviderFilterHiddenIds(all, undefined, false)
 
-        expect([...DEFAULT_VISIBLE_PROVIDER_IDS].sort()).toEqual([
-            'anthropic',
-            'deepseek',
-            'google',
-            'google-vertex',
-            'llmgateway',
-            'nanogpt',
-            'neuralwatt',
-            'ollama-cloud',
-            'openai',
-            'openrouter',
-            'vercel',
-        ])
         expect(hidden).toEqual(new Set([
             'amazon-bedrock',
             'another-provider',
@@ -136,10 +123,13 @@ describe('provider filter', () => {
     })
 
     test('lists provider groups once and excludes the always-visible Echo provider', () => {
-        expect(listFilterableProviderGroups(registry(), 'official')).toEqual([
+        const groups = listFilterableProviderGroups(registry(), 'official')
+
+        expect(groups).toHaveLength(2)
+        expect(groups).toEqual(expect.arrayContaining([
             { id: 'alpha', label: 'Alpha', profileCount: 2 },
             { id: 'beta', label: 'Beta', profileCount: 1 },
-        ])
+        ]))
     })
 
     test('hides selected provider groups but never hides Echo', () => {

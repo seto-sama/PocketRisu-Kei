@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { PinIcon, PinOffIcon, TriangleAlert } from '@lucide/svelte'
+    import { PinIcon, PinOffIcon, TriangleAlertIcon } from '@lucide/svelte'
     import PresetHeader from './GUI/PresetHeader.svelte'
     import ShButton from './GUI/ShButton.svelte'
 
@@ -50,7 +50,7 @@
         {#if state === 'selected'}
             <PinIcon class="shrink-0" />
         {:else if state === 'warning'}
-            <TriangleAlert size={16} class="shrink-0" />
+            <TriangleAlertIcon size={16} class="shrink-0" />
         {:else}
             <PinOffIcon class="shrink-0" />
         {/if}

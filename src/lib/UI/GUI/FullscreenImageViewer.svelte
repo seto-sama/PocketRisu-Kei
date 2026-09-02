@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { Snippet } from 'svelte';
-    import { ChevronLeft, ChevronRight, Info, X } from '@lucide/svelte';
+    import { ChevronLeftIcon, ChevronRightIcon, InfoIcon, XIcon } from '@lucide/svelte';
     import OverlayPortal from './OverlayPortal.svelte';
     import IconButton from './IconButton.svelte';
     import IconButtonGroup from './IconButtonGroup.svelte';
@@ -109,7 +109,7 @@
                             active={metadataOpen}
                             className="text-textcolor"
                         >
-                            <Info />
+                            <InfoIcon />
                         </IconButton>
                     {/if}
                     {#if actions}
@@ -121,7 +121,7 @@
                         aria-label={closeLabel}
                         className="text-textcolor"
                     >
-                        <X />
+                        <XIcon />
                     </IconButton>
                 </IconButtonGroup>
             </div>
@@ -133,7 +133,7 @@
                     onclick={onPrev}
                     aria-label={previousLabel}
                 >
-                    <ChevronLeft size={20} class="-translate-x-px" />
+                    <ChevronLeftIcon size={20} class="-translate-x-px" />
                 </button>
             {/if}
 
@@ -168,7 +168,7 @@
                     onclick={onNext}
                     aria-label={nextLabel}
                 >
-                    <ChevronRight size={20} class="translate-x-px" />
+                    <ChevronRightIcon size={20} class="translate-x-px" />
                 </button>
             {/if}
 

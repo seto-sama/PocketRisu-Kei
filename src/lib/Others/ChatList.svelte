@@ -5,7 +5,7 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { newChatModelDefaults } from 'src/ts/storage/database.svelte';
     import { ReloadGUIPointer, selectedCharID } from "../../ts/stores.svelte";
-    import { DownloadIcon, SquarePenIcon, HardDriveUploadIcon, PlusIcon, TrashIcon, XIcon } from "@lucide/svelte";
+    import { DownloadIcon, SquarePenIcon, UploadIcon, PlusIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { exportChat, importChat } from "../../ts/characters";
     import { findCharacterbyId } from "../../ts/util";
     import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
@@ -94,7 +94,7 @@
             <IconButton onclick={() => {
                 importChat()
             }}>
-                <HardDriveUploadIcon />
+                <UploadIcon />
             </IconButton>
             <IconButton active={editMode} onclick={() => {
                 editMode = !editMode

@@ -15,7 +15,7 @@
     import { language } from 'src/lang';
     import ShSettings from "../UI/GUI/ShSettings.svelte";
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
-    import { ArrowDown, ArrowUp, BookOpenIcon, ChevronRightIcon, HardDriveUploadIcon, PlusIcon, SearchIcon, TrashIcon } from "@lucide/svelte";
+    import { ArrowDownIcon, ArrowUpIcon, BookOpenIcon, ChevronRightIcon, UploadIcon, PlusIcon, SearchIcon, TrashIcon } from "@lucide/svelte";
     import { selectSingleFile } from "src/ts/util";
     import { doingChat, previewFormated, previewBody, sendChat, type OpenAIChat } from "src/ts/process/index.svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
@@ -292,14 +292,14 @@
                     aria-label="Move up"
                     onclick={() => moveAutopilotItem(i, -1)}
                 >
-                    <ArrowUp />
+                    <ArrowUpIcon />
                 </IconButton>
                 <IconButton
                     disabled={i === $devToolAutopilotStore.length - 1}
                     aria-label="Move down"
                     onclick={() => moveAutopilotItem(i, 1)}
                 >
-                    <ArrowDown />
+                    <ArrowDownIcon />
                 </IconButton>
                 <IconButton
                     tone="destructive"
@@ -325,7 +325,7 @@
                 title={language.import}
                 onclick={importAutopilot}
             >
-                <HardDriveUploadIcon />
+                <UploadIcon />
             </IconButton>
         </IconButtonGroup>
         <ShButton

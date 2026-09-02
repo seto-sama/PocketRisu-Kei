@@ -6,19 +6,28 @@
     import ShButton from "../GUI/ShButton.svelte";
     import RealmTagList from "./RealmTagList.svelte";
     import { tooltip } from "src/ts/gui/tooltip";
+    import CharacterMasonryIcon from "../CharacterMasonryIcon.svelte";
 
     interface Props {
         onClick?: () => void;
         chara: hubType;
+        iconOnly?: boolean;
     }
 
-    let { onClick = () => {}, chara }: Props = $props();
+    let { onClick = () => {}, chara, iconOnly = false }: Props = $props();
     const descriptions = $derived(parseMultilangString(chara.desc));
     const description = $derived(descriptions[DBState.db.language] ?? descriptions.en ?? descriptions.xx);
 
 </script>
 
-
+{#if iconOnly}
+    <CharacterMasonryIcon
+        src={`${hubURL}/resource/` + chara.img}
+        name={chara.name}
+        hideImage={DBState.db.hideAllImages}
+        onclick={onClick}
+    />
+{:else}
 <ShButton variant="secondary" className="relative h-auto w-full flex-col items-start justify-start whitespace-normal p-4 text-left font-normal" onclick={onClick}>
     <div class="flex gap-2 w-full">
     {#if DBState.db.hideAllImages}
@@ -46,3 +55,4 @@
         </div>
     </div>
 </div></ShButton>
+{/if}

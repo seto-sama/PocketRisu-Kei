@@ -4,7 +4,7 @@
     import { getDatabase, type PromptDiffPrefs } from "../../ts/storage/database.svelte"
     import type { PromptItem, PromptItemPlain, PromptItemChatML, PromptItemTyped, PromptItemAuthorNote, PromptItemChat } from "src/ts/process/prompt.ts";
     import CheckInput from "../UI/GUI/CheckInput.svelte";
-    import ShRadio from "../UI/GUI/ShRadio.svelte";
+    import ShChoiceGroup from "../UI/GUI/ShChoiceGroup.svelte";
     import ShSlider from "../UI/GUI/ShSlider.svelte";
     import ShDialog from "../UI/GUI/ShDialog.svelte";
     import ShBadge from "../UI/GUI/ShBadge.svelte";
@@ -1467,9 +1467,9 @@
         <div class="flex shrink-0 items-center gap-2">
           <span class="text-xs text-textcolor2">{language.promptDiff.viewMode}</span>
           <div class="flex items-center gap-1">
-            <ShRadio variant="pill" name="diffStyle" bind:value={diffStyle} options={diffOptions} />
-            <ShRadio variant="pill" name="formatStyle" bind:value={formatStyle} options={formatOptions} />
-            <ShRadio variant="pill" name="viewStyle" bind:value={viewStyle} options={viewOptions} />
+            <ShChoiceGroup variant="pill" name="diffStyle" bind:value={diffStyle} options={diffOptions} />
+            <ShChoiceGroup variant="pill" name="formatStyle" bind:value={formatStyle} options={formatOptions} />
+            <ShChoiceGroup variant="pill" name="viewStyle" bind:value={viewStyle} options={viewOptions} />
           </div>
         </div>
         <CheckInput

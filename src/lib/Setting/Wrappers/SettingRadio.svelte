@@ -2,7 +2,7 @@
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
     import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
-    import ShRadio from 'src/lib/UI/GUI/ShRadio.svelte';
+    import ShChoiceGroup from 'src/lib/UI/GUI/ShChoiceGroup.svelte';
     import Help from 'src/lib/Others/Help.svelte';
     import { language } from 'src/lang';
 
@@ -52,12 +52,12 @@
             <span class="text-sm text-textcolor">{getLabel(item)}</span>
             {#if helpText}<p class="text-xs text-textcolor2 mt-0.5">{helpText}</p>{/if}
         </div>
-        <ShRadio className="mt-2" bind:value={localValue} options={processedOptions} />
+        <ShChoiceGroup className="mt-2" bind:value={localValue} options={processedOptions} />
     </div>
 {:else}
     <span class="text-textcolor {item.classes ?? 'mt-4'}" data-setting-id={item.id}>
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>
-    <ShRadio className="mt-2" bind:value={localValue} options={processedOptions} />
+    <ShChoiceGroup className="mt-2" bind:value={localValue} options={processedOptions} />
 {/if}

@@ -6,7 +6,7 @@
     import { DBState, presetSelectCallback, settingsOpen } from 'src/ts/stores.svelte';
     import { get } from 'svelte/store';
     import { openSettings, SettingsRoute } from 'src/ts/routing';
-    import { GitCompare } from "@lucide/svelte";
+    import { GitCompareIcon } from "@lucide/svelte";
     import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
     import { prebuiltPresets } from "src/ts/process/templates/templates";
     import PromptDiffModal from "../Others/PromptDiffModal.svelte";
@@ -187,7 +187,7 @@
                     aria-pressed={selectedDiffPreset === index}
                     onclick={() => handleDiffMode(index)}
                 >
-                    <GitCompare />
+                    <GitCompareIcon />
                 </IconButton>
             {/if}
         {/snippet}

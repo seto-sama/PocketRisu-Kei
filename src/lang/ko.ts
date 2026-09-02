@@ -728,6 +728,10 @@ export const languageKorean = {
   characterPackageExport: "패키지 내보내기",
   convertToModule: "모듈로 변환",
   convertToCharacter: "캐릭터로 변환",
+  convertCharacterToModuleConfirm:
+    '{} 의 설정을 복사해 새 모듈을 만들까요? 캐릭터 설명과 첫 메시지는 로어북 항목으로 변환됩니다.',
+  convertModuleToCharacterConfirm:
+    '{} 의 로어북, 스크립트 및 에셋 등의 설정을 복사해 새 캐릭터를 만들까요?',
   successfullyConverted: "변환되었습니다.",
   characterPackageCharacter: "캐릭터",
   characterPackageChats: "채팅",
@@ -1248,12 +1252,12 @@ export const languageKorean = {
   module: "모듈",
   modules: "모듈",
   noModules: "모듈이 없습니다.",
-  createModule: "모듈 생성",
+  createModule: "모듈 만들기",
   basicInfo: "기본 정보",
   moduleContent: "모듈 내용",
   confirmRemoveModuleFeature: "정말로 이 기능을 삭제하시겠습니까?",
   editModule: "모듈 수정",
-  importModule: "모듈 임포트",
+  importModule: "모듈 불러오기",
   moduleFolderManagement: "모듈 폴더 관리",
   moduleDuplicated: "모듈이 복제되었습니다.",
   download: "다운로드",
@@ -1414,7 +1418,7 @@ export const languageKorean = {
   promptPresets: "프롬프트 프리셋",
   presetEdit: "수정하기",
   presetSearch: "프리셋 검색...",
-  presetAll: "전체 프리셋",
+  presetAll: "전부 보기",
   presetUncategorized: "미분류",
   presetNewFolder: "새 폴더",
   presetFolderNamePrompt: "폴더 이름을 입력하세요",
@@ -2516,7 +2520,7 @@ export const languageKorean = {
   storageOrphanFailed: "고아 에셋 정리 실패",
   storageOrphanAutoClean: "시작할 때 자동 삭제",
   storageOrphanAutoCleanDesc:
-    "앱을 시작할 때마다 동일한 보호 참조 검사를 사용합니다. 기본값은 꺼짐이며, 알 수 없는 플러그인 데이터가 있다면 수동 정리가 더 안전합니다.",
+    "서버에 접속할 때마다 자동으로 고아 에셋을 정리합니다.",
 
   storageWalCleanupWhat:
     "WAL 정리는 임시 변경사항을 DB에 통합하고 WAL 파일을 비웁니다.",
@@ -2723,6 +2727,9 @@ export const languageKorean = {
   backupSettingsOnlyFailed: "설정 내보내기 실패",
 
   relatedGithub: "GitHub",
+  recentlyUploadedCharacters: "신규 캐릭터",
+  relatedLinks: "주요 링크",
+  getMoreCharacters: "더 많은 캐릭터 보기",
   relatedGithubDesc: "Star를 눌러 원본 PocketRisu 프로젝트를 응원해주세요.",
   relatedFeedbackForm: "이슈 제보",
   relatedFeedbackFormDesc: "버그를 제보하거나 의견을 남겨주세요.",
@@ -2735,6 +2742,13 @@ export const languageKorean = {
   recentChatsTitle: "최근 대화",
   noRecentChatsDesc: "아직 대화한 봇이 없어요",
   hideRecentChats: "대화 목록 숨기기",
+  recentChatsSearchPlaceholder: "캐릭터 이름으로 검색...",
+  noRecentChatsSearchResults: "일치하는 캐릭터와 나눈 대화가 없습니다.",
+  sidebarMenuAddDivider: "구분선 추가",
+  sidebarMenuExitEdit: "사이드바 메뉴 편집 닫기",
+  sidebarMenuRemoveDivider: "구분선 삭제",
+  sidebarMenuHideIcon: "아이콘 숨기기",
+  sidebarMenuShowIcon: "아이콘 표시",
 
   showRequestStatus: "요청 상태 표시",
   requestStatus: {

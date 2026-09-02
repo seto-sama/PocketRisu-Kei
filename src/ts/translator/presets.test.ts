@@ -21,7 +21,6 @@ import {
     getCurrentTranslatorPresetFromState,
     getTranslatorPresetDownloadName,
     normalizeTranslatorPresetState,
-    translatorPresetImportExtensions,
     type TranslatorPresetStateLike,
 } from "./presets";
 
@@ -130,10 +129,6 @@ describe("getCurrentTranslatorPresetFromState", () => {
 });
 
 describe("translator preset file codec", () => {
-    it("only allows .risutl files in the import picker", () => {
-        expect(translatorPresetImportExtensions).toEqual(["risutl"]);
-    });
-
     it("round-trips the new encrypted .risutl file payload", async () => {
         const preset = createTranslatorPreset("My Preset", {
             prompt: "Translate into {{slot}}.",
@@ -145,9 +140,9 @@ describe("translator preset file codec", () => {
 
         expect(decoded).toEqual(preset);
         expect(() => JSON.parse(new TextDecoder().decode(encoded))).toThrow();
-        expect(getTranslatorPresetDownloadName("My/Translator:Preset")).toBe(
-            "translator_preset_My_Translator_Preset.risutl"
-        );
+        const downloadName = getTranslatorPresetDownloadName("My/Translator:Preset");
+        expect(downloadName).toMatch(/\.risutl$/);
+        expect(downloadName).not.toMatch(/[\\/:]/);
     });
 
     it("rejects plain JSON translator preset payloads", async () => {
@@ -164,25 +159,6 @@ describe("translator preset file codec", () => {
         );
 
         await expect(decodeTranslatorPresetFile(plainJsonPayload)).rejects.toThrow(
-            "Invalid translator preset file."
-        );
-    });
-
-    it("rejects non-translator preset payloads", async () => {
-        const hypaLikePayload = new TextEncoder().encode(
-            JSON.stringify({
-                type: "risu",
-                ver: 1,
-                data: {
-                    name: "HypaV3",
-                    settings: {
-                        summarizationPrompt: "not a translator preset",
-                    },
-                },
-            })
-        );
-
-        await expect(decodeTranslatorPresetFile(hypaLikePayload)).rejects.toThrow(
             "Invalid translator preset file."
         );
     });

@@ -18,11 +18,10 @@
 
 
   } from "../../ts/stores.svelte";
-    import { setDatabase } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import BarIcon from "./BarIcon.svelte";
     import {
-    Settings,
+    SettingsIcon,
     ListIcon,
     LayoutGridIcon,
     FolderIcon,
@@ -31,8 +30,9 @@
     MessageSquareIcon,
     PlusIcon,
     User2Icon,
-    ChevronsLeft,
-    ArrowRight,
+    ChevronsLeftIcon,
+    ArrowRightIcon,
+    SearchIcon,
   } from "@lucide/svelte";
     import {
   addCharacter,
@@ -70,6 +70,20 @@
     import QuickSettingsGui from "../Others/QuickSettingsGUI.svelte";
     import PluginDefinedIcon from "../Others/PluginDefinedIcon.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
+    import IconButton from "../UI/GUI/IconButton.svelte";
+    import ShInput from "../UI/GUI/ShInput.svelte";
+    import {
+      DEFAULT_SIDEBAR_MENU_ORDER,
+      SIDEBAR_MENU_CHARACTERS,
+      SIDEBAR_MENU_HOME,
+      SIDEBAR_MENU_SETTINGS,
+      appendNewPluginMenuItems,
+      dividerSidebarMenuKey,
+      getVisibleSidebarMenuOrder,
+      isSidebarMenuDivider,
+      mergeVisibleSidebarMenuOrder,
+      pluginSidebarMenuKey,
+    } from "src/ts/sidebarMenuOrder";
   const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
     const sidebarSortingDisabled = $derived(isTouchDevice && DBState.db.disableMobileDragDrop);
 
@@ -102,7 +116,25 @@
   // Progressive reveal: render `recentVisible` items, "Load more" adds 10.
   // Avoids mounting hundreds of avatar components at once (no list virtualization).
   let recentVisible = $state(10);
+  let recentSearchQuery = $state("");
+  let filteredRecentChars = $derived.by(() => {
+    const query = recentSearchQuery.trim().toLocaleLowerCase();
+    if (!query) return recentChars;
+    return recentChars.filter((character) =>
+      (character.name ?? "").toLocaleLowerCase().includes(query)
+    );
+  });
   let IconRounded = $state(false)
+  let sidebarMenuOrder = $derived(DBState.db.sidebarMenuOrder ?? DEFAULT_SIDEBAR_MENU_ORDER)
+  let sidebarMenuHidden = $derived(DBState.db.sidebarMenuHidden ?? [])
+  let sidebarMenuHiddenSet = $derived(new Set(sidebarMenuHidden))
+  let sidebarMenuPluginsByKey = $derived(new Map(
+    additionalHamburgerMenu.map((menu) => [menu.sidebarKey ?? pluginSidebarMenuKey(menu.id), menu])
+  ))
+  let sidebarMenuPluginKeys = $derived([...sidebarMenuPluginsByKey.keys()])
+  let visibleSidebarMenuOrder = $derived(
+    getVisibleSidebarMenuOrder(sidebarMenuOrder, sidebarMenuPluginKeys, editMode, sidebarMenuHidden)
+  )
   let openFolders:string[] = $state([])
   let sidebarSortElement: HTMLDivElement | undefined = $state()
   let mergeTargetId: string | null = $state(null)
@@ -174,6 +206,76 @@
       IconRounded = DBState.db.roundIcons
     }
   })
+
+  $effect(() => {
+    const nextOrder = appendNewPluginMenuItems(sidebarMenuOrder, sidebarMenuPluginKeys)
+    if (!isEqual(nextOrder, sidebarMenuOrder)) {
+      DBState.db.sidebarMenuOrder = nextOrder
+    }
+  })
+
+  function pluginMenuForKey(key: string) {
+    return sidebarMenuPluginsByKey.get(key)
+  }
+
+  function reorderSidebarMenu(orderedKeys: string[]) {
+    DBState.db.sidebarMenuOrder = mergeVisibleSidebarMenuOrder(sidebarMenuOrder, orderedKeys)
+  }
+
+  function addSidebarMenuDivider() {
+    DBState.db.sidebarMenuOrder = [
+      ...sidebarMenuOrder,
+      dividerSidebarMenuKey(v4()),
+    ]
+  }
+
+  function removeSidebarMenuDivider(key: string, event: MouseEvent) {
+    event.preventDefault()
+    if (!editMode || !isSidebarMenuDivider(key)) return
+    DBState.db.sidebarMenuOrder = sidebarMenuOrder.filter((item) => item !== key)
+  }
+
+  function isSidebarMenuHidden(key: string) {
+    return sidebarMenuHiddenSet.has(key)
+  }
+
+  function toggleSidebarMenuVisibility(key: string, event: MouseEvent) {
+    if (!editMode) return
+    event.preventDefault()
+    DBState.db.sidebarMenuHidden = isSidebarMenuHidden(key)
+      ? sidebarMenuHidden.filter((item) => item !== key)
+      : [...sidebarMenuHidden, key]
+  }
+
+  function toggleSidebarMenuEdit(event: MouseEvent) {
+    event.preventDefault()
+    if (menuMode !== 1) return
+    editMode = !editMode
+  }
+
+  function openHome() {
+    if (editMode) return
+    reseter()
+    selectedCharID.set(-1)
+    OpenRealmStore.set(false)
+  }
+
+  function openCharacters() {
+    if (editMode) return
+    reseter()
+    openGrid()
+  }
+
+  function openSettings() {
+    if (editMode) return
+    if ($settingsOpen) {
+      reseter()
+      settingsOpen.set(false)
+    } else {
+      reseter()
+      settingsOpen.set(true)
+    }
+  }
 
 
   function commitSidebarOrder(nextOrder: typeof DBState.db.characterOrder) {
@@ -260,8 +362,9 @@
   let suppressNextClick = false
 </script>
 <div
-  class="sidebar-layout-slot h-full shrink-0 overflow-hidden"
-  class:sidebar-edit-mode={editMode}
+  class="sidebar-layout-slot h-full shrink-0"
+  class:overflow-hidden={!editMode}
+  class:overflow-visible={editMode}
   class:dynamic-sidebar-slot={$DynamicGUI}
   class:risu-sidebar-slot={!$sideBarClosing}
   class:risu-sidebar-slot-close={$sideBarClosing}
@@ -277,11 +380,11 @@
 <div
   class="sidebar-motion-panel h-full flex shrink-0"
   class:dynamic-sidebar-panel={$DynamicGUI}
+  class:sidebar-menu-editing={editMode}
 >
 {#if DBState.db.menuSideBar}
 <div
   class="risu-layer-chrome h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative rs-sidebar"
-  class:editMode
   class:flex={!hidden}
 >
 <IconButtonGroup size="xl" direction="vertical" className="mt-4 w-full">
@@ -302,22 +405,6 @@
 </button>
 <button
   class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-textcolor2={!$settingsOpen}
-  onclick={() => {
-    if ($settingsOpen) {
-      reseter();
-      settingsOpen.set(false);
-    } else {
-      reseter();
-      settingsOpen.set(true);
-    }
-  }}
->
-  <Settings />
-  <span class="text-xs">{language.settings}</span>
-</button>
-<button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
   class:text-textcolor2={!(
     $selectedCharID >= 0
   )}
@@ -330,24 +417,49 @@
   <User2Icon />
   <span class="text-xs">{language.character}</span>
 </button>
+<button
+  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
+  class:text-textcolor2={!$settingsOpen}
+  onclick={() => {
+    if ($settingsOpen) {
+      reseter();
+      settingsOpen.set(false);
+    } else {
+      reseter();
+      settingsOpen.set(true);
+    }
+  }}
+>
+  <SettingsIcon />
+  <span class="text-xs">{language.settings}</span>
+</button>
 </IconButtonGroup>
 </div>
 {:else}
 <div
-  class="risu-layer-chrome h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative rs-sidebar"
+  class="h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative rs-sidebar"
+  class:risu-layer-chrome={!editMode}
   class:sidebar-menu-bottom={DBState.db.hamburgerButtonBottom}
   class:max-xs:hidden={$leftBarCollapsed}
-  class:editMode
   class:flex={!hidden}
 >
-  <div class="sidebar-controls">
+  <div
+    class="sidebar-controls"
+    class:risu-layer-blocking={editMode}
+    class:bg-bgcolor={editMode}
+  >
     <IconButtonGroup size="xl" direction="vertical" className="sidebar-control-buttons w-full">
       <button
-        class="flex h-8 min-h-8 w-14 min-w-14 cursor-pointer text-white items-center justify-center rounded-md bg-textcolor2 transition-colors hover:bg-primary"
+        class="flex h-8 min-h-8 w-14 min-w-14 text-white items-center justify-center rounded-md bg-textcolor2 transition-colors hover:bg-primary"
+        class:cursor-pointer={!editMode}
+        class:cursor-default={editMode}
         class:max-xs:hidden={$leftBarCollapsed}
+        aria-disabled={editMode}
         onclick={() => {
+          if (editMode) return
           menuMode = 1 - menuMode;
         }}
+        oncontextmenu={toggleSidebarMenuEdit}
       >
         <ListIcon />
       </button>
@@ -358,58 +470,87 @@
           aria-label="Collapse sidebar"
           onclick={() => leftBarCollapsed.set(true)}
         >
-          <ChevronsLeft />
+          <ChevronsLeftIcon />
         </button>
       {/if}
 
       {#if menuMode === 1}
-        <div
-          class="absolute left-0 w-20 min-w-20 flex bg-bgcolor flex-col items-center gap-2 z-20 py-4 max-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto hamburger-menu"
+        <ShSortableList
+          disabled={!editMode}
+          className="absolute left-0 w-20 min-w-20 flex bg-bgcolor flex-col items-center gap-2 z-20 py-4 max-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto hamburger-menu"
+          draggable="[data-sidebar-menu-key]"
+          dataAttribute="data-sidebar-menu-key"
+          onReorder={reorderSidebarMenu}
         >
-          <BarIcon
-            onClick={() => {
-              if ($settingsOpen) {
-                reseter();
-                settingsOpen.set(false);
-              } else {
-                reseter();
-                settingsOpen.set(true);
-              }
-            }}
-          >
-            <Settings />
-          </BarIcon>
-          <BarIcon
-            onClick={() => {
-              reseter();
-              selectedCharID.set(-1)
-              OpenRealmStore.set(false)
-            }}
-          >
-            <HomeIcon />
-          </BarIcon>
-          <BarIcon
-            onClick={() => {
-              reseter();
-              openGrid();
-            }}
-          >
-            <LayoutGridIcon />
-          </BarIcon>
-          {#if additionalHamburgerMenu.length > 0}
-            <div class="h-px w-10 bg-selected shrink-0"></div>
-            {#each additionalHamburgerMenu as menu}
-              <BarIcon
-                onClick={() => {
-                  reseter();
-                  menu.callback();
-                }}
+          {#each visibleSidebarMenuOrder as menuKey (menuKey)}
+            {#if isSidebarMenuDivider(menuKey)}
+              <div
+                class="flex h-3 min-h-3 w-full shrink-0 items-center justify-center"
+                class:sidebar-menu-edit-item={editMode}
+                role="separator"
+                aria-orientation="horizontal"
+                data-sidebar-menu-key={menuKey}
+                data-sortable-no-scale
+                title={editMode ? language.sidebarMenuRemoveDivider : undefined}
+                oncontextmenu={(event) => removeSidebarMenuDivider(menuKey, event)}
               >
-                <PluginDefinedIcon ico={menu} />
-              </BarIcon>
-            {/each}
+                <div class="h-px w-10 bg-selected"></div>
+              </div>
+            {:else}
+              <div
+                class:sidebar-menu-edit-item={editMode}
+                role="listitem"
+                data-sidebar-menu-key={menuKey}
+                data-sortable-no-scale
+                title={editMode
+                  ? (isSidebarMenuHidden(menuKey) ? language.sidebarMenuShowIcon : language.sidebarMenuHideIcon)
+                  : undefined}
+                oncontextmenu={(event) => toggleSidebarMenuVisibility(menuKey, event)}
+              >
+                <div class:opacity-40={editMode && isSidebarMenuHidden(menuKey)}>
+                  {#if menuKey === SIDEBAR_MENU_HOME}
+                    <BarIcon onClick={openHome}>
+                      <HomeIcon />
+                    </BarIcon>
+                  {:else if menuKey === SIDEBAR_MENU_CHARACTERS}
+                    <BarIcon onClick={openCharacters}>
+                      <LayoutGridIcon />
+                    </BarIcon>
+                  {:else if menuKey === SIDEBAR_MENU_SETTINGS}
+                    <BarIcon onClick={openSettings}>
+                      <SettingsIcon />
+                    </BarIcon>
+                  {:else}
+                    {@const menu = pluginMenuForKey(menuKey)}
+                    {#if menu}
+                      <BarIcon
+                        onClick={() => {
+                          if (editMode) return
+                          reseter()
+                          menu.callback()
+                        }}
+                      >
+                        <PluginDefinedIcon ico={menu} />
+                      </BarIcon>
+                    {/if}
+                  {/if}
+                </div>
+              </div>
+            {/if}
+          {/each}
+          {#if editMode}
+            <div class="no-sort mt-1 flex items-center justify-center" data-sortable-no-scale>
+              <IconButton
+                size="default"
+                title={language.sidebarMenuAddDivider}
+                aria-label={language.sidebarMenuAddDivider}
+                onclick={addSidebarMenuDivider}
+              >
+                <PlusIcon />
+              </IconButton>
+            </div>
           {/if}
-        </div>
+        </ShSortableList>
       {/if}
     </IconButtonGroup>
   </div>
@@ -693,7 +834,7 @@
       aria-label="Expand sidebar"
       onclick={() => leftBarCollapsed.set(false)}
     >
-      <ArrowRight />
+      <ArrowRightIcon />
     </button>
   {/if}
   {#if sideBarMode === 0}
@@ -711,8 +852,22 @@
       {:else if recentChars.length === 0}
         <span class="block text-sm text-textcolor2 mt-2">{language.noRecentChatsDesc}</span>
       {:else}
+        <div class="relative mt-2">
+          <SearchIcon class="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-textcolor2" />
+          <ShInput
+            bind:value={recentSearchQuery}
+            type="search"
+            autocomplete="off"
+            aria-label={language.recentChatsSearchPlaceholder}
+            placeholder={language.recentChatsSearchPlaceholder}
+            className="h-9 min-h-9 pl-8 text-sm"
+          />
+        </div>
+        {#if filteredRecentChars.length === 0}
+          <span class="block text-sm text-textcolor2 mt-2">{language.noRecentChatsSearchResults}</span>
+        {:else}
         <div class="flex flex-col gap-1.5 mt-2">
-          {#each recentChars.slice(0, recentVisible) as rc (rc.index)}
+          {#each filteredRecentChars.slice(0, recentVisible) as rc (rc.index)}
             <button
               type="button"
               class="group flex items-center gap-2.5 rounded-md border border-borderc/10 bg-darkbg p-2 text-left transition-colors risu-interactive-border-subtle risu-interactive-surface-strong"
@@ -733,7 +888,7 @@
               </div>
             </button>
           {/each}
-          {#if recentVisible < recentChars.length}
+          {#if recentVisible < filteredRecentChars.length}
             <button
               type="button"
               class="w-full rounded-md border border-borderc/10 bg-darkbg p-2 text-center text-sm text-textcolor2 transition-colors risu-interactive-border-subtle risu-interactive-surface-strong risu-interactive-foreground"
@@ -743,6 +898,7 @@
             </button>
           {/if}
         </div>
+        {/if}
       {/if}
     {:else}
       <nav class="sidebar-mode-switch" aria-label={language.sidebarView}>
@@ -798,6 +954,18 @@
   {/if}
 </div>
 </div>
+{#if editMode}
+  <div
+    class="risu-modal-backdrop risu-layer-overlay"
+    role="button"
+    tabindex="0"
+    aria-label={language.sidebarMenuExitEdit}
+    onclick={() => (editMode = false)}
+    onkeydown={(event) => {
+      if (event.key === 'Enter' || event.key === 'Escape') editMode = false
+    }}
+  ></div>
+{/if}
 </div>
 
 {#if $DynamicGUI}
@@ -908,9 +1076,6 @@
     }
   }
 
-  .editMode {
-    min-width: 6rem;
-  }
   .sidebar-layout-slot {
     --sidebar-rail-size: 5rem;
     --sidebar-natural-size: calc(var(--sidebar-size) + var(--sidebar-rail-size));
@@ -924,9 +1089,8 @@
     min-width: var(--sidebar-total-size);
     transform: translateX(0);
   }
-
-  .sidebar-layout-slot.sidebar-edit-mode {
-    --sidebar-rail-size: 6rem;
+  .sidebar-motion-panel.sidebar-menu-editing {
+    transform: none;
   }
 
   .dynamic-sidebar-slot {
@@ -1044,11 +1208,17 @@
     animation: sidebar-dim-close var(--risu-animation-speed) ease forwards;
     opacity: 0;
   }
-  .hamburger-menu {
+  :global(.hamburger-menu) {
     top: calc(100% - var(--sidebar-control-scroll-gap));
     border-radius: 0 0 0.375rem 0.375rem;
     scrollbar-width: none;
     overscroll-behavior: none;
+  }
+  :global(.sidebar-menu-edit-item) {
+    cursor: grab;
+  }
+  :global(.sidebar-menu-edit-item:active) {
+    cursor: grabbing;
   }
   .sidebar-controls {
     --sidebar-control-edge-gap: 0.5rem;
@@ -1071,7 +1241,7 @@
   .sidebar-menu-bottom :global(.sidebar-control-buttons) {
     flex-direction: column-reverse;
   }
-  .sidebar-menu-bottom .hamburger-menu {
+  .sidebar-menu-bottom :global(.hamburger-menu) {
     top: auto;
     bottom: calc(100% - var(--sidebar-control-scroll-gap));
     border-radius: 0.375rem 0.375rem 0 0;
@@ -1079,7 +1249,7 @@
   .rs-sidebar:not(.sidebar-menu-bottom) :global(.sidebar-character-root) {
     padding-top: 0;
   }
-  .hamburger-menu::-webkit-scrollbar {
+  :global(.hamburger-menu::-webkit-scrollbar) {
     display: none;
   }
   .character-list {

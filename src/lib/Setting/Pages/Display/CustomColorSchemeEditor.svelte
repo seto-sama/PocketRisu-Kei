@@ -10,7 +10,7 @@
     import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte';
     import { language } from 'src/lang';
-    import { DownloadIcon, HardDriveUploadIcon } from '@lucide/svelte';
+    import { DownloadIcon, UploadIcon } from '@lucide/svelte';
 
     const colors = [
         ['bgcolor', 'Background'],
@@ -56,7 +56,7 @@
         title={language.colorScheme}
         description={language.help.colorSchemeTransferDesc}
         actions={[
-            { label: language.import, onclick: importColorScheme, icon: HardDriveUploadIcon },
+            { label: language.import, onclick: importColorScheme, icon: UploadIcon },
             { label: language.export, onclick: exportColorScheme, icon: DownloadIcon },
         ]}
     />

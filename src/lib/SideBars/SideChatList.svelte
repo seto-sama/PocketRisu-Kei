@@ -1,6 +1,6 @@
 <script lang="ts">
     import { v4 } from "uuid";
-    import { DownloadIcon, PencilIcon, HardDriveUploadIcon, MenuIcon, TrashIcon, FolderPlusIcon, BookmarkCheckIcon, PackageIcon, CopyIcon } from "@lucide/svelte";
+    import { DownloadIcon, PencilIcon, UploadIcon, MenuIcon, TrashIcon, FolderPlusIcon, BookmarkCheckIcon, PackageIcon, CopyIcon } from "@lucide/svelte";
 
     import type { Chat, ChatFolder, character } from "src/ts/storage/database.svelte";
     import { newChatModelDefaults } from "src/ts/storage/database.svelte";
@@ -389,7 +389,7 @@
             <IconButton onclick={() => {
                 importChat()
             }}>
-                <HardDriveUploadIcon />
+                <UploadIcon />
             </IconButton>
             <IconButton active={editMode} onclick={() => {
                 editMode = !editMode

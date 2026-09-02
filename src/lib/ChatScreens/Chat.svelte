@@ -43,7 +43,7 @@
 </script>
 
 <script lang="ts">
-    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, MessageSquareOff, MessageSquarePlus, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
+    import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, MessageSquareOffIcon, MessageSquarePlusIcon, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
     import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy } from "src/ts/globalApi.svelte"
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
@@ -1085,7 +1085,7 @@
                             chat.firstMessageDisabled = true
                         }
                     }}>
-                        <EyeOff />
+                        <EyeOffIcon />
                     </IconButton>
                 {/if}
                 <IconButtonGroup size="lg" className={isTranslationBusy() ? 'opacity-50' : ''}>
@@ -1400,13 +1400,13 @@
         {#if altGreeting}
             <!-- First message: ← counter → -->
             <IconButton size="lg" className="button-icon-unreroll" onclick={() => changeSwipe(unReroll)}>
-                <ArrowLeft />
+                <ArrowLeftIcon />
             </IconButton>
             {#if !DBState.db.hideMessagePageCount}
                 <span class="flex items-center text-xs text-textcolor2 shrink overflow-hidden whitespace-nowrap min-w-0">{currentPage}/{totalPages}</span>
             {/if}
             <IconButton size="lg" className="button-icon-reroll" onclick={() => changeSwipe(onReroll)}>
-                <ArrowRight />
+                <ArrowRightIcon />
             </IconButton>
         {:else}
             <!-- Normal messages: ← counter → ↻ -->
@@ -1419,7 +1419,7 @@
                     changeSwipe(unReroll)
                 }
             }}>
-                <ArrowLeft />
+                <ArrowLeftIcon />
             </IconButton>
             {#if !DBState.db.hideMessagePageCount}
                 <span class="flex items-center text-xs text-textcolor2 shrink overflow-hidden whitespace-nowrap min-w-0" class:dyna-icon={rerollIcon === 'dynamic' || rerollIcon === 'force'} class:force-show={rerollIcon === 'force'}>{currentPage}/{totalPages}</span>
@@ -1433,7 +1433,7 @@
                     changeSwipe(onNextSwipe)
                 }
             }}>
-                <ArrowRight />
+                <ArrowRightIcon />
             </IconButton>
             {#if !swipeNavigationOnly}
                 <IconButton size="lg" className={'button-icon-reroll ' + ((rerollIcon === 'dynamic' || rerollIcon === 'force') ? 'dyna-icon ' : '') + (rerollIcon === 'force' ? 'force-show' : '')} onclick={async () => {
@@ -1503,9 +1503,9 @@
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].disabled = !currentMessage.disabled
     }}>
         {#if disabled === true}
-            <MessageSquarePlus />
+            <MessageSquarePlusIcon />
         {:else}
-            <MessageSquareOff />
+            <MessageSquareOffIcon />
         {/if}
         <span>{disabled === true ? language.enableMessage : language.disableMessage}</span>
     </ShDropdownMenuItem>
@@ -1514,7 +1514,7 @@
         const currentMessage = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
         DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].disabled = currentMessage.disabled === 'allBefore' ? false : 'allBefore'
     }}>
-        <Scissors />
+        <ScissorsIcon />
         <span>{language.disableAbove}</span>
         <ShTooltip>
             {#snippet trigger(props)}
