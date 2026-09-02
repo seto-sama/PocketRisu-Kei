@@ -355,6 +355,7 @@
 
                             {#if plugin?.argMeta?.[arg]?.textarea}
                                 <TextAreaInput
+                                    commitMode="blur"
                                     className="mt-2"
                                     popupTitle={`${pluginTitle(plugin)} · ${plugin?.argMeta?.[arg]?.name || arg}`}
                                     bind:value={
@@ -377,6 +378,7 @@
                                 {/each}
                             {:else}
                                 <TextInput
+                                    commitMode="blur"
                                     className="mt-2"
                                     bind:value={
                                         DBState.db.plugins[index].realArg[arg] as string

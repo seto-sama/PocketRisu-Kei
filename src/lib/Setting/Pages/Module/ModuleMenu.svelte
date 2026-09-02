@@ -177,13 +177,13 @@
 
 {#if submenu === 'basic'}
     <span>{language.name}<Help key="moduleName" /></span>
-    <TextInput bind:value={currentModule.name} className="mt-2"/>
+    <TextInput commitMode="blur" bind:value={currentModule.name} className="mt-2"/>
     <span class="mt-4">{language.description}<Help key="moduleDescription" /></span>
-    <TextInput bind:value={currentModule.description} className="mt-2"/>
+    <TextInput commitMode="blur" bind:value={currentModule.description} className="mt-2"/>
     <span class="mt-4">{language.namespace}<Help key="namespace" /></span>
-    <TextInput bind:value={currentModule.namespace} className="mt-2"/>
+    <TextInput commitMode="blur" bind:value={currentModule.namespace} className="mt-2"/>
     <span class="mt-4">{language.customPromptTemplateToggle}<Help key='customPromptTemplateToggle' /></span>
-    <TextAreaInput className="mt-2 mb-4" bind:value={currentModule.customModuleToggle}/>
+    <TextAreaInput commitMode="blur" className="mt-2 mb-4" bind:value={currentModule.customModuleToggle}/>
     <div class="mt-2 flex min-h-10 w-full items-center justify-between gap-2 px-1">
         <span class="min-w-0 text-textcolor">{language.hideChatIcon}<Help key="moduleHideChatIcon" /></span>
         <ShSwitch bind:checked={currentModule.hideIcon}/>
@@ -221,7 +221,7 @@
 
 {#if submenu === 'regex' && (Array.isArray(currentModule.regex))}
     <span class="mt-2 flex items-center">{language.backgroundHTML}<Help key="moduleBackgroundEmbedding" /></span>
-    <TextAreaInput bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
+    <TextAreaInput commitMode="blur" bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
     <span class="mt-4 flex items-center">{language.regexScript}<Help key="moduleRegexList" /></span>
     <RegexList bind:value={currentModule.regex} actionIconSize="default"/>
     <IconButtonGroup size="default" className="mt-2">

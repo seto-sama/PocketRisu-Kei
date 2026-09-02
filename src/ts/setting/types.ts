@@ -7,6 +7,7 @@
 
 import type { Database } from '../storage/database.svelte';
 import type { CustomComponentId, CustomComponentProps } from './customComponents';
+import type { InputCommitMode } from '../inputCommit';
 
 /**
  * Context passed to condition functions for visibility checks
@@ -103,6 +104,8 @@ export interface SettingOptions {
     suggestions?: string[]; // Optional datalist suggestions; free-form input remains allowed
     defaultValue?: unknown; // Display value when a bound field is undefined
     showTokenCount?: boolean; // Show the CBS-expanded token count below a textarea
+    commitMode?: InputCommitMode; // DB write policy for text/number/textarea fields
+    debounceMs?: number;
     
     // number
     inputClassName?: string;

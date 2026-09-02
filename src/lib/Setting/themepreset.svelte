@@ -65,7 +65,7 @@
         const preset = DBState.db.themePresets[index];
         if (!preset) return;
         if (DBState.db.themePresets.length === 1) {
-            notifyError(language.errors.onlyOneChat);
+            notifyError(language.errors.onlyOnePreset);
             return;
         }
         if (!await alertConfirm(`${language.removeConfirm}${preset.name}`)) return;

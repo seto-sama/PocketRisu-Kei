@@ -183,10 +183,10 @@
 
             {#if settings}
                 <SettingLayout variant="row" title={language.summarizationPrompt} description={help("summarizationPrompt")} stacked>
-                    <TextAreaInput bind:value={settings.summarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
+                    <TextAreaInput commitMode="blur" bind:value={settings.summarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
                 </SettingLayout>
                 <SettingLayout variant="row" title={language.reSummarizationPrompt} description={help("reSummarizationPrompt")} stacked>
-                    <TextAreaInput bind:value={settings.reSummarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
+                    <TextAreaInput commitMode="blur" bind:value={settings.reSummarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
                 </SettingLayout>
 
                 <h3 class="text-base font-bold mt-8 mb-1">{language.hypaV3Settings.memoryConfigurationLabel}</h3>
@@ -199,7 +199,7 @@
                 <SettingLayout variant="row" title={language.hypaV3Settings.randomMemoryRatioLabel} description={help("hypaV3RandomMemoryRatio")}>{#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.01} fixed={2} disabled value={Math.max(0, 1 - settings.recentMemoryRatio - settings.similarMemoryRatio)}/></div>{/snippet}</SettingLayout>
                 <SettingLayout variant="row" title={language.hypaV3Settings.maxChatsPerSummaryLabel} description={help("hypaV3MaxChatsPerSummary")}>{#snippet control()}<div class="w-48"><ShSlider min={1} max={12} step={1} bind:value={settings.maxChatsPerSummary}/></div>{/snippet}</SettingLayout>
                 <SettingLayout variant="row" title={language.hypaV3Settings.queryChatCountLabel} description={help("hypaV3QueryChatCount")}>{#snippet control()}<div class="w-48"><ShSlider min={1} max={12} step={1} bind:value={settings.queryChatCount}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.summaryChunkSeparatorLabel} description={help("hypaV3SummaryChunkSeparator")}>{#snippet control()}<TextInput className="w-48 text-sm" size="sm" bind:value={settings.summaryChunkSeparator}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.summaryChunkSeparatorLabel} description={help("hypaV3SummaryChunkSeparator")}>{#snippet control()}<TextInput commitMode="blur" className="w-48 text-sm" size="sm" bind:value={settings.summaryChunkSeparator}/>{/snippet}</SettingLayout>
 
                 <SettingLayout variant="row" title={language.hypaV3Settings.preserveOrphanedMemoryLabel} description={help("hypaV3PreserveOrphanedMemory")}>{#snippet control()}<ShSwitch bind:checked={settings.preserveOrphanedMemory}/>{/snippet}</SettingLayout>
                 <SettingLayout variant="row" title={language.hypaV3Settings.applyRegexScriptWhenRerollingLabel} description={help("hypaV3ProcessRegexScript")}>{#snippet control()}<ShSwitch bind:checked={settings.processRegexScript}/>{/snippet}</SettingLayout>
@@ -272,8 +272,8 @@
                 {#snippet control()}<ApiKeyModeControl bind:mode={voyageKeyMode} entries={voyageKeys} selectedId={voyageKeyRef} bind:directValue={DBState.db.voyageApiKey} onSelect={(id) => useKey(id, "voyage")} />{/snippet}
             </SettingLayout>
         {:else if embeddingProvider === "custom"}
-            <SettingLayout variant="row" title={language.hypaV3Settings.urlLabel} description={help("embeddingCustomURL")}>{#snippet control()}<TextInput className="w-48 text-sm" size="sm" bind:value={DBState.db.hypaCustomSettings.url}/>{/snippet}</SettingLayout>
-            <SettingLayout variant="row" title={language.hypaV3Settings.requestModelLabel} description={help("embeddingCustomModel")}>{#snippet control()}<TextInput className="w-48 text-sm" size="sm" bind:value={DBState.db.hypaCustomSettings.model}/>{/snippet}</SettingLayout>
+            <SettingLayout variant="row" title={language.hypaV3Settings.urlLabel} description={help("embeddingCustomURL")}>{#snippet control()}<TextInput commitMode="blur" className="w-48 text-sm" size="sm" bind:value={DBState.db.hypaCustomSettings.url}/>{/snippet}</SettingLayout>
+            <SettingLayout variant="row" title={language.hypaV3Settings.requestModelLabel} description={help("embeddingCustomModel")}>{#snippet control()}<TextInput commitMode="blur" className="w-48 text-sm" size="sm" bind:value={DBState.db.hypaCustomSettings.model}/>{/snippet}</SettingLayout>
             <SettingLayout variant="row" title={language.hypaV3Settings.keyPasswordLabel} description={help("embeddingCustomKey")}>
                 {#snippet control()}<ApiKeyModeControl bind:mode={customKeyMode} entries={allKeys} selectedId={customKeyRef} bind:directValue={DBState.db.hypaCustomSettings.key} onSelect={(id) => useKey(id, "custom")} showProvider />{/snippet}
             </SettingLayout>

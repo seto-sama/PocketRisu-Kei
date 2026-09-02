@@ -1,5 +1,7 @@
 <script lang="ts">
     import { EyeIcon, EyeOffIcon } from "@lucide/svelte";
+    import TextInput from "./TextInput.svelte";
+    import type { InputCommitMode } from "src/ts/inputCommit";
 
     interface Props {
         value: string;
@@ -7,6 +9,9 @@
         fullwidth?: boolean;
         className?: string;
         disabled?: boolean;
+        commitMode?: InputCommitMode;
+        debounceMs?: number;
+        oncommit?: (value: string) => void;
     }
 
     let {
@@ -15,6 +20,9 @@
         fullwidth = false,
         className = '',
         disabled = false,
+        commitMode = 'blur',
+        debounceMs = undefined,
+        oncommit = () => {},
     }: Props = $props();
 
     // Single-user app — masking is convenience, not security. Default hidden,
@@ -23,14 +31,17 @@
 </script>
 
 <div class="relative" class:w-full={fullwidth}>
-    <input
-        class={"risu-field-border peer rounded-md shadow-xs text-textcolor bg-transparent px-2.5 py-2 pr-10 w-full" + (className ? (' ' + className) : '')}
-        class:text-textcolor2={disabled}
-        autocomplete="new-password"
+    <TextInput
+        className={`pr-10 w-full ${className}`}
+        autocomplete="off"
         {placeholder}
-        type={revealed ? 'text' : 'password'}
+        hideText={!revealed}
         bind:value
         {disabled}
+        {commitMode}
+        {debounceMs}
+        {oncommit}
+        fullwidth
     />
     <button
         type="button"

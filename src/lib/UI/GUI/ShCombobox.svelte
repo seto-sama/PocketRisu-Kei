@@ -16,6 +16,7 @@
         containerClassName?: string;
         marginBottom?: boolean;
         disabled?: boolean;
+        oncommit?: (value: string) => void;
     }
 
     let {
@@ -27,6 +28,7 @@
         containerClassName = 'w-full',
         marginBottom = false,
         disabled = false,
+        oncommit = () => {},
     }: Props = $props();
 
     const comboboxId = `sh-combobox-${++comboboxIdCounter}`;
@@ -88,6 +90,7 @@
 
     function selectOption(option: string) {
         value = option;
+        oncommit(option);
         closeDropdown();
         void tick().then(() => inputElement()?.focus());
     }
@@ -172,6 +175,7 @@
         ariaAutocomplete="list"
         ariaActiveDescendant={activeDescendant}
         onfocus={openDropdown}
+        onblur={() => oncommit(value)}
         oninput={handleInput}
         onkeydown={handleKeydown}
     />

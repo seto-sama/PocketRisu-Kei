@@ -19,12 +19,19 @@
     max={max}
     id={id}
     disabled={disabled}
-    bind:value
-    onchange={onChange}
+    value={draftValue}
+    oninput={handleInput}
+    onchange={handleChange}
+    onblur={handleBlur}
+    onkeydown={handleKeydown}
     placeholder={placeholder}
 />
 
 <script lang="ts">
+    import { onDestroy, untrack } from 'svelte';
+    import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence';
+    import { INPUT_COMMIT_DEBOUNCE_MS, type InputCommitMode } from 'src/ts/inputCommit';
+
     interface Props {
         min?: number;
         max?: number;
@@ -38,6 +45,9 @@
         onChange?: (event: Event & {
             currentTarget: EventTarget & HTMLInputElement;
         }) => any;
+        onCommit?: (value: number) => void;
+        commitMode?: InputCommitMode;
+        debounceMs?: number;
         className?: string;
         disabled?: boolean;
         placeholder?: string;
@@ -54,10 +64,80 @@
         fullwidth = false,
         fullh = false,
         onChange = () => {},
+        onCommit = () => {},
+        commitMode = 'blur',
+        debounceMs = INPUT_COMMIT_DEBOUNCE_MS,
         className = '',
         disabled = false,
         placeholder
     }: Props = $props();
+
+    let draftValue = $state(untrack(() => String(value ?? '')));
+    let dirty = $state(false);
+
+    function normalizedDraft(): number | null {
+        if (draftValue.trim() === '') return null;
+        const parsed = Number(draftValue);
+        if (!Number.isFinite(parsed)) return null;
+        return Math.min(max ?? Infinity, Math.max(min ?? -Infinity, parsed));
+    }
+
+    function revert() {
+        writer.cancel();
+        draftValue = String(value ?? '');
+        dirty = false;
+    }
+
+    function commit() {
+        writer.cancel();
+        const nextValue = normalizedDraft();
+        if (nextValue === null) {
+            revert();
+            return;
+        }
+        draftValue = String(nextValue);
+        dirty = false;
+        if (nextValue === value) return;
+        value = nextValue;
+        onCommit(nextValue);
+    }
+
+    const writer = createDebouncedDraftWriter<void>(() => commit(), untrack(() => debounceMs));
+
+    function scheduleCommit() {
+        if (commitMode === 'input') commit();
+        else if (commitMode === 'debounce') writer.schedule();
+    }
+
+    function handleInput(event: Event & { currentTarget: HTMLInputElement }) {
+        draftValue = event.currentTarget.value;
+        dirty = draftValue !== String(value ?? '');
+        scheduleCommit();
+    }
+
+    function handleChange(event: Event & { currentTarget: HTMLInputElement }) {
+        if (commitMode !== 'input') commit();
+        onChange(event);
+    }
+
+    function handleBlur() {
+        if (commitMode !== 'input') commit();
+    }
+
+    function handleKeydown(event: KeyboardEvent) {
+        if (event.key === 'Enter') commit();
+        else if (event.key === 'Escape' && dirty) revert();
+    }
+
+    $effect(() => {
+        const externalValue = String(value ?? '');
+        if (!dirty && externalValue !== draftValue) draftValue = externalValue;
+    });
+
+    onDestroy(() => {
+        if (dirty) commit();
+        else writer.cancel();
+    });
 </script>
 
 <style>
