@@ -6,6 +6,7 @@ import {
     extractErrorMessage,
     normalizeFetchError,
     normalizeHttpStatus,
+    normalizeProviderStreamError,
 } from './error'
 
 describe('extractErrorMessage', () => {
@@ -236,5 +237,23 @@ describe('normalizeHttpStatus', () => {
     test('outside common ranges -> unknown', () => {
         const err = normalizeHttpStatus(600)!
         expect(err.kind).toBe('unknown')
+    })
+})
+
+describe('normalizeProviderStreamError', () => {
+    test('uses the normal HTTP classification when a stream payload includes status', () => {
+        expect(normalizeProviderStreamError({ status: 503, message: 'busy' }, 'fallback'))
+            .toMatchObject({ kind: 'server', retryable: true, fallbackEligible: true })
+    })
+
+    test('recognizes status-less provider overload messages', () => {
+        expect(normalizeProviderStreamError({
+            type: 'server_error',
+            message: 'Too many requests',
+        }, 'fallback')).toMatchObject({
+            kind: 'rate-limit',
+            retryable: true,
+            fallbackEligible: false,
+        })
     })
 })

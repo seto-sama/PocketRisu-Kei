@@ -155,3 +155,37 @@ export function normalizeHttpStatus(status: number, message?: string): ModelPres
     }
     return new ModelPresetAdapterError('unknown', message ?? `HTTP ${status}`, { status })
 }
+
+const TRANSIENT_OVERLOAD_PATTERN = /(?:\bhttp\s+(?:429|503|529)\b|too many requests|rate[\s_-]*limit|resource[_\s-]*exhausted|overload(?:ed)?)/i
+
+export function isTransientOverloadMessage(message: string): boolean {
+    return TRANSIENT_OVERLOAD_PATTERN.test(message)
+}
+
+/** Normalize provider errors delivered inside an otherwise successful stream. */
+export function normalizeProviderStreamError(
+    payload: unknown,
+    fallbackMessage: string,
+): ModelPresetAdapterError {
+    const value = payload && typeof payload === 'object'
+        ? payload as Record<string, unknown>
+        : {}
+    const message = typeof value.message === 'string' ? value.message : fallbackMessage
+    const status = [value.status, value.status_code, value.http_status]
+        .find(candidate => typeof candidate === 'number') as number | undefined
+    if (status !== undefined) {
+        const normalized = normalizeHttpStatus(status, message)
+        if (normalized) return normalized
+    }
+
+    const providerCode = [value.code, value.type]
+        .filter(candidate => typeof candidate === 'string')
+        .join(' ')
+    if (isTransientOverloadMessage(`${providerCode} ${message}`)) {
+        return new ModelPresetAdapterError('rate-limit', message, { status })
+    }
+    if (/(?:server|internal|service[\s_-]*unavailable)/i.test(providerCode)) {
+        return new ModelPresetAdapterError('server', message, { status })
+    }
+    return new ModelPresetAdapterError('unknown', message, { status })
+}

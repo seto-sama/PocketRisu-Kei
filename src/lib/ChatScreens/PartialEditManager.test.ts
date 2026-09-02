@@ -4,20 +4,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const storeMocks = vi.hoisted(() => {
     let reloadValue: Record<number, number> = {}
+    const ReloadChatPointer = {
+        subscribe(run: (value: Record<number, number>) => void) {
+            run(reloadValue)
+            return () => {}
+        },
+        set(value: Record<number, number>) {
+            reloadValue = value
+        },
+        update(updater: (value: Record<number, number>) => Record<number, number>) {
+            reloadValue = updater(reloadValue)
+        },
+    }
     return {
         DBState: { db: {} as any },
         selIdState: { selId: 0 },
-        ReloadChatPointer: {
-            subscribe(run: (value: Record<number, number>) => void) {
-                run(reloadValue)
-                return () => {}
-            },
-            set(value: Record<number, number>) {
-                reloadValue = value
-            },
-            update(updater: (value: Record<number, number>) => Record<number, number>) {
-                reloadValue = updater(reloadValue)
-            },
+        ReloadChatPointer,
+        invalidateChatMessageRender(messageIndex: number) {
+            ReloadChatPointer.update(value => ({
+                ...value,
+                [messageIndex]: (value[messageIndex] ?? 0) + 1,
+            }))
         },
     }
 })

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { ModelPreset, ResolvedModelProfileSnapshot } from '../types'
-import { previewResponsesRequest } from './openaiResponses'
+import { parseResponsesStreamEvent, previewResponsesRequest } from './openaiResponses'
 
 function makeSnapshot(): ResolvedModelProfileSnapshot {
     return {
@@ -161,5 +161,32 @@ describe('OpenAI Responses Vision Quality', () => {
             .toBe('https://bedrock-mantle.ap-northeast-2.api.aws/openai/v1/responses')
         expect(prepared.headers.Authorization).toBe('Bearer bedrock-api-key')
         expect(prepared.body.model).toBe('xai.grok-4.3')
+    })
+})
+
+describe('OpenAI Responses stream errors', () => {
+    test('classifies an in-stream overload as retryable rate limiting', () => {
+        expect(() => parseResponsesStreamEvent({
+            type: 'error',
+            error: {
+                type: 'server_error',
+                message: "We're currently processing too many requests — please try again later.",
+            },
+        })).toThrowError(expect.objectContaining({
+            name: 'ModelPresetAdapterError',
+            kind: 'rate-limit',
+            retryable: true,
+            fallbackEligible: false,
+        }))
+    })
+
+    test('keeps unknown permanent stream failures non-retryable', () => {
+        expect(() => parseResponsesStreamEvent({
+            type: 'response.failed',
+            response: { error: { message: 'unclassified failure' } },
+        })).toThrowError(expect.objectContaining({
+            kind: 'unknown',
+            retryable: false,
+        }))
     })
 })

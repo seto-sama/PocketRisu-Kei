@@ -1,6 +1,6 @@
 <script lang="ts">
     import { MenuIcon } from "@lucide/svelte";
-    import { popupStore } from "src/ts/stores.svelte";
+    import { closePopup, popupStore } from "src/ts/stores.svelte";
     import { sleep } from "src/ts/util";
     import IconButton from "./GUI/IconButton.svelte";
 
@@ -16,8 +16,7 @@
 <IconButton size="lg" onclick={async (e:MouseEvent) => {
     await sleep(0)
     if(popupStore.openId === buttonId){
-        popupStore.children = null
-        popupStore.openId = 0
+        closePopup()
         return
     }
     popupStore.mouseX = e.clientX

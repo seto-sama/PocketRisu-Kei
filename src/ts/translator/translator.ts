@@ -17,8 +17,10 @@ import { getModuleRegexScripts } from "../process/modules"
 import { getNodetextToSentence } from "../util"
 import { processScriptFull } from "../process/scripts"
 import { playNotificationSound } from '../notificationSound'
+import { language } from '../../lang'
 import {
     completeRevenantTranslation,
+    isUsableTranslationResult,
     prepareRevenantTranslationRequest,
     recoverRevenantTranslationJobs,
 } from '../process/revenant/recovery'
@@ -84,7 +86,8 @@ async function flushPendingLLMCacheReads() {
 
         const resolved = requests.map((request, index) => {
             const payload = payloads.get(storageKeys[index])
-            const value = payload?.key === request.text ? payload.value : null
+            const storedValue = payload?.key === request.text ? payload.value : null
+            const value = isUsableTranslationResult(storedValue) ? storedValue : null
             if (value !== null) llmTranslateCache.set(request.text, value)
             return { request, value }
         })
@@ -104,8 +107,11 @@ async function flushPendingLLMCacheReads() {
                     request.resolve(null)
                     return
                 }
-                llmTranslateCache.set(request.text, payload.value)
-                request.resolve(payload.value)
+                const value = isUsableTranslationResult(payload.value)
+                    ? payload.value
+                    : null
+                if (value !== null) llmTranslateCache.set(request.text, value)
+                request.resolve(value)
             }
             catch (error) {
                 request.reject(error ?? batchError)
@@ -146,10 +152,17 @@ async function setPersistentLLMCache(text: string, value: string) {
     })
 }
 
-async function storeLLMTranslation(key: string, value: string) {
+async function storeLLMTranslation(
+    key: string,
+    value: string,
+    notify = true,
+) {
+    // Preserve an older successful retranslation when a provider completes
+    // without usable content.
+    if (!isUsableTranslationResult(value)) return
     llmTranslateCache.set(key, value)
     await setPersistentLLMCache(key, value)
-    notifyLLMTranslationCacheChanged(key)
+    if (notify) notifyLLMTranslationCacheChanged(key)
 }
 
 const revenantTranslationCache = {
@@ -657,15 +670,10 @@ function needSuperChunkedTranslate(){
 async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string, signal?:AbortSignal, target?:RevenantChatMessageTranslationTarget|null, onCacheState?:(cached:boolean) => void}):Promise<string>{
     arg.signal?.throwIfAborted()
     if(!arg.regenerate){
-        const cacheMatch = llmTranslateCache.get(text)
-        if(cacheMatch){
+        const cacheMatch = await getLLMCache(text)
+        if(cacheMatch !== null){
             arg.onCacheState?.(true)
             return cacheMatch
-        }
-        const persistedCacheMatch = await getPersistentLLMCache(text)
-        if (persistedCacheMatch !== null) {
-            arg.onCacheState?.(true)
-            return persistedCacheMatch
         }
     }
     // A cache miss may belong to a detached revenant job discovered just after
@@ -677,9 +685,8 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
     })
     arg.signal?.throwIfAborted()
     if(!arg.regenerate){
-        const recoveredCacheMatch = llmTranslateCache.get(text)
-            ?? await getPersistentLLMCache(text)
-        if(recoveredCacheMatch !== null && recoveredCacheMatch !== undefined){
+        const recoveredCacheMatch = await getLLMCache(text)
+        if(recoveredCacheMatch !== null){
             arg.onCacheState?.(true)
             return recoveredCacheMatch
         }
@@ -760,6 +767,10 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
         rq.result,
         revenantJob.id,
     )
+    if (!isUsableTranslationResult(result)) {
+        notifyError(language.errors.emptyTranslationResponse)
+        return revenantRequest.cacheKey
+    }
     arg.onCacheState?.(false)
     return result
 }
@@ -771,20 +782,34 @@ export async function clearLLMCache(): Promise<void> {
 }
 
 export async function getLLMCache(text:string):Promise<string | null>{
-    return llmTranslateCache.get(text) ?? await getPersistentLLMCache(text)
+    const memoryMatch = llmTranslateCache.get(text)
+    if (isUsableTranslationResult(memoryMatch)) return memoryMatch
+    const persistentMatch = await getPersistentLLMCache(text)
+    return isUsableTranslationResult(persistentMatch) ? persistentMatch : null
+}
+
+export async function copyLLMCache(sourceKey: string, targetKey: string): Promise<boolean> {
+    const cached = await getLLMCache(sourceKey)
+    if (cached === null) return false
+    if (sourceKey !== targetKey) await storeLLMTranslation(targetKey, cached)
+    return true
 }
 
 export async function searchLLMCache(partialKey:string):Promise<{key: string, value: string}[]>{
     const results:{key: string, value: string}[] = []
     for(const [key, value] of llmTranslateCache){
-        if(key.includes(partialKey)){
+        if(key.includes(partialKey) && isUsableTranslationResult(value)){
             results.push({key, value})
         }
     }
     const storageKeys = await listPersistentKeys(llmTranslateCachePrefix)
     for (const storageKey of storageKeys) {
         const payload = await readPersistentJson<{ key: string, value: string }>(storageKey)
-        if (!payload || !payload.key.includes(partialKey)) {
+        if (
+            !payload
+            || !payload.key.includes(partialKey)
+            || !isUsableTranslationResult(payload.value)
+        ) {
             continue
         }
         if (results.some((entry) => entry.key === payload.key)) {
@@ -810,9 +835,11 @@ export type LLMCacheEntry = {key: string, value: string}
 
 export function loadedLLMCacheEntries(): LLMCacheEntry[] {
     return Array.from(llmTranslateCache, ([key, value]) => ({ key, value }))
+        .filter(entry => isUsableTranslationResult(entry.value))
 }
 
 export function cacheLoadedLLMEntry(key:string, value:string): void {
+    if (!isUsableTranslationResult(value)) return
     llmTranslateCache.set(key, value)
     notifyLLMTranslationCacheChanged(key)
 }
@@ -820,12 +847,16 @@ export function cacheLoadedLLMEntry(key:string, value:string): void {
 export async function exportLLMCacheAsJSON():Promise<Record<string, string>>{
     const result:Record<string, string> = {}
     for(const [key, value] of llmTranslateCache){
-        result[key] = value
+        if (isUsableTranslationResult(value)) result[key] = value
     }
     const storageKeys = await listPersistentKeys(llmTranslateCachePrefix)
     for (const storageKey of storageKeys) {
         const payload = await readPersistentJson<{ key: string, value: string }>(storageKey)
-        if (payload && !(payload.key in result)) {
+        if (
+            payload
+            && isUsableTranslationResult(payload.value)
+            && !(payload.key in result)
+        ) {
             result[payload.key] = payload.value
         }
     }
@@ -836,9 +867,12 @@ export async function importLLMCacheFromJSON(data:Record<string, string>):Promis
     let count = 0
     let failed = 0
     for(const [key, value] of Object.entries(data)){
+        if (!isUsableTranslationResult(value)) {
+            failed++
+            continue
+        }
         try {
-            await setPersistentLLMCache(key, value)
-            llmTranslateCache.set(key, value)
+            await storeLLMTranslation(key, value, false)
             count++
         } catch {
             failed++

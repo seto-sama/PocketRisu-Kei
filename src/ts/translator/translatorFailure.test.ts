@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
     notifyError: vi.fn(),
     recoverRevenantTranslationJobs: vi.fn(async () => 0),
     requestChatData: vi.fn(),
+    completeRevenantTranslation: vi.fn(),
+    readPersistentJsonBatch: vi.fn(async () => new Map()),
 }))
 
 vi.mock('../storage/database.svelte', () => ({
@@ -29,7 +31,8 @@ vi.mock('../process/request/request', () => ({
     requestChatData: mocks.requestChatData,
 }))
 vi.mock('../process/revenant/recovery', () => ({
-    completeRevenantTranslation: vi.fn(),
+    completeRevenantTranslation: mocks.completeRevenantTranslation,
+    isUsableTranslationResult: (value: string | null | undefined) => Boolean(value?.trim()),
     prepareRevenantTranslationRequest: (text: string) => ({
         cacheKey: text,
         requestText: text,
@@ -63,18 +66,21 @@ vi.mock('../storage/persistentKv', () => ({
     listPersistentKeys: vi.fn(async () => []),
     makeHashedStorageKey: vi.fn(async (_prefix: string, key: string) => key),
     readPersistentJson: vi.fn(async () => null),
-    readPersistentJsonBatch: vi.fn(async () => new Map()),
+    readPersistentJsonBatch: mocks.readPersistentJsonBatch,
     removePersistentKey: vi.fn(),
     writePersistentJson: vi.fn(),
 }))
 
-import { runTranslator } from './translator'
+import { getLLMCache, runTranslator } from './translator'
 
 describe('LLM translation failure lifecycle', () => {
     beforeEach(() => {
         mocks.notifyError.mockClear()
         mocks.recoverRevenantTranslationJobs.mockClear()
         mocks.requestChatData.mockReset()
+        mocks.completeRevenantTranslation.mockReset()
+        mocks.readPersistentJsonBatch.mockReset()
+        mocks.readPersistentJsonBatch.mockResolvedValue(new Map())
     })
 
     it('delegates failure cleanup to the shared retain-success policy', async () => {
@@ -96,5 +102,26 @@ describe('LLM translation failure lifecycle', () => {
         expect(mocks.notifyError).toHaveBeenCalledWith(
             'Requests ending with a model turn are not supported.',
         )
+    })
+
+    it('falls back to the source when a successful request completes empty', async () => {
+        mocks.requestChatData.mockResolvedValue({
+            type: 'success',
+            result: '',
+        })
+        mocks.completeRevenantTranslation.mockResolvedValue('   ')
+
+        await expect(runTranslator('hello', false, 'ko', 'en')).resolves.toBe('hello')
+        expect(mocks.notifyError).toHaveBeenCalledWith(
+            'Translation returned an empty response.',
+        )
+    })
+
+    it('treats a legacy empty persistent cache entry as a cache miss', async () => {
+        mocks.readPersistentJsonBatch.mockResolvedValue(new Map([
+            ['legacy-empty', { key: 'legacy-empty', value: '' }],
+        ]))
+
+        await expect(getLLMCache('legacy-empty')).resolves.toBeNull()
     })
 })

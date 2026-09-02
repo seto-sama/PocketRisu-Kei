@@ -92,6 +92,12 @@ export const ReloadGUIPointer = writable(0)
 // invalidate every room's parsed-message cache like a real GUI/script edit.
 export const ChatRoomReloadPointer = writable(0)
 export const ReloadChatPointer = writable({} as Record<number, number>)
+export function invalidateChatMessageRender(messageIndex: number) {
+    ReloadChatPointer.update(pointers => ({
+        ...pointers,
+        [messageIndex]: (pointers[messageIndex] ?? 0) + 1,
+    }))
+}
 export const ScrollToMessageStore = $state({ value: -1, exact: false })
 export const OpenRealmStore = writable(false)
 export const PlaygroundStore = writable(0)
@@ -215,6 +221,11 @@ export const popupStore = $state({
     mouseY: 0,
     openId: 0,
 })
+
+export function closePopup() {
+    popupStore.children = null
+    popupStore.openId = 0
+}
 
 export interface PopupEditorMetadata {
     label: string

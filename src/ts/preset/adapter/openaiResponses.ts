@@ -2,6 +2,7 @@ import type { ModelPreset } from '../types'
 import {
     ModelPresetAdapterError,
     normalizeFetchError,
+    normalizeProviderStreamError,
 } from './error'
 import {
     openPreparedEventStream,
@@ -282,10 +283,7 @@ export function parseResponsesStreamEvent(raw: unknown): AdapterChatStreamDelta 
         const error = raw.type === 'response.failed' && isPlainObject(raw.response)
             ? raw.response.error
             : raw.error
-        const message = isPlainObject(error) && typeof error.message === 'string'
-            ? error.message
-            : 'OpenAI Responses stream failed'
-        throw new ModelPresetAdapterError('unknown', message)
+        throw normalizeProviderStreamError(error, 'OpenAI Responses stream failed')
     }
     return null
 }

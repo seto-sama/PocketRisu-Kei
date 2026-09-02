@@ -9,7 +9,7 @@
     import { exportChat, importChat } from "../../ts/characters";
     import { findCharacterbyId } from "../../ts/util";
     import TextInput from "../UI/GUI/TextInput.svelte";
-    import { changeChatTo, requestImmediateSave } from "src/ts/globalApi.svelte";
+    import { changeChatTo, createPersistedChat, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { v4 } from "uuid";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
@@ -73,18 +73,21 @@
             </button>
         {/each}
         <IconButtonGroup className="mt-2">
-            <IconButton onclick={() => {
+            <IconButton onclick={async () => {
                 const len = DBState.db.characters[$selectedCharID].chats.length
-                let chats = DBState.db.characters[$selectedCharID].chats
                 const newChat = {
                     message:[], note:'', name:`New Chat ${len + 1}`, localLore:[], fmIndex: -1, id: v4(),
                     ...newChatModelDefaults()
                 }
-                chats.unshift(newChat)
-                DBState.db.characters[$selectedCharID].chats = chats
-                changeChatTo(0)
-                void requestImmediateSave()
-                close()
+                try {
+                    await createPersistedChat(
+                        DBState.db.characters[$selectedCharID],
+                        newChat,
+                    )
+                    close()
+                } catch (error) {
+                    notifyError(error instanceof Error ? error.message : String(error))
+                }
             }}>
                 <PlusIcon/>
             </IconButton>

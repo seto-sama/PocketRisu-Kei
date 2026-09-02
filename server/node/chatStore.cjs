@@ -195,17 +195,28 @@ function createCanonicalChatService(options) {
         chatId,
         candidate,
         expectedEtag,
+        acceptMatchingCurrent = false,
         persist,
         reason,
         originClientId,
         finalize,
     }) {
         const previous = getChat(characterId, chatId);
+        const previousEtag = computeChatEtag(previous);
+        // Prompt construction can outlive the browser's debounced autosave.
+        // If that autosave already committed this exact generation input, the
+        // captured ETag is stale but the intended compare-and-swap has already
+        // happened. Rebase only an identical payload; genuinely different
+        // canonical content must still conflict.
+        const commitEtag = acceptMatchingCurrent
+            && computeChatEtag(candidate) === previousEtag
+            ? previousEtag
+            : expectedEtag;
         const result = commitChatContent(
             characterId,
             chatId,
             candidate,
-            expectedEtag,
+            commitEtag,
             { requireExpected: true },
         );
         if (!result.success) {
@@ -238,6 +249,7 @@ function createCanonicalChatService(options) {
                 chatId,
                 candidate: chat,
                 expectedEtag,
+                acceptMatchingCurrent: true,
                 reason: 'generation-input',
                 persist: () => persistNow({
                     characterId,

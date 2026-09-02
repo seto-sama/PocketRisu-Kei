@@ -162,6 +162,40 @@ describe('canonical chat service', () => {
         )
     })
 
+    it("accepts generation input already committed by this client's autosave", async () => {
+        const beforeEdit = { id: 'room-1', message: [] }
+        const submitted = { id: 'room-1', message: [{ role: 'user', data: 'hello' }] }
+        const harness = createServiceHarness(submitted)
+
+        const result = await harness.service.commitGenerationInput({
+            characterId: 'character-1',
+            chatId: 'room-1',
+            chat: submitted,
+            expectedEtag: computeChatEtag(beforeEdit),
+        })
+
+        expect(result.chat).toEqual(submitted)
+        expect(result.etag).toBe(computeChatEtag(submitted))
+        expect(harness.persistNow).toHaveBeenCalledWith({
+            characterId: 'character-1',
+            generationInput: true,
+        })
+    })
+
+    it('still rejects stale generation input when canonical content differs', async () => {
+        const beforeEdit = { id: 'room-1', message: [] }
+        const canonical = { id: 'room-1', message: [{ role: 'user', data: 'other edit' }] }
+        const harness = createServiceHarness(canonical)
+
+        await expect(harness.service.commitGenerationInput({
+            characterId: 'character-1',
+            chatId: 'room-1',
+            chat: { id: 'room-1', message: [{ role: 'user', data: 'my edit' }] },
+            expectedEtag: computeChatEtag(beforeEdit),
+        })).rejects.toBeInstanceOf(CanonicalChatCommitError)
+        expect(harness.persistNow).not.toHaveBeenCalled()
+    })
+
     it('rolls memory back when immediate persistence fails', async () => {
         const initial = { id: 'room-1', message: [] }
         const failure = new Error('disk full')

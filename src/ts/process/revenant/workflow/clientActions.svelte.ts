@@ -5,7 +5,7 @@ import { fetchNative, readImage } from '../../../globalApi.svelte'
 import { parseChatML } from '../../../parser/chatML'
 import type { ModelPreset } from '../../../preset/types'
 import { getDatabase, type Chat, type character } from '../../../storage/database.svelte'
-import { CharEmotion, ReloadChatPointer, ReloadGUIPointer } from '../../../stores.svelte'
+import { CharEmotion, ReloadGUIPointer, invalidateChatMessageRender } from '../../../stores.svelte'
 import { asBuffer, getUserIcon } from '../../../util'
 import { processMultiCommand } from '../../command'
 import { getInlayAsset, writeInlayImage } from '../../files/inlays'
@@ -234,13 +234,9 @@ async function executeClientAction(
                     ReloadGUIPointer.update(value => value + 1)
                 }
                 else if (effect.kind === 'reload.chat') {
-                    ReloadChatPointer.update(value => {
-                        const index = Number.isInteger(effect.index)
-                            ? Number(effect.index)
-                            : character.chatPage
-                        value[index] = (value[index] ?? 0) + 1
-                        return value
-                    })
+                    invalidateChatMessageRender(Number.isInteger(effect.index)
+                        ? Number(effect.index)
+                        : character.chatPage)
                 }
                 else if (effect.kind === 'log') console.log(effect.value)
                 else if (effect.kind === 'tts') {

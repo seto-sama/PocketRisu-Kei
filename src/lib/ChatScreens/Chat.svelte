@@ -1,22 +1,22 @@
 <script lang="ts">
-    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, CopyIcon, PowerOff, GitBranch, HamburgerIcon, LanguagesIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
-    import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createChatCopyName } from "src/ts/globalApi.svelte"
+    import { ArrowLeft, ArrowLeftRightIcon, ArrowRight, BookmarkIcon, BotIcon, CopyIcon, PowerOff, GitBranch, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, Scissors, EyeOff } from "@lucide/svelte"
+    import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy } from "src/ts/globalApi.svelte"
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme"
     import { getModelInfo } from "src/ts/model/modellist"
     import { runLuaButtonTrigger } from 'src/ts/process/scriptings'
     import { risuChatParser } from "src/ts/process/scripts"
     import { runTrigger } from 'src/ts/process/triggers'
     import { sayTTS } from "src/ts/process/tts"
-    import { DBState, ReloadChatPointer, CurrentTriggerIdStore, popupStore } from 'src/ts/stores.svelte'
+    import { DBState, ReloadChatPointer, CurrentTriggerIdStore, invalidateChatMessageRender, popupStore } from 'src/ts/stores.svelte'
 
     import { capitalize, getUserIcon, getUserName, sleep } from "src/ts/util"
     import { onDestroy, onMount, tick } from "svelte"
     import { type Unsubscriber } from "svelte/store"
     import { v4 as uuidv4, v4 } from 'uuid'
     import { language } from "../../lang"
-    import { alertClear, alertConfirm, alertConfirmMulti, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
+    import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
     import { ParseMarkdown, type CbsConditions, type simpleCharacterArgument } from "../../ts/parser/parser.svelte"
-    import { getLLMCache, setLLMCache } from "../../ts/translator/translator"
+    import { copyLLMCache, getLLMCache, setLLMCache } from "../../ts/translator/translator"
     import { getCurrentCharacter, getCurrentChat, normalizeChat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
@@ -30,7 +30,7 @@
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import { PRODUCT_NAME } from "src/ts/branding";
     import { createSubscriber } from "svelte/reactivity";
-    import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges } from "./chatBodyRenderController.svelte";
+    import { hasSharedTranslationTask, subscribeSharedTranslationTaskChanges, subscribeTranslationResume } from "./chatBodyRenderController.svelte";
     import type { ChatScrollController } from "./chatScroll";
 
     let translating = $state(false)
@@ -49,6 +49,7 @@
     const generationInfoAlignsLeft = $derived(DBState.db.theme === '')
     let activeTranslationTasks = 0
     let cancelTranslationRequest: (() => void) | null = $state(null)
+    let autoTranslationSuppressed = $state(false)
     let messageEditTextAreaStyle = $derived(`font-size:${0.875 * (DBState.db.zoomsize / 100)}rem;line-height:${(DBState.db.lineHeight ?? 1.25) * (DBState.db.zoomsize / 100)}rem`)
     const translationDisabledClasses = 'disabled:opacity-50 disabled:cursor-not-allowed'
     interface Props {
@@ -120,10 +121,7 @@
         const currentMessage = currentCharacter?.chats[currentCharacter.chatPage]?.message?.[idx]
         if (!currentMessage) return
         currentMessage.role = currentMessage.role === 'char' ? 'user' : 'char'
-        ReloadChatPointer.update((value) => {
-            value[idx] = (value[idx] ?? 0) + 1
-            return value
-        })
+        invalidateChatMessageRender(idx)
     }
 
     let msgDisplay = $state('')
@@ -144,6 +142,7 @@
         message: string
         streaming: boolean
     } | null = null
+    let preservedTranslationMessage: string | null = null
     const trackSharedTranslationTasks = createSubscriber((update) =>
         subscribeSharedTranslationTaskChanges(update)
     )
@@ -212,16 +211,18 @@
         }
     }
 
-    async function preservePositionWhileEditing(update: () => void | Promise<void>) {
+    async function preserveMessagePosition(update: () => void | Promise<void>) {
         const release = partialEditRoot
-            ? getScrollController()?.preserveElementPosition(partialEditRoot)
+            ? getScrollController()?.preserveElementPosition(partialEditRoot, {
+                edge: 'bottom',
+                followLayout: true,
+            })
             : undefined
         try {
-            await update()
-            // The editor first mounts and then measures its scrollHeight on a
-            // following Svelte tick. Keep the old message anchor through both
-            // layouts so the intermediate 44px textarea cannot move the view.
-            await tick()
+            const updateResult = update()
+            await updateResult
+            // Commit the initial control DOM before handing later size changes
+            // to the scroll controller's persistent follow-layout anchor.
             await tick()
         }
         finally {
@@ -233,13 +234,15 @@
         // Keep the editor independent from streaming/recovery prop updates.
         // Otherwise a parent refresh can replace every keystroke with the
         // latest server-owned display value.
-        await preservePositionWhileEditing(() => {
+        await preserveMessagePosition(() => {
             editDraft = message
+            editTranslationKeyMode = false
             editMode = true
         })
-        if (translated && DBState.db.translatorType === 'llm') {
-            editTranslationKeyMode = true
-            originalEditTranslationKey = await getTranslationCacheKey()
+        if (DBState.db.translatorType === 'llm') {
+            const key = await getTranslationCacheKey()
+            originalEditTranslationKey = await getLLMCache(key) === null ? null : key
+            editTranslationKeyMode = originalEditTranslationKey !== null
         }
         else {
             editTranslationKeyMode = false
@@ -251,22 +254,21 @@
         const oldKey = originalEditTranslationKey
         const shouldMigrateTranslationKey = editTranslationKeyMode
         const nextMessage = editDraft
-        await preservePositionWhileEditing(async () => {
+        if (shouldMigrateTranslationKey && oldKey) {
+            const nextDisplay = getDisplayMessage(nextMessage)
+            const newKey = await getTranslationCacheKey(nextDisplay)
+            // Populate the new key before publishing the edited source so the
+            // reactive render never observes a transient cache miss.
+            if (await copyLLMCache(oldKey, newKey)) {
+                preservedTranslationMessage = nextMessage
+            }
+        }
+        await preserveMessagePosition(async () => {
             editMode = false
             editTranslationKeyMode = false
             await edit(nextMessage)
             displaya(nextMessage)
         })
-
-        if (shouldMigrateTranslationKey && oldKey) {
-            const newKey = await getTranslationCacheKey()
-            if (oldKey !== newKey) {
-                const cached = await getLLMCache(oldKey)
-                if (cached !== null) {
-                    await setLLMCache(newKey, cached)
-                }
-            }
-        }
 
         originalEditTranslationKey = null
     }
@@ -295,7 +297,7 @@
     async function handlePartialEditTranslationSave(event: Event) {
         const { key, data } = (event as CustomEvent<{ key: string; data: string }>).detail
         await setLLMCache(key, data)
-        await preservePositionWhileEditing(() => {
+        await preserveMessagePosition(() => {
             if (editTranslationMode) editTranslationText = data
             if (translated) translationRevision += 1
         })
@@ -356,8 +358,10 @@
         revenantTranslationRecovery.capture()
     )
     const translationPending = $derived(
-        (DBState.db.translatorType === 'llm' ? sharedTranslationPending : translating)
-        || revenantTranslationRecoverySnapshot.pending
+        (DBState.db.translatorType === 'llm'
+            ? sharedTranslationPending && !autoTranslationSuppressed
+            : translating)
+        || (revenantTranslationRecoverySnapshot.pending && !autoTranslationSuppressed)
     )
     const revenantTranslationInspectionReady = $derived(
         revenantTranslationRecovery.inspectionReady
@@ -366,7 +370,7 @@
     async function loadTranslationForEdit() {
         const key = await getTranslationCacheKey()
         const cached = await getLLMCache(key)
-        await preservePositionWhileEditing(() => {
+        await preserveMessagePosition(() => {
             editTranslationCacheKey = key
             editTranslationText = cached ?? ''
             editTranslationMode = true
@@ -377,14 +381,14 @@
         const key = editTranslationCacheKey
         if (key === null) return
         await setLLMCache(key, editTranslationText)
-        await preservePositionWhileEditing(() => {
+        await preserveMessagePosition(() => {
             editTranslationMode = false
             editTranslationCacheKey = null
         })
     }
 
     async function cancelOriginalEdit() {
-        await preservePositionWhileEditing(() => {
+        await preserveMessagePosition(() => {
             editMode = false
             editTranslationKeyMode = false
             originalEditTranslationKey = null
@@ -417,6 +421,37 @@
         translating = activeTranslationTasks > 0
     }
 
+    async function reconcileCompletedTranslation(taskKeys: ReadonlySet<string>) {
+        if (
+            document.visibilityState === 'hidden'
+            || DBState.db.translatorType !== 'llm'
+            || !translated
+            || !taskKeys.has(translationTaskKey)
+        ) return
+
+        const sourceIdentity = translationSourceIdentity
+        const cacheKey = await getTranslationCacheKey()
+        const cached = await getLLMCache(cacheKey)
+        if (
+            sourceIdentity !== translationSourceIdentity
+            || hasSharedTranslationTask(translationTaskKey)
+        ) return
+
+        if (cached === null && revenantTranslationRecoverySnapshot.pending) return
+
+        // Mobile browsers can suspend Svelte's DOM flush after the request has
+        // durably populated the cache. Reconcile from that durable boundary on
+        // resume. A missing result is also terminal once no local/shared or
+        // recoverable task owns it; return to the original instead of leaving
+        // loading markup stranded forever.
+        activeTranslationTasks = 0
+        translating = false
+        cancelTranslationRequest = null
+        retranslate = false
+        if (cached === null) translated = false
+        translationRevision += 1
+    }
+
     function toggleTranslation() {
         if (!isTranslationControlBusy()) translated = !translated
     }
@@ -446,28 +481,47 @@
             && !nextSource.streaming
             && previousSource.message !== nextSource.message
         if (!identityChanged && !settledMessageChanged) return
+        const preserveTranslation = !identityChanged
+            && settledMessageChanged
+            && preservedTranslationMessage === nextSource.message
+        preservedTranslationMessage = null
+        if (preserveTranslation) {
+            retranslate = false
+            translationRevision += 1
+            return
+        }
+        autoTranslationSuppressed = false
         cancelTranslationRequest?.()
         resetTranslationState()
         translationRevision += 1
     })
 
-    function handleTranslationButton() {
+    async function handleTranslationButton() {
         if (currentTextEditActive) return
-        if (isTranslationBusy()) {
-            cancelTranslationRequest?.()
-            resetTranslationState()
-            return
-        }
-        toggleTranslation()
+        await preserveMessagePosition(() => {
+            if (isTranslationBusy()) {
+                autoTranslationSuppressed = true
+                cancelTranslationRequest?.()
+                resetTranslationState()
+                return
+            }
+            // Turning a completed translation off is also an explicit request
+            // to keep showing the original. Turning it on clears that intent.
+            autoTranslationSuppressed = translated
+            toggleTranslation()
+        })
     }
 
-    function requestRetranslation() {
-        if (!controlDisabled.translationAction) retranslate = true
+    async function requestRetranslation() {
+        if (controlDisabled.translationAction) return
+        await preserveMessagePosition(() => {
+            retranslate = true
+        })
     }
 
-    function changeSwipe(change: () => void) {
+    async function changeSwipe(change: () => void) {
         if (controlDisabled.swipe) return
-        change()
+        await preserveMessagePosition(change)
     }
 
     async function toggleCurrentTextEdit() {
@@ -488,8 +542,30 @@
         await enterEditMode()
     }
 
+    async function editOppositeText(event: MouseEvent) {
+        // Only LLM translations have an editable translation cache. Preserve
+        // the browser context menu for translators whose output cannot be
+        // edited independently from the source message.
+        if (DBState.db.translatorType !== 'llm') return
+        event.preventDefault()
+        if (isTranslationBusy()) return
+        if (currentTextEditActive) {
+            await toggleCurrentTextEdit()
+            return
+        }
+        if (translated) {
+            await enterEditMode()
+            return
+        }
+        await loadTranslationForEdit()
+    }
+
+    function getDisplayMessage(message: string) {
+        return risuChatParser(message, {chara: name, chatID: idx, rmVar: true, visualize: true, cbsConditions: getCbsCondition()})
+    }
+
     function displaya(message:string){
-        msgDisplay = risuChatParser(message, {chara: name, chatID: idx, rmVar: true, visualize: true, cbsConditions: getCbsCondition()})
+        msgDisplay = getDisplayMessage(message)
     }
 
     const setStatusMessage = (message:string, timeout:number = 0)=>{
@@ -512,6 +588,11 @@
     onMount(()=>{
         unsubscribers.push(ReloadGUIPointer.subscribe((v) => {
             displaya(message)
+        }))
+        unsubscribers.push(subscribeTranslationResume((taskKeys) => {
+            void reconcileCompletedTranslation(taskKeys).catch(error => {
+                console.error('[Translation] Failed to reconcile resumed message:', error)
+            })
         }))
     })
 
@@ -596,10 +677,7 @@
             if (targetCharacter && targetChatIndex >= 0) {
                 targetCharacter.chats[targetChatIndex] = normalizeChat(triggerResult.chat)
             }
-            ReloadChatPointer.update((v) => {
-                v[idx] = (v[idx] ?? 0) + 1
-                return v
-            })
+            invalidateChatMessageRender(idx)
         }
         
         if(triggerName && triggerId) {
@@ -702,18 +780,34 @@
                 </span>
             </IconButton>
         {/if}
-        {#if DBState.db.translatorType === 'llm' && translated}
-            <IconButton
-                expanded
-                className="text-sm"
-                disabled={controlDisabled.translationAction}
-                aria-label={language.retranslate}
-                title={language.retranslate}
-                onclick={requestRetranslation}
-            >
-                <RefreshCcwIcon />
-                <span>{language.retranslate}</span>
-            </IconButton>
+        {#if DBState.db.translatorType === 'llm'}
+            {#if editMode && originalEditTranslationKey !== null}
+                <IconButton
+                    expanded
+                    className="button-icon-keep-translation text-sm"
+                    active={editTranslationKeyMode}
+                    activeColor="primary"
+                    disabled={generationOwned || isTranslationBusy()}
+                    aria-label={language.keepTranslation}
+                    title={language.keepTranslation}
+                    onclick={() => { editTranslationKeyMode = !editTranslationKeyMode }}
+                >
+                    <LinkIcon />
+                    <span>{language.keepTranslation}</span>
+                </IconButton>
+            {:else if translated}
+                <IconButton
+                    expanded
+                    className="text-sm"
+                    disabled={controlDisabled.translationAction}
+                    aria-label={language.retranslate}
+                    title={language.retranslate}
+                    onclick={requestRetranslation}
+                >
+                    <RefreshCcwIcon />
+                    <span>{language.retranslate}</span>
+                </IconButton>
+            {/if}
         {/if}
     </IconButtonGroup>
 {/snippet}
@@ -788,6 +882,7 @@
                 {revenantTranslationRecovery}
                 {revenantTranslationRecoverySnapshot}
                 {translationPending}
+                {autoTranslationSuppressed}
                 modelShortName={
                     messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
                 }
@@ -1136,7 +1231,8 @@
             disabled={controlDisabled.edit}
             aria-label={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
             title={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
-            onclick={toggleCurrentTextEdit}>
+            onclick={toggleCurrentTextEdit}
+            oncontextmenu={editOppositeText}>
             <PencilIcon />
 
             {#if showNames}
@@ -1235,20 +1331,25 @@
         }
         
         const currentMessage = currentChat.message[idx]
-        const newChat = $state.snapshot(currentChat)
-        newChat.name = createChatCopyName(newChat.name, 'Branch')
-        newChat.id = v4()
-        newChat.message = newChat.message.slice(0, idx + 1)
-        newChat.message.push({
-            role: 'char',
-            data: '{{specialcomment::branchedfrom::' + currentChat.id + '::' + currentChat.name + '::' + currentMessage.chatId + '::}}',
-            isComment: true,
-            disabled: true,
-            chatId: v4(),
-        })
-
-        DBState.db.characters[selIdState.selId].chats.unshift(newChat)
-        changeChatTo(0)
+        try {
+            await createPersistedChatCopy(
+                DBState.db.characters[selIdState.selId],
+                currentChat,
+                'Branch',
+                newChat => {
+                    newChat.message = newChat.message.slice(0, idx + 1)
+                    newChat.message.push({
+                        role: 'char',
+                        data: '{{specialcomment::branchedfrom::' + currentChat.id + '::' + currentChat.name + '::' + currentMessage.chatId + '::}}',
+                        isComment: true,
+                        disabled: true,
+                        chatId: v4(),
+                    })
+                },
+            )
+        } catch (error) {
+            alertError(error)
+        }
     }}>
         <SplitIcon />
         {#if showNames}

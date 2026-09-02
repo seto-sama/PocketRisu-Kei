@@ -5,7 +5,7 @@ import {
     type Message,
     type character,
 } from '../../../storage/database.svelte'
-import { DBState, ReloadChatPointer } from '../../../stores.svelte'
+import { DBState, invalidateChatMessageRender } from '../../../stores.svelte'
 import {
     awaitChatGenerationCanonical,
     beginChatGenerationProjection,
@@ -83,10 +83,7 @@ const recoveryStreamSubscriptions = new Map<string, {
 
 function invalidateRecoveredMessage(character: character, messageIndex: number): void {
     character.reloadKeys += 1
-    ReloadChatPointer.update(pointers => ({
-        ...pointers,
-        [messageIndex]: (pointers[messageIndex] ?? 0) + 1,
-    }))
+    invalidateChatMessageRender(messageIndex)
 }
 
 function resolveCurrentRecoveryTarget(options: {
@@ -667,10 +664,9 @@ export async function recoverRevenantGenerationsForChat(
                             liveMessage.recoveryDisplayData = displayContent
                             liveMessage.isRecovering = true
                             liveChat.isStreaming = true
-                            // Chats.svelte is manually mounted and uses this store as
-                            // its explicit render invalidation signal. Updating only
-                            // character.reloadKeys leaves a reattached recovery stream
-                            // invisible until the completed chat is materialized.
+                            // Publish raw recovery-object mutations through the
+                            // same per-message render invalidation pipeline used
+                            // by local edits and swipe navigation.
                             invalidateRecoveredMessage(liveCharacter, liveMessageIndex)
                         },
                         onDone: (terminal, usage) => {

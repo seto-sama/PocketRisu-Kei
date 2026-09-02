@@ -25,6 +25,7 @@ export const languageKorean = {
     onlyOnePreset: "프리셋이 하나 이상 필요합니다",
     noUserIcon: "유저 아이콘이 없습니다.",
     emptyText: "텍스트가 비어있습니다.",
+    emptyTranslationResponse: "번역 결과가 비어 있습니다.",
     wrongPassword: "비밀번호가 잘못되었습니다.",
     networkFetch:
       "네트워크가 불안정하거나 서버가 응답하지 않을 때 자주 발생합니다.",

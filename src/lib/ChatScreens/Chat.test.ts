@@ -23,10 +23,17 @@ const storeMocks = vi.hoisted(() => {
         }
     }
 
+    const ReloadChatPointer = writable<Record<number, number>>({})
     return {
         DBState: { db: {} as any },
         createSimpleCharacter: (character: unknown) => character,
-        ReloadChatPointer: writable<Record<number, number>>({}),
+        ReloadChatPointer,
+        invalidateChatMessageRender: (messageIndex: number) => {
+            ReloadChatPointer.update(value => ({
+                ...value,
+                [messageIndex]: (value[messageIndex] ?? 0) + 1,
+            }))
+        },
         ReloadGUIPointer: writable(0),
         selectedCharID: writable(0),
         HideIconStore: writable(false),
@@ -52,9 +59,17 @@ const alertMocks = vi.hoisted(() => ({
 }))
 
 const translatorMocks = vi.hoisted(() => ({
+    copyLLMCache: vi.fn(async (_sourceKey: string, _targetKey: string) => false),
     getLLMCache: vi.fn(async (_key: string) => null as string | null),
-    setLLMCache: vi.fn(async () => {}),
-    translateHTML: vi.fn(async (value: string) => value),
+    setLLMCache: vi.fn(async (_key: string, _value: string) => {}),
+    translateHTML: vi.fn(async (
+        value: string,
+        _reverse?: boolean,
+        _character?: unknown,
+        _chatId?: number,
+        _regenerate?: boolean,
+        _signal?: AbortSignal,
+    ) => value),
 }))
 
 vi.mock('src/ts/stores.svelte', () => storeMocks)
@@ -62,7 +77,7 @@ vi.mock('src/ts/globalApi.svelte', () => ({
     aiLawApplies: () => false,
     changeChatTo: vi.fn(),
     chatFoldedStateMessageIndex: { index: -1 },
-    createChatCopyName: (name: string) => name,
+    createPersistedChatCopy: vi.fn(),
     foldChatToMessage: vi.fn(),
     getFileSrc: async (value: string) => value,
 }))
@@ -107,6 +122,7 @@ vi.mock('../../ts/parser/parser.svelte', () => ({
     trimMarkdown: (value: string) => value,
 }))
 vi.mock('../../ts/translator/translator', () => ({
+    copyLLMCache: translatorMocks.copyLLMCache,
     getLLMCache: translatorMocks.getLLMCache,
     getLLMTranslationCacheRevision: () => 0,
     setLLMCache: translatorMocks.setLLMCache,
@@ -135,10 +151,12 @@ vi.mock('src/ts/process/revenant/recovery', () => ({
                 data: string
                 translated: boolean
                 streaming: boolean
+                autoTranslationSuppressed?: boolean
                 parseMarkdown: (data: string, mode: 'pretranslate') => Promise<string>
             },
         ) => {
             if (options.streaming || !options.data.trim()) return false
+            if (!options.translated && options.autoTranslationSuppressed) return false
             const display = options.translated || Boolean(storeMocks.DBState.db.autoTranslate)
             if (!display) return false
             const cacheKey = await options.parseMarkdown(options.data, 'pretranslate')
@@ -150,7 +168,7 @@ vi.mock('src/ts/process/revenant/recovery', () => ({
             ) return await translatorMocks.getLLMCache(cacheKey) !== null
             return true
         },
-        waitForResult: async () => {},
+        waitForResult: async () => true,
         acknowledgeResolved: async () => {},
     }),
 }))
@@ -174,6 +192,13 @@ beforeEach(() => {
         async (value: string) => `<p>${value.trim()}</p>`,
     )
     translatorMocks.getLLMCache.mockResolvedValue(null)
+    translatorMocks.copyLLMCache.mockImplementation(async (sourceKey: string, targetKey: string) => {
+        const cached = await translatorMocks.getLLMCache(sourceKey)
+        if (cached === null) return false
+        if (sourceKey !== targetKey) await translatorMocks.setLLMCache(targetKey, cached)
+        return true
+    })
+    translatorMocks.setLLMCache.mockImplementation(async (_key: string, _value: string) => {})
     translatorMocks.translateHTML.mockImplementation(async (value: string) => value)
     DBState.db = {
         theme: 'standardRisu',
@@ -374,7 +399,7 @@ describe('Chat editing', () => {
             largePortrait: false,
         } as unknown as character
         const messages: Message[] = [
-            { role: 'char', data: 'previous', chatId: 'previous', swipes: ['one', 'two'], swipeId: 0 },
+            { role: 'char', data: 'previous', chatId: 'previous', swipes: ['one', 'two'], swipeId: 0, isRecovering: true },
             { role: 'user', data: 'question', chatId: 'question' },
             { role: 'char', data: 'streaming', chatId: 'generated' },
         ]
@@ -400,7 +425,201 @@ describe('Chat editing', () => {
             .querySelector<HTMLButtonElement>('.button-icon-reroll')
             ?.closest('fieldset')?.disabled).toBe(true)
 
+        rendered[0].querySelector<HTMLButtonElement>('.button-icon-edit')?.click()
+        await vi.waitFor(() => {
+            expect(rendered[0].querySelector<HTMLTextAreaElement>('.message-edit-area')?.value)
+                .toBe('previous')
+        })
+
         component.$destroy()
+    })
+
+    it('keeps another message editable while an LLM translation is pending', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        let finishTranslation!: () => void
+        translatorMocks.translateHTML.mockImplementationOnce(async (value: string) => {
+            await new Promise<void>(resolve => finishTranslation = resolve)
+            return `Translated ${value}`
+        })
+        const messages: Message[] = [
+            { role: 'user', data: 'First message', chatId: 'first-message' },
+            { role: 'char', data: 'Second message', chatId: 'second-message' },
+        ]
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            largePortrait: false,
+            chats: [{ id: 'chat-1', message: messages }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chats, {
+            target,
+            props: {
+                messages,
+                currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 2,
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(2)
+
+        const rendered = target.querySelectorAll('.chat-message-container')
+        rendered[0].querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await vi.waitFor(() => {
+            expect(rendered[0].querySelector('.button-icon-translate')?.classList.contains('translating')).toBe(true)
+        })
+
+        const otherEditButton = rendered[1].querySelector<HTMLButtonElement>('.button-icon-edit')
+        expect(otherEditButton?.disabled).toBe(false)
+        otherEditButton?.click()
+        await tick()
+        expect(rendered[1].querySelector('.message-edit-area')).not.toBeNull()
+
+        finishTranslation()
+    })
+
+    it('does not restart auto translation after one explicit cancellation', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        DBState.db.autoTranslate = true
+        DBState.db.autoTranslateCachedOnly = false
+        translatorMocks.translateHTML.mockImplementation(async (
+            _value: string,
+            _reverse?: boolean,
+            _character?: unknown,
+            _chatId?: number,
+            _regenerate?: boolean,
+            signal?: AbortSignal,
+        ) => await new Promise<string>((_resolve, reject) => {
+            signal?.addEventListener('abort', () => {
+                reject(new DOMException('Aborted', 'AbortError'))
+            }, { once: true })
+        }))
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                renderCacheKey: 'room:auto-translation-cancel',
+            },
+        })
+        mountedComponents.push(component)
+
+        await vi.waitFor(() => {
+            expect(target.querySelector('.button-icon-translate')?.classList.contains('translating'))
+                .toBe(true)
+        })
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+
+        await vi.waitFor(() => {
+            expect(target.querySelector<HTMLButtonElement>('.button-icon-translate')?.disabled)
+                .toBe(false)
+            expect(target.querySelector<HTMLButtonElement>('.button-icon-edit')?.disabled)
+                .toBe(false)
+        })
+        await new Promise(resolve => setTimeout(resolve, 50))
+        expect(translatorMocks.translateHTML).toHaveBeenCalledTimes(1)
+    })
+
+    it('reconciles completed translation markup when a background page resumes', async () => {
+        let visibilityState: DocumentVisibilityState = 'hidden'
+        const visibilitySpy = vi.spyOn(document, 'visibilityState', 'get')
+            .mockImplementation(() => visibilityState)
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        let cached: string | null = null
+        translatorMocks.getLLMCache.mockImplementation(async () => cached)
+        translatorMocks.translateHTML.mockImplementation(async () => {
+            cached = 'Translated user message'
+            return cached
+        })
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                renderCacheKey: 'room:resume-translation',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await vi.waitFor(() => expect(target.textContent).toContain('Translated user message'))
+        const parserCallsBeforeResume = parserMocks.ParseMarkdown.mock.calls.length
+
+        visibilityState = 'visible'
+        window.dispatchEvent(new Event('pageshow'))
+
+        await vi.waitFor(() => {
+            expect(parserMocks.ParseMarkdown.mock.calls.length).toBeGreaterThan(parserCallsBeforeResume)
+        })
+        visibilitySpy.mockRestore()
+    })
+
+    it('clears a stale resumed spinner when translation finished without a cache result', async () => {
+        let visibilityState: DocumentVisibilityState = 'hidden'
+        const visibilitySpy = vi.spyOn(document, 'visibilityState', 'get')
+            .mockImplementation(() => visibilityState)
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        translatorMocks.getLLMCache.mockResolvedValue(null)
+        translatorMocks.translateHTML.mockResolvedValue('Translated user message')
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                renderCacheKey: 'room:resume-empty-translation',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await vi.waitFor(() => expect(target.textContent).toContain('Translated user message'))
+        expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(true)
+
+        visibilityState = 'visible'
+        window.dispatchEvent(new Event('pageshow'))
+
+        await vi.waitFor(() => {
+            expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(false)
+            expect(target.textContent).toContain('User message')
+        })
+        visibilitySpy.mockRestore()
     })
 
     it('uses the shared pencil button to edit the visible LLM translation', async () => {
@@ -448,6 +667,127 @@ describe('Chat editing', () => {
         })
 
         expect(DBState.db.characters[0].chats[0].message[0].data).toBe('User message')
+    })
+
+    it('opens the opposite LLM text editor from the pencil context menu', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        translatorMocks.getLLMCache.mockResolvedValue('Translated user message')
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                renderCacheKey: 'room:opposite-edit',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        const originalContextMenu = new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+        })
+        target.querySelector<HTMLButtonElement>('.button-icon-edit')?.dispatchEvent(originalContextMenu)
+        expect(originalContextMenu.defaultPrevented).toBe(true)
+        await vi.waitFor(() => {
+            expect(target.querySelector<HTMLTextAreaElement>('.message-edit-area')?.value)
+                .toBe('Translated user message')
+        })
+
+        target.querySelector<HTMLButtonElement>('.button-icon-edit')?.click()
+        await vi.waitFor(() => expect(target.querySelector('.message-edit-area')).toBeNull())
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await waitForTranslationButtonState(target, true)
+
+        const translatedContextMenu = new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+        })
+        target.querySelector<HTMLButtonElement>('.button-icon-edit')?.dispatchEvent(translatedContextMenu)
+        expect(translatedContextMenu.defaultPrevented).toBe(true)
+        await vi.waitFor(() => {
+            expect(target.querySelector<HTMLTextAreaElement>('.message-edit-area')?.value)
+                .toBe('User message')
+        })
+    })
+
+    it('moves the translation cache key while editing the translated original', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        DBState.db.legacyTranslation = false
+        DBState.db.clickToEdit = true
+        const cache = new Map([['User message', 'Translated user message']])
+        translatorMocks.getLLMCache.mockImplementation(async (key: string) => cache.get(key) ?? null)
+        translatorMocks.setLLMCache.mockImplementation(async (key: string, value: string) => {
+            cache.set(key, value)
+        })
+        translatorMocks.translateHTML.mockImplementation(async (key: string) =>
+            await translatorMocks.getLLMCache(key) ?? `Translated ${key}`
+        )
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'User message',
+                name: 'User',
+                role: 'user',
+                idx: 0,
+                totalLength: 2,
+                renderCacheKey: 'room:linked-translation-edit',
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await waitForTranslationButtonState(target, true)
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await waitForTranslationButtonState(target, false)
+        target.querySelector<HTMLElement>('.text')?.click()
+
+        await vi.waitFor(() => {
+            expect(target.querySelector<HTMLTextAreaElement>('.message-edit-area')?.value).toBe('User message')
+            expect(target.querySelector('.button-icon-keep-translation')?.textContent)
+                .toContain('keepTranslation')
+            expect(target.querySelector('[aria-label="retranslate"]')).toBeNull()
+        })
+
+        const keepTranslationButton = target.querySelector<HTMLButtonElement>(
+            '.button-icon-keep-translation',
+        )!
+        expect(keepTranslationButton.classList.contains('text-primary')).toBe(true)
+
+        const editor = target.querySelector<HTMLTextAreaElement>('.message-edit-area')!
+        editor.value = 'Edited user message'
+        editor.dispatchEvent(new Event('input', { bubbles: true }))
+        await tick()
+        target.querySelector<HTMLButtonElement>('.button-icon-edit')?.click()
+
+        await vi.waitFor(() => {
+            expect(translatorMocks.setLLMCache).toHaveBeenCalledWith(
+                'Edited user message',
+                'Translated user message',
+            )
+            expect(target.querySelector('.button-icon-translate')?.classList.contains('text-primary')).toBe(false)
+            expect(target.textContent).toContain('Edited user message')
+            expect(target.querySelector('[aria-label="retranslate"]')).toBeNull()
+        })
+        expect(DBState.db.characters[0].chats[0].message[0].data).toBe('Edited user message')
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
+        await waitForTranslationButtonState(target, true)
+        expect(target.textContent).toContain('Translated user message')
+        expect(target.querySelector('[aria-label="retranslate"]')).not.toBeNull()
     })
 
     it('keeps a translation edit scoped to its original swipe', async () => {
@@ -522,6 +862,147 @@ describe('Chat editing', () => {
             'Second swipe',
             'Edited first translation',
         )
+    })
+
+    it('preserves the message anchor through a swipe DOM update', async () => {
+        DBState.db.characters[0].chats[0].message[0] = {
+            role: 'char',
+            data: 'First swipe',
+            chatId: 'message-0',
+            swipes: ['First swipe', 'Second swipe'],
+            swipeId: 0,
+        }
+        const release = vi.fn()
+        const preserveElementPosition = vi.fn(() => release)
+        const onNextSwipe = vi.fn()
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'First swipe',
+                name: 'Character',
+                role: 'char',
+                idx: 0,
+                totalLength: 1,
+                rerollIcon: true,
+                currentPage: 1,
+                totalPages: 2,
+                onNextSwipe,
+                getScrollController: () => ({ preserveElementPosition } as any),
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-reroll')?.click()
+
+        await vi.waitFor(() => {
+            expect(onNextSwipe).toHaveBeenCalledOnce()
+            expect(preserveElementPosition).toHaveBeenCalledWith(
+                target.querySelector('[data-chat-index="0"]'),
+                { edge: 'bottom', followLayout: true },
+            )
+            expect(release).toHaveBeenCalledOnce()
+        })
+    })
+
+    it('preserves the message anchor when translation is shown and hidden', async () => {
+        DBState.db.translator = 'en'
+        DBState.db.translatorType = 'llm'
+        const release = vi.fn()
+        const preserveElementPosition = vi.fn(() => release)
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'Original output',
+                name: 'Character',
+                role: 'char',
+                idx: 0,
+                totalLength: 1,
+                getScrollController: () => ({ preserveElementPosition } as any),
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(1)
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')!.click()
+        await waitForTranslationButtonState(target, true)
+        await vi.waitFor(() => expect(release).toHaveBeenCalledOnce())
+
+        target.querySelector<HTMLButtonElement>('.button-icon-translate')!.click()
+        await waitForTranslationButtonState(target, false)
+        await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(2))
+
+        expect(preserveElementPosition).toHaveBeenCalledTimes(2)
+        expect(preserveElementPosition).toHaveBeenLastCalledWith(
+            target.querySelector('[data-chat-index="0"]'),
+            { edge: 'bottom', followLayout: true },
+        )
+    })
+
+    it('commits swipe and edit state in the originating message interaction', async () => {
+        DBState.db.showPreviousChatSwipeButtons = true
+        const messages: Message[] = [{
+            role: 'char',
+            data: 'A first swipe',
+            chatId: 'message-a',
+            swipes: ['A first swipe', 'A second swipe'],
+            swipeId: 0,
+        }, {
+            role: 'char',
+            data: 'B message',
+            chatId: 'message-b',
+        }]
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            chats: [{ id: 'chat-1', message: messages }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chats, {
+            target,
+            props: {
+                messages,
+                currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                onNextSwipe: (idx?: number) => {
+                    const message = messages[idx ?? messages.length - 1]
+                    message.swipeId = 1
+                    message.data = message.swipes![1]
+                    currentCharacter.reloadKeys = (currentCharacter.reloadKeys ?? 0) + 1
+                    storeMocks.invalidateChatMessageRender(idx ?? messages.length - 1)
+                },
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 2,
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(2)
+
+        const firstMessage = target.querySelectorAll<HTMLElement>('.chat-message-container')[0]
+        const secondMessage = target.querySelectorAll<HTMLElement>('.chat-message-container')[1]
+        firstMessage.querySelector<HTMLButtonElement>('.button-icon-reroll')!.click()
+
+        // The originating event must publish both the parent-owned swipe and
+        // the child-owned editor without requiring an event on message B.
+        await tick()
+        expect(firstMessage.textContent).toContain('2/2')
+        expect(target.querySelectorAll<HTMLElement>('.chat-message-container')[1]).toBe(secondMessage)
+        await waitForParserCalls(3)
+        expect(parserMocks.ParseMarkdown).toHaveBeenCalledTimes(3)
+        firstMessage.querySelector<HTMLButtonElement>('.button-icon-edit')!.click()
+        await tick()
+        expect(firstMessage.querySelector('.message-edit-area')).not.toBeNull()
     })
 
     it('restores a cached translation after deleting the selected swipe', async () => {
@@ -1050,6 +1531,51 @@ describe('Chat editing', () => {
                 expect.anything(),
             )
         })
+        component.$destroy()
+    })
+
+    it('keeps a completed streaming HTML image mounted while later tokens arrive', async () => {
+        DBState.db.useStreaming = true
+        parserMocks.renderPreparedMarkdown.mockImplementation(async (source: string) => source)
+        const asset = '<style>.asset { display:block; }</style>\n'
+            + '<div class="asset"><img src="asset.png"></div>\n'
+        const initialMessage: Message = {
+            role: 'char',
+            data: `${asset}Later`,
+            chatId: 'streaming-asset',
+        }
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            largePortrait: false,
+            chats: [{ id: 'chat-1', message: [initialMessage] }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = createClassComponent({
+            component: ChatsTestHarness,
+            target,
+            props: {
+                messages: [initialMessage],
+                currentCharacter,
+                roomIsStreaming: true,
+                roomIsResponding: true,
+            },
+        })
+        await vi.waitFor(() => expect(target.querySelector('.asset img')).not.toBeNull())
+        const image = target.querySelector('.asset img')
+
+        component.$set({
+            messages: [{ ...initialMessage, data: `${asset}Later tokens` }],
+            roomIsStreaming: true,
+            roomIsResponding: true,
+        })
+        await vi.waitFor(() => expect(target.textContent).toContain('Later tokens'))
+
+        expect(target.querySelector('.asset img')).toBe(image)
         component.$destroy()
     })
 

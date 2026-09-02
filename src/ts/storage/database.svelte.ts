@@ -21,6 +21,8 @@ import { applyModelPresetDefaults } from '../preset/dbDefaults';
 import type { ApiKeyPoolEntry, ModelBindingFields, ModelBindingSet, ModelPreset, ModelPresetMigrationSummary, RegistryCache } from '../preset/types';
 import { emptyModelBinding } from '../preset/types';
 import { defaultHotkeys, type Hotkey } from '../defaulthotkeys';
+import { ensureMessageId } from './messageIdentity';
+import { isChatStub } from './chatStub';
 import { normalizeTextTheme } from '../gui/textTheme';
 import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/textOutline';
 
@@ -784,6 +786,9 @@ export function setDatabase(data:Database){
 export function setDatabaseLite(data:Database){
     for (const character of data.characters ?? []) {
         initializeCharacterRuntimeState(character)
+        for (const chat of character.chats ?? []) {
+            if (!isChatStub(chat)) normalizeChat(chat)
+        }
     }
     DBState.db = data
 }
@@ -2045,6 +2050,7 @@ export type FormatingOrderItem = 'main'|'jailbreak'|'chats'|'lorebook'|'globalNo
 export function normalizeChat(chat: Partial<Chat>): Chat {
     const c = chat as Chat
     if (!Array.isArray(c.message)) c.message = []
+    for (const message of c.message) ensureMessageId(message)
     if (typeof c.note !== 'string') c.note = ''
     if (typeof c.name !== 'string') c.name = ''
     if (!Array.isArray(c.localLore)) c.localLore = []
@@ -2089,7 +2095,7 @@ export interface Chat{
 // without loading the Svelte runtime. Re-exported here to preserve existing
 // import paths across the codebase.
 export type { ChatStub } from './chatStub'
-export { isChatStub } from './chatStub'
+export { isChatStub }
 
 export type ChatOrStub = Chat | import('./chatStub').ChatStub
 

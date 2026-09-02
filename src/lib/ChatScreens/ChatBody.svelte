@@ -35,6 +35,7 @@
         revenantTranslationRecovery: RevenantChatTranslationRecovery
         revenantTranslationRecoverySnapshot: RevenantChatTranslationRecoverySnapshot
         translationPending?: boolean
+        autoTranslationSuppressed?: boolean
     }
 
     let {
@@ -57,6 +58,7 @@
         revenantTranslationRecovery,
         revenantTranslationRecoverySnapshot,
         translationPending = false,
+        autoTranslationSuppressed = false,
     }: Props =  $props()
 
     // svelte-ignore non_reactive_update
@@ -105,6 +107,7 @@
         role: string | null
         firstMessage: boolean
         allowCachedTranslationStateRestore: boolean
+        autoTranslationSuppressed: boolean
         postRenderStateUpdates?: Array<() => void>
         streamingRender?: StreamingMarkdownRender
     }
@@ -195,9 +198,12 @@
         const recoverySnapshot = {
             ...(requestContext?.recoverySnapshot ?? revenantTranslationRecoverySnapshot),
         }
+        const requestAutoTranslationSuppressed = requestContext?.autoTranslationSuppressed
+            ?? autoTranslationSuppressed
         const currentTranslationTaskKey = requestContext?.translationTaskKey ?? translationTaskKey
         const activeTranslationCacheKey = renderController.getActiveTranslationCacheKey(currentTranslationTaskKey)
-        const translationRecoveryPending = recoverySnapshot.pending || activeTranslationCacheKey !== null
+        const translationRecoveryPending = !requestAutoTranslationSuppressed
+            && (recoverySnapshot.pending || activeTranslationCacheKey !== null)
         const recoveryCacheKey = recoverySnapshot.cacheKey
         let translationCacheKey = recoveryCacheKey
             ?? activeTranslationCacheKey
@@ -300,8 +306,11 @@
                             recoverySnapshot,
                             {
                                 data,
-                                translated: requestTranslated || activeTranslationCacheKey !== null,
+                                translated: requestTranslated
+                                    || (!requestAutoTranslationSuppressed
+                                        && activeTranslationCacheKey !== null),
                                 streaming: requestStreaming,
+                                autoTranslationSuppressed: requestAutoTranslationSuppressed,
                                 parseMarkdown: parseMessageMarkdown,
                             },
                         )
@@ -351,37 +360,47 @@
                 renderTranslated = false
             }
             if(!requestStreaming && (requestRetranslate || renderTranslated)){
-                await revenantTranslationRecovery.waitForResult(recoverySnapshot)
-                const transResult = await renderController.renderTranslation({
-                    data,
-                    charArg,
-                    chatId: chatID,
-                    retranslate: requestRetranslate,
-                    translationCacheKey,
-                    parseMarkdown: parseMessageMarkdown,
-                    translationTaskKey: currentTranslationTaskKey,
-                })
-                lastParsedQueue = transResult
-                currentParsedTranslated = true
-                lastCharArg = charArg
+                const recoveryHasResult = await revenantTranslationRecovery.waitForResult(
+                    recoverySnapshot,
+                )
+                const recoveryEndedWithoutResult = recoverySnapshot.pending
+                    && !requestTranslated
+                    && !requestRetranslate
+                    && !recoveryHasResult
+                if (!recoveryEndedWithoutResult) {
+                    const transResult = await renderController.renderTranslation({
+                        data,
+                        charArg,
+                        chatId: chatID,
+                        retranslate: requestRetranslate,
+                        translationCacheKey,
+                        parseMarkdown: parseMessageMarkdown,
+                        translationTaskKey: currentTranslationTaskKey,
+                    })
+                    lastParsedQueue = transResult
+                    currentParsedTranslated = true
+                    lastCharArg = charArg
 
-                if (!translationCacheKey && DBState.db.translatorType === 'llm') {
-                    translationCacheKey = DBState.db.translateBeforeHTMLFormatting
-                        ? data
-                        : await parseMessageMarkdown(
-                            data,
-                            DBState.db.legacyTranslation ? 'notrim' : 'pretranslate',
-                        )
+                    if (!translationCacheKey && DBState.db.translatorType === 'llm') {
+                        translationCacheKey = DBState.db.translateBeforeHTMLFormatting
+                            ? data
+                            : await parseMessageMarkdown(
+                                data,
+                                DBState.db.legacyTranslation ? 'notrim' : 'pretranslate',
+                            )
+                    }
+                    queuePostRenderStateUpdate(() => {
+                        if (isCurrentRenderRequest()) retranslate = false
+                    })
+                    await revenantTranslationRecovery.acknowledgeResolved(recoverySnapshot)
+
+                    renderResultReady = true
+                    return transResult
                 }
-                queuePostRenderStateUpdate(() => {
-                    if (isCurrentRenderRequest()) retranslate = false
-                })
-                await revenantTranslationRecovery.acknowledgeResolved(recoverySnapshot)
-
-                renderResultReady = true
-                return transResult
+                renderTranslated = false
+                translatedStateUpdate = false
             }
-            else{
+            {
                 let marked: string
                 if (requestContext?.streaming && mode === 'notrim') {
                     const preparedSource = await prepareMarkdownSource(
@@ -595,6 +614,7 @@
             role,
             firstMessage,
             allowCachedTranslationStateRestore,
+            autoTranslationSuppressed,
         }
         if (
             currentMarkParsingPromise
@@ -630,6 +650,7 @@
             && isEqual(currentMarkParsingRequest.recoverySnapshot, request.recoverySnapshot)
             && currentMarkParsingRequest.role === request.role
             && currentMarkParsingRequest.firstMessage === request.firstMessage
+            && currentMarkParsingRequest.autoTranslationSuppressed === request.autoTranslationSuppressed
         ) {
             return currentMarkParsingPromise
         }
@@ -648,6 +669,7 @@
             && isEqual(currentMarkParsingRequest.recoverySnapshot, request.recoverySnapshot)
             && currentMarkParsingRequest.role === request.role
             && currentMarkParsingRequest.firstMessage === request.firstMessage
+            && currentMarkParsingRequest.autoTranslationSuppressed === request.autoTranslationSuppressed
         ) {
             // A global display reload can arrive in the same tick as a room
             // switch. The render already observes the newly selected room's

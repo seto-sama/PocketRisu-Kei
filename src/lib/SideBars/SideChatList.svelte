@@ -23,7 +23,7 @@
     import PersonaBind from "./PersonaBind.svelte";
     import PromptBind from "./PromptBind.svelte";
     import ModelBind from "./ModelBind.svelte";
-    import { changeChatTo, createChatCopyName, requestImmediateSave } from "src/ts/globalApi.svelte";
+    import { changeChatTo, createPersistedChat, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { folderColorOptions, getFolderColorStyle } from "./folderColors";
 
     interface Props {
@@ -75,18 +75,18 @@
     }
 </script>
 <div class="flex flex-col w-full">
-    <ShButton className="relative bottom-2 h-10 min-h-10 w-full" onclick={() => {
+    <ShButton className="relative bottom-2 h-10 min-h-10 w-full" onclick={async () => {
         const len = chara.chats.length
-        let chats = chara.chats
         const newChat = {
             message:[] as any[], note:'', name:`New Chat ${len + 1}`, localLore:[] as any[], fmIndex: -1, id: v4(),
             ...newChatModelDefaults()
         }
-        chats.unshift(newChat)
-        chara.chats = chats
-        changeChatTo(0)
-        void requestImmediateSave()
-        $ReloadGUIPointer += 1
+        try {
+            await createPersistedChat(chara, newChat)
+            $ReloadGUIPointer += 1
+        } catch (error) {
+            alertError(error)
+        }
     }}>{language.newChat}</ShButton>
 
     <div class="flex flex-col mt-2 overflow-y-auto max-h-100" bind:this={listEle}>
@@ -214,14 +214,12 @@
                                     alertError('Failed to load chat data.')
                                     return
                                 }
-                                const newChat = $state.snapshot(chara.chats[chatIdx])
-                                newChat.name = createChatCopyName(newChat.name, 'Copy')
-                                newChat.id = v4()
-                                chara.chats.unshift(newChat)
-                                changeChatTo(0)
-                                chara.chats = chara.chats
-                                void requestImmediateSave()
-                                notifySuccess(language.copyChatSuccess)
+                                try {
+                                    await createPersistedChatCopy(chara, chara.chats[chatIdx], 'Copy')
+                                    notifySuccess(language.copyChatSuccess)
+                                } catch (error) {
+                                    alertError(error)
+                                }
                             }}>
                                 <CopyIcon size={18}/>
                             </div>
@@ -306,14 +304,12 @@
                             alertError('Failed to load chat data.')
                             return
                         }
-                        const newChat = $state.snapshot(chara.chats[i])
-                        newChat.name = createChatCopyName(newChat.name, 'Copy')
-                        newChat.id = v4()
-                        chara.chats.unshift(newChat)
-                        changeChatTo(0)
-                        chara.chats = chara.chats
-                        void requestImmediateSave()
-                        notifySuccess(language.copyChatSuccess)
+                        try {
+                            await createPersistedChatCopy(chara, chara.chats[i], 'Copy')
+                            notifySuccess(language.copyChatSuccess)
+                        } catch (error) {
+                            alertError(error)
+                        }
                     }}>
                         <CopyIcon size={18}/>
                     </div>

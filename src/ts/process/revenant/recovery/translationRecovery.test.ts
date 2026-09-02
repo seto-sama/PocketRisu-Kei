@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { revenantTranslationTargetsMatch } from '../auxiliary'
-import { prepareRevenantTranslationRequest } from './translationRecovery'
+import {
+    completeRevenantTranslation,
+    prepareRevenantTranslationRequest,
+} from './translationRecovery'
 import type { RevenantChatMessageTranslationTarget } from '../types'
 
 const target: RevenantChatMessageTranslationTarget = {
@@ -39,5 +42,19 @@ describe('revenant translation targets', () => {
             ...target,
             swipeId: 3,
         })).toBe(false)
+    })
+})
+
+describe('revenant translation completion', () => {
+    it('does not persist an empty successful provider result', async () => {
+        const stored: Array<[string, string]> = []
+        const request = prepareRevenantTranslationRequest('source', true)
+
+        await expect(completeRevenantTranslation({
+            get: async () => null,
+            store: async (key, value) => { stored.push([key, value]) },
+        }, request, '   ')).resolves.toBe('   ')
+
+        expect(stored).toEqual([])
     })
 })

@@ -24,6 +24,7 @@ export const languageEnglish = {
         onlyOnePreset: "There must be at least one preset",
         noUserIcon: "You must set your icon first.",
         emptyText: "Text is empty.",
+        emptyTranslationResponse: "Translation returned an empty response.",
         wrongPassword: "Wrong Password",
         coldStorageWriteFailed: "Cold storage write failed. Your chat data has been preserved.",
         coldStorageVerifyFailed: "Cold storage verification failed. Your chat data has been preserved.",

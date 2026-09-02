@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { tick } from "svelte";
 import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
-import { setDatabase, type Chat, type Database, type Message, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat } from "./storage/database.svelte";
+import { setDatabase, type Chat, type Database, type Message, type character, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat, normalizeChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
@@ -15,6 +15,7 @@ import { decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEnc
 import { getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag } from "./storage/chatStorage";
 import {
     acknowledgeProjectionOnlyChatConflict,
+    cloneChatValue,
     discardAllChatWorkingCopies,
     discardAllChatGenerationProjections,
     consumeChatSyncApplied,
@@ -2581,8 +2582,8 @@ export function changeChatTo(IdOrIndex: string | number) {
 
     chatDeselected.set(false)
     const char = DBState.db.characters[selIdState.selId]
-    char.chatPage = index
     const newChat = char.chats[index]
+    char.chatPage = index
     if(newChat){
         if(newChat._placeholder){
             const capturedIndex = index
@@ -2607,14 +2608,51 @@ export function changeChatTo(IdOrIndex: string | number) {
     ChatRoomReloadPointer.set(Math.random())
 }
 
-export function createChatCopyName(originalName: string,type:'Copy'|'Branch'): string {
+export function createChatCopyName(
+    originalName: string,
+    type: 'Copy'|'Branch',
+    chats = getCurrentCharacter().chats,
+): string {
     let name = originalName.replaceAll(/\(((Copy|Branch)( \d+)?)\)$/g, '').trim()
     let copyIndex = 1
     let newName = `${name} (${type})`
-    const char = getCurrentCharacter()
-    while (char.chats.find((v) => v.name === newName)) {
+    while (chats.find((v) => v.name === newName)) {
         copyIndex++
         newName = `${name} (${type} ${copyIndex})`
     }
     return newName
+}
+
+export async function createPersistedChatCopy(
+    character: character,
+    source: Chat,
+    type: 'Copy' | 'Branch',
+    prepare?: (copy: Chat) => void,
+): Promise<Chat> {
+    const copy = normalizeChat(cloneChatValue(source))
+    copy.name = createChatCopyName(copy.name, type, character.chats)
+    copy.id = uuidv4()
+    prepare?.(copy)
+
+    return createPersistedChat(character, copy)
+}
+
+export async function createPersistedChat(
+    character: character,
+    input: Chat,
+): Promise<Chat> {
+    const chat = normalizeChat(input)
+    if (!chat.id || character.chats.some(existing => existing?.id === chat.id)) {
+        throw new Error('New chat must have a unique id')
+    }
+
+    character.chats.unshift(chat)
+    // Enter immediately. The per-chat save queue snapshots later edits only
+    // after this creation commit has acknowledged its canonical ETag.
+    changeChatTo(chat.id)
+
+    markChatWorkingCopyDirty(character.chaId, chat.id)
+    await saveChatToServer(character.chaId, 0, chat.id, chat)
+    await requestImmediateSave({ characterIds: [character.chaId] })
+    return chat
 }
