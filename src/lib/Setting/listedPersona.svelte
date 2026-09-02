@@ -1,9 +1,8 @@
 <script lang="ts">
     import { language } from "../../lang";
-    import { alertConfirm } from "src/ts/alert";
     import { getCharImage } from "src/ts/characters";
     import { requestImmediateSave } from "src/ts/globalApi.svelte";
-    import { changeUserPersona, exportUserPersona, importUserPersona, saveUserPersona } from "src/ts/persona";
+    import { changeUserPersona, createUserPersona, deleteUserPersona, exportUserPersona, importUserPersona, moveUserPersona, saveUserPersona } from "src/ts/persona";
     import { DBState, settingsOpen } from "src/ts/stores.svelte";
     import { openSettings, SettingsRoute } from "src/ts/routing";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
@@ -31,42 +30,11 @@
         close();
     }
 
-    function movePersona(fromIndex: number, toIndex: number) {
-        const personas = DBState.db.personas;
-        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= personas.length || toIndex > personas.length) return;
-
-        saveUserPersona();
-        const selected = personas[DBState.db.selectedPersona];
-        selected.id ??= uuidv4();
-        const selectedId = selected.id;
-        const next = [...personas];
-        const [moved] = next.splice(fromIndex, 1);
-        if (!moved) return;
-        const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
-        next.splice(adjustedToIndex, 0, moved);
-        DBState.db.personas = next;
-        changeUserPersona(Math.max(0, next.findIndex(persona => persona.id === selectedId)), 'noSave');
-        void requestImmediateSave();
-    }
-
     function assignPersonaToTag(index: number, tagId: string | undefined) {
         const persona = DBState.db.personas[index];
         if (!persona) return;
         persona.tagIds = togglePresetTag(persona.tagIds, tagId);
         DBState.db.personas = [...DBState.db.personas];
-        void requestImmediateSave();
-    }
-
-    function createPersona() {
-        DBState.db.personas = [...DBState.db.personas, {
-            id: uuidv4(),
-            name: 'New Persona',
-            icon: '',
-            personaPrompt: '',
-            note: '',
-            tagIds: undefined,
-        }];
-        changeUserPersona(DBState.db.personas.length - 1);
         void requestImmediateSave();
     }
 
@@ -78,25 +46,6 @@
         copy.id = uuidv4();
         copy.name = `${source.name} Copy`;
         DBState.db.personas = [...DBState.db.personas, copy];
-        void requestImmediateSave();
-    }
-
-    async function exportPersona(index: number) {
-        if (index === DBState.db.selectedPersona) saveUserPersona();
-        await exportUserPersona(index);
-    }
-
-    async function deletePersona(index: number) {
-        const persona = DBState.db.personas[index];
-        if (!persona || DBState.db.personas.length === 1) return;
-        if (!await alertConfirm(`${language.removeConfirm}${persona.name}`)) return;
-
-        saveUserPersona();
-        const selected = DBState.db.personas[DBState.db.selectedPersona];
-        const next = DBState.db.personas.filter((_, personaIndex) => personaIndex !== index);
-        DBState.db.personas = next;
-        const selectedIndex = next.indexOf(selected);
-        changeUserPersona(selectedIndex >= 0 ? selectedIndex : 0, 'noSave');
         void requestImmediateSave();
     }
 
@@ -125,11 +74,11 @@
     bind:visibleItemIndexes
     bind:emptyMessage
     selectedItemIndex={DBState.db.selectedPersona}
-    onMoveItem={movePersona}
+    onMoveItem={moveUserPersona}
     onSelectItem={selectPersona}
     onDuplicateItem={duplicatePersona}
-    onExportItem={exportPersona}
-    onDeleteItem={deletePersona}
+    onExportItem={exportUserPersona}
+    onDeleteItem={deleteUserPersona}
     itemDeleteLabel={language.personaDeleteAction}
     {close}
     onFoldersChange={(next) => {
@@ -179,7 +128,7 @@
 
     {#if $settingsOpen}
         <PresetPickerActions
-            onCreate={createPersona}
+            onCreate={createUserPersona}
             onImport={importPersona}
         />
     {/if}

@@ -1,4 +1,4 @@
-import tippy from 'tippy.js'
+import tippy, { type Instance, type Placement } from 'tippy.js'
 import 'tippy.js/dist/tippy.css';
 import 'tippy.js/themes/translucent.css';
 
@@ -6,55 +6,45 @@ function normalizeTip(tip: string) {
     return (tip ?? '').trim()
 }
 
-export function tooltip(node:HTMLElement, tip:string) {
-    const content = normalizeTip(tip)
-    const instance = tippy(node, {
-        content,
-        animation: 'fade',
-        arrow: true,
-        theme: 'translucent',
-    })
-    if (!content) instance.disable()
+function createTooltip(node: HTMLElement, tip: string, placement?: Placement) {
+    let instance: Instance | null = null
 
-    return {
-        update(newTip: string) {
-            const newContent = normalizeTip(newTip)
-            if (!newContent) {
-                instance.disable()
-                return
-            }
-            instance.setContent(newContent)
-            instance.enable()
-        },
-        destroy() {
-            instance.destroy()
+    function update(newTip: string) {
+        const content = normalizeTip(newTip)
+        if (!content) {
+            instance?.destroy()
+            instance = null
+            return
         }
-    };
+
+        if (instance) {
+            instance.setContent(content)
+            return
+        }
+
+        instance = tippy(node, {
+            content,
+            animation: 'fade',
+            arrow: true,
+            theme: 'translucent',
+            ...(placement ? { placement } : {}),
+        })
+    }
+
+    update(tip)
+    return {
+        update,
+        destroy() {
+            instance?.destroy()
+            instance = null
+        },
+    }
 }
 
-export function tooltipRight(node:HTMLElement, tip:string) {
-    const content = normalizeTip(tip)
-    const instance = tippy(node, {
-        content,
-        animation: 'fade',
-        arrow: true,
-        placement: 'right',
-        theme: 'translucent',
-    })
-    if (!content) instance.disable()
+export function tooltip(node: HTMLElement, tip: string) {
+    return createTooltip(node, tip)
+}
 
-    return {
-        update(newTip: string) {
-            const newContent = normalizeTip(newTip)
-            if (!newContent) {
-                instance.disable()
-                return
-            }
-            instance.setContent(newContent)
-            instance.enable()
-        },
-        destroy() {
-            instance.destroy()
-        }
-    };
+export function tooltipRight(node: HTMLElement, tip: string) {
+    return createTooltip(node, tip, 'right')
 }

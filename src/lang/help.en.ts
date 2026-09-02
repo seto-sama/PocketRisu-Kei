@@ -615,6 +615,10 @@ export const helpEn = {
             "Persona information. Embedded into the system prompt sent to the model so it recognizes who the user is. Example: \"<user> is a 20 year old woman who normally speaks calmly.\"",
         personaLargePortrait:
             "Themes such as Waifulike will display a large portrait instead of the persona icon. Use when you want to show a full-body illustration of the persona.",
+        personaExport:
+            "Export the current persona as a PNG file.",
+        personaDelete:
+            "Delete the current persona. Unlike characters, personas are deleted immediately without being moved to the trash.",
         openRouterFallback:
             "When the selected model is temporarily unavailable, OpenRouter automatically routes the request to a compatible fallback model. Improves reliability. Turn off to surface the original error instead.",
         openRouterMiddleOut:
