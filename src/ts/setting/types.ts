@@ -102,7 +102,8 @@ export interface SettingOptions {
     placeholder?: string;
     hideText?: boolean;     // For password-like inputs
     suggestions?: string[]; // Optional datalist suggestions; free-form input remains allowed
-    defaultValue?: unknown; // Display value when a bound field is undefined
+    /** Display value when undefined; also restored when a disableable numeric field is enabled. */
+    defaultValue?: unknown;
     showTokenCount?: boolean; // Show the CBS-expanded token count below a textarea
     commitMode?: InputCommitMode; // DB write policy for text/number/textarea fields
     debounceMs?: number;

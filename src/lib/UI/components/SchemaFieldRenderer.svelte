@@ -81,7 +81,11 @@
     }
 
     function setSliderEnabled(enabled: boolean) {
-        userValues[fieldKey] = enabled ? sliderMin : undefined;
+        const defaultValue = schemaField.default;
+        const enabledValue = typeof defaultValue === 'number' && Number.isFinite(defaultValue)
+            ? defaultValue
+            : sliderMin;
+        userValues[fieldKey] = enabled ? enabledValue : undefined;
     }
 
     // stringArray widget: textarea one-per-line, syncs to/from userValues[key]: string[]

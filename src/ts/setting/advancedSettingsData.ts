@@ -49,6 +49,7 @@ export const advancedSettingsItems: SettingItem[] = [
             min: OUTPUT_REPETITION_MIN,
             max: OUTPUT_REPETITION_MAX,
             disableable: true,
+            defaultValue: 8,
         }
     },
     // Request Location (Non-Node/Tauri)

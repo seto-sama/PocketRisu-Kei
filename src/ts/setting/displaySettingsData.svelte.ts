@@ -346,7 +346,7 @@ export const displayOtherChatItems: SettingItem[] = [
         setValue: (db, value: number) => {
             db.assetMaxDifference = value === -1000 ? 0 : Math.min(Math.max(value, 1), 8);
         },
-        options: { min: 1, max: 8, step: 1, disableable: true },
+        options: { min: 1, max: 8, step: 1, disableable: true, defaultValue: 4 },
         condition: showChatImageSettings,
         keywords: ['asset', 'difference', 'dynamic', 'matching'],
     },
