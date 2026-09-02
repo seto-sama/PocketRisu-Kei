@@ -871,6 +871,8 @@ export const languageKorean = {
   imageStylePresetNone: "프리셋 사용 안 함",
   imageStylePresetNew: "새 그림체 프리셋",
   imageStylePresetName: "프리셋 이름",
+  imageStylePresetGenerationBinding: "생성 세팅 바인딩",
+  imageStylePresetBindingNone: "바인딩 안 함",
   imageStylePresetDeleteConfirm: "이 그림체 프리셋을 삭제할까요?",
   imageStylePresetPositive: "긍정 프롬프트",
   imageStylePresetNegative: "부정 프롬프트",

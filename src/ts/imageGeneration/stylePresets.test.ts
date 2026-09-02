@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
     IMAGE_STYLE_PRESET_MODULE_NAMESPACE,
     applyImageStylePreset,
+    applyImageStylePresetBinding,
     createImageStylePreset,
     createImageStyleLorebookFolder,
+    formatImageStylePresetContent,
+    parseImageStylePresetContent,
     listImageStylePresets,
 } from './stylePresets'
 
@@ -35,6 +38,70 @@ describe('image style presets', () => {
             prompt: 'watercolor, soft light,\n1girl, cafe',
             negativePrompt: 'photo,\nblurry',
         })
+    })
+
+    it('stores and parses an image generation preset binding without leaking it into prompts', () => {
+        const db = { modules: [], enabledModules: [] }
+        const preset = createImageStylePreset(db, 'Ink', 'ink', 'photo', {
+            imageGenerationPresetId: 'generation-preset-uuid',
+        })
+
+        expect(preset.content).toBe(
+            '[Binding]\ngeneration-preset-uuid\n\n[Positive]\nink\n\n[Negative]\nphoto',
+        )
+        expect(parseImageStylePresetContent(preset.content)).toEqual({
+            preamble: '',
+            positive: 'ink',
+            negative: 'photo',
+            imageGenerationPresetId: 'generation-preset-uuid',
+        })
+        expect(applyImageStylePreset(preset.content, 'portrait', 'blurry')).toEqual({
+            prompt: 'ink,\nportrait',
+            negativePrompt: 'photo,\nblurry',
+        })
+
+        expect(parseImageStylePresetContent(
+            '[Positive]\nink\n\n[Negative]\nphoto\n\n[Binding]\ngeneration-preset-uuid',
+        ).imageGenerationPresetId).toBe('')
+    })
+
+    it('preserves preset preamble and places Binding directly before Positive', () => {
+        const original = '라이트보드 NAI 프리셋1\n\n[Positive]\nink\n\n[Negative]\nphoto'
+        const parsed = parseImageStylePresetContent(original)
+        const saved = formatImageStylePresetContent(
+            parsed.positive,
+            parsed.negative,
+            'generation-preset-uuid',
+            parsed.preamble,
+        )
+
+        expect(saved).toBe(
+            '라이트보드 NAI 프리셋1\n\n[Binding]\ngeneration-preset-uuid\n\n[Positive]\nink\n\n[Negative]\nphoto',
+        )
+        expect(parseImageStylePresetContent(saved)).toEqual({
+            preamble: '라이트보드 NAI 프리셋1',
+            positive: 'ink',
+            negative: 'photo',
+            imageGenerationPresetId: 'generation-preset-uuid',
+        })
+    })
+
+    it('selects a bound generation preset by stable UUID and ignores stale bindings', () => {
+        const db = {
+            imageGenerationPresets: [{ id: 'first' }, { id: 'bound-id' }],
+            imageGenerationPresetId: 0,
+        }
+
+        expect(applyImageStylePresetBinding(
+            db,
+            '[Binding]\nbound-id\n\n[Positive]\nink\n\n[Negative]\nphoto',
+        )).toBe(true)
+        expect(db.imageGenerationPresetId).toBe(1)
+        expect(applyImageStylePresetBinding(
+            db,
+            '[Binding]\ndeleted-id\n\n[Positive]\nink\n\n[Negative]\nphoto',
+        )).toBe(false)
+        expect(db.imageGenerationPresetId).toBe(1)
     })
 
     it('creates presets inside a selected module', () => {

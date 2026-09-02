@@ -16,6 +16,11 @@ export interface ImageStylePresetEntry {
     lorebookFolder?: string
 }
 
+interface ImageGenerationBindingDatabase {
+    imageGenerationPresets: { id: string }[]
+    imageGenerationPresetId: number
+}
+
 interface ImageStylePresetDatabase {
     modules: RisuModule[]
     enabledModules: string[]
@@ -79,8 +84,16 @@ export function ensureImageStylePresetModule(db: ImageStylePresetDatabase): Risu
     return module
 }
 
-export function formatImageStylePresetContent(positive: string, negative: string): string {
-    return `[Positive]\n${positive.trim()}\n\n[Negative]\n${negative.trim()}`
+export function formatImageStylePresetContent(
+    positive: string,
+    negative: string,
+    imageGenerationPresetId = '',
+    preamble = '',
+): string {
+    const sections = `[Positive]\n${positive.trim()}\n\n[Negative]\n${negative.trim()}`
+    const binding = imageGenerationPresetId ? `[Binding]\n${imageGenerationPresetId}\n\n` : ''
+    const prefix = preamble.trim() ? `${preamble.trim()}\n\n` : ''
+    return `${prefix}${binding}${sections}`
 }
 
 export function createImageStylePreset(
@@ -88,7 +101,11 @@ export function createImageStylePreset(
     name: string,
     positive: string,
     negative: string,
-    target: { moduleId?: string, lorebookFolder?: string } = {},
+    target: {
+        moduleId?: string
+        lorebookFolder?: string
+        imageGenerationPresetId?: string
+    } = {},
 ): ImageStylePresetEntry {
     const module = db.modules.find(item => item.id === target.moduleId)
         ?? ensureImageStylePresetModule(db)
@@ -100,7 +117,7 @@ export function createImageStylePreset(
         secondkey: uuidv4(),
         insertorder: 1000,
         comment: `${IMAGE_STYLE_PRESET_PREFIX}${trimmedName}`,
-        content: formatImageStylePresetContent(positive, negative),
+        content: formatImageStylePresetContent(positive, negative, target.imageGenerationPresetId),
         mode: 'normal',
         alwaysActive: false,
         selective: false,
@@ -144,10 +161,36 @@ export function createImageStyleLorebookFolder(
     return key
 }
 
-export function parseImageStylePresetContent(content: string): { positive: string, negative: string } {
+export function parseImageStylePresetContent(content: string): {
+    preamble: string
+    positive: string
+    negative: string
+    imageGenerationPresetId: string
+} {
+    const positiveMarkerIndex = content.search(/\[Positive\]/i)
+    const rawPreamble = positiveMarkerIndex >= 0 ? content.slice(0, positiveMarkerIndex) : ''
+    const bindingMatch = rawPreamble.match(
+        /\[Binding\][\t ]*\r?\n[\t ]*([^\r\n]+)\s*$/i,
+    )
+    const preamble = (bindingMatch?.index === undefined
+        ? rawPreamble
+        : rawPreamble.slice(0, bindingMatch.index)).trim()
     const positive = content.match(/\[Positive\]\s*([\s\S]*?)(?=\s*\[Negative\]|$)/i)?.[1]?.trim() ?? ''
     const negative = content.match(/\[Negative\]\s*([\s\S]*?)$/i)?.[1]?.trim() ?? ''
-    return { positive, negative }
+    const imageGenerationPresetId = bindingMatch?.[1]?.trim() ?? ''
+    return { preamble, positive, negative, imageGenerationPresetId }
+}
+
+export function applyImageStylePresetBinding(
+    db: ImageGenerationBindingDatabase,
+    content: string,
+): boolean {
+    const { imageGenerationPresetId } = parseImageStylePresetContent(content)
+    if (!imageGenerationPresetId) return false
+    const index = db.imageGenerationPresets.findIndex(preset => preset.id === imageGenerationPresetId)
+    if (index < 0) return false
+    db.imageGenerationPresetId = index
+    return true
 }
 
 function joinPrompt(prefix: string, input: string): string {
