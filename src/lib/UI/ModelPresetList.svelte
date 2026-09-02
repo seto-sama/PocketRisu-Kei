@@ -9,7 +9,7 @@
     import PresetPickerActions from "./PresetPickerActions.svelte";
     import TextInput from "./GUI/TextInput.svelte";
     import { v4 as uuidv4 } from "uuid";
-    import { openSettings, SettingsRoute } from "src/ts/routing";
+    import { ModelPresetTab, openSettings, SettingsRoute } from "src/ts/routing";
 
     interface Props {
         value?: string;
@@ -65,7 +65,7 @@
 
     function goToPresetSettings() {
         openOptions = false;
-        openSettings(SettingsRoute.ModelPreset);
+        openSettings(SettingsRoute.ModelPreset, undefined, undefined, ModelPresetTab.Options);
     }
 
     function movePreset(sourceIndex: number, targetIndex: number) {

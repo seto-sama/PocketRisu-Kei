@@ -211,6 +211,27 @@ describe('buildGenerationRequest', () => {
         expect(second?.workflow?.executionId).toBe(first?.workflow?.executionId)
     })
 
+    test('keeps explicitly captured workflow ownership after local cancellation', () => {
+        workflowState.workflow = undefined
+        const request = buildGenerationRequest({
+            formated: [],
+            bias: {},
+            mode: 'model',
+            chatId: 'message-1',
+            currentChar: {
+                chaId: 'character-1',
+                chatPage: 0,
+                chats: [{ id: 'room-1', message: [] }],
+            },
+            revenantWorkflowId: 'submitted-workflow',
+        } as any)
+
+        expect(request?.workflow).toMatchObject({
+            workflowId: 'submitted-workflow',
+            stepKey: 'model.main',
+        })
+    })
+
     test('keeps main generation ownership on the submitted room after navigation', () => {
         const request = buildGenerationRequest({
             formated: [],

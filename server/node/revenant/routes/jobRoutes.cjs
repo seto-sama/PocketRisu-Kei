@@ -377,20 +377,20 @@ function installRevenantJobRoutes(app, deps) {
     app.post('/api/generation/jobs/:jobId/consume', async (req, res) => {
         if (!await checkProxyAuth(req, res)) return;
         if (!requireSyncClientId(req, res)) return;
-        const job = getGenerationJob(req.params.jobId, false);
+        const job = cancellationRepository.getGenerationJob(req.params.jobId, false);
         if (!job) {
             res.status(404).send({ error: 'Generation job not found' });
             return;
         }
-        if (job.jobType === 'model') {
-            res.status(400).send({ error: 'Main generation jobs must be materialized' });
+        if (job.jobType === 'model' && job.workflowId) {
+            res.status(400).send({ error: 'Workflow main generation jobs must be materialized' });
             return;
         }
         if (isRevenantJobActive(job.status)) {
-            res.status(409).send({ error: 'Auxiliary generation job is not complete' });
+            res.status(409).send({ error: 'Generation job is not complete' });
             return;
         }
-        if (!markGenerationMaterialized(req.params.jobId)) {
+        if (!cancellationRepository.markGenerationMaterialized(req.params.jobId)) {
             res.status(404).send({ error: 'Generation job not found' });
             return;
         }

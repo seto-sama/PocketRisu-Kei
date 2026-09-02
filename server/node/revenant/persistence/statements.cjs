@@ -64,24 +64,38 @@ function createGenerationStatements(db) {
         SET generation_info = ?, prompt_info = ?, updated_at = ?
         WHERE job_id = ?
     `);
+    const recoverableMainJobPredicate = `
+        chat_id IS NOT NULL
+        AND job_type = 'model'
+        AND status IN ('queued', 'generating', 'generated', 'cancelled', 'interrupted', 'failed_partial', 'failed')
+        AND (
+          status IN ('queued', 'generating')
+          OR length(normalized_projection) > 0
+          OR (
+              raw_bytes > 0
+              AND response_status >= 200
+              AND response_status < 300
+          )
+        )
+        AND materialized_at IS NULL
+    `;
     const stmtListRecoverable = db.prepare(`
         SELECT *
         FROM generation_jobs
-        WHERE chat_id IS NOT NULL
-          AND job_type = 'model'
-          AND status IN ('queued', 'generating', 'generated', 'cancelled', 'interrupted', 'failed_partial', 'failed')
-          AND (
-            status IN ('queued', 'generating')
-            OR length(normalized_projection) > 0
-            OR (
-                raw_bytes > 0
-                AND response_status >= 200
-                AND response_status < 300
-            )
-          )
-          AND materialized_at IS NULL
+        WHERE ${recoverableMainJobPredicate}
         ORDER BY updated_at DESC
         LIMIT ?
+    `);
+    const stmtGetEarlierRecoverableWorkflowJob = db.prepare(`
+        SELECT *
+        FROM generation_jobs
+        WHERE ${recoverableMainJobPredicate}
+          AND workflow_id IS NOT NULL
+          AND character_id = ?
+          AND room_id = ?
+          AND created_at < ?
+        ORDER BY created_at ASC
+        LIMIT 1
     `);
     const stmtListRecoverableAuxiliary = db.prepare(`
         SELECT *
@@ -421,6 +435,7 @@ function createGenerationStatements(db) {
         stmtSetProjectionError,
         stmtUpdateMetadata,
         stmtListRecoverable,
+        stmtGetEarlierRecoverableWorkflowJob,
         stmtListRecoverableAuxiliary,
         stmtListNeedingProjection,
         stmtListQueuedDispatches,

@@ -807,6 +807,7 @@ export class SandboxHost {
         this.iframe.sandbox.add('allow-scripts');
         this.iframe.sandbox.add('allow-modals')
         this.iframe.sandbox.add('allow-downloads')
+        this.iframe.setAttribute('allow', 'screen-wake-lock')
 
         this.iframe.setAttribute('csp', this.csp);
 

@@ -11,7 +11,7 @@
 // number — that file is the source of truth and changes there should update
 // this map too.
 
-import { AddonSubmenuIndex, settingsOpen, SettingsMenuIndex, SystemSubmenuIndex, AdminStatsSubmenuIndex, AccessibilitySubmenuIndex } from "./stores.svelte";
+import { AddonSubmenuIndex, settingsOpen, SettingsMenuIndex, SystemSubmenuIndex, AdminStatsSubmenuIndex, AccessibilitySubmenuIndex, ModelPresetListTabIndex } from "./stores.svelte";
 
 export const SettingsRoute = {
     None: -1 as const,
@@ -67,6 +67,15 @@ export const AccessibilityTab = {
 
 export type AccessibilityTabValue = (typeof AccessibilityTab)[keyof typeof AccessibilityTab];
 
+/** Top-level tabs inside the Model Preset settings page. */
+export const ModelPresetTab = {
+    Presets: 0 as const,
+    Keys: 1 as const,
+    Options: 2 as const,
+} as const;
+
+export type ModelPresetTabValue = (typeof ModelPresetTab)[keyof typeof ModelPresetTab];
+
 /**
  * Open the settings panel and navigate to a specific page (and optional
  * System sub-tab). Use this from anywhere in the app that needs to deep-link
@@ -76,6 +85,7 @@ export function openSettings(
     route: SettingsRouteValue,
     storageTab?: StorageManagementTabValue,
     accessibilityTab?: AccessibilityTabValue,
+    modelPresetTab?: ModelPresetTabValue,
 ) {
     if (route === SettingsRoute.Migration) {
         SettingsMenuIndex.set(SettingsRoute.System);
@@ -88,6 +98,9 @@ export function openSettings(
     }
     if (accessibilityTab !== undefined) {
         AccessibilitySubmenuIndex.set(accessibilityTab);
+    }
+    if (modelPresetTab !== undefined) {
+        ModelPresetListTabIndex.set(modelPresetTab);
     }
     if (route === SettingsRoute.AdminAndStats) {
         AdminStatsSubmenuIndex.set(0);

@@ -578,6 +578,11 @@
 
 
     let blankMessage = $derived((message === '{{none}}' || message === '{{blank}}' || message === '') && idx === -1 && !altGreeting || isComment)
+    let nodeOnlyWidthClass = $derived(
+        DBState.db.nodeOnlyStandardChatWidth === 'full' ? 'max-w-full' :
+        DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
+        'max-w-3xl'
+    )
 
     $effect.pre(() => {
         displaya(message)
@@ -1554,10 +1559,6 @@
      onclickcapture={handleButtonTriggerWithin}>
     <div class="text-textcolor grow max-w-full sm:px-4 py-4">
         {#if !blankMessage}
-            {@const nodeOnlyWidthClass =
-                DBState.db.nodeOnlyStandardChatWidth === 'full' ? 'max-w-full' :
-                DBState.db.nodeOnlyStandardChatWidth === 'wide' ? 'max-w-6xl' :
-                'max-w-3xl'}
             <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto py-6 px-4 sm:px-8 bg-bgcolor sm:rounded-lg">
                 {#if !hideSender}
                     <!-- Header: icon + name -->
@@ -1581,6 +1582,13 @@
                         {@render iconButtons()}
                     </div>
                 </div>
+            </div>
+        {:else if isComment}
+            <div class="flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto px-4 sm:px-8">
+                <div class="flexium items-center">
+                    {@render iconButtons()}
+                </div>
+                {@render textBox()}
             </div>
         {/if}
     </div>

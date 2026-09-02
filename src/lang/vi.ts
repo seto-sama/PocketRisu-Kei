@@ -1169,7 +1169,6 @@ export const languageVietnamese = {
     "insertAssetPrompt": "Chèn lời nhắc tài sản",
     "requestLocation": "Yêu cầu vị trí",
     "newImageHandlingBeta": "Xử lý hình ảnh mới (Beta)",
-    "settingsExported": "Cài đặt báo cáo lỗi đã được xuất và sao chép vào bảng nhớ tạm.",
     "bookmarks": "Dấu trang",
     "noBookmarks": "Không có dấu trang",
     "bookmarkAskNameOrDefault": "Nhập tên dấu trang. Nếu không nhập, nó sẽ được gán tự động.",

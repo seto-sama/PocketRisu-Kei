@@ -7,6 +7,7 @@ import { language } from "../../lang";
 import { alertError } from "../alert";
 import { parseChatML } from "../parser/chatML";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
+import { renderLorebookContent } from "./lorebookPrompt";
 import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserName, parseToggleSyntax, prebuiltAssetCommand } from "../util";
 import { requestChatData } from "./request/request";
 import { shouldSuppressGenerationErrorModal } from './generationErrorPresentation';
@@ -907,7 +908,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of normalActives){
         unformated.lorebook.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         })
     }
 
@@ -918,7 +919,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of descActives){
         const c = {
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         }
         if(lorebook.pos === 'before_desc'){
             beforeDescriptionPrompts.unshift(c)
@@ -953,7 +954,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of postEverythingLorebooks){
         unformated.postEverything.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         })
     }
 
@@ -974,7 +975,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of postEverythingAssistantLorebooks){
         unformated.postEverything.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         })
     }
 
@@ -1485,7 +1486,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const depthPrompt of depthPrompts){
         const chat:OpenAIChat = {
             role: depthPrompt.role,
-            content: risuChatParser(resolvePosition(depthPrompt.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(depthPrompt.prompt), currentChar)
         }
         currentTokens += await tokenizer.tokenizeChat(chat)
     }
@@ -1639,7 +1640,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const depthPrompt of depthPrompts){
         const chat:OpenAIChat = {
             role: depthPrompt.role,
-            content: risuChatParser(resolvePosition(depthPrompt.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(depthPrompt.prompt), currentChar)
         }
         const depth = depthPrompt.pos === 'depth' ? (depthPrompt.depth) : (unformated.chats.length - depthPrompt.depth)
         unformated.chats.splice(depth,0,chat)
@@ -2175,6 +2176,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             previewBody: arg.previewPrompt,
             escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
             rememberToolUsage: DBState.db.rememberToolUsage,
+            revenantWorkflowId: workflowSession.workflowId,
             revenantWorkflowDependency: revenantMainDependency,
             revenantRoomId: outgoingChat.id,
             revenantContinuationPrefix: continuationFallback,

@@ -17,7 +17,6 @@ import type { Component } from 'svelte';
 // Import custom components here
 import TranslatorPresetSettings from 'src/lib/Setting/Pages/Language/TranslatorPresetSettings.svelte';
 import BanCharacterSetSettings from 'src/lib/Setting/Pages/Advanced/BanCharacterSetSettings.svelte';
-import SettingsExportButtons from 'src/lib/Setting/Pages/Advanced/SettingsExportButtons.svelte';
 import InlayCompressButton from 'src/lib/Setting/Pages/Advanced/InlayCompressButton.svelte';
 import ColorSchemeSelect from 'src/lib/Setting/Pages/Display/ColorSchemeSelect.svelte';
 import CustomColorSchemeEditor from 'src/lib/Setting/Pages/Display/CustomColorSchemeEditor.svelte';
@@ -37,7 +36,6 @@ import ModelProviderFilter from 'src/lib/Setting/Pages/Model/ModelProviderFilter
 export const customComponents: Record<string, Component<any>> = {
     'TranslatorPresetSettings': TranslatorPresetSettings,
     'BanCharacterSetSettings': BanCharacterSetSettings,
-    'SettingsExportButtons': SettingsExportButtons,
     'InlayCompressButton': InlayCompressButton,
     'ColorSchemeSelect': ColorSchemeSelect,
     'CustomColorSchemeEditor': CustomColorSchemeEditor,

@@ -1169,7 +1169,6 @@ export const languageSpanish = {
     "insertAssetPrompt": "Insertar Prompt de Activo",
     "requestLocation": "Ubicación de Solicitud",
     "newImageHandlingBeta": "Nuevo Manejo de Imágenes (Beta)",
-    "settingsExported": "Configuración para informe de errores exportada y copiada al portapapeles.",
     "bookmarks": "Marcadores",
     "noBookmarks": "Sin Marcadores",
     "bookmarkAskNameOrDefault": "Ingresa el nombre del marcador. Si no se ingresa, se asignará automáticamente.",

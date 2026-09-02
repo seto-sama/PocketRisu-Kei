@@ -29,6 +29,8 @@
     import { changeChar } from 'src/ts/characters'
     import { language } from 'src/lang'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
+    import OrphanAssetCleanupCard from './OrphanAssetCleanupCard.svelte'
+    import type { OrphanAssetStats } from 'src/ts/storage/orphanAssets'
 
     // ── Types ────────────────────────────────────────────────────────────────
     interface PrefixInfo { totalSize: number; count: number }
@@ -50,7 +52,7 @@
             file: { count: number; totalSize: number; oldest: number | null; newest: number | null }
         }
         trashed: { count: number; expiredCount: number; available: boolean }
-        orphan: { count: number; totalSize: number; available: boolean }
+        orphan: OrphanAssetStats
         etag: string | null
     }
     interface CharBreakdown {
@@ -284,6 +286,11 @@
         } finally {
             optimizeOpen = false
         }
+    }
+
+    async function refreshAfterOrphanCleanup() {
+        characters = null
+        await loadStats()
     }
 
     // ── Disk usage rows ──────────────────────────────────────────────────────
@@ -599,7 +606,10 @@
         </div>
     </SettingLayout>
 
-    <!-- ③ HypaMemory vector cache cleanup -->
+    <!-- ③ Orphan assets -->
+    <OrphanAssetCleanupCard orphan={stats.orphan} onPurged={refreshAfterOrphanCleanup} />
+
+    <!-- ④ HypaMemory vector cache cleanup -->
     <SettingLayout variant="panel">
         <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
             <div class="flex items-center gap-2 text-textcolor">
@@ -626,7 +636,7 @@
         </div>
     </SettingLayout>
 
-    <!-- ④ Per-character -->
+    <!-- ⑤ Per-character -->
     <SettingLayout variant="panel">
         <div class="flex items-center justify-between gap-2 mb-3">
             <div class="flex items-center gap-2 text-textcolor">
@@ -704,7 +714,7 @@
         {/if}
     </SettingLayout>
 
-    <!-- ⑤ Per-module -->
+    <!-- ⑥ Per-module -->
     <SettingLayout variant="panel">
         <div class="flex items-center justify-between gap-2 mb-3">
             <div class="flex items-center gap-2 text-textcolor">
@@ -763,7 +773,7 @@
         {/if}
     </SettingLayout>
 
-    <!-- ⑥ Debug -->
+    <!-- ⑦ Debug -->
     <ShAccordion name={language.storageDebug} variant="card">
         <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-textcolor2 text-sm font-mono">
             <div>journal_mode</div><div class="text-textcolor">{stats.sqlite.journalMode}</div>

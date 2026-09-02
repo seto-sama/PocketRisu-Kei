@@ -38,6 +38,18 @@ export interface PatchItemResult {
     chatGuardRejected?: boolean
 }
 
+export interface ExportBackupOptions {
+    target?: 'upstream'
+    mode?: 'settings'
+    moduleAssets?: boolean
+}
+
+export interface SettingsBackupEstimate {
+    dbBytes: number
+    baseAssets: { count: number, bytes: number }
+    moduleAssets: { count: number, bytes: number, moduleCount: number }
+}
+
 /** Page-scoped id used for sync self-echo suppression and request tracing. */
 export function getSyncClientId(): string {
     return NodeStorage.getSessionId()
@@ -419,6 +431,8 @@ export class NodeStorage{
             }
         }
         if (da.status < 200 || da.status >= 300) {
+            const body = await da.text().catch(() => '')
+            console.error(`[Patch] Server rejected patch (${da.status}):`, body)
             return { success: false }
         }
         const data = await da.json()
@@ -485,13 +499,22 @@ export class NodeStorage{
         }
     }
 
-    async exportBackup(opts?: { target?: 'upstream' }): Promise<Response> {
-        const url = opts?.target === 'upstream'
-            ? '/api/backup/export?target=upstream'
-            : '/api/backup/export'
+    async exportBackup(opts?: ExportBackupOptions): Promise<Response> {
+        const params = new URLSearchParams()
+        if(opts?.target === 'upstream') params.set('target', 'upstream')
+        if(opts?.mode === 'settings') params.set('mode', 'settings')
+        if(opts?.moduleAssets === false) params.set('moduleAssets', '0')
+        const query = params.toString()
+        const url = query ? `/api/backup/export?${query}` : '/api/backup/export'
         const da = await this.authFetch(url)
         if (da.status < 200 || da.status >= 300) throw `backup export error: ${da.status}`
         return da
+    }
+
+    async settingsBackupEstimate(): Promise<SettingsBackupEstimate> {
+        const response = await this.authFetch('/api/backup/export/settings-estimate')
+        if(!response.ok) throw new Error(`settings estimate error: ${response.status}`)
+        return await response.json()
     }
 
     async prepareImport(size: number): Promise<void> {

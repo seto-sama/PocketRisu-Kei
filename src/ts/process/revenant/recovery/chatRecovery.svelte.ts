@@ -17,6 +17,7 @@ import {
     listRecoverableAuxiliaryGenerations,
 } from '../auxiliary'
 import {
+    consumeRevenantGenerationJob,
     isRevenantGenerationLocallyObserved,
     listRecoverableGenerations,
     setRevenantGenerationLocallyObserved,
@@ -576,6 +577,37 @@ export async function recoverRevenantGenerationsForChat(
             const message: Message = targetMessage ?? {
                 role: 'char',
                 data: '',
+            }
+            if (!isActiveGeneration && !job.workflowId) {
+                // Caller-owned standalone main jobs have no server postprocess
+                // workflow. Recover their durable projection at the caller
+                // boundary, then acknowledge it through the shared consume
+                // route so a reload cannot leave this message locked.
+                const recoveredContent = await readRecoverableGenerationContent(job)
+                const projectedContent = job.isContinuation
+                    && job.continuationPrefix
+                    && !recoveredContent.startsWith(job.continuationPrefix)
+                    ? job.continuationPrefix + recoveredContent
+                    : recoveredContent
+                applyCancelledGenerationProjection(chat, {
+                    messageChatId,
+                    content: projectedContent,
+                    isContinuation: job.isContinuation === true,
+                    targetMessage,
+                    rerollSnapshot,
+                })
+                await consumeRevenantGenerationJob(job.jobId)
+                setRevenantGenerationLocallyObserved(job.jobId, false)
+                endStatus(
+                    requestStatusIdForJob(job),
+                    job.status === 'generated'
+                        ? 'done'
+                        : job.status === 'cancelled' ? 'aborted' : 'failed',
+                    { now: job.completedAt ?? Date.now() },
+                )
+                invalidateRecoveredMessage(character, Math.max(0, msgIndex))
+                recovered++
+                continue
             }
             if (job.status === 'cancelled') {
                 const recoveredContent = await readRecoverableGenerationContent(job)

@@ -2,7 +2,7 @@ import { language } from "../../../lang";
 import { isV3PluginModel, LLMFlags, type LLMModel } from "../../model/modellist";
 import { risuEscape, risuUnescape } from "../../parser/parser.svelte";
 import { pluginProviderRequestContextKey, pluginV2 } from "../../plugins/plugins.svelte";
-import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
+import { getCurrentCharacter, getCurrentChat, getDatabase, normalizeSystemRoleReplacement, type character } from "../../storage/database.svelte";
 import { encodeWithTokenizer } from "../../tokenizer";
 import { v4 as uuidv4 } from "uuid";
 import { simplifySchema, sleep } from "../../util";
@@ -97,6 +97,8 @@ export interface requestDataArgument{
     revenantAuxiliaryResultPolicy?:Exclude<RevenantAuxiliaryResultPolicy, 'automatic'>
     revenantDispatchPolicy?:import('../revenant').RevenantDispatchPolicy
     revenantWorkflowDependency?:import('../revenant').RevenantWorkflowDependency
+    /** Workflow ownership captured when the chat generation was submitted. */
+    revenantWorkflowId?:string
     /** Room captured when the request was submitted; stable across UI navigation. */
     revenantRoomId?:string
     /** Continuation prefix captured from that same room. */
@@ -302,7 +304,7 @@ export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[]){
         for(let i=0;i<formated.length;i++){
             if(formated[i].role === 'system'){
                 formated[i].content = db.systemContentReplacement ? db.systemContentReplacement.replace('{{slot}}', formated[i].content) : `system: ${formated[i].content}`
-                formated[i].role = db.systemRoleReplacement
+                formated[i].role = normalizeSystemRoleReplacement(db.systemRoleReplacement)
             }
         }
     }

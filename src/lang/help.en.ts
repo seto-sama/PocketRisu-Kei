@@ -345,8 +345,6 @@ export const helpEn = {
             "Enable bookmarks on chat messages and collect them in the menu. Useful for finding important messages in long chats.",
         simplifiedToolUse:
             "Show tool-call results in a simplified chat-friendly format. Use this when raw tool output is too long or noisy.",
-        exportCurrentSettings:
-            "Exports the complete current settings as a JSON file for bug reports.",
         unrecommendedNewGoogleTrans:
             "Use the new experimental Google Translate path. It may be faster than the old path, but can break in some cases.",
         lightningRealmImport:
@@ -540,6 +538,7 @@ export const helpEn = {
         modelPresetToolUseHelp: "Let this preset call your configured tools (MCP). Off by default. Tool runs are sent without streaming.",
         modelPresetCustomProfileHelp: "Advanced profile for configuring an endpoint, request format, authentication, generation parameters, body/header values, and compatibility flags directly.",
         modelPresetRequestFormatHelp: "Select the request/response protocol implemented by the endpoint. Compatible servers such as Mistral, Ollama, and vLLM usually use OpenAI Chat Completions.",
+        modelPresetServiceTierHelp: "Select the response speed pricing tier. Flex is cheaper but slower, while Priority is faster but more expensive. Vertex AI supports this setting only in the global location.",
         modelPresetEndpointUrlHelp: "Enter the complete request URL, including the final API path.",
         modelPresetRequestModelIdHelp: "The actual model identifier used in the request body or Gemini URL.",
         modelPresetPromptCacheModeHelp: "GPT-5.6 and later only. Implicit uses an automatic breakpoint; explicit uses only prompt cache cards and explicit breakpoints.",

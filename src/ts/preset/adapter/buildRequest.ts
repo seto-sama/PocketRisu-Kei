@@ -30,6 +30,9 @@ import {
     type VertexEndpointInput,
 } from './vertexEndpoint'
 
+const VERTEX_REQUEST_TYPE_HEADER = 'X-Vertex-AI-LLM-Request-Type'
+const VERTEX_SHARED_REQUEST_TYPE_HEADER = 'X-Vertex-AI-LLM-Shared-Request-Type'
+
 export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPreparedRequest {
     const snapshot = ctx.preset.profileSnapshot
     const baseUrl = resolveEndpointUrl(snapshot, ctx.preset.userValues, ctx.serviceAccountJson)
@@ -64,6 +67,17 @@ export function buildPreparedRequest(ctx: AdapterRequestContext): AdapterPrepare
                 // 'auth' values flow through applyAuth via credential; 'custom' is adapter-specific.
                 break
         }
+    }
+
+    // Vertex Flex/Priority PayGo uses a pair of headers when the selected tier
+    // should be used directly. The profile maps the user-facing tier to the
+    // shared-request header; complete the companion routing header here.
+    // customHeaders is applied below and can still intentionally override it.
+    if (
+        snapshot.endpoint.kind === 'vertex-gemini'
+        && headers[VERTEX_SHARED_REQUEST_TYPE_HEADER]
+    ) {
+        headers[VERTEX_REQUEST_TYPE_HEADER] = 'shared'
     }
 
     if (ctx.preset.customBody) {

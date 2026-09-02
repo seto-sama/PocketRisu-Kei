@@ -10,7 +10,15 @@ if (!fs.existsSync(saveDir)) {
     fs.mkdirSync(saveDir, { recursive: true });
 }
 const dbPath = path.join(saveDir, 'risuai.db');
+// Keep SQLite spill files on persistent storage. Container /tmp is commonly a
+// tmpfs and Termux may not provide it, either of which makes a large VACUUM
+// unsafe before the connection is even opened.
+if (!process.env.SQLITE_TMPDIR) {
+    process.env.SQLITE_TMPDIR = saveDir;
+}
 const db = new Database(dbPath);
+
+const VACUUM_DISK_SPACE_MULTIPLIER = 2.2;
 
 // WAL mode: better concurrent read performance, single-writer
 db.pragma('journal_mode = WAL');
@@ -200,6 +208,21 @@ function checkpointWal(mode = 'TRUNCATE') {
     return db.pragma(`wal_checkpoint(${mode})`);
 }
 
+function estimateVacuumRequiredBytes(databaseBytes) {
+    return Math.ceil(Math.max(0, databaseBytes) * VACUUM_DISK_SPACE_MULTIPLIER);
+}
+
+function vacuumDatabase() {
+    const previousTempStore = db.pragma('temp_store', { simple: true });
+    db.pragma('temp_store = FILE');
+    try {
+        db.exec('VACUUM');
+    } finally {
+        // Preserve the connection policy instead of assuming MEMORY forever.
+        db.pragma(`temp_store = ${previousTempStore}`);
+    }
+}
+
 // Reclaim chunks no longer referenced by any manifest (live blob + snapshots).
 // Returns the number deleted. Caller should run it serialized with saves (e.g.
 // inside the storage queue) and before VACUUM so freed pages get compacted.
@@ -241,6 +264,8 @@ module.exports = {
     kvGet, kvSet, kvDel, kvList, kvCount, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue,
     clearEntities,
     checkpointWal,
+    estimateVacuumRequiredBytes,
+    vacuumDatabase,
     gcChunks,
     reclaimableChunkBytes,
     isDbBlobChunked,

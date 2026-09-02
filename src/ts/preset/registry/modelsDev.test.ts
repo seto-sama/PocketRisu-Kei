@@ -169,6 +169,81 @@ describe('buildModelsDevRegistry', () => {
             .toEqual({ target: 'body', path: 'generationConfig.maxOutputTokens' })
     })
 
+    test.each([
+        {
+            providerId: 'openai',
+            npm: '@ai-sdk/openai',
+            modelId: 'gpt-5.6',
+            family: 'gpt',
+            tiers: ['auto', 'default', 'flex', 'priority'],
+        },
+        {
+            providerId: 'google',
+            npm: '@ai-sdk/google',
+            modelId: 'gemini-3.6-flash',
+            family: 'gemini',
+            tiers: ['flex', 'priority'],
+        },
+    ] as const)('exposes first-party service tiers on $providerId profiles', (fixture) => {
+        const entry = provider({
+            id: fixture.providerId,
+            npm: fixture.npm,
+            models: {
+                [fixture.modelId]: model({ id: fixture.modelId, family: fixture.family }),
+            } as any,
+        })
+        const snapshot = resolveSnapshot(
+            buildModelsDevRegistry({ [fixture.providerId]: entry }),
+            `${fixture.providerId}:${fixture.modelId}`,
+        )
+        const serviceTier = snapshot.schema.find(field => field.key === 'service_tier')
+
+        expect(serviceTier).toMatchObject({
+            labelKey: 'modelPresetServiceTier',
+            helpKey: 'modelPresetServiceTierHelp',
+            mapsTo: { target: 'body', path: 'service_tier' },
+        })
+        expect(serviceTier?.enum?.map(option => option.value)).toEqual(fixture.tiers)
+        expect(snapshot.uiSchema.fields.find(field => field.key === 'service_tier'))
+            .toMatchObject({
+                widget: 'select',
+                visibility: 'basic',
+                layout: 'row',
+                group: 'connection',
+            })
+    })
+
+    test('maps Vertex service tiers to its shared-request header only', () => {
+        const compatible = buildDemoSnapshot().snapshot
+        const vertex = provider({
+            id: 'google-vertex',
+            npm: '@ai-sdk/google-vertex',
+            api: undefined,
+            models: {
+                'google/gemini-3.6-flash': model({
+                    id: 'google/gemini-3.6-flash',
+                    family: 'gemini',
+                }),
+            } as any,
+        })
+        const vertexSnapshot = resolveSnapshot(
+            buildModelsDevRegistry({ 'google-vertex': vertex }),
+            'google-vertex:google/gemini-3.6-flash',
+        )
+
+        expect(compatible.schema.some(field => field.key === 'service_tier')).toBe(false)
+        expect(vertexSnapshot.schema.find(field => field.key === 'service_tier')).toMatchObject({
+            enum: [
+                { value: 'flex', label: 'Flex' },
+                { value: 'priority', label: 'Priority' },
+            ],
+            mapsTo: {
+                target: 'header',
+                path: 'X-Vertex-AI-LLM-Shared-Request-Type',
+            },
+        })
+    })
+
     test('adds opt-in thinking input/output flags to DeepSeek provider profiles', () => {
         const deepseek = provider({
             id: 'deepseek',

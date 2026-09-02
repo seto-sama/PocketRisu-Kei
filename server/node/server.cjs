@@ -23,13 +23,24 @@ const getVips = () => {
 }
 const { kvGet, kvSet, kvDel, kvList, kvCount,
         kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue, clearEntities, checkpointWal,
-        gcChunks, reclaimableChunkBytes, isDbBlobChunked, snapshotFootprint, db: sqliteDb } = require('./db.cjs');
+        estimateVacuumRequiredBytes, vacuumDatabase, gcChunks, reclaimableChunkBytes,
+        isDbBlobChunked, snapshotFootprint, db: sqliteDb } = require('./db.cjs');
+const {
+    STORED_ASSET_PREFIX,
+    assetBasename: statsBasename,
+    collectDatabaseAssetBasenames,
+    collectPersistentPluginAssetBasenames,
+    collectProtectedAssetBasenames,
+    findOrphanAssets,
+} = require('./assetReferences.cjs');
+const { buildSettingsBackupPlan } = require('./settingsBackup.cjs');
+const assetReferenceStorage = { listKeys: kvList, getValue: kvGet };
 const {
     addLogBatch, queryLogs, clearLogs, deleteLog, countLogs,
     logger, installProcessHandlers, expressErrorMiddleware,
 } = require('./logs/logs.cjs');
 const { addRequestLog, installRequestLogRoutes, updateRequestLogResponseById } = require('./logs/requestLogs.cjs');
-const { installUsageRoutes, recordGenerationUsage } = require('./logs/usageDb.cjs');
+const { installUsageRoutes, recordGenerationUsage, getUsageByJobIds } = require('./logs/usageDb.cjs');
 const {
     executeEchoProviderRequest,
     executeUpstreamRequest,
@@ -2064,6 +2075,7 @@ async function runGenerationProviderJob(job, arg) {
             }
         }
         await closeJournal();
+        const providerCompletedAt = Date.now();
         const cancelled = job.abortController.signal.aborted;
         const persisted = getGenerationJob(job.id, false);
         const cancelFinishReason = persisted?.finishReason || 'user_cancelled';
@@ -2096,6 +2108,7 @@ async function runGenerationProviderJob(job, arg) {
             rawResponse.toString('utf-8'),
             upstreamResponse.status,
             upstreamResponse.status >= 200 && upstreamResponse.status < 400,
+            providerCompletedAt,
         );
         recordGenerationUsage({
             jobId: job.id,
@@ -3576,7 +3589,11 @@ app.delete('/api/logs/:id', async (req, res, next) => {
     }
 });
 
-installRequestLogRoutes(app, { checkAuth, requireSyncClientId });
+installRequestLogRoutes(app, {
+    checkAuth,
+    requireSyncClientId,
+    getUsageByJobIds,
+});
 installUsageRoutes(app, { checkAuth, requireSyncClientId });
 
 app.post('/api/write', async (req, res, next) => {
@@ -3786,6 +3803,7 @@ app.post('/api/patch', async (req, res, next) => {
         return;
     }
 
+    let patchStage = 'load';
     try {
         await queueStorageOperation(async () => {
             const decodedKey = Buffer.from(filePath, 'hex').toString('utf-8');
@@ -3846,6 +3864,7 @@ app.post('/api/patch', async (req, res, next) => {
                 ? normalizeJSON(filterRemoteOnlyFolders(dbCache[filePath]))
                 : null;
             const patchBaseline = remoteFilteredDb ?? dbCache[filePath];
+            patchStage = 'hash';
             const serverHash = calculateHash(patchBaseline).toString(16);
 
             // JSON Patch identity: no operation means no compare-and-swap and
@@ -3885,8 +3904,12 @@ app.post('/api/patch', async (req, res, next) => {
                 let currentEtag = undefined;
                 if (decodedKey === 'database/database.bin') {
                     const visibleDb = remoteFilteredDb ?? dbCache[filePath];
-                    currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
-                    dbEtag = currentEtag;
+                    // Keep a hash mismatch as a recoverable 409 even if the
+                    // best-effort current ETag cannot be encoded.
+                    try {
+                        currentEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(visibleDb)));
+                        dbEtag = currentEtag;
+                    } catch {}
                 }
                 res.status(409).send({
                     error: 'Hash mismatch - data out of sync',
@@ -3895,8 +3918,13 @@ app.post('/api/patch', async (req, res, next) => {
                 return;
             }
 
-            // Apply patch to in-memory database (clone first to prevent partial mutation on failure)
-            const snapshot = JSON.parse(JSON.stringify(patchBaseline));
+            // A JSON round-trip builds one giant string and reaches V8's string
+            // size ceiling on large databases. The cached value is already a
+            // normalized plain-data graph, so structuredClone preserves the
+            // rollback boundary without that intermediate allocation.
+            patchStage = 'clone';
+            const snapshot = structuredClone(patchBaseline);
+            patchStage = 'apply';
             let result;
             try {
                 result = applyPatch(snapshot, patch, true);
@@ -3942,6 +3970,7 @@ app.post('/api/patch', async (req, res, next) => {
             });
 
             // Update ETag after successful patch (based on stripped version)
+            patchStage = 'etag';
             if (decodedKey === 'database/database.bin') {
                 const visibleDb = remoteFilteredDb
                     ? normalizeJSON(filterRemoteOnlyFolders(dbCache[filePath]))
@@ -3964,7 +3993,13 @@ app.post('/api/patch', async (req, res, next) => {
             res.send(responsePayload);
         });
     } catch (error) {
-        logger.error(`[Patch] Error applying patch to ${filePath}:`, error.name);
+        const decodedKeyForLog = isHex(filePath) ? Buffer.from(filePath, 'hex').toString('utf-8') : filePath;
+        logger.error(
+            `[Patch] Error applying patch to ${decodedKeyForLog} `
+            + `(stage=${patchStage}, ops=${Array.isArray(patch) ? patch.length : '?'}): `
+            + `${error?.name}: ${error?.message}`,
+            error?.stack
+        );
         res.status(500).send({
             error: 'Patch application failed: ' + (error && error.message ? error.message : error)
         });
@@ -4064,6 +4099,26 @@ app.post('/api/assets/bulk-write', async (req, res, next) => {
     } catch(error){ next(error); }
 });
 
+async function createSettingsBackupPlan(includeModuleAssets = true) {
+    return buildSettingsBackupPlan({
+        databaseValue: kvGet(DB_BLOB_KEY),
+        assetRows: kvListWithSizes(STORED_ASSET_PREFIX),
+        decodeDatabase: decodeRisuSave,
+        encodeDatabase: (database) => encodeRisuSaveLegacy(database, 'compression'),
+        includeModuleAssets,
+    });
+}
+
+app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        await flushPendingDb();
+        const plan = await createSettingsBackupPlan();
+        if (!plan) return res.status(500).json({ error: 'database.bin missing' });
+        res.json(plan.breakdown);
+    } catch (error) { next(error); }
+});
+
 app.get('/api/backup/export', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
     try {
@@ -4073,9 +4128,20 @@ app.get('/api/backup/export', async (req, res, next) => {
         // fails with ENOENT. The export becomes lossy on inlay images but
         // imports cleanly into upstream.
         const target = req.query.target === 'upstream' ? 'upstream' : 'nodeonly';
+        const settingsOnly = req.query.mode === 'settings';
+        const includeModuleAssets = req.query.moduleAssets !== '0';
         // Flush any pending patches to ensure export includes latest data
         await flushPendingDb();
-        const inlayFiles = target === 'upstream' ? [] : await listInlayFiles();
+
+        const settingsPlan = settingsOnly
+            ? await createSettingsBackupPlan(includeModuleAssets)
+            : null;
+        if (settingsOnly && !settingsPlan) {
+            return res.status(500).json({ error: 'database.bin missing' });
+        }
+
+        const skipInlay = settingsOnly || target === 'upstream';
+        const inlayFiles = skipInlay ? [] : await listInlayFiles();
         const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
             const stat = await fs.stat(entry.filePath);
             return {
@@ -4101,7 +4167,7 @@ app.get('/api/backup/export', async (req, res, next) => {
                 return null;
             }
         }));
-        const inlayMetaEntries = target === 'upstream' ? [] : kvListWithSizes('inlay_meta/').map((entry) => ({
+        const inlayMetaEntries = skipInlay ? [] : kvListWithSizes('inlay_meta/').map((entry) => ({
             kind: 'kv',
             key: entry.key,
             backupName: entry.key,
@@ -4109,26 +4175,29 @@ app.get('/api/backup/export', async (req, res, next) => {
             size: entry.size,
         }));
         const namespacedEntries = [
-            ...kvListWithSizes('assets/').map((entry) => ({
-                kind: 'kv',
-                key: entry.key,
-                backupName: path.basename(entry.key),
-                sortKey: entry.key,
-                size: entry.size,
-            })),
-            ...listColdStorageBackupEntries(),
+            ...(settingsPlan?.includedAssets ?? kvListWithSizes(STORED_ASSET_PREFIX))
+                .map((entry) => ({
+                    kind: 'kv',
+                    key: entry.key,
+                    backupName: path.basename(entry.key),
+                    sortKey: entry.key,
+                    size: entry.size,
+                })),
+            ...(settingsOnly ? [] : listColdStorageBackupEntries()),
             ...inlayMetaEntries,
             ...inlayEntries,
             ...sidecarEntries.filter(Boolean),
         ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-        const dbSize = kvSize('database/database.bin');
+        const exportedDatabase = settingsPlan?.encodedDatabase ?? kvGet(DB_BLOB_KEY);
+        const dbSize = exportedDatabase?.length ?? 0;
         const totalBytes = namespacedEntries.reduce((sum, entry) => {
             return sum + 8 + Buffer.byteLength(entry.backupName, 'utf-8') + entry.size;
         }, 0) + (dbSize ? 8 + Buffer.byteLength('database.risudat', 'utf-8') + dbSize : 0);
 
-        const filenameSuffix = target === 'upstream' ? '-upstream' : '';
+        const filenameBase = settingsOnly ? 'risu-settings' : 'risu-backup';
+        const filenameSuffix = settingsOnly ? '' : target === 'upstream' ? '-upstream' : '';
         res.setHeader('content-type', 'application/octet-stream');
-        res.setHeader('content-disposition', `attachment; filename="risu-backup-${Date.now()}${filenameSuffix}.bin"`);
+        res.setHeader('content-disposition', `attachment; filename="${filenameBase}-${Date.now()}${filenameSuffix}.bin"`);
         res.setHeader('content-length', totalBytes);
         res.setHeader('x-risu-backup-assets', namespacedEntries.length);
 
@@ -4166,12 +4235,9 @@ app.get('/api/backup/export', async (req, res, next) => {
         }
 
         if (!closed && dbSize) {
-            const dbValue = kvGet('database/database.bin');
-            if (dbValue) {
-                const ok = res.write(encodeBackupEntry('database.risudat', dbValue));
-                if (!ok) {
-                    await waitForDrain();
-                }
+            const ok = res.write(encodeBackupEntry('database.risudat', exportedDatabase));
+            if (!ok) {
+                await waitForDrain();
             }
         }
         if (!closed) res.end();
@@ -4572,7 +4638,7 @@ app.post('/api/backup/server/restore-assets', async (req, res, next) => {
             return;
         }
         const dbObj = await decodeRisuSave(raw);
-        const referencedBasenames = buildUncleanableSet(dbObj, true);
+        const referencedBasenames = collectDatabaseAssetBasenames(dbObj, { assetsOnly: true });
         const currentBasenames = new Set(
             kvList('assets/').map((key) => statsBasename(key)),
         );
@@ -4963,7 +5029,7 @@ app.post('/api/migrate/save-folder/cleanup/execute', async (req, res, next) => {
 const DB_BLOB_KEY = 'database/database.bin';
 const DB_BACKUP_PREFIX = 'database/dbbackup-';
 const ASSET_PREFIXES = [
-    'assets/',
+    STORED_ASSET_PREFIX,
     'remotes/',
     'inlay/',
     'inlay_thumb/',
@@ -4973,69 +5039,6 @@ const ASSET_PREFIXES = [
     'cache/hypa-vector/',
     'cache/llm-translate/',
 ];
-
-function statsBasename(s) {
-    if (!s) return '';
-    return String(s).replace(/\\/g, '/').split('/').pop();
-}
-
-// Mirrors src/ts/globalApi.svelte.ts:getUncleanables — every asset reference reachable from the DB.
-function buildUncleanableSet(dbObj, assetsOnly = false) {
-    const set = new Set();
-    const add = (v) => {
-        if (assetsOnly) {
-            const normalized = typeof v === 'string' ? v.replace(/\\/g, '/') : '';
-            if (!normalized.startsWith('assets/')) return;
-        }
-        const bn = statsBasename(v);
-        if (bn) set.add(bn);
-    };
-    if (!dbObj) return set;
-    add(dbObj.customBackground);
-    add(dbObj.userIcon);
-    add(dbObj.messageSound);
-    add(dbObj.translateSound);
-    if (Array.isArray(dbObj.customSounds)) {
-        for (const sound of dbObj.customSounds) add(sound?.path);
-    }
-    if (Array.isArray(dbObj.characters)) {
-        for (const cha of dbObj.characters) {
-            if (!cha) continue;
-            add(cha.image);
-            if (Array.isArray(cha.emotionImages)) for (const em of cha.emotionImages) add(em?.[1]);
-            if (Array.isArray(cha.additionalAssets)) for (const em of cha.additionalAssets) add(em?.[1]);
-            if (cha.vits?.files) for (const k of Object.keys(cha.vits.files)) add(cha.vits.files[k]);
-            if (Array.isArray(cha.ccAssets)) for (const a of cha.ccAssets) add(a?.uri);
-        }
-    }
-    if (Array.isArray(dbObj.modules)) {
-        for (const m of dbObj.modules) {
-            if (Array.isArray(m?.assets)) for (const a of m.assets) add(a?.[1]);
-            add(m?.icon);
-        }
-    }
-    if (Array.isArray(dbObj.personas)) {
-        for (const persona of dbObj.personas) {
-            add(persona?.icon);
-            if (Array.isArray(persona?.embeddedModule?.assets)) {
-                for (const asset of persona.embeddedModule.assets) add(asset?.[1]);
-            }
-            add(persona?.embeddedModule?.icon);
-        }
-    }
-    if (Array.isArray(dbObj.characterOrder)) {
-        for (const item of dbObj.characterOrder) {
-            if (item && typeof item === 'object') {
-                add(item.img);
-                add(item.imgFile);
-            }
-        }
-    }
-    if (Array.isArray(dbObj.botPresets)) {
-        for (const preset of dbObj.botPresets) add(preset?.image);
-    }
-    return set;
-}
 
 function statSafe(p) {
     try { return require('fs').statSync(p); } catch { return null; }
@@ -5154,8 +5157,10 @@ app.get('/api/db/stats', async (req, res, next) => {
             }
         }
         prefixes[DB_BACKUP_PREFIX] = { totalSize: backupTotal, count: backupKeys.length };
+        let storedAssets = [];
         for (const p of ASSET_PREFIXES) {
             const items = kvListWithSizes(p);
+            if (p === STORED_ASSET_PREFIX) storedAssets = items;
             let total = 0;
             for (const it of items) total += it.size;
             prefixes[p] = { totalSize: total, count: items.length };
@@ -5193,14 +5198,13 @@ app.get('/api/db/stats', async (req, res, next) => {
             }
             trashed.available = true;
         }
-        if (stripped) {
-            const uncleanable = buildUncleanableSet(stripped);
-            for (const it of kvListWithSizes('assets/')) {
-                if (!uncleanable.has(statsBasename(it.key))) {
-                    orphan.count++;
-                    orphan.totalSize += it.size;
-                }
-            }
+        if (stripped && Array.isArray(stripped.characters)) {
+            const victims = findOrphanAssets(
+                storedAssets,
+                collectProtectedAssetBasenames(stripped, assetReferenceStorage),
+            );
+            orphan.count = victims.length;
+            orphan.totalSize = victims.reduce((sum, asset) => sum + asset.size, 0);
             orphan.available = true;
         }
 
@@ -5308,19 +5312,18 @@ app.get('/api/db/stats/characters', async (req, res, next) => {
             });
         }
 
-        const uncleanable = buildUncleanableSet(dbObj);
-        let orphanCount = 0, orphanTotal = 0;
-        for (const it of kvListWithSizes('assets/')) {
-            if (!uncleanable.has(statsBasename(it.key))) {
-                orphanCount++;
-                orphanTotal += it.size;
-            }
-        }
+        const orphanAssets = findOrphanAssets(
+            kvListWithSizes(STORED_ASSET_PREFIX),
+            collectProtectedAssetBasenames(dbObj, assetReferenceStorage),
+        );
 
         characters.sort((a, b) => b.totalBytes - a.totalBytes);
         res.json({
             characters,
-            orphan: { count: orphanCount, totalSize: orphanTotal },
+            orphan: {
+                count: orphanAssets.length,
+                totalSize: orphanAssets.reduce((sum, asset) => sum + asset.size, 0),
+            },
             chatBytesNote: 'JSON.stringify estimate; on-disk msgpack ~0.6×',
             etag: dbEtag,
         });
@@ -5383,6 +5386,51 @@ app.get('/api/db/stats/modules', async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
+app.post('/api/db/assets/purge-orphans', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        const result = await queueStorageOperation(async () => {
+            // Decide from persisted bytes after pending client writes land; the
+            // dashboard's in-memory estimate is informational only.
+            await flushPendingDb();
+            const raw = kvGet(DB_BLOB_KEY);
+            if (!raw) return { error: 'No database blob' };
+
+            const dbObj = await decodeRisuSave(raw);
+            if (!dbObj || !Array.isArray(dbObj.characters)) {
+                return { error: 'Database decode failed' };
+            }
+
+            const storedAssets = kvListWithSizes(STORED_ASSET_PREFIX);
+            const explicitAssetReferences = collectDatabaseAssetBasenames(dbObj, { assetsOnly: true });
+            if (explicitAssetReferences.size === 0 && storedAssets.length > 0) {
+                return { error: 'Reference scan produced no references — refusing to purge' };
+            }
+            const databaseReferences = collectDatabaseAssetBasenames(dbObj);
+            for (const basename of collectPersistentPluginAssetBasenames(assetReferenceStorage)) {
+                databaseReferences.add(basename);
+            }
+
+            const victims = findOrphanAssets(storedAssets, databaseReferences);
+            sqliteDb.transaction(() => {
+                for (const asset of victims) kvDel(asset.key);
+            })();
+
+            const bytes = victims.reduce((sum, asset) => sum + asset.size, 0);
+            if (victims.length > 0) {
+                try { checkpointWal('TRUNCATE'); }
+                catch (error) { logger.warn('[PurgeOrphans] checkpoint failed:', error?.message || error); }
+            }
+            return { ok: true, deleted: victims.length, bytes, scanned: storedAssets.length };
+        });
+
+        if (result.error) return res.status(400).json(result);
+        logger.info(`[PurgeOrphans] removed ${result.deleted}/${result.scanned} assets (${result.bytes} bytes)`);
+        res.json(result);
+    } catch (err) { next(err); }
+});
+
 app.post('/api/db/optimize', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     if (!requireSyncClientId(req, res)) return;
@@ -5390,12 +5438,13 @@ app.post('/api/db/optimize', async (req, res, next) => {
         const saveDir = path.join(process.cwd(), 'save');
         const dbFilePath = path.join(saveDir, 'risuai.db');
         const preDbSize = statSafe(dbFilePath)?.size ?? 0;
+        const requiredFreeBytes = estimateVacuumRequiredBytes(preDbSize);
 
         const { free } = await diskFreeStat(saveDir);
-        if (preDbSize > 0 && free != null && free < preDbSize * 1.2) {
+        if (requiredFreeBytes > 0 && free != null && free < requiredFreeBytes) {
             return res.status(400).json({
                 error: 'Insufficient disk space for VACUUM',
-                required: Math.ceil(preDbSize * 1.2),
+                required: requiredFreeBytes,
                 free,
             });
         }
@@ -5409,7 +5458,7 @@ app.post('/api/db/optimize', async (req, res, next) => {
             let gcDeleted = 0;
             try { gcDeleted = gcChunks(); } catch (e) { logger.warn('[Optimize] chunk gc failed:', e?.message || e); }
             try { checkpointWal('TRUNCATE'); } catch (e) { logger.warn('[Optimize] checkpoint failed:', e?.message || e); }
-            sqliteDb.exec('VACUUM');
+            vacuumDatabase();
             // VACUUM streams the whole DB through the WAL; without this checkpoint the
             // -wal file stays inflated until the next 5-min background TRUNCATE.
             try { checkpointWal('TRUNCATE'); } catch (e) { logger.warn('[Optimize] post-VACUUM checkpoint failed:', e?.message || e); }

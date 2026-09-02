@@ -1,4 +1,4 @@
-import { NodeStorage, type PatchItemResult } from "./nodeStorage"
+import { NodeStorage, type ExportBackupOptions, type PatchItemResult } from "./nodeStorage"
 
 export class AutoStorage{
     isAccount:boolean = false
@@ -42,9 +42,13 @@ export class AutoStorage{
         return this.realStorage.createAuth()
     }
 
-    async exportBackup(opts?: { target?: 'upstream' }) {
+    async exportBackup(opts?: ExportBackupOptions) {
         await this.Init()
         return this.realStorage.exportBackup(opts)
+    }
+    async settingsBackupEstimate() {
+        await this.Init()
+        return this.realStorage.settingsBackupEstimate()
     }
 
     async importBackup(file: Blob, onProgress?: (loaded: number, total: number) => void) {

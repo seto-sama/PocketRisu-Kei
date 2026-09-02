@@ -21,6 +21,7 @@
         TrashIcon,
         DatabaseIcon,
         TruckIcon,
+        SettingsIcon,
     } from '@lucide/svelte'
     import { alertConfirm, alertError, alertWait, notifyError, notifySuccess } from 'src/ts/alert'
     import { forageStorage } from 'src/ts/globalApi.svelte'
@@ -32,6 +33,7 @@
         SaveLocalBackupForUpstream,
         SaveManualSnapshot,
         SavePartialLocalBackup,
+        SaveSettingsOnlyBackup,
         SaveServerBackup,
     } from 'src/ts/drive/backuplocal'
     import { exportAsDataset } from 'src/ts/storage/exportAsDataset'
@@ -779,6 +781,14 @@
     <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.migrationDesc}</p>
 
     <div class="flex flex-col gap-3">
+        <SettingLayout variant="action" title={language.backupSettingsOnly} description={language.backupSettingsOnlyDesc}>
+            {#snippet control()}
+            <ShButton variant="outline" size="sm" onclick={SaveSettingsOnlyBackup}>
+                <SettingsIcon />
+                {language.backupSettingsOnly}
+            </ShButton>
+            {/snippet}
+        </SettingLayout>
         <SettingLayout variant="action" title={language.saveBackupForUpstream} description={language.help.migrationUpstreamExportDesc}>
             {#snippet control()}
             <ShButton variant="outline" size="sm" onclick={downloadUpstreamLocal}>

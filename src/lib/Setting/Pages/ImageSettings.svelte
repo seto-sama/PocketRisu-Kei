@@ -142,13 +142,14 @@
             </SettingLayout>
 
             <SettingLayout variant="row" title={language.model} description={language.help.naiModel}>{#snippet control()}<SelectInput className="w-48 text-sm" size="sm" bind:value={DBState.db.NAIImgModel}>
+                <OptionInput value="nai-diffusion-5-full" >nai-diffusion-5-full</OptionInput>
+                <OptionInput value="nai-diffusion-5-curated" >nai-diffusion-5-curated</OptionInput>
                 <OptionInput value="nai-diffusion-4-5-full" >nai-diffusion-4-5-full</OptionInput>
                 <OptionInput value="nai-diffusion-4-5-curated" >nai-diffusion-4-5-curated</OptionInput>
                 <OptionInput value="nai-diffusion-4-full" >nai-diffusion-4-full</OptionInput>
                 <OptionInput value="nai-diffusion-4-curated-preview" >nai-diffusion-4-curated-preview</OptionInput>
                 <OptionInput value="nai-diffusion-3" >nai-diffusion-3</OptionInput>
                 <OptionInput value="nai-diffusion-furry-3" >nai-diffusion-furry-3</OptionInput>
-                <OptionInput value="nai-diffusion-2" >nai-diffusion-2</OptionInput>
 
             </SelectInput>{/snippet}</SettingLayout>
             <SettingLayout variant="row" title={language.imageSettings.width} description={language.help.naiWidth}>{#snippet control()}<NumberInput className="w-48 text-sm" size="sm" min={0} max={2048} bind:value={DBState.db.NAIImgConfig.width}/>{/snippet}</SettingLayout>

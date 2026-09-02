@@ -1169,7 +1169,6 @@ export const languageChinese = {
     "insertAssetPrompt": "插入资源提示词",
     "requestLocation": "请求位置",
     "newImageHandlingBeta": "新图像处理 (Beta)",
-    "settingsExported": "错误报告的设置已导出并复制到剪贴板。",
     "bookmarks": "书签",
     "noBookmarks": "无书签",
     "bookmarkAskNameOrDefault": "输入书签名称。如果未输入，将自动分配。",
