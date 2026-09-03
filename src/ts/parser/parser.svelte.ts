@@ -735,6 +735,7 @@ function trimmer(str:string){
 type CachedInlayAsset = {
     url: string
     type: InlayAsset['type']
+    dimensions?: { width: number; height: number }
 }
 
 const blobUrlCache = new Map<string, CachedInlayAsset>()
@@ -1007,7 +1008,9 @@ export function parseInlayAssets(data:string){
                         data = data.replace(inlay, '')
                         break
                     }
-                    data = data.replace(inlay, `${prefix}<img src="${url}" role="button" tabindex="0"/>${postfix}`)
+                    const dimensions = cached.dimensions
+                    const sizeAttributes = dimensions ? ` width="${dimensions.width}" height="${dimensions.height}"` : ''
+                    data = data.replace(inlay, `${prefix}<img src="${url}"${sizeAttributes} role="button" tabindex="0"/>${postfix}`)
                     break
                 case 'video':
                     data = data.replace(inlay, `${prefix}<video controls><source src="${url}" type="video/mp4"></video>${postfix}`)
@@ -1088,23 +1091,7 @@ async function processInlayQueue() {
     while (resolveQueue.length > 0) {
         const batch = resolveQueue.splice(0, 20)
 
-        const unknownIds = batch
-            .filter(({ id }) => !blobUrlCache.has(id))
-            .map(({ id }) => id)
-
-        if (unknownIds.length > 0) {
-            try {
-                const infos = await getInlayInfosBatch(unknownIds)
-                for (const id of unknownIds) {
-                    const type = infos[id]?.type ?? 'image'
-                    blobUrlCache.set(id, { url: getInlayAssetUrl(id), type })
-                }
-            } catch {
-                for (const id of unknownIds) {
-                    blobUrlCache.set(id, { url: getInlayAssetUrl(id), type: 'image' })
-                }
-            }
-        }
+        await ensureInlayAssetsCached(batch.map(({ id }) => id))
 
         for (const { el, id } of batch) {
             try {
@@ -1119,6 +1106,10 @@ async function processInlayQueue() {
                     case 'image':
                         if (DBState.db.hideAllImages) { fillInlayPlaceholder(el, id); break }
                         const img = document.createElement('img')
+                        if (cached?.dimensions) {
+                            img.width = cached.dimensions.width
+                            img.height = cached.dimensions.height
+                        }
                         img.src = url
                         img.loading = 'lazy'
                         img.decoding = 'async'
@@ -1175,14 +1166,25 @@ function getInlayIds(data: string | readonly string[]): string[] {
 }
 
 async function ensureInlayAssetsCached(ids: readonly string[]): Promise<void> {
-    const unknownIds = ids.filter(id => !blobUrlCache.has(id))
+    const unknownIds = [...new Set(ids)].filter(id => !blobUrlCache.has(id))
     if (unknownIds.length > 0) {
         try {
             const infos = await getInlayInfosBatch(unknownIds)
             for (const id of unknownIds) {
+                const info = infos[id]
+                const width = info?.width ?? 0
+                const height = info?.height ?? 0
+                // Validate once at the cache boundary. These intrinsic dimensions
+                // reserve the image ratio; CSS still owns its displayed size.
+                const dimensions = info?.type === 'image'
+                    && Number.isSafeInteger(width) && width > 0
+                    && Number.isSafeInteger(height) && height > 0
+                    ? { width, height }
+                    : undefined
                 blobUrlCache.set(id, {
                     url: getInlayAssetUrl(id),
-                    type: infos[id]?.type ?? 'image',
+                    type: info?.type ?? 'image',
+                    dimensions,
                 })
             }
         } catch {
@@ -1395,22 +1397,25 @@ export async function ParseMarkdown(
     )
 }
 
-// LRU cache for DOMPurify + decodeStyle results.
-// Chat re-renders hit the same message text repeatedly; this avoids redundant DOM parsing.
+const trimPurifyConfig = {
+    ADD_TAGS: ["iframe", "style", "risu-style", "x-em", 'annotation', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt'],
+    ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-text', INLAY_ID_ATTRIBUTE],
+}
+
+// LRU cache for sanitized HTML and decoded styles. Chat re-renders hit the
+// same message text repeatedly, so the DOM path below normally runs once.
 const trimCache = new Map<string, string>()
 const TRIM_CACHE_MAX = 200
 
 export function trimMarkdown(data:string){
-    // Include hideAllImages in cache key — DOMPurify hook rewrites <img> based on this flag
-    const cacheKey = (DBState.db?.hideAllImages ? '1|' : '0|') + data
+    // Both settings affect sanitizer/decoder output and therefore belong in
+    // the cache key. This keeps CSS parse-error reporting on the same path.
+    const cacheKey = `${DBState.db?.hideAllImages ? '1' : '0'}|${DBState.db?.returnCSSError ? '1' : '0'}|${data}`
     let cached = trimCache.get(cacheKey)
     if (cached !== undefined) {
         return cached
     }
-    cached = decodeStyle(DOMPurify.sanitize(data, {
-        ADD_TAGS: ["iframe", "style", "risu-style", "x-em", 'annotation', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt'],
-        ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "scrolling", "open", "risu-btn", 'risu-trigger', 'risu-mark', 'risu-id', 'x-hl-text', INLAY_ID_ATTRIBUTE],
-    }))
+    cached = trimMarkdownUncached(data)
     if (trimCache.size >= TRIM_CACHE_MAX) {
         // evict oldest entry
         const firstKey = trimCache.keys().next().value
@@ -1418,6 +1423,49 @@ export function trimMarkdown(data:string){
     }
     trimCache.set(cacheKey, cached)
     return cached
+}
+
+function trimMarkdownUncached(data:string){
+    // Most messages contain no custom styles. Keep that hot path to one
+    // string-returning sanitize call and avoid constructing a DOM.
+    if(!data.includes('<risu-style')){
+        return DOMPurify.sanitize(data, trimPurifyConfig)
+    }
+
+    // Parse first so only real elements become placeholders; markup-looking
+    // text inside attributes remains inert. The placeholders go through the
+    // single sanitizer pass, while decoded CSS never re-enters an HTML parser.
+    const sourceRoot = new DOMParser().parseFromString(data, 'text/html').body
+    const styleElements = Array.from(sourceRoot.querySelectorAll('risu-style'))
+    const indexWidth = Math.max(1, `${styleElements.length - 1}`.length)
+    // DOMPurify 3.4 drops generic XML-like text markers under SAFE_FOR_XML.
+    // Use a numeric nonce absent from the source and a distinct numeric tail.
+    let markerPrefix = '9'.repeat(32)
+    while(data.includes(markerPrefix)) markerPrefix += '9'
+    const markerSuffix = '8'.repeat(markerPrefix.length)
+    const markerRegex = new RegExp(`(?:<span>)?${markerPrefix}(\\d{${indexWidth}})${markerSuffix}(?:</span>)?`, 'g')
+
+    const replacements:ReturnType<typeof decodeStyleContent>[] = []
+    for(const element of styleElements){
+        replacements.push(decodeStyleContent(element.textContent ?? ''))
+        // A temporary inline element keeps a leading marker from being
+        // discarded by DOMPurify without changing the surrounding flow.
+        const placeholder = sourceRoot.ownerDocument.createElement('span')
+        placeholder.textContent = `${markerPrefix}${(replacements.length - 1).toString().padStart(indexWidth, '0')}${markerSuffix}`
+        element.replaceWith(placeholder)
+    }
+
+    const sanitized = DOMPurify.sanitize(sourceRoot.innerHTML, trimPurifyConfig)
+    return sanitized
+        .replace(markerRegex, (_marker, index:string) => {
+            const decoded = replacements[Number(index)]
+            if(decoded?.css === undefined){
+                return md.utils.escapeHtml(decoded?.fallback ?? '')
+            }
+            // A literal closing style tag is the only raw-text sequence that
+            // can escape the element when this HTML is mounted again.
+            return `<style>${decoded.css.replaceAll(/<\/(?=style)/gi, '<\\/')}</style>`
+        })
 }
 
 const metaCodes = [
@@ -1529,8 +1577,6 @@ function encodeStyle(txt:string){
         return "<risu-style>" + Buffer.from(c1).toString('hex') + "</risu-style>"
     })
 }
-const styleDecodeRegex = /\<risu-style\>(.+?)\<\/risu-style\>/gms
-
 function decodeStyleRule<T extends CssAtRuleAST | CssDeclarationAST>(rule:T): T {
     if(rule.type === 'rule'){
         if(rule.selectors){
@@ -1566,31 +1612,29 @@ function decodeStyleRule<T extends CssAtRuleAST | CssDeclarationAST>(rule:T): T 
     return rule
 }
 
-function decodeStyle(text:string){
-    return text.replaceAll(styleDecodeRegex, (full, txt:string) => {
-        try {
-            let text = Buffer.from(txt, 'hex').toString('utf-8')
-            text = risuChatParser(text)
-            const ast = css.parse(text)
-            const rules = ast?.stylesheet?.rules
-            if(rules){
-                for(let i=0;i<rules.length;i++){
-                    rules[i] = decodeStyleRule(rules[i])
-                }
-                ast.stylesheet.rules = rules
+function decodeStyleContent(hexText:string):{css?:string, fallback?:string}{
+    try {
+        let text = Buffer.from(hexText, 'hex').toString('utf-8')
+        text = risuChatParser(text)
+        const ast = css.parse(text)
+        const rules = ast?.stylesheet?.rules
+        if(rules){
+            for(let i=0;i<rules.length;i++){
+                rules[i] = decodeStyleRule(rules[i])
             }
-            return `<style>${css.stringify(ast, {
+            ast.stylesheet.rules = rules
+        }
+        return {
+            css: css.stringify(ast, {
                 indent: '',
                 compress: true,
-            })}</style>`
-
-        } catch (error) {
-            if(DBState.db.returnCSSError){
-                return `CSS ERROR: ${error}`
-            }
-            return ""
+            }),
         }
-    })
+    } catch (error) {
+        return {
+            fallback: DBState.db.returnCSSError ? `CSS ERROR: ${error}` : '',
+        }
+    }
 }
 
 export async function hasher(data:Uint8Array){

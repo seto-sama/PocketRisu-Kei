@@ -52,7 +52,7 @@
 </script>
 
 {#if DBState.db.theme === 'waifu'}
-    <div bind:this={localPortalTarget} class="grow h-full flex justify-center relative" style="{bgImg.length < 4 ? wallPaper : bgImg}">
+    <div bind:this={localPortalTarget} class="risu-local-stack grow h-full flex justify-center relative" style="{bgImg.length < 4 ? wallPaper : bgImg}">
         <SidebarArrow />
         <BackgroundDom />
         {#if $selectedCharID >= 0}
@@ -67,7 +67,7 @@
         </div>
     </div>
 {:else}
-    <div bind:this={localPortalTarget} class="grow h-full min-w-0 relative justify-center flex">
+    <div bind:this={localPortalTarget} class="risu-local-stack grow h-full min-w-0 relative justify-center flex">
         <SidebarArrow />
         <BackgroundDom />
         <div style={defaultLayoutBackground} class="h-full w-full" class:max-w-6xl={DBState.db.classicMaxWidth}>
