@@ -2,7 +2,7 @@ import * as fflate from 'fflate'
 import { v4 } from 'uuid'
 import { alertConfirm, alertError, alertStore, alertWait, notifySuccess } from './alert'
 import { exportCharacterCard, importCharacterProcess } from './characterCards'
-import { LocalWriter, readImage, VirtualWriter } from './globalApi.svelte'
+import { LocalWriter, readImage, requestImmediateSave, VirtualWriter } from './globalApi.svelte'
 import { language } from 'src/lang'
 import { type character, getDatabase, setDatabase, saveImage, normalizeChat } from './storage/database.svelte'
 import type { Chat } from './storage/database.svelte'
@@ -15,6 +15,14 @@ import { getInlayAsset, setInlayAsset, getInlayInfosBatch, type InlayAsset } fro
 import { getInlayMeta, setInlayMeta, type InlayAssetMeta } from './process/files/inlayMeta'
 import { PngChunk } from './pngChunk'
 import { reencodeImage } from './process/files/inlays'
+import {
+    remapBookmarkFolders,
+} from './bookmarks/bookmarkData'
+import {
+    finalizeImportedBookmarks,
+    mergeBookmarkFoldersForImport,
+    prepareBookmarkCompatibleChats,
+} from './bookmarks/bookmarkService'
 
 // ── Types ──
 
@@ -258,29 +266,31 @@ async function importPersonas(
     return personaIdMap
 }
 
-function importChatsToCharacter(
+async function importChatsToCharacter(
     manifest: PackageManifest,
     unzipped: fflate.Unzipped,
     targetChar: character,
     personaIdMap: Record<string, string>,
     progress: ProgressFn,
     mode: 'replace' | 'append' = 'replace'
-): void {
-    if (!manifest.chats) return
+): Promise<Chat[]> {
+    if (!manifest.chats) return []
 
     progress(language.characterPackageProgressImportChats)
     const chatsBytes = unzipped[manifest.chats.file]
-    if (!chatsBytes) return
+    if (!chatsBytes) return []
 
     const chatsJson = JSON.parse(new TextDecoder().decode(chatsBytes))
-    if (chatsJson.type !== 'risuAllChats' || chatsJson.ver !== 2 || !Array.isArray(chatsJson.data)) return
+    if (chatsJson.type !== 'risuAllChats' || chatsJson.ver !== 2 || !Array.isArray(chatsJson.data)) return []
 
     const importedChats: Chat[] = chatsJson.data
+    const bookmarkFolderIdMap = await mergeBookmarkFoldersForImport(chatsJson.bookmarkFolders)
 
     for (const chat of importedChats) {
         if (chat.bindedPersona && personaIdMap[chat.bindedPersona]) {
             chat.bindedPersona = personaIdMap[chat.bindedPersona]
         }
+        remapBookmarkFolders(chat, bookmarkFolderIdMap)
         chat.id = v4()
     }
 
@@ -314,6 +324,7 @@ function importChatsToCharacter(
         }
         targetChar.chatPage = 0
     }
+    return importedChats
 }
 
 async function importInlays(
@@ -506,11 +517,13 @@ export async function exportCharacterPackage(
         // 4. Write chats
         if (options.includeChats && char.chats.length > 0) {
             progress(language.characterPackageProgressChats)
+            const bookmarkExport = await prepareBookmarkCompatibleChats(char.chaId, char.chats)
             const chatsData = JSON.stringify({
                 type: 'risuAllChats',
                 ver: 2,
-                data: char.chats,
-                folders: char.chatFolders ?? []
+                data: bookmarkExport.chats,
+                folders: char.chatFolders ?? [],
+                bookmarkFolders: bookmarkExport.folders,
             }, null, 2)
             const chatsPath = 'chats/chats.json'
             await zipWriter.write(chatsPath, chatsData, 6)
@@ -684,11 +697,23 @@ export async function importCharacterPackage(selectedFile?: { name: string, data
             const newChar = db.characters[newCharIndex] as character
 
             const personaIdMap = await importPersonas(manifest, unzipped, importProgress)
-            importChatsToCharacter(manifest, unzipped, newChar, personaIdMap, importProgress)
+            const importedChats = await importChatsToCharacter(
+                manifest, unzipped, newChar, personaIdMap, importProgress,
+            )
             await importInlays(manifest, unzipped, newChar.chaId, importCurrentStep, importTotalSteps, progressLabel)
 
             setDatabase(db)
             checkCharOrder()
+            if (importedChats.length > 0) {
+                await requestImmediateSave({
+                    characterIds: [newChar.chaId],
+                    chatTargets: importedChats.map(chat => ({
+                        characterId: newChar.chaId,
+                        chatId: chat.id,
+                    })),
+                })
+                await finalizeImportedBookmarks(importedChats)
+            }
             notifySuccess(language.characterPackageImportSuccess)
         } catch (error) {
             db.characters.splice(newCharIndex, 1)
@@ -749,10 +774,22 @@ export async function importPackageToCharacter(charIndex: number): Promise<void>
         }
 
         const personaIdMap = await importPersonas(manifest, unzipped, importProgress)
-        importChatsToCharacter(manifest, unzipped, targetChar, personaIdMap, importProgress, 'append')
+        const importedChats = await importChatsToCharacter(
+            manifest, unzipped, targetChar, personaIdMap, importProgress, 'append',
+        )
         await importInlays(manifest, unzipped, targetChar.chaId, importCurrentStep, importTotalSteps, progressLabel)
 
         setDatabase(db)
+        if (importedChats.length > 0) {
+            await requestImmediateSave({
+                characterIds: [targetChar.chaId],
+                chatTargets: importedChats.map(chat => ({
+                    characterId: targetChar.chaId,
+                    chatId: chat.id,
+                })),
+            })
+            await finalizeImportedBookmarks(importedChats)
+        }
         notifySuccess(language.characterPackageImportSuccess)
     } catch (error) {
         alertError(error)

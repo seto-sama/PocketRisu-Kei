@@ -1,6 +1,6 @@
 <script lang="ts">
     import { v4 } from "uuid";
-    import { DownloadIcon, PencilIcon, HardDriveUploadIcon, MenuIcon, TrashIcon, FolderPlusIcon, BookmarkCheckIcon, PackageIcon, CopyIcon } from "@lucide/svelte";
+    import { DownloadIcon, PencilIcon, UploadIcon, MenuIcon, TrashIcon, FolderPlusIcon, PackageIcon, CopyIcon } from "@lucide/svelte";
 
     import type { Chat, ChatFolder, character } from "src/ts/storage/database.svelte";
     import { newChatModelDefaults } from "src/ts/storage/database.svelte";
@@ -17,7 +17,7 @@
     import { exportChat, importChat, exportAllChats } from "src/ts/characters";
     import { alertConfirm, alertError, alertSelect, notifySuccess, notifyError } from "src/ts/alert";
 
-    import { bookmarkListOpen, openModuleListStore } from "src/ts/stores.svelte";
+    import { openModuleListStore } from "src/ts/stores.svelte";
     import { language } from "src/lang";
     import Toggles from "./Toggles.svelte";
     import PersonaBind from "./PersonaBind.svelte";
@@ -389,17 +389,12 @@
             <IconButton onclick={() => {
                 importChat()
             }}>
-                <HardDriveUploadIcon />
+                <UploadIcon />
             </IconButton>
             <IconButton active={editMode} onclick={() => {
                 editMode = !editMode
             }}>
                 <PencilIcon />
-            </IconButton>
-            <IconButton className="ml-auto" onclick={() => {
-                $bookmarkListOpen = true;
-            }}>
-                <BookmarkCheckIcon />
             </IconButton>
         </IconButtonGroup>
 

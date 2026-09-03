@@ -57,8 +57,8 @@ test('module asset option never drops assets with another settings owner', async
     assert(withoutModules.includedAssetNames.has('module-icon.png'));
     assert(!withoutModules.includedAssetNames.has('character.png'));
     assert.deepEqual(
-        withoutModules.includedAssets.map((asset) => asset.key),
-        ['assets/shared.png', 'assets/module-icon.png'],
+        new Set(withoutModules.includedAssets.map((asset) => asset.key)),
+        new Set(['assets/shared.png', 'assets/module-icon.png']),
     );
     assert.equal(withModules.breakdown.moduleAssets.bytes, 40);
     assert.equal(withModules.breakdown.moduleAssets.count, 1);

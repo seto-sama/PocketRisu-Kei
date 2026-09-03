@@ -25,6 +25,7 @@ import { ensureMessageId } from './messageIdentity';
 import { isChatStub } from './chatStub';
 import { normalizeTextTheme } from '../gui/textTheme';
 import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/textOutline';
+import { normalizeSidebarMenuHidden, normalizeSidebarMenuOrder } from '../sidebarMenuOrder';
 
 //APP_VERSION_POINT is to locate the app version in the database file for version bumping
 export let appVer = "2026.2.291" //<APP_VERSION_POINT>
@@ -886,6 +887,9 @@ export function setDatabase(data:Database){
     data.echoDelay ??= 0
     data.createFolderOnBranch ??= true
     data.hamburgerButtonBottom ??= false
+    data.sidebarMenuOrder = normalizeSidebarMenuOrder(data.sidebarMenuOrder)
+    data.sidebarMenuHidden = normalizeSidebarMenuHidden(data.sidebarMenuHidden)
+    data.sidebarMenuPluginOwners ??= {}
     data.hideLeftBarCollapseButton ??= false
     data.saveSignatures ??= false
     data.nodeOnlyScrollButtonType ??= 'four'
@@ -1621,6 +1625,9 @@ export interface Database{
     echoDelay?:number
     createFolderOnBranch?:boolean
     hamburgerButtonBottom?:boolean
+    sidebarMenuOrder?:string[]
+    sidebarMenuHidden?:string[]
+    sidebarMenuPluginOwners?:Record<string, string>
     hideLeftBarCollapseButton?:boolean
     enableRemoteSaving?:boolean
     blockquoteStyling?:boolean
@@ -2210,6 +2217,8 @@ export interface Chat{
     lastDate?:number
     bookmarks?: string[];
     bookmarkNames?: { [chatId: string]: string };
+    /** Original-compatible bookmark fields are present only during import/export. */
+    bookmarkFolderIds?: { [chatId: string]: string };
     supaMemory?: boolean
     savedToggleValues?: Record<string, string>
     modelBinding?: ModelBindingSet

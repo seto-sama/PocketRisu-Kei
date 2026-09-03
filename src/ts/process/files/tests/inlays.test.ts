@@ -9,7 +9,6 @@ import {
     INLAY_AUDIO_EXTENSIONS,
     INLAY_IMAGE_MAX_PIXELS,
     INLAY_VIDEO_EXTENSIONS,
-    listInlayAssets,
     listInlayExplorerItems,
     postInlayAsset,
     removeInlayAsset,
@@ -254,35 +253,6 @@ describe('getInlayAssetBlob', () => {
         // After migration, subsequent blob fetch also returns Blob
         const result2 = await getInlayAssetBlob('legacy-id')
         expect(result2!.data).toBeInstanceOf(Blob)
-    })
-})
-
-describe('listInlayAssets', () => {
-    test('returns all stored assets as [id, asset] tuples', async () => {
-        const asset1: InlayAsset = {
-            data: new Blob(['a']),
-            ext: 'png',
-            height: 10,
-            width: 10,
-            name: 'a.png',
-            type: 'image',
-        }
-        const asset2: InlayAsset = {
-            data: new Blob(['b']),
-            ext: 'mp3',
-            height: 0,
-            width: 0,
-            name: 'b.mp3',
-            type: 'audio',
-        }
-        await setInlayAsset('id-a', asset1)
-        await setInlayAsset('id-b', asset2)
-
-        const result = await listInlayAssets()
-        expect(result).toMatchObject([
-            ['id-a', { name: 'a.png' }],
-            ['id-b', { name: 'b.mp3' }],
-        ])
     })
 })
 

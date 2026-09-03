@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { DownloadIcon, HardDriveUploadIcon, PlusIcon } from "@lucide/svelte";
+    import { DownloadIcon, UploadIcon, PlusIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import { DBState } from "src/ts/stores.svelte";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
@@ -34,7 +34,7 @@
             <DownloadIcon />
         </IconButton>
         <IconButton onclick={importPresetRegex} aria-label={language.import}>
-            <HardDriveUploadIcon />
+            <UploadIcon />
         </IconButton>
         </IconButtonGroup>
     {/snippet}

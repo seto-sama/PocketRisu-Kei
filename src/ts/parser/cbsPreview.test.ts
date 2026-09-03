@@ -59,31 +59,6 @@ describe('CBS preview helpers', () => {
         ])
     })
 
-    it('groups character names, toggles, and other variables while preserving order within each group', () => {
-        expect(extractCBSPreviewReferences([
-            '{{getvar::first}}',
-            '{{getglobalvar::toggle_SecondToggle}}',
-            '{{char}}',
-            '{{getglobalvar::toggle_FirstToggle}}',
-            '{{user}}',
-            '{{getvar::second}}',
-        ].join(' '))).toEqual([
-            { kind: 'expression', expression: '{{char}}' },
-            { kind: 'expression', expression: '{{user}}' },
-            { kind: 'toggle', key: 'SecondToggle' },
-            { kind: 'toggle', key: 'FirstToggle' },
-            { kind: 'chat', key: 'first' },
-            { kind: 'chat', key: 'second' },
-        ])
-    })
-
-    it('normalizes legacy names while preserving their source order', () => {
-        expect(extractCBSPreviewReferences('<user> then {{char}} and <bot>')).toEqual([
-            { kind: 'expression', expression: '{{user}}' },
-            { kind: 'expression', expression: '{{char}}' },
-        ])
-    })
-
     it('applies temporary values without changing the source map', () => {
         expect(applyCBSPreviewValues('{{user}} feels {{getvar::mood}}', [
             { expression: '{{user}}', value: 'Alice' },

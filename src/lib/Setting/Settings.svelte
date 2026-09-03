@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { AccessibilityIcon, ActivityIcon, PackageIcon, CogIcon, ContactIcon, FlaskConicalIcon, ImageIcon, LanguagesIcon, MonitorIcon, MonitorSmartphoneIcon, Sailboat, ScrollTextIcon, SearchIcon, CircleXIcon, FileBoxIcon, ArchiveIcon } from "@lucide/svelte";
+    import { AccessibilityIcon, ActivityIcon, PackageIcon, CogIcon, ContactIcon, FlaskConicalIcon, ImageIcon, LanguagesIcon, MonitorIcon, MonitorSmartphoneIcon, SailboatIcon, ScrollTextIcon, SearchIcon, CircleXIcon, FileBoxIcon, ArchiveIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import DisplaySettings from "./Pages/DisplaySettings.svelte";
     import ModelPresetSettings from "./Pages/Model/ModelPresetSettings.svelte";
@@ -35,7 +35,7 @@
         { index: 16, icon: FileBoxIcon, label: language.modelPresetMenu },
         { index: 17, icon: ScrollTextIcon, label: language.promptPresetMenu },
         { index: 12, icon: ContactIcon, label: language.persona },
-        { index: 2, icon: Sailboat, label: language.otherBots },
+        { index: 2, icon: SailboatIcon, label: language.otherBots },
         { index: 10, icon: LanguagesIcon, label: language.language },
     ]);
     const secondaryMenuItems = $derived([

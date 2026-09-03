@@ -728,6 +728,10 @@ export const languageKorean = {
   characterPackageExport: "패키지 내보내기",
   convertToModule: "모듈로 변환",
   convertToCharacter: "캐릭터로 변환",
+  convertCharacterToModuleConfirm:
+    '{} 의 설정을 복사해 새 모듈을 만들까요? 캐릭터 설명과 첫 메시지는 로어북 항목으로 변환됩니다.',
+  convertModuleToCharacterConfirm:
+    '{} 의 로어북, 스크립트 및 에셋 등의 설정을 복사해 새 캐릭터를 만들까요?',
   successfullyConverted: "변환되었습니다.",
   characterPackageCharacter: "캐릭터",
   characterPackageChats: "채팅",
@@ -1248,12 +1252,14 @@ export const languageKorean = {
   module: "모듈",
   modules: "모듈",
   noModules: "모듈이 없습니다.",
-  createModule: "모듈 생성",
+  createModule: "모듈 만들기",
   basicInfo: "기본 정보",
   moduleContent: "모듈 내용",
   confirmRemoveModuleFeature: "정말로 이 기능을 삭제하시겠습니까?",
   editModule: "모듈 수정",
-  importModule: "모듈 임포트",
+  importModule: "모듈 불러오기",
+  moduleFolderManagement: "모듈 폴더 관리",
+  moduleDuplicated: "모듈이 복제되었습니다.",
   download: "다운로드",
   edit: "수정",
   enableGlobal: "글로벌 활성화",
@@ -1412,7 +1418,7 @@ export const languageKorean = {
   promptPresets: "프롬프트 프리셋",
   presetEdit: "수정하기",
   presetSearch: "프리셋 검색...",
-  presetAll: "전체 프리셋",
+  presetAll: "전부 보기",
   presetUncategorized: "미분류",
   presetNewFolder: "새 폴더",
   presetFolderNamePrompt: "폴더 이름을 입력하세요",
@@ -1947,6 +1953,14 @@ export const languageKorean = {
     "북마크 이름을 입력하세요. 입력하지 않으면 자동으로 할당됩니다.",
   bookmarkAskNameOrCancel:
     "북마크 이름을 입력하세요. 입력하지 않으면 이름 변경이 취소됩니다.",
+  bookmarkSearchPlaceholder: "북마크, 캐릭터, 채팅방 검색...",
+  bookmarkNoSearchResults: "일치하는 북마크가 없습니다.",
+  bookmarkFolderNamePrompt: "북마크 폴더 이름을 입력하세요",
+  bookmarkFolderRenamePrompt: "새 북마크 폴더 이름을 입력하세요",
+  bookmarkFolderDeleteConfirm:
+    "이 폴더를 삭제하시겠습니까? 폴더 안의 북마크는 미분류로 이동합니다.",
+  bookmarkTargetMissing: "북마크한 메시지를 찾을 수 없습니다.",
+  bookmarkOperationFailed: "북마크 작업에 실패했습니다.",
   collapseAll: "모두 접기",
   expandAll: "모두 펼치기",
   hideErrorDetails: "오류 세부사항 숨기기",
@@ -2081,6 +2095,16 @@ export const languageKorean = {
   resetPluginPermissionConfirm:
     '플러그인 "{}"의 저장된 권한 응답(허용/거부 이력)을 모두 삭제하시겠습니까?\n\n다음에 플러그인이 권한을 요청할 때 다시 묻게 됩니다.',
   resetPluginPermissionDone: '"{}"의 권한 응답을 초기화했습니다',
+  createPlugin: "플러그인 만들기",
+  importPlugin: "플러그인 불러오기",
+  exportPlugin: "플러그인 내보내기",
+  editPlugin: "플러그인 편집",
+  enablePlugin: "플러그인 켜기",
+  disablePlugin: "플러그인 끄기",
+  removePlugin: "플러그인 삭제",
+  updatePlugin: "플러그인 업데이트 설치",
+  pluginCreated: "플러그인을 만들었습니다.",
+  pluginV2WarningTitle: "구형 플러그인 API 경고",
   pluginV2Warning:
     "플러그인 V2 및 V2.1은 안전하지 않다고 간주되며, 향후 버전에서는 동작이 중단됩니다. **이 버전의 플러그인을 사용하지 마세요.** 이 플러그인의 개발자라면 가능한 한 빨리 V3로 업데이트해주세요.",
   partialBackupFirstConfirm:
@@ -2504,7 +2528,7 @@ export const languageKorean = {
   storageOrphanFailed: "고아 에셋 정리 실패",
   storageOrphanAutoClean: "시작할 때 자동 삭제",
   storageOrphanAutoCleanDesc:
-    "앱을 시작할 때마다 동일한 보호 참조 검사를 사용합니다. 기본값은 꺼짐이며, 알 수 없는 플러그인 데이터가 있다면 수동 정리가 더 안전합니다.",
+    "서버에 접속할 때마다 자동으로 고아 에셋을 정리합니다.",
 
   storageWalCleanupWhat:
     "WAL 정리는 임시 변경사항을 DB에 통합하고 WAL 파일을 비웁니다.",
@@ -2711,6 +2735,9 @@ export const languageKorean = {
   backupSettingsOnlyFailed: "설정 내보내기 실패",
 
   relatedGithub: "GitHub",
+  recentlyUploadedCharacters: "신규 캐릭터",
+  relatedLinks: "주요 링크",
+  getMoreCharacters: "더 많은 캐릭터 보기",
   relatedGithubDesc: "Star를 눌러 원본 PocketRisu 프로젝트를 응원해주세요.",
   relatedFeedbackForm: "이슈 제보",
   relatedFeedbackFormDesc: "버그를 제보하거나 의견을 남겨주세요.",
@@ -2723,6 +2750,13 @@ export const languageKorean = {
   recentChatsTitle: "최근 대화",
   noRecentChatsDesc: "아직 대화한 봇이 없어요",
   hideRecentChats: "대화 목록 숨기기",
+  recentChatsSearchPlaceholder: "캐릭터 이름으로 검색...",
+  noRecentChatsSearchResults: "일치하는 캐릭터와 나눈 대화가 없습니다.",
+  sidebarMenuAddDivider: "구분선 추가",
+  sidebarMenuExitEdit: "사이드바 메뉴 편집 닫기",
+  sidebarMenuRemoveDivider: "구분선 삭제",
+  sidebarMenuHideIcon: "아이콘 숨기기",
+  sidebarMenuShowIcon: "아이콘 표시",
 
   showRequestStatus: "요청 상태 표시",
   requestStatus: {

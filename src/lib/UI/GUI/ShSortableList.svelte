@@ -1,3 +1,17 @@
+<script lang="ts" module>
+    export interface SortableDragOrigin {
+        item: HTMLElement;
+        parent: HTMLElement;
+        nextSibling: ChildNode | null;
+    }
+
+    export function restoreSortableDragOrigin(origin: SortableDragOrigin | null) {
+        if (!origin || origin.item.parentElement !== origin.parent) return;
+        const { item, parent, nextSibling } = origin;
+        parent.insertBefore(item, nextSibling?.parentNode === parent ? nextSibling : null);
+    }
+</script>
+
 <script lang="ts">
     import type { Snippet } from 'svelte';
     import Sortable, { type Options, type SortableEvent } from 'sortablejs';
@@ -39,7 +53,7 @@
     }: Props = $props();
 
     let keysBeforeDrag: string[] = [];
-    let dragOrigin: { parent: HTMLElement; nextSibling: ChildNode | null } | null = null;
+    let dragOrigin: SortableDragOrigin | null = null;
 
     function itemKey(item: HTMLElement): string {
         return item.getAttribute(dataAttribute) ?? '';
@@ -114,6 +128,7 @@
             onStart: (event) => {
                 keysBeforeDrag = currentKeys();
                 dragOrigin = {
+                    item: event.item,
                     parent: event.item.parentElement ?? event.from,
                     nextSibling: event.item.nextSibling,
                 };
@@ -136,10 +151,10 @@
                 } finally {
                     // Sortable mutates the DOM before Svelte updates the keyed list. Restore Svelte's
                     // expected pre-drag DOM so its next reconciliation applies the data order cleanly.
-                    if (dragOrigin) {
-                        const { parent, nextSibling } = dragOrigin;
-                        parent.insertBefore(event.item, nextSibling?.parentNode === parent ? nextSibling : null);
-                    }
+                    // An external drop target may update the backing data before dragend,
+                    // causing Svelte to detach this item from the keyed list. Re-inserting
+                    // that stale node would resurrect it as an untracked DOM duplicate.
+                    restoreSortableDragOrigin(dragOrigin);
                     keysBeforeDrag = [];
                     dragOrigin = null;
                 }

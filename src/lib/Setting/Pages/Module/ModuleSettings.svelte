@@ -9,7 +9,7 @@
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
     import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
-    import { BotIcon, SquarePen, TrashIcon, Globe, Share2Icon, PlusIcon, HardDriveUpload, Waypoints } from "@lucide/svelte";
+    import { BotIcon, DownloadIcon, FolderCogIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
@@ -26,15 +26,16 @@
     import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
     import ShSelect from "src/lib/UI/GUI/ShSelect.svelte";
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
+    import ModuleChatMenu from "src/lib/Setting/Pages/Module/ModuleChatMenu.svelte";
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
         id: v4(),
     })
     let mode = $state(0)
-    let editModuleIndex = $state(-1)
     let moduleSearch = $state('')
     let modelBindingMode = $state(false)
+    let moduleFolderManagementOpen = $state(false)
     let personaModuleTarget:RisuModule|null = $state(null)
     let personaModuleSelection:string[] = $state([])
     let personaFolder = $state('all')
@@ -192,6 +193,81 @@
         )
     }
 
+    function startCreateModule() {
+        tempModule = {
+            name: '',
+            description: '',
+            id: v4(),
+        }
+        moduleFolderManagementOpen = false
+        mode = 1
+    }
+
+    function duplicateModule(index: number) {
+        const source = DBState.db.modules[index]
+        if (!source || source.mcp) return
+        const duplicate = safeStructuredClone(source)
+        duplicate.id = v4()
+        duplicate.name = `${source.name} Copy`
+        DBState.db.modules.splice(index + 1, 0, duplicate)
+        DBState.db.modules = [...DBState.db.modules]
+        void requestImmediateSave()
+        notifySuccess(language.moduleDuplicated)
+    }
+
+    async function downloadModule(index: number) {
+        const rmodule = DBState.db.modules[index]
+        if (!rmodule || rmodule.mcp) return
+        const selection = parseInt(await alertSelect([`CharX (${language.recommended})`, `RisuM (Legacy)`]))
+        if (selection === 0) await exportModule(rmodule)
+        else if (selection === 1) await exportModuleLegacy(rmodule)
+    }
+
+    async function deleteModule(index: number) {
+        const rmodule = DBState.db.modules[index]
+        if (!rmodule || !await alertConfirm(`${language.removeConfirm}${rmodule.name}`)) return
+
+        DBState.db.enabledModules = DBState.db.enabledModules.filter((id) => id !== rmodule.id)
+
+        const personaMap = { ...(DBState.db.personaEnabledModules ?? {}) }
+        for (const personaId of Object.keys(personaMap)) {
+            personaMap[personaId] = personaMap[personaId].filter((id) => id !== rmodule.id)
+            if (personaMap[personaId].length === 0) delete personaMap[personaId]
+        }
+        DBState.db.personaEnabledModules = personaMap
+
+        const modelBindings = { ...(DBState.db.moduleModelBindings ?? {}) }
+        delete modelBindings[rmodule.id]
+        DBState.db.moduleModelBindings = modelBindings
+
+        for (const character of DBState.db.characters) {
+            if (character.modules?.includes(rmodule.id)) {
+                character.modules = character.modules.filter((id) => id !== rmodule.id)
+            }
+            for (const chat of character.chats) {
+                if (chat.modules?.includes(rmodule.id)) {
+                    chat.modules = chat.modules.filter((id) => id !== rmodule.id)
+                }
+            }
+        }
+
+        DBState.db.modules = DBState.db.modules.filter((_, moduleIndex) => moduleIndex !== index)
+        void requestImmediateSave()
+        notifySuccess(language.moduleDeleted)
+    }
+
+    function editModule(rmodule: RisuModule) {
+        if (rmodule.mcp) return
+        tempModule = rmodule
+        mode = 2
+    }
+
+    function finishEditingModule() {
+        refreshModules()
+        void requestImmediateSave()
+        mode = 0
+    }
+
     function builtInMCPLabel(id:BuiltInMCPId):string {
         switch(id){
             case 'internal:aiaccess': return language.mcpImport.builtIn.aiAccess
@@ -233,33 +309,36 @@
         {#snippet control()}
         <IconButtonGroup size="lg">
         {#if view === 'modules'}
-            <IconButton onclick={async () => {
-                tempModule = {
-                    name: '',
-                    description: '',
-                    id: v4(),
-                }
-                mode = 1
-            }}>
+            <IconButton onclick={startCreateModule} title={language.createModule} aria-label={language.createModule}>
                 <PlusIcon />
+            </IconButton>
+            <IconButton
+                title={language.importModule}
+                aria-label={language.importModule}
+                onclick={() => { void importModule() }}
+            >
+                <UploadIcon />
             </IconButton>
             <IconButton
                 className={modelBindingMode ? 'text-primary' : 'text-textcolor2'}
                 title={language.moduleModelBindingEnable}
+                aria-label={language.moduleModelBindingEnable}
                 onclick={() => {
                     modelBindingMode = !modelBindingMode
                 }}
             >
                 <BotIcon />
             </IconButton>
-            <IconButton onclick={async () => {
-                importModule()
-            }}>
-                <HardDriveUpload  />
+            <IconButton
+                title={language.moduleFolderManagement}
+                aria-label={language.moduleFolderManagement}
+                onclick={() => (moduleFolderManagementOpen = true)}
+            >
+                <FolderCogIcon />
             </IconButton>
         {:else}
             <IconButton title={language.mcpImport.title} onclick={openMCPImportDialog}>
-                <Waypoints />
+                <WaypointsIcon />
             </IconButton>
         {/if}
         </IconButtonGroup>
@@ -283,17 +362,17 @@
                     class={`mt-2 flex ${modelBindingMode ? 'flex-wrap' : ''} items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing`}
                     role="button"
                     tabindex="0"
-                    onclick={() => {
-                        if (rmodule.mcp) return
-                        tempModule = rmodule
-                        editModuleIndex = index
-                        mode = 2
+                    onclick={() => editModule(rmodule)}
+                    onkeydown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return
+                        event.preventDefault()
+                        editModule(rmodule)
                     }}
                 >
                     <div class={`flex flex-col min-w-0 grow ${modelBindingMode ? 'basis-full sm:basis-0' : ''}`}>
                         <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
                             {#if rmodule.mcp}
-                                <Waypoints size={16} class="shrink-0 text-textcolor2" />
+                                <WaypointsIcon size={16} class="shrink-0 text-textcolor2" />
                             {/if}
                             <span class="truncate">{rmodule.name}</span>
                         </span>
@@ -331,57 +410,19 @@
                                 DBState.db.enabledModules = DBState.db.enabledModules
                             }}
                             >
-                                <Globe />
+                                <GlobeIcon />
                             </IconButton>
                             {#if !rmodule.mcp}
-                                <IconButton title={language.download} onclick={async (e) => {
+                                <IconButton title={language.download} onclick={(e) => {
                                     e.stopPropagation()
-                                    const sel = parseInt(await alertSelect([`CharX (${language.recommended})`, `RisuM (Legacy)`]))
-                                    if(sel === 0){
-                                        exportModule(rmodule)
-                                    }
-                                    else if(sel === 1){
-                                        exportModuleLegacy(rmodule)
-                                    }
+                                    void downloadModule(index)
                                 }}>
-                                    <Share2Icon />
-                                </IconButton>
-                                <IconButton title={language.edit} onclick={async (e) => {
-                                    e.stopPropagation()
-                                    tempModule = rmodule
-                                    editModuleIndex = index
-                                    mode = 2
-                                }}>
-                                    <SquarePen />
-                                </IconButton>
-                            {:else}
-                                <IconButton disabled>
-                                    <Share2Icon />
-                                </IconButton>
-                                <IconButton disabled>
-                                    <SquarePen />
+                                    <DownloadIcon />
                                 </IconButton>
                             {/if}
-                            <IconButton tone="destructive" title={language.remove} onclick={async (e) => {
+                            <IconButton tone="destructive" title={language.remove} onclick={(e) => {
                                 e.stopPropagation()
-                                const d = await alertConfirm(`${language.removeConfirm}` + rmodule.name)
-                                if(d){
-                                    if(DBState.db.enabledModules.includes(rmodule.id)){
-                                        DBState.db.enabledModules.splice(DBState.db.enabledModules.indexOf(rmodule.id), 1)
-                                        DBState.db.enabledModules = DBState.db.enabledModules
-                                    }
-                                    const map = {...(DBState.db.personaEnabledModules ?? {})}
-                                    for (const personaId of Object.keys(map)) {
-                                        map[personaId] = map[personaId].filter((id) => id !== rmodule.id)
-                                        if (map[personaId].length === 0) {
-                                            delete map[personaId]
-                                        }
-                                    }
-                                    DBState.db.personaEnabledModules = map
-                                    DBState.db.modules.splice(index, 1)
-                                    DBState.db.modules = DBState.db.modules
-                                    notifySuccess(language.moduleDeleted)
-                                }
+                                void deleteModule(index)
                             }}>
                                 <TrashIcon />
                             </IconButton>
@@ -450,6 +491,18 @@
         </PresetPickerLayout>
     {/if}
 
+    {#if moduleFolderManagementOpen}
+        <ModuleChatMenu
+            folderManagement
+            close={() => (moduleFolderManagementOpen = false)}
+            onCreateModule={startCreateModule}
+            onImportModule={importModule}
+            onDuplicateModule={duplicateModule}
+            onExportModule={downloadModule}
+            onDeleteModule={deleteModule}
+        />
+    {/if}
+
     </SettingPage>
 {:else if mode === 1}
     <SettingPage title={language.createModule}>
@@ -462,20 +515,36 @@
     </SettingPage>
 {:else if mode === 2}
     <SettingPage title={language.editModule}>
+    {#snippet control()}
+        <IconButtonGroup size="xl">
+            {#if tempModule.name !== ''}
+                <IconButton
+                    className="text-textcolor2"
+                    title={language.convertToCharacter}
+                    aria-label={language.convertToCharacter}
+                    onclick={async () => {
+                        if (!await alertConfirm(language.convertModuleToCharacterConfirm.replace('{}', tempModule.name))) return
+                        const char = convertModuleToCharacter(tempModule)
+                        DBState.db.characters.push(char)
+                        checkCharOrder()
+                        void requestImmediateSave()
+                        notifySuccess(language.successfullyConverted)
+                    }}
+                >
+                    <UserRoundIcon />
+                </IconButton>
+            {/if}
+            <IconButton
+                className="text-textcolor2"
+                title={language.backToList}
+                aria-label={language.backToList}
+                onclick={finishEditingModule}
+            >
+                <Undo2Icon />
+            </IconButton>
+        </IconButtonGroup>
+    {/snippet}
     <ModuleMenu bind:currentModule={tempModule}/>
-    {#if tempModule.name !== ''}
-        <ShButton className="mt-6" onclick={() => {
-            DBState.db.modules[editModuleIndex] = tempModule
-            notifySuccess(language.moduleUpdated)
-            mode = 0
-        }}>{language.editModule}</ShButton>
-        <ShButton className="mt-2" onclick={() => {
-            const char = convertModuleToCharacter(tempModule)
-            DBState.db.characters.push(char)
-            checkCharOrder()
-            notifySuccess(language.successfullyConverted)
-        }}>{language.convertToCharacter}</ShButton>
-    {/if}
     </SettingPage>
 {/if}
 

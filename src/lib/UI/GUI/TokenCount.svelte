@@ -1,8 +1,8 @@
 <script lang="ts">
     import { language } from 'src/lang';
     import { tokenizeAccurate } from 'src/ts/tokenizer';
-
-    const TOKEN_COUNT_DEBOUNCE_MS = 400;
+    import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence';
+    import { INPUT_COMMIT_DEBOUNCE_MS } from 'src/ts/inputCommit';
 
     interface Props {
         value?: string | null;
@@ -11,24 +11,21 @@
 
     let { value = '', className = '' }: Props = $props();
     let tokens = $state(0);
-    let timer: ReturnType<typeof setTimeout> | null = null;
     let sequence = 0;
+
+    const tokenizer = createDebouncedDraftWriter(async (text: string) => {
+        const currentSequence = ++sequence;
+        const result = await tokenizeAccurate(text);
+        if (currentSequence === sequence) tokens = result;
+    }, INPUT_COMMIT_DEBOUNCE_MS);
 
     // tokenizeAccurate expands CBS before encoding. Debounce editor updates and
     // discard stale async results when the value changes while tokenizing.
     $effect(() => {
         const text = value ?? '';
-        const currentSequence = ++sequence;
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => {
-            tokenizeAccurate(text).then(result => {
-                if (currentSequence === sequence) tokens = result;
-            });
-        }, TOKEN_COUNT_DEBOUNCE_MS);
-
-        return () => {
-            if (timer) clearTimeout(timer);
-        };
+        sequence += 1;
+        tokenizer.schedule(text);
+        return tokenizer.cancel;
     });
 </script>
 

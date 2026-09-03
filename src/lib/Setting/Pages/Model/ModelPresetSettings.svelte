@@ -551,6 +551,7 @@
                         <span class="text-xs text-textcolor2">{language.help.modelPresetTestHelp}</span>
                     </div>
                     <TextAreaInput
+                        commitMode="input"
                         bind:value={testMessage}
                         placeholder={language.modelPresetTestDefault}
                         fullwidth

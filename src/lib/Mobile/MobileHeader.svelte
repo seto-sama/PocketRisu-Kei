@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { ArrowLeft, MenuIcon } from "@lucide/svelte";
+    import { ArrowLeftIcon, MenuIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     
     import { DBState } from 'src/ts/stores.svelte';
@@ -14,14 +14,14 @@
         <button onclick={() => {
             MobileSideBar.set(0)
         }}>
-            <ArrowLeft />
+            <ArrowLeftIcon />
         </button>
         <span class="font-bold text-lg w-2/3 truncate">{language.menu}</span>
     {:else if $selectedCharID !== -1}
         <button onclick={() => {
             selectedCharID.set(-1)
         }}>
-            <ArrowLeft />
+            <ArrowLeftIcon />
         </button>
         <span class="font-bold text-lg w-2/3 truncate">{DBState.db.characters[$selectedCharID].name}</span>
         <div class="flex-1 flex justify-end">
@@ -35,7 +35,7 @@
         <button onclick={() => {
             SettingsMenuIndex.set(SettingsRoute.None)
         }}>
-            <ArrowLeft />
+            <ArrowLeftIcon />
         </button>
         <span class="font-bold text-lg">{PRODUCT_NAME}</span>
     {:else if $MobileGUIStack === 1}

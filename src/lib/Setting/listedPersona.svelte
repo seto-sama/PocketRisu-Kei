@@ -57,14 +57,13 @@
     }
 
     function createPersona() {
-        const folderId = selectedFolder !== 'all' && selectedFolder !== 'uncategorized' ? selectedFolder : undefined;
         DBState.db.personas = [...DBState.db.personas, {
             id: uuidv4(),
             name: 'New Persona',
             icon: '',
             personaPrompt: '',
             note: '',
-            folderId,
+            folderId: undefined,
         }];
         changeUserPersona(DBState.db.personas.length - 1);
         void requestImmediateSave();
@@ -105,7 +104,6 @@
         await importUserPersona();
         if (DBState.db.personas.length <= previousLength) return;
         const importedIndex = DBState.db.personas.length - 1;
-        assignPersonaToFolder(importedIndex, selectedFolder);
         changeUserPersona(importedIndex);
         void requestImmediateSave();
     }

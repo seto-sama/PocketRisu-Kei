@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
-    import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
+    import { getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
     import TextInput from 'src/lib/UI/GUI/TextInput.svelte';
     import ShCombobox from 'src/lib/UI/GUI/ShCombobox.svelte';
@@ -22,16 +22,13 @@
         localValue = getSettingValue(item, ctx);
     });
 
-    // Write-back: local → DB (guarded)
-    $effect(() => {
-        const val = localValue;
-        if (val === UNINITIALIZED) return;
+    function commitValue(val: string) {
         untrack(() => {
             if (val !== getSettingValue(item, ctx)) {
                 setSettingValue(item, val, ctx);
             }
         });
-    });
+    }
 </script>
 
 {#if ctx.layout === 'row'}
@@ -45,6 +42,7 @@
                     options={suggestions}
                     bind:value={localValue}
                     placeholder={item.options?.placeholder}
+                    oncommit={() => commitValue(localValue)}
                 />
             {:else}
                 <TextInput
@@ -53,6 +51,9 @@
                     bind:value={localValue}
                     placeholder={item.options?.placeholder}
                     hideText={item.options?.hideText}
+                    commitMode={item.options?.commitMode ?? 'blur'}
+                    debounceMs={item.options?.debounceMs}
+                    oncommit={commitValue}
                 />
             {/if}
         {/snippet}
@@ -69,6 +70,7 @@
             options={suggestions}
             bind:value={localValue}
             placeholder={item.options?.placeholder}
+            oncommit={() => commitValue(localValue)}
         />
     {:else}
         <TextInput
@@ -77,6 +79,9 @@
             bind:value={localValue}
             placeholder={item.options?.placeholder}
             hideText={item.options?.hideText}
+            commitMode={item.options?.commitMode ?? 'blur'}
+            debounceMs={item.options?.debounceMs}
+            oncommit={commitValue}
         />
     {/if}
 {/if}

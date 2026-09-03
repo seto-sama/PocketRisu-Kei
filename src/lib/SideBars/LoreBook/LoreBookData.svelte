@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { TrashIcon, LinkIcon, SunIcon, MoonIcon, BookCopyIcon, FolderIcon, FolderOpen, PlusIcon } from "@lucide/svelte";
+    import { TrashIcon, LinkIcon, SunIcon, MoonIcon, BookCopyIcon, FolderIcon, FolderOpenIcon, PlusIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { language } from "../../../lang";
     import { getCurrentCharacter, getCurrentChat, type loreBook } from "../../../ts/storage/database.svelte";
@@ -170,7 +170,7 @@
         {:else}
             {#if value.mode === 'folder'}
                 {#if open}
-                    <FolderOpen size={itemIconSize} class="mr-2 shrink-0" />
+                    <FolderOpenIcon size={itemIconSize} class="mr-2 shrink-0" />
                 {:else}
                     <FolderIcon size={itemIconSize} class="mr-2 shrink-0" />
                 {/if}
@@ -298,7 +298,7 @@
 
             <div data-disclosure-field>
                 <div data-disclosure-label>{language.prompt}</div>
-                <div data-disclosure-control><TextAreaInput autocomplete="off" bind:value={value.content} /></div>
+                <div data-disclosure-control><TextAreaInput autocomplete="off" bind:value={value.content} popupTitle={value.comment || language.prompt} /></div>
             </div>
             <TokenCount value={value.content} className="mb-2" />
 

@@ -3,7 +3,7 @@
     import { openURL } from "src/ts/globalApi.svelte";
     import { SaveServerBackup } from "src/ts/drive/backuplocal";
     import { language } from "src/lang";
-    import { ArrowUpCircle, AlertTriangle, Download, Loader, CheckCircle, XCircle, SaveIcon } from "@lucide/svelte";
+    import { ArrowUpCircleIcon, AlertTriangleIcon, DownloadIcon, LoaderIcon, CheckCircleIcon, XCircleIcon, SaveIcon } from "@lucide/svelte";
     import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
 
@@ -65,24 +65,24 @@
                 {#if isUpdating}
                     {#if progress?.step === 'error'}
                         <span class="p-2 rounded-full bg-draculared/20" aria-hidden="true">
-                            <XCircle size={20} class="text-draculared" />
+                            <XCircleIcon size={20} class="text-draculared" />
                         </span>
                     {:else if progress?.step === 'done'}
                         <span class="p-2 rounded-full bg-success/20" aria-hidden="true">
-                            <CheckCircle size={20} class="text-success" />
+                            <CheckCircleIcon size={20} class="text-success" />
                         </span>
                     {:else}
                         <span class="p-2 rounded-full bg-borderc/20" aria-hidden="true">
-                            <Loader size={20} class="text-borderc animate-spin" />
+                            <LoaderIcon size={20} class="text-borderc animate-spin" />
                         </span>
                     {/if}
                 {:else if info.severity === 'optional'}
                     <span class="p-2 rounded-full bg-success/20" aria-hidden="true">
-                        <ArrowUpCircle size={20} class="text-success" />
+                        <ArrowUpCircleIcon size={20} class="text-success" />
                     </span>
                 {:else}
                     <span class="p-2 rounded-full bg-draculared/20" aria-hidden="true">
-                        <AlertTriangle size={20} class="text-draculared" />
+                        <AlertTriangleIcon size={20} class="text-draculared" />
                     </span>
                 {/if}
                 <span>
@@ -153,7 +153,7 @@
                 variant={info.severity === 'optional' ? 'success' : 'destructive'}
                 onclick={handleSelfUpdate}
             >
-                <Download size={12} />
+                <DownloadIcon size={12} />
                 {language.selfUpdateNow}
             </ShButton>
         {:else}

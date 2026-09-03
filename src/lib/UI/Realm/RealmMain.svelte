@@ -1,6 +1,6 @@
 <script lang="ts">
     import { downloadRisuHub, getRisuHub, hubAdditionalHTML, type hubType } from "src/ts/characterCards";
-    import { ChevronLeft, ChevronRight, SearchIcon } from "@lucide/svelte";
+    import { ChevronLeftIcon, ChevronRightIcon, SearchIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import RisuHubIcon from "./RealmHubIcon.svelte";
     import { MobileGUI } from "src/ts/stores.svelte";
@@ -178,14 +178,14 @@
                     page -= 1
                     getHub()
                 }} aria-label="Previous page" className="text-textcolor">
-                    <ChevronLeft />
+                    <ChevronLeftIcon />
                 </IconButton>
                 <span class="min-w-6 text-center text-xs tabular-nums text-textcolor">{page + 1}</span>
                 <IconButton onclick={() => {
                     page += 1
                     getHub()
                 }} aria-label="Next page" className="text-textcolor">
-                    <ChevronRight />
+                    <ChevronRightIcon />
                 </IconButton>
             </IconButtonGroup>
         </div>

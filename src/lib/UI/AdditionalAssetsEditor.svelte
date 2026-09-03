@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Copy, DownloadIcon, FileIcon, FileMusicIcon, FileVideoIcon, ImageIcon, ImageOffIcon, PlusIcon, TrashIcon } from '@lucide/svelte';
+    import { CopyIcon, DownloadIcon, FileIcon, FileMusicIcon, FileVideoIcon, ImageIcon, ImageOffIcon, PlusIcon, TrashIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert';
     import { downloadFile, getFileSrc, saveAsset } from 'src/ts/globalApi.svelte';
@@ -346,7 +346,7 @@
     {#snippet actions()}
         {#if previewAsset}
             <IconButton onclick={() => copyRawReference(previewAsset[0])} title={language.copy} aria-label={language.copy} className="text-textcolor">
-                <Copy />
+                <CopyIcon />
             </IconButton>
             <IconButton onclick={downloadPreview} title={language.download} aria-label={language.download} className="text-textcolor">
                 <DownloadIcon />

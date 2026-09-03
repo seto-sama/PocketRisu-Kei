@@ -8,8 +8,8 @@
  *   사이드바                     = darkbg (가장 어두움)
  */
 
-/* 채팅 영역 전체 배경 */
-.nodeonly-standard-root {
+/* NodeOnly 테마에서 공유하는 채팅 배경 */
+:root {
   --no-chat-background: color-mix(
     in srgb,
     var(--risu-theme-bgcolor) 25%,
@@ -31,7 +31,7 @@
 }
 
 /* 채팅 입력창 배경 */
-.nodeonly-standard-root > .chat-composer-fixed-layer,
+.nodeonly-standard-composer,
 .nodeonly-standard .sticky.pt-2.pb-2 {
   background-color: var(--no-chat-background) !important;
 }

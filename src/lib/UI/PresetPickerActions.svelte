@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { HardDriveUploadIcon, PencilIcon, PlusIcon } from "@lucide/svelte";
+    import { UploadIcon, PencilIcon, PlusIcon } from "@lucide/svelte";
     import IconButton from "./GUI/IconButton.svelte";
     import IconButtonGroup from "./GUI/IconButtonGroup.svelte";
 
@@ -20,7 +20,7 @@
     {/if}
     {#if onImport}
         <IconButton onclick={onImport}>
-            <HardDriveUploadIcon />
+            <UploadIcon />
         </IconButton>
     {/if}
     {#if onRename}

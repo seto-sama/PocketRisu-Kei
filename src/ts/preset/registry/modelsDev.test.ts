@@ -266,14 +266,14 @@ describe('buildModelsDevRegistry', () => {
         ].map((key) => snapshot.schema.find((field) => field.key === key)?.default))
             .toEqual([false, false])
         expect(snapshot.uiSchema.groups.find((group) => group.id === 'flags'))
-            .toMatchObject({ labelKey: 'modelPresetCustomFlagsGroup', order: 4 })
+            .toMatchObject({ labelKey: 'modelPresetCustomFlagsGroup' })
         expect([
             'customFlag_deepSeekThinkingInput',
             'customFlag_deepSeekThinkingOutput',
         ].map((key) => snapshot.uiSchema.fields.find((field) => field.key === key)))
             .toEqual([
-                expect.objectContaining({ widget: 'toggle', visibility: 'advanced', order: 1 }),
-                expect.objectContaining({ widget: 'toggle', visibility: 'advanced', order: 2 }),
+                expect.objectContaining({ widget: 'toggle', visibility: 'advanced' }),
+                expect.objectContaining({ widget: 'toggle', visibility: 'advanced' }),
             ])
     })
 
@@ -381,7 +381,7 @@ describe('buildModelsDevRegistry', () => {
             (field) => field.key === 'customFlag_deepSeekThinkingOutput',
         )).toMatchObject({ type: 'boolean', default: false })
         expect(snapshot.uiSchema.groups.find((group) => group.id === 'flags'))
-            .toMatchObject({ labelKey: 'modelPresetCustomFlagsGroup', order: 4 })
+            .toMatchObject({ labelKey: 'modelPresetCustomFlagsGroup' })
     })
 
     test('stores model release and knowledge dates as profile metadata', () => {

@@ -2,10 +2,11 @@
     import { language } from "../../lang";
     import { saveImage as saveAsset, type character, getCurrentCharacter } from "../../ts/storage/database.svelte";
     import { convertCharacterToModule } from "src/ts/interchangeability";
-    import { notifySuccess } from "src/ts/alert";
+    import { alertConfirm, notifySuccess } from "src/ts/alert";
+    import { requestImmediateSave } from "src/ts/globalApi.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { CharConfigSubMenu, MobileGUI, selectedCharID } from "../../ts/stores.svelte";
-    import { PlusIcon, TrashIcon, DownloadIcon, HardDriveUploadIcon, ArrowUp, ArrowDown, TriangleAlertIcon } from '@lucide/svelte'
+    import { PlusIcon, TrashIcon, DownloadIcon, UploadIcon, ArrowUpIcon, ArrowDownIcon, TriangleAlertIcon } from '@lucide/svelte'
     import { getCharImage, selectCharImg, removeChar, changeCharImage } from "../../ts/characters";
     import LoreBook from "./LoreBook/LoreBookSetting.svelte";
     import { getAuthorNoteDefaultText, selectSingleFile } from "../../ts/util";
@@ -37,13 +38,14 @@
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import AdditionalAssetsEditor from "../UI/AdditionalAssetsEditor.svelte";
     import TokenCount from "../UI/GUI/TokenCount.svelte";
+    import ShChoiceGroup from "../UI/GUI/ShChoiceGroup.svelte";
 
     let pkgIncludeCharacter = $state(true)
     let pkgIncludeChats = $state(true)
     let pkgIncludePersona = $state(true)
     let pkgIncludeInlays = $state(false)
     let addingCreatorNotesLang = $state(false)
-    let viewSubMenu = $state(0)
+    let viewSubMenu = $state('icon')
     const gptSoVitsLanguageOptions = [
         ['auto', 'Multi-language Mixed'],
         ['auto_yue', 'Multi-language Mixed (Cantonese)'],
@@ -272,14 +274,14 @@
             <div class="mt-2">
                 <div class="flex items-center gap-1">
                     <div class="min-w-0 flex-1">
-                        <TextAreaInput bind:value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} placeholder="..." fullwidth />
+                        <TextAreaInput bind:value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} popupTitle={`${language.altGreet} ${i + 1}`} placeholder="..." fullwidth />
                     </div>
                     <div class="flex flex-col items-center text-textcolor2">
                         <button class="p-1 risu-interactive-accent disabled:opacity-30" onclick={() => moveAlternateGreetingUp(i)} disabled={i === 0}>
-                            <ArrowUp size={16} />
+                            <ArrowUpIcon size={16} />
                         </button>
                         <button class="p-1 risu-interactive-accent disabled:opacity-30" onclick={() => moveAlternateGreetingDown(i)} disabled={i === DBState.db.characters[$selectedCharID].alternateGreetings.length - 1}>
-                            <ArrowDown size={16} />
+                            <ArrowDownIcon size={16} />
                         </button>
                         <button class="p-1 risu-interactive-danger" onclick={() => {
                             if(DBState.db.characters[$selectedCharID].type === 'character'){
@@ -317,25 +319,23 @@
         <h2 class="mb-2 text-2xl font-bold mt-2">{language.characterDisplay}</h2>
     {/if}
 
-    <div class="flex w-full rounded-md border border-selected mb-4">
-        <button onclick={() => {
-            viewSubMenu = 0
-        }} class="flex min-h-10 flex-1 items-center justify-center p-2" class:bg-selected={viewSubMenu === 0}>
-            <span>{language.charIcon}</span>
-        </button>
-        <button onclick={() => {
-            viewSubMenu = 1
-        }} class="flex min-h-10 flex-1 items-center justify-center border-r border-l border-selected p-2" class:bg-selected={viewSubMenu === 1}>
-            <span>{language.emotionImage}</span>
-        </button>
-        <button onclick={() => {
-            viewSubMenu = 2
-        }} class="flex min-h-10 flex-1 items-center justify-center p-2" class:bg-selected={viewSubMenu === 2}>
-            <span>{language.additionalAssets}</span>
-        </button>
-    </div>
+    <ShChoiceGroup
+        variant="pill"
+        size="md"
+        name="characterDisplaySubmenu"
+        bind:value={viewSubMenu}
+        options={[
+            { value: 'icon', label: language.charIcon },
+            { value: 'emotion', label: language.emotionImage },
+            { value: 'assets', label: language.additionalAssets },
+        ]}
+        activeColor="selected"
+        fullWidth
+        divided
+        className="mb-4"
+    />
 
-    {#if viewSubMenu === 0}
+    {#if viewSubMenu === 'icon'}
             <div class="mt-2 p-2 border-darkborderc border rounded-md grid grid-cols-3 gap-2">
                 {#if DBState.db.characters[$selectedCharID].image !== '' && DBState.db.characters[$selectedCharID].image}
                     {#await getCharImage(DBState.db.characters[$selectedCharID].image, 'css')}
@@ -416,7 +416,7 @@
         {/if}
 
 
-    {:else if viewSubMenu === 1}
+    {:else if viewSubMenu === 'emotion'}
         <ShSettings spacing="spaced" className="mb-3">
             <ShSettings variant="row">
                 <span class="min-w-0 text-textcolor">{language.enableEmotionImages}</span>
@@ -449,7 +449,7 @@
                 <TextAreaInput bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.emotionInstructions} />
             {/if}
         {/if}
-    {:else if viewSubMenu === 2}
+    {:else if viewSubMenu === 'assets'}
 
             {#if DBState.db.newImageHandlingBeta}
             <CheckInput card bind:check={DBState.db.characters[$selectedCharID].prebuiltAssetCommand} name={language.insertAssetPrompt}/>
@@ -513,7 +513,7 @@
             }}><DownloadIcon /></IconButton>
             <IconButton onclick={async () => {
                 DBState.db.characters[$selectedCharID].customscript = await importRegex(DBState.db.characters[$selectedCharID].customscript)
-            }}><HardDriveUploadIcon /></IconButton>
+            }}><UploadIcon /></IconButton>
         </IconButtonGroup>
 
         <TriggerList bind:value={(DBState.db.characters[$selectedCharID] as character).triggerscript} lowLevelAble={DBState.db.characters[$selectedCharID].lowLevelAccess}>
@@ -567,8 +567,10 @@
 
     <ShButton className="mt-2" onclick={async () => {
         const char = getCurrentCharacter()
+        if (!await alertConfirm(language.convertCharacterToModuleConfirm.replace('{}', char.name))) return
         const m = convertCharacterToModule(char)
         DBState.db.modules.push(m)
+        void requestImmediateSave()
         notifySuccess(language.successfullyConverted)
     }}>{language.convertToModule}</ShButton>
 

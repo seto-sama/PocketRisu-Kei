@@ -252,39 +252,6 @@ async function waitForTranslationButtonState(target: HTMLElement, active: boolea
     return target.querySelector<HTMLButtonElement>('.button-icon-translate')
 }
 
-describe('branched chat comment layout', () => {
-    it.each(['standardRisu', ''])(
-        'keeps the compact branch label and delete action on one row for the %s theme',
-        async theme => {
-            DBState.db.theme = theme
-            const target = document.createElement('div')
-            document.body.appendChild(target)
-            const component = mount(Chat, {
-                target,
-                props: {
-                    message: '{{specialcomment::branchedfrom::source-chat::Source chat::source-message::}}',
-                    isComment: true,
-                    idx: 0,
-                    totalLength: 1,
-                },
-            })
-            mountedComponents.push(component)
-            await tick()
-
-            const row = target.querySelector('.branched-from-comment-row')
-            const label = row?.querySelector('.branched-from-comment-text')
-            const removeButton = row?.querySelector<HTMLButtonElement>('.button-icon-remove')
-
-            expect(row).not.toBeNull()
-            expect(row?.classList.contains('grid')).toBe(true)
-            expect(row?.classList.contains('grid-cols-[2.5rem_minmax(0,1fr)_2.5rem]')).toBe(true)
-            expect(label?.classList.contains('text-sm')).toBe(true)
-            expect(label?.classList.contains('mb-12')).toBe(false)
-            expect(removeButton?.dataset.iconSize).toBe('default')
-        },
-    )
-})
-
 describe('Chat editing', () => {
     it('keeps user translation toggles while retaining cached room restores', async () => {
         DBState.db.translator = 'google'
@@ -1332,28 +1299,6 @@ describe('Chat editing', () => {
         expect(translatorMocks.translateHTML).toHaveBeenCalledTimes(1)
     })
 
-    it('reserves one toolbar row when generation and translation controls are absent', async () => {
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const component = mount(Chat, {
-            target,
-            props: {
-                message: 'First message',
-                name: 'Character',
-                role: 'char',
-                idx: -1,
-                firstMessage: true,
-                totalLength: 1,
-            },
-        })
-        mountedComponents.push(component)
-        await tick()
-
-        const generationInfo = target.querySelector('.chat-generation-info')
-        expect(generationInfo?.getAttribute('data-icon-size')).toBe('lg')
-        expect((generationInfo as HTMLElement | null)?.style.minHeight).toBe('var(--icon-cell-size)')
-    })
-
     it.each(['standardRisu', 'waifu'])('groups sticky controls into a floating toolbar for the %s theme', async (theme) => {
         DBState.db.theme = theme
         DBState.db.stickyChatToolbar = true
@@ -1518,72 +1463,6 @@ describe('Chat editing', () => {
         expect(stickyFooterLayer?.classList.contains('chat-toolbar-sticky-footer-layer')).toBe(true)
         expect(stickyFooterLayer?.classList.contains('chat-toolbar-above-fixed-composer')).toBe(true)
         expect(stickyFooterLayer?.classList.contains('chat-toolbar-streaming-layer')).toBe(true)
-    })
-
-    it('hides the model label on mobile while retaining its icon', async () => {
-        DBState.db.requestInfoInsideChat = true
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const component = mount(Chat, {
-            target,
-            props: {
-                message: 'Model response',
-                name: 'Character',
-                role: 'char',
-                idx: -1,
-                messageGenerationInfo: { model: 'test-model' },
-                totalLength: 1,
-            },
-        })
-        mountedComponents.push(component)
-        await tick()
-
-        const modelButton = target.querySelector<HTMLButtonElement>('.chat-generation-info button')
-        const modelLabel = modelButton?.querySelector('span')
-        expect(modelButton?.querySelector('svg')).not.toBeNull()
-        expect(modelLabel?.classList.contains('hidden')).toBe(true)
-        expect(modelLabel?.classList.contains('sm:inline')).toBe(true)
-    })
-
-    it('keeps NodeOnly message actions on one row until their content needs wrapping', async () => {
-        DBState.db.theme = ''
-        DBState.db.requestInfoInsideChat = true
-        DBState.db.translator = 'en'
-        DBState.db.translatorType = 'llm'
-        DBState.db.legacyTranslation = false
-        translatorMocks.getLLMCache.mockResolvedValue('Translated user message')
-
-        const target = document.createElement('div')
-        document.body.appendChild(target)
-        const component = mount(Chat, {
-            target,
-            props: {
-                message: 'User message',
-                name: 'User',
-                role: 'user',
-                idx: 0,
-                messageGenerationInfo: { model: 'test-model' },
-                totalLength: 2,
-                renderCacheKey: 'room:compact-mobile-actions',
-            },
-        })
-        mountedComponents.push(component)
-        await waitForParserCalls(1)
-
-        target.querySelector<HTMLButtonElement>('.button-icon-translate')?.click()
-        await waitForTranslationButtonState(target, true)
-
-        const actions = target.querySelector('.chat-message-actions')
-        expect(actions?.classList.contains('w-auto')).toBe(true)
-        expect(actions?.classList.contains('w-full')).toBe(false)
-
-        const retranslationButton = target.querySelector<HTMLButtonElement>(
-            `.chat-generation-info button[aria-label="retranslate"]`,
-        )
-        expect(retranslationButton).not.toBeNull()
-        expect(retranslationButton?.getAttribute('data-expanded')).toBe('true')
-        expect(retranslationButton?.querySelector('svg')).not.toBeNull()
-        expect(retranslationButton?.querySelector('span')?.textContent).toBe('retranslate')
     })
 
     it('updates every non-final editor independently in a four-message blank chat', async () => {

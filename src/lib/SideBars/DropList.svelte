@@ -1,5 +1,5 @@
 <script>
-    import { ChevronDown, ChevronUp } from "@lucide/svelte";
+    import { ChevronDownIcon, ChevronUpIcon } from "@lucide/svelte";
     import { language } from "../../lang";
 
     /** @type {{list?: any}} */
@@ -25,7 +25,7 @@
                     tempList[i+1] = temp
                     list = tempList
                 }
-            }}><ChevronUp /></button>
+            }}><ChevronUpIcon /></button>
             <button class="mr-1" onclick={() => {
                 if(i !== (list.length - 1)){
                     let tempList = list
@@ -41,7 +41,7 @@
                     tempList[i-1] = temp
                     list = tempList
                 }
-            }}><ChevronDown /></button>
+            }}><ChevronDownIcon /></button>
         </div>
         {#if i !== (list.length - 1)}
             <div class="border-t w-full border-selected"></div>

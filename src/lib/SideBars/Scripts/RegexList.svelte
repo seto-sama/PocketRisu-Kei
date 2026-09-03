@@ -5,7 +5,7 @@
     import { sleep, sortableOptions } from "src/ts/util";
     import { onDestroy, onMount } from "svelte";
     import ShDisclosureList from "src/lib/UI/GUI/ShDisclosureList.svelte";
-    import { DownloadIcon, HardDriveUploadIcon, PlusIcon } from "@lucide/svelte";
+    import { DownloadIcon, UploadIcon, PlusIcon } from "@lucide/svelte";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
     import IconButton from "src/lib/UI/GUI/IconButton.svelte";
     import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
@@ -150,6 +150,6 @@
         }}><DownloadIcon /></IconButton>
         <IconButton onclick={async () => {
             value = await importRegex(value)
-        }}><HardDriveUploadIcon /></IconButton>
+        }}><UploadIcon /></IconButton>
     </IconButtonGroup>
 {/if}

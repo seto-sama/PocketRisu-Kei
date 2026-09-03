@@ -5,7 +5,6 @@ import {
     ensureTriggerV2ElseBlocks,
     getTriggerV2BlockRange,
     getTriggerV2ElseBlock,
-    getTriggerV2TopLevelDividerIndexes,
     moveTriggerV2Effect,
     removeTriggerV2Effect,
     toggleTriggerV2Else,
@@ -130,21 +129,6 @@ describe('Trigger V2 effect tree', () => {
             { type: 'v2EndIndent', indent: 1 },
             { type: 'v2StopTrigger', indent: 0 },
         ]);
-    });
-
-    test('places dividers only between top-level action groups', () => {
-        const effects = [
-            effect('v2SetVar', 0),
-            effect('v2IfAdvanced', 0),
-            effect('v2ConsoleLog', 1),
-            effect('v2EndIndent', 1),
-            effect('v2Else', 0),
-            effect('v2SetVar', 1),
-            effect('v2EndIndent', 1),
-            effect('v2StopTrigger', 0),
-        ];
-
-        expect([...getTriggerV2TopLevelDividerIndexes(effects)]).toEqual([0, 6]);
     });
 
     test('does not move a block into itself', () => {

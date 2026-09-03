@@ -26,6 +26,15 @@ const { kvGet, kvSet, kvDel, kvList, kvCount,
         estimateVacuumRequiredBytes, vacuumDatabase, gcChunks, reclaimableChunkBytes,
         isDbBlobChunked, snapshotFootprint, db: sqliteDb } = require('./db.cjs');
 const {
+    createBookmarkStore,
+    normalizePreview,
+    readChatCompatibility,
+    stripChatCompatibility,
+} = require('./bookmarkStore.cjs');
+const bookmarkStore = createBookmarkStore(sqliteDb);
+const BOOKMARKS_API_PATH = '/api/bookmarks';
+const BOOKMARK_FOLDERS_API_PATH = '/api/bookmark-folders';
+const {
     STORED_ASSET_PREFIX,
     assetBasename: statsBasename,
     collectDatabaseAssetBasenames,
@@ -274,7 +283,10 @@ function trimSnapshotsToLimits() {
             toDelete.push(e.key);
         }
     }
-    for (const key of toDelete) kvDel(key);
+    for (const key of toDelete) {
+        kvDel(key);
+        bookmarkStore.deleteSnapshot(key);
+    }
     return { kept: entries.length - toDelete.length, removed: toDelete.length };
 }
 
@@ -308,6 +320,7 @@ function makeSnapshotKey(now = Date.now()) {
 function createSnapshotNow() {
     const backupKey = makeSnapshotKey();
     kvCopyValue('database/database.bin', backupKey);
+    bookmarkStore.saveSnapshot(backupKey);
     trimSnapshotsToLimits();
     return backupKey;
 }
@@ -424,8 +437,33 @@ async function decodeDatabaseWithPersistentChatIds(raw, options = {}) {
     return dbObj;
 }
 
+function pruneBookmarksToFullChatStore() {
+    if (!fullChatStore) return 0;
+    return bookmarkStore.pruneInvalid((entry) => fullChatStore
+        .get(entry.characterId)
+        ?.get(entry.chatId)
+        ?.message
+        ?.some(message => message?.chatId === entry.messageId));
+}
+
 function initChatStore(dbObj) {
+    const bookmarkMigration = bookmarkStore.migrateLegacyDatabase(dbObj);
     fullChatStore = createFullChatStore(dbObj);
+    if (bookmarkMigration.migrated) pruneBookmarksToFullChatStore();
+    return bookmarkMigration;
+}
+
+function initImportedChatStore(dbObj) {
+    // A full backup restore is an explicit replacement, not the one-time
+    // startup migration. Rebuild the canonical bookmark tables from the
+    // compatible fields carried by that imported database.
+    const bookmarkMigration = bookmarkStore.replaceDatabaseCompatibility(dbObj);
+    fullChatStore = createFullChatStore(dbObj);
+    pruneBookmarksToFullChatStore();
+    if (bookmarkMigration.changed) {
+        kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(dbObj)));
+    }
+    return bookmarkMigration;
 }
 
 function reassembleFullDb(strippedDb) {
@@ -454,13 +492,16 @@ async function ensureChatStore() {
     const dbObj = await decodeDatabaseWithPersistentChatIds(raw, {
         createBackup: true,
     });
-    initChatStore(dbObj);
+    const bookmarkMigration = initChatStore(dbObj);
+    if (bookmarkMigration.changed) {
+        kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(dbObj)));
+    }
 }
 
 // Stub metadata fields a JSON Patch may legitimately touch on a `chats[i]`
 // entry. Anything else is a chat-internal field — those live in fullChatStore,
 // not in dbCache, and should never appear in a /api/patch payload. Keep in
-// sync with chatToStub on both server and client.
+// intentionally limited to metadata that is part of the lazy chat stub.
 const STUB_METADATA_FIELDS = new Set(['id', 'name', '_stub', 'lastDate', 'folderId', 'modules']);
 
 // Only add/replace/remove are produced by the legitimate patcher. move/copy
@@ -1586,6 +1627,14 @@ function broadcastDatabaseInvalidated(req, payload = {}) {
     );
 }
 
+function broadcastBookmarksInvalidated(req) {
+    broadcastSync(
+        'bookmarks-invalidated',
+        { timestamp: Date.now() },
+        String(getSyncClientIdFromRequest(req)),
+    );
+}
+
 function publishChatCommitted(event, originClientId) {
     broadcastSync('database-invalidated', {
         chats: [{ characterId: event.characterId, chatId: event.chatId }],
@@ -2403,7 +2452,7 @@ const {
     createBackupAndRotate,
     invalidateDbCache,
     decodeDatabaseWithPersistentChatIds,
-    initChatStore,
+    initChatStore: initImportedChatStore,
     normalizeInlayExt,
     isSafeInlayId,
     decodeDataUri,
@@ -3403,7 +3452,10 @@ app.get('/api/read', async (req, res, next) => {
                     const dbObj = await decodeDatabaseWithPersistentChatIds(value, {
                         createBackup: true,
                     });
-                    initChatStore(dbObj);
+                    const bookmarkMigration = initChatStore(dbObj);
+                    if (bookmarkMigration.changed) {
+                        kvSet(key, Buffer.from(encodeRisuSaveLegacy(dbObj)));
+                    }
                     const stripped = normalizeJSON(stripChatsFromDb(dbObj));
                     const responseDb = isCloudflareTunnelRequest(req)
                         ? normalizeJSON(filterRemoteOnlyFolders(stripped))
@@ -3722,9 +3774,9 @@ app.post('/api/write', async (req, res, next) => {
                         return;
                     }
 
-                    const mergedContent = Buffer.from(encodeRisuSaveLegacy(fullDb));
                     // Re-init chat store from merged result
                     initChatStore(fullDb);
+                    const mergedContent = Buffer.from(encodeRisuSaveLegacy(fullDb));
                     kvSet(key, mergedContent);
                     databaseForEtag = fullDb;
                 } catch (e) {
@@ -3829,7 +3881,7 @@ app.post('/api/patch', async (req, res, next) => {
 
             // Reject patch ops that touch chat-internal fields. Lazy loading
             // strips chats to stubs in dbCache; the only legitimate chat ops
-            // are stub metadata (id, name, _stub, lastDate, folderId, modules)
+            // are allowlisted stub metadata (see STUB_METADATA_FIELDS)
             // or whole-chat add/replace/remove. Field-level ops on chats —
             // particularly remove of message/hypaV3Data/scriptstate/etc —
             // strip the `_stub` flag and cause silent on-disk data loss when
@@ -4109,6 +4161,15 @@ async function createSettingsBackupPlan(includeModuleAssets = true) {
     });
 }
 
+async function createCompatibleDatabaseValue() {
+    await ensureChatStore();
+    const databaseValue = kvGet(DB_BLOB_KEY);
+    if (!databaseValue) return null;
+    const database = normalizeJSON(await decodeRisuSave(databaseValue));
+    bookmarkStore.projectDatabaseCompatibility(database);
+    return Buffer.from(encodeRisuSaveLegacy(database, 'compression'));
+}
+
 app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     try {
@@ -4188,7 +4249,8 @@ app.get('/api/backup/export', async (req, res, next) => {
             ...inlayEntries,
             ...sidecarEntries.filter(Boolean),
         ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-        const exportedDatabase = settingsPlan?.encodedDatabase ?? kvGet(DB_BLOB_KEY);
+        const exportedDatabase = settingsPlan?.encodedDatabase
+            ?? await createCompatibleDatabaseValue();
         const dbSize = exportedDatabase?.length ?? 0;
         const totalBytes = namespacedEntries.reduce((sum, entry) => {
             return sum + 8 + Buffer.byteLength(entry.backupName, 'utf-8') + entry.size;
@@ -4341,6 +4403,8 @@ app.post('/api/backup/import', async (req, res, next) => {
                     res.write(JSON.stringify({ type: 'progress', bytes: received, totalBytes: total }) + '\n');
                 },
             });
+            broadcastDatabaseInvalidated(req, { allChats: true });
+            broadcastBookmarksInvalidated(req);
             res.write(JSON.stringify({
                 type: 'done',
                 ok: true,
@@ -4350,6 +4414,8 @@ app.post('/api/backup/import', async (req, res, next) => {
             res.end();
         } else {
             const result = await importBackupFromSource(req, { maxBytes: BACKUP_IMPORT_MAX_BYTES });
+            broadcastDatabaseInvalidated(req, { allChats: true });
+            broadcastBookmarksInvalidated(req);
             res.json({
                 ok: true,
                 assetsRestored: result.assetsRestored,
@@ -4382,7 +4448,7 @@ app.post('/api/backup/server/save', async (req, res, next) => {
     if (!requireSyncClientId(req, res)) return;
     try {
         await flushPendingDb();
-        const dbBackupValue = kvGet('database/database.bin');
+        const dbBackupValue = await createCompatibleDatabaseValue();
 
         // Pre-flight disk check — bail before streaming if the target dir
         // can't fit the backup. Avoids wasted minutes + half-written tmp files.
@@ -4583,6 +4649,8 @@ app.post('/api/backup/server/restore', async (req, res, next) => {
                 res.write(JSON.stringify({ type: 'progress', bytes: received, totalBytes: total }) + '\n');
             },
         });
+        broadcastDatabaseInvalidated(req, { allChats: true });
+        broadcastBookmarksInvalidated(req);
         res.write(JSON.stringify({
             type: 'done',
             ok: true,
@@ -4749,6 +4817,160 @@ app.get('/api/backup/server/download/:filename', async (req, res, next) => {
 
 // Cold-storage compatibility is provided by dataRestore/legacyRestore.cjs.
 
+// Server-owned global bookmarks. Chat JSON compatibility fields are projected
+// only by /api/bookmarks/compatibility and are not part of the canonical chat.
+async function visibleBookmarkChatKeys(req) {
+    if (!isCloudflareTunnelRequest(req)) return null;
+    const raw = kvGet(DB_BLOB_KEY);
+    if (!raw) return new Set();
+    const database = await decodeRisuSave(raw);
+    const visibleDatabase = filterRemoteOnlyFolders(stripChatsFromDb(database));
+    const visible = new Set();
+    for (const character of visibleDatabase?.characters ?? []) {
+        for (const chat of character?.chats ?? []) {
+            if (character?.chaId && chat?.id) visible.add(`${character.chaId}\u0000${chat.id}`);
+        }
+    }
+    return visible;
+}
+
+function isVisibleBookmarkTarget(visible, characterId, chatId) {
+    return !visible || visible.has(`${characterId}\u0000${chatId}`);
+}
+
+function filterBookmarkCatalogForVisibleChats(catalog, visible) {
+    if (!visible) return catalog;
+    const entries = catalog.entries.filter(entry =>
+        isVisibleBookmarkTarget(visible, entry.characterId, entry.chatId));
+    const folderIds = new Set(entries.map(entry => entry.folderId).filter(Boolean));
+    return {
+        ...catalog,
+        entries,
+        folders: catalog.folders.filter(folder => folderIds.has(folder.id)),
+    };
+}
+
+app.get(BOOKMARKS_API_PATH, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        await ensureChatStore();
+        bookmarkStore.pruneInvalid((entry) => fullChatStore
+            .get(entry.characterId)
+            ?.has(entry.chatId));
+        const visible = await visibleBookmarkChatKeys(req);
+        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
+    } catch (error) { next(error); }
+});
+
+app.put(BOOKMARKS_API_PATH, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        await ensureChatStore();
+        const { characterId, chatId, messageId } = req.body ?? {};
+        const visible = await visibleBookmarkChatKeys(req);
+        if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
+            return res.status(404).json({ error: 'Bookmark target not found' });
+        }
+        const chat = fullChatStore.get(characterId)?.get(chatId);
+        const message = chat?.message?.find(value => value?.chatId === messageId);
+        if (!chat || !message) return res.status(404).json({ error: 'Bookmark target not found' });
+        bookmarkStore.upsertBookmarkEntry({
+            characterId,
+            chatId,
+            messageId,
+            name: typeof req.body?.name === 'string' ? req.body.name.trim() : '',
+            preview: normalizePreview(message.data, messageId),
+            folderId: typeof req.body?.folderId === 'string' ? req.body.folderId : null,
+        });
+        broadcastBookmarksInvalidated(req);
+        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
+    } catch (error) { next(error); }
+});
+
+app.patch(BOOKMARKS_API_PATH, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        await ensureChatStore();
+        const { characterId, chatId, messageId } = req.body ?? {};
+        const visible = await visibleBookmarkChatKeys(req);
+        if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
+            return res.status(404).json({ error: 'Bookmark not found' });
+        }
+        const patch = {};
+        if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'name')) {
+            patch.name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'folderId')) {
+            patch.folderId = typeof req.body.folderId === 'string' ? req.body.folderId : null;
+        }
+        if (!bookmarkStore.patchBookmarkEntry({ characterId, chatId, messageId }, patch)) {
+            return res.status(404).json({ error: 'Bookmark not found' });
+        }
+        broadcastBookmarksInvalidated(req);
+        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
+    } catch (error) { next(error); }
+});
+
+app.delete(BOOKMARKS_API_PATH, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        await ensureChatStore();
+        const { characterId, chatId, messageId } = req.body ?? {};
+        const visible = await visibleBookmarkChatKeys(req);
+        if (!isVisibleBookmarkTarget(visible, characterId, chatId)) {
+            return res.status(404).json({ error: 'Bookmark not found' });
+        }
+        if (!bookmarkStore.removeBookmarkEntry({ characterId, chatId, messageId })) {
+            return res.status(404).json({ error: 'Bookmark not found' });
+        }
+        broadcastBookmarksInvalidated(req);
+        res.json(filterBookmarkCatalogForVisibleChats(bookmarkStore.catalog(), visible));
+    } catch (error) { next(error); }
+});
+
+app.put(BOOKMARK_FOLDERS_API_PATH, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        if (isCloudflareTunnelRequest(req)) {
+            return res.status(403).json({ error: 'Bookmark folders are local-only' });
+        }
+        await ensureChatStore();
+        bookmarkStore.replaceFolders(req.body?.folders);
+        broadcastBookmarksInvalidated(req);
+        res.json(bookmarkStore.catalog());
+    } catch (error) { next(error); }
+});
+
+app.post(`${BOOKMARK_FOLDERS_API_PATH}/merge`, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!requireSyncClientId(req, res)) return;
+    try {
+        if (isCloudflareTunnelRequest(req)) {
+            return res.status(403).json({ error: 'Bookmark folders are local-only' });
+        }
+        await ensureChatStore();
+        const idMap = bookmarkStore.mergeFolders(req.body?.folders);
+        broadcastBookmarksInvalidated(req);
+        res.json({ idMap, catalog: bookmarkStore.catalog() });
+    } catch (error) { next(error); }
+});
+
+app.post(`${BOOKMARKS_API_PATH}/compatibility`, async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        await ensureChatStore();
+        const targets = Array.isArray(req.body?.targets) ? req.body.targets : null;
+        if (!targets) return res.status(400).json({ error: 'Invalid bookmark targets' });
+        const visible = await visibleBookmarkChatKeys(req);
+        res.json(bookmarkStore.compatibilityForTargets(targets.filter(target =>
+            isVisibleBookmarkTarget(visible, target?.characterId, target?.chatId))));
+    } catch (error) { next(error); }
+});
+
 // GET /api/chat-content/:chaId/:chatIndex — retrieve full chat from server
 app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
@@ -4832,6 +5054,12 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
             return res.status(400).json({ error: 'Chat data and x-chat-id required' });
         }
 
+        // Original-compatible imports may carry bookmark fields inside the
+        // chat. Absorb them once into the server table, while keeping the
+        // canonical full-chat payload free of a second bookmark source.
+        const importedBookmarks = readChatCompatibility(chatData);
+        stripChatCompatibility(chatData);
+
         if (isCloudflareTunnelRequest(req)) {
             const raw = kvGet('database/database.bin');
             if (raw) {
@@ -4849,6 +5077,19 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
             expectedEtag: req.headers['x-chat-if-match'],
             originClientId: getSyncClientIdFromRequest(req),
         });
+        if (importedBookmarks) {
+            if (bookmarkStore.replaceChatCompatibility(chaId, expectedChatId, importedBookmarks)) {
+                broadcastBookmarksInvalidated(req);
+            }
+        }
+        else {
+            const validMessageIds = new Set(
+                (chatData.message ?? []).map(message => message?.chatId).filter(Boolean),
+            );
+            if (bookmarkStore.pruneChatMessages(chaId, expectedChatId, validMessageIds) > 0) {
+                broadcastBookmarksInvalidated(req);
+            }
+        }
         res.json({ success: true, etag: commit.etag });
     } catch (error) {
         if (error instanceof CanonicalChatCommitError) {
@@ -5586,11 +5827,12 @@ app.delete('/api/db/snapshots', async (req, res, next) => {
             return res.status(400).json({ error: 'Invalid snapshot key' });
         }
         kvDel(key);
+        bookmarkStore.deleteSnapshot(key);
         res.json({ ok: true });
     } catch (err) { next(err); }
 });
 
-async function restoreDatabaseBlob(blob) {
+async function restoreDatabaseBlob(blob, options = {}) {
     await queueStorageOperation(async () => {
         // Drain any pending debounced persist first — same pattern as
         // /api/db/optimize. Without this, an in-flight save could land
@@ -5613,7 +5855,18 @@ async function restoreDatabaseBlob(blob) {
                 const dbObj = await decodeDatabaseWithPersistentChatIds(raw, {
                     createBackup: false,
                 });
-                initChatStore(dbObj);
+                const restoredBookmarkSnapshot = options.bookmarkSnapshotKey
+                    ? bookmarkStore.restoreSnapshot(options.bookmarkSnapshotKey)
+                    : false;
+                const bookmarkMigration = options.importBookmarkCompatibility
+                    || (options.bookmarkSnapshotKey && !restoredBookmarkSnapshot)
+                    ? initImportedChatStore(dbObj)
+                    : initChatStore(dbObj);
+                if (restoredBookmarkSnapshot) pruneBookmarksToFullChatStore();
+                if (bookmarkMigration.changed && !options.importBookmarkCompatibility
+                    && !(options.bookmarkSnapshotKey && !restoredBookmarkSnapshot)) {
+                    kvSet(DB_BLOB_KEY, Buffer.from(encodeRisuSaveLegacy(dbObj)));
+                }
                 // Migration may have rewritten database.bin — etag must
                 // reflect the post-migration bytes the next /api/read sends.
                 const finalRaw = kvGet(DB_BLOB_KEY);
@@ -5641,8 +5894,9 @@ app.post('/api/db/snapshots/restore', async (req, res, next) => {
         if (!blob) {
             return res.status(404).json({ error: 'Snapshot not found' });
         }
-        await restoreDatabaseBlob(blob);
+        await restoreDatabaseBlob(blob, { bookmarkSnapshotKey: key });
         broadcastDatabaseInvalidated(req, { allChats: true });
+        broadcastBookmarksInvalidated(req);
         res.json({ ok: true });
     } catch (err) { next(err); }
 });
@@ -5678,7 +5932,7 @@ app.post('/api/db/manual-snapshots', async (req, res, next) => {
     if (!requireSyncClientId(req, res)) return;
     try {
         await flushPendingDb();
-        const blob = kvGet(DB_BLOB_KEY);
+        const blob = await createCompatibleDatabaseValue();
         if (!blob) {
             return res.status(404).json({ error: 'Database not found' });
         }
@@ -5759,8 +6013,9 @@ app.post('/api/db/manual-snapshots/restore', async (req, res, next) => {
             }
             throw err;
         }
-        await restoreDatabaseBlob(blob);
+        await restoreDatabaseBlob(blob, { importBookmarkCompatibility: true });
         broadcastDatabaseInvalidated(req, { allChats: true });
+        broadcastBookmarksInvalidated(req);
         res.json({ ok: true });
     } catch (err) { next(err); }
 });

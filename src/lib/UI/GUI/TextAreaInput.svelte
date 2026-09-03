@@ -1,4 +1,5 @@
 <div
+    bind:this={containerRef}
     class={"risu-field-border risu-local-stack risu-local-stack-focus relative flex flex-col n-scroll rounded-md shadow-xs text-textcolor focus-within:outline-hidden"
         + (margin === 'top' ? ' mt-4' : margin === 'bottom' ? ' mb-4' : margin === 'both' ? ' mt-2 mb-2' : '')
         + ((className) ? (' ' + className) : '')}
@@ -44,31 +45,34 @@
             {readonly}
             {tabindex}
             bind:this={textareaRef}
-            bind:value={value}
-            {onfocus}
+            value={draftValue}
+            onfocus={handleFocus}
+            onblur={handleBlur}
             oninput={(e) => {
-                if(optimaizedInput){
-                    if(inpa++ > 10){
-                        value = e.currentTarget.value
-                        inpa = 0
-                        onInput()
-                    }
-                }
-                else{
-                    value = e.currentTarget.value
-                    onInput()
-                }
+                draftValue = e.currentTarget.value
+                dirty = draftValue !== value
+                ondraft(draftValue)
+                scheduleCommit()
                 scheduleAutoResize()
             }}
-            onchange={(e) => {
-                if(optimaizedInput){
-                    value = e.currentTarget.value
-                    onInput()
-                }
+            onchange={() => {
+                if(resolvedCommitMode !== 'input') commitDraft()
                 onchange()
             }}
             onkeydown={(e) => {
+                if(!composing && e.key === 'Escape' && dirty){
+                    revertDraft()
+                    return
+                }
                 handlePopupEditorHotkey(e)
+            }}
+            oncompositionstart={() => composing = true}
+            oncompositionend={(e) => {
+                composing = false
+                draftValue = e.currentTarget.value
+                dirty = draftValue !== value
+                ondraft(draftValue)
+                scheduleCommit()
             }}
             oncontextmenu={(e) => {
                 if(!onLongPress && !readonly && DBState.db.longPressToPopupEditor){
@@ -95,7 +99,7 @@
             {/if}
             {#if !readonly}
                 <IconButton title="Popup Editor" aria-label="Popup Editor" onclick={openPopupEditor}>
-                    <Maximize2 />
+                    <Maximize2Icon />
                 </IconButton>
             {/if}
         </IconButtonGroup>
@@ -109,9 +113,9 @@
 </style>
 <script lang="ts">
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
-    import { onDestroy, tick } from 'svelte';
+    import { onDestroy, tick, untrack } from 'svelte';
   import { DBState, showPopupEditor } from 'src/ts/stores.svelte';
-    import { Maximize2, CopyIcon, CheckIcon, RefreshCwIcon } from '@lucide/svelte'
+    import { Maximize2Icon, CopyIcon, CheckIcon, RefreshCwIcon } from '@lucide/svelte'
     import { alertConfirm } from 'src/ts/alert'
     import { isSecureContext } from 'src/ts/secureContext'
     import { language } from 'src/lang'
@@ -119,6 +123,8 @@
     import IconButtonGroup from './IconButtonGroup.svelte'
     import { hotkeyMatches } from 'src/ts/defaulthotkeys'
     import { longpress } from 'src/ts/gui/longtouch'
+    import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence'
+    import { INPUT_COMMIT_DEBOUNCE_MS, resolveInputCommitMode, type InputCommitMode } from 'src/ts/inputCommit'
     interface Props {
         size?: 'xs'|'sm'|'md'|'lg'|'xl'|'default';
         autocomplete?: 'on'|'off';
@@ -132,6 +138,10 @@
         height?: '20'|'24'|'28'|'32'|'36'|'full'|'default';
         className?: string;
         optimaizedInput?: boolean;
+        commitMode?: InputCommitMode;
+        debounceMs?: number;
+        oncommit?: (value: string) => void;
+        ondraft?: (value: string) => void;
         onchange?: () => void;
         actionBar?: boolean;
         readonly?: boolean;
@@ -142,6 +152,7 @@
         onLongPress?: (event: MouseEvent) => void;
         contentClassName?: string;
         style?: string;
+        popupTitle?: string;
     }
 
     let {
@@ -157,6 +168,10 @@
         height = 'default',
         className = '',
         optimaizedInput = true,
+        commitMode = undefined,
+        debounceMs = INPUT_COMMIT_DEBOUNCE_MS,
+        oncommit = () => {},
+        ondraft = () => {},
         onchange = () => {},
         actionBar = undefined,
         readonly = false,
@@ -167,13 +182,89 @@
         onLongPress = undefined,
         contentClassName = '',
         style = '',
+        popupTitle = '',
     }: Props = $props();
     // `actionBar` prop overrides per-field; otherwise follow the accessibility toggle.
     const showActionBar = $derived(actionBar ?? DBState.db.showInputActionBar ?? true)
+    const resolvedCommitMode = $derived(resolveInputCommitMode(commitMode, optimaizedInput))
     let copied = $state(false)
     let copiedTimer: ReturnType<typeof setTimeout> | null = null
-    let inpa = $state(0)
+    let draftValue = $state(untrack(() => value ?? ''))
+    let dirty = $state(false)
+    let composing = $state(false)
     let autoHeight = $state('44px')
+    let containerRef: HTMLDivElement
+
+    function commitDraft(nextValue = draftValue) {
+        commitWriter.cancel()
+        draftValue = nextValue
+        dirty = false
+        if(nextValue === value) return
+        value = nextValue
+        onInput()
+        oncommit(nextValue)
+    }
+
+    const commitWriter = createDebouncedDraftWriter<string>((nextValue) => {
+        if(!composing) commitDraft(nextValue)
+    }, untrack(() => debounceMs))
+
+    function scheduleCommit() {
+        if(composing) return
+        if(resolvedCommitMode === 'input') commitDraft()
+        else if(resolvedCommitMode === 'debounce') commitWriter.schedule(draftValue)
+    }
+
+    function revertDraft() {
+        commitWriter.cancel()
+        draftValue = value ?? ''
+        dirty = false
+        ondraft(draftValue)
+        scheduleAutoResize()
+    }
+
+    function handleFocus(event: FocusEvent & { currentTarget: HTMLTextAreaElement }) {
+        onfocus?.(event)
+    }
+
+    function handleBlur() {
+        if(resolvedCommitMode !== 'input') commitDraft()
+    }
+
+    const labelText = (element: Element | null) => {
+        const text = element?.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+        return text.length <= 120 ? text : ''
+    }
+
+    const inferPopupTitle = () => {
+        if(popupTitle.trim()) return popupTitle.trim()
+
+        const disclosureLabel = containerRef
+            ?.closest('[data-disclosure-field]')
+            ?.querySelector(':scope > [data-disclosure-label]')
+        const disclosureTitle = labelText(disclosureLabel)
+        if(disclosureTitle) return disclosureTitle
+
+        if(textareaRef?.labels?.length){
+            const associatedTitle = labelText(textareaRef.labels[0])
+            if(associatedTitle) return associatedTitle
+        }
+
+        let current: Element | null = containerRef
+        for(let depth = 0; current && depth < 3; depth += 1){
+            const previous = current.previousElementSibling
+            if(previous){
+                const directLabel = previous.matches('label, span, h1, h2, h3, h4')
+                    ? previous
+                    : previous.querySelector(':scope > label, :scope > span, :scope > h1, :scope > h2, :scope > h3, :scope > h4')
+                const inferredTitle = labelText(directLabel)
+                if(inferredTitle) return inferredTitle
+            }
+            current = current.parentElement
+        }
+
+        return ''
+    }
 
     const scheduleAutoResize = () => {
         if(!autoResize) return
@@ -201,18 +292,29 @@
 
     $effect(() => {
         if(autoResize){
-            void value
+            void draftValue
             scheduleAutoResize()
+        }
+    })
+
+    $effect(() => {
+        const externalValue = value ?? ''
+        if(!dirty && externalValue !== draftValue){
+            draftValue = externalValue
+            ondraft(draftValue)
         }
     })
 
     // Open the shared popup editor for this field, mirroring the contextmenu path.
     const openPopupEditor = () => {
         showPopupEditor({
-            value,
+            value: draftValue,
+            title: inferPopupTitle(),
             onSave: (nextValue) => {
-                value = nextValue
-                onInput()
+                draftValue = nextValue
+                dirty = draftValue !== value
+                ondraft(draftValue)
+                commitDraft()
                 return true
             }
         })
@@ -229,7 +331,7 @@
     }
 
     const copyValue = async () => {
-        const text = value ?? ''
+        const text = draftValue ?? ''
         try {
             if(isSecureContext && navigator.clipboard?.writeText){
                 await navigator.clipboard.writeText(text)
@@ -254,13 +356,17 @@
 
     const resetValue = async () => {
         if(await alertConfirm(language.clearInputConfirm)){
-            value = ''
-            onInput()
+            draftValue = ''
+            dirty = draftValue !== value
+            ondraft(draftValue)
+            commitDraft()
         }
     }
 
     onDestroy(() => {
         if (copiedTimer) clearTimeout(copiedTimer)
+        if (dirty) commitDraft()
+        else commitWriter.cancel()
     });
 
 </script>

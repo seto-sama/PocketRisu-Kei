@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
-    import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
+    import { getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
     import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte';
     import TokenCount from 'src/lib/UI/GUI/TokenCount.svelte';
@@ -15,22 +15,21 @@
     let { item, ctx }: Props = $props();
 
     let localValue: any = $state(untrack(() => getSettingValue(item, ctx)));
+    let draftValue = $state(untrack(() => getSettingValue(item, ctx) ?? ''));
 
     // Sync: DB → local (one-way read)
     $effect(() => {
         localValue = getSettingValue(item, ctx);
+        draftValue = localValue ?? '';
     });
 
-    // Write-back: local → DB (guarded)
-    $effect(() => {
-        const val = localValue;
-        if (val === UNINITIALIZED) return;
+    function commitValue(val: string) {
         untrack(() => {
             if (val !== getSettingValue(item, ctx)) {
                 setSettingValue(item, val, ctx);
             }
         });
-    });
+    }
 </script>
 
 {#if ctx.layout === 'row'}
@@ -45,9 +44,14 @@
             className="mt-2"
             bind:value={localValue}
             placeholder={item.options?.placeholder}
+            popupTitle={getLabel(item)}
+            commitMode={item.options?.commitMode ?? 'blur'}
+            debounceMs={item.options?.debounceMs}
+            oncommit={commitValue}
+            ondraft={(value) => draftValue = value}
         />
         {#if item.options?.showTokenCount}
-            <TokenCount value={localValue} className="mt-1" />
+            <TokenCount value={draftValue} className="mt-1" />
         {/if}
     </div>
 {:else}
@@ -59,8 +63,13 @@
         className="mt-2 mb-4"
         bind:value={localValue}
         placeholder={item.options?.placeholder}
+        popupTitle={getLabel(item)}
+        commitMode={item.options?.commitMode ?? 'blur'}
+        debounceMs={item.options?.debounceMs}
+        oncommit={commitValue}
+        ondraft={(value) => draftValue = value}
     />
     {#if item.options?.showTokenCount}
-        <TokenCount value={localValue} className="mb-4" />
+        <TokenCount value={draftValue} className="mb-4" />
     {/if}
 {/if}

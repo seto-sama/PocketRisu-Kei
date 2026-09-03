@@ -25,12 +25,15 @@
         {placeholder}
         id={id}
         type="password"
-        bind:value
+        value={draftValue}
         disabled={disabled}
-        oninput={oninput}
-        onchange={onchange}
-        onkeydown={onkeydown}
-        onfocus={onfocus}
+        oninput={handleInput}
+        onchange={handleChange}
+        onkeydown={handleKeydown}
+        onfocus={handleFocus}
+        onblur={handleBlur}
+        oncompositionstart={() => composing = true}
+        oncompositionend={handleCompositionEnd}
         list={list}
         {role}
         aria-controls={ariaControls}
@@ -63,12 +66,15 @@
         {placeholder}
         id={id}
         type="text"
-        bind:value
+        value={draftValue}
         disabled={disabled}
-        oninput={oninput}
-        onchange={onchange}
-        onkeydown={onkeydown}
-        onfocus={onfocus}
+        oninput={handleInput}
+        onchange={handleChange}
+        onkeydown={handleKeydown}
+        onfocus={handleFocus}
+        onblur={handleBlur}
+        oncompositionstart={() => composing = true}
+        oncompositionend={handleCompositionEnd}
         {role}
         aria-controls={ariaControls}
         aria-expanded={ariaExpanded}
@@ -78,6 +84,10 @@
 {/if}
 
 <script lang="ts">
+    import { onDestroy, untrack } from 'svelte';
+    import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence';
+    import { INPUT_COMMIT_DEBOUNCE_MS, type InputCommitMode } from 'src/ts/inputCommit';
+
     type FormEventHandler<T extends EventTarget> = (event: Event & {
         currentTarget: EventTarget & T;
     }) => any
@@ -95,6 +105,11 @@
         onchange?: FormEventHandler<HTMLInputElement>;
         onkeydown?: (event: KeyboardEvent) => any;
         onfocus?: FormEventHandler<HTMLInputElement>;
+        onblur?: FormEventHandler<HTMLInputElement>;
+        oncommit?: (value: string) => void;
+        ondraft?: (value: string) => void;
+        commitMode?: InputCommitMode;
+        debounceMs?: number;
         fullwidth?: boolean;
         fullh?: boolean;
         className?: string;
@@ -121,6 +136,11 @@
         onchange,
         onkeydown,
         onfocus,
+        onblur,
+        oncommit = () => {},
+        ondraft = () => {},
+        commitMode = 'input',
+        debounceMs = INPUT_COMMIT_DEBOUNCE_MS,
         fullwidth = false,
         fullh = false,
         className = '',
@@ -134,6 +154,80 @@
         ariaActiveDescendant = undefined
         
     }: Props = $props();
+
+    let draftValue = $state(untrack(() => value ?? ''));
+    let dirty = $state(false);
+    let composing = $state(false);
+
+    function commit(nextValue = draftValue) {
+        writer.cancel();
+        draftValue = nextValue;
+        dirty = false;
+        if (nextValue === value) return;
+        value = nextValue;
+        oncommit(nextValue);
+    }
+
+    const writer = createDebouncedDraftWriter<string>((nextValue) => {
+        if (!composing) commit(nextValue);
+    }, untrack(() => debounceMs));
+
+    function scheduleCommit() {
+        if (composing) return;
+        if (commitMode === 'input') commit();
+        else if (commitMode === 'debounce') writer.schedule(draftValue);
+    }
+
+    function handleInput(event: Event & { currentTarget: HTMLInputElement }) {
+        draftValue = event.currentTarget.value;
+        dirty = draftValue !== value;
+        ondraft(draftValue);
+        scheduleCommit();
+        oninput?.(event);
+    }
+
+    function handleChange(event: Event & { currentTarget: HTMLInputElement }) {
+        if (commitMode !== 'input') commit();
+        onchange?.(event);
+    }
+
+    function handleFocus(event: FocusEvent & { currentTarget: HTMLInputElement }) {
+        onfocus?.(event);
+    }
+
+    function handleBlur(event: FocusEvent & { currentTarget: HTMLInputElement }) {
+        if (commitMode !== 'input') commit();
+        onblur?.(event);
+    }
+
+    function handleKeydown(event: KeyboardEvent) {
+        if (!composing && event.key === 'Enter' && commitMode !== 'input') commit();
+        if (!composing && event.key === 'Escape' && dirty) {
+            writer.cancel();
+            draftValue = value ?? '';
+            dirty = false;
+            ondraft(draftValue);
+        }
+        onkeydown?.(event);
+    }
+
+    function handleCompositionEnd(event: CompositionEvent & { currentTarget: HTMLInputElement }) {
+        composing = false;
+        draftValue = event.currentTarget.value;
+        dirty = draftValue !== value;
+        ondraft(draftValue);
+        scheduleCommit();
+    }
+
+    $effect(() => {
+        const externalValue = value ?? '';
+        if (!dirty && externalValue !== draftValue) draftValue = externalValue;
+    });
+
+    onDestroy(() => {
+        if (dirty) commit();
+        else writer.cancel();
+    });
 </script>
 
 <style>

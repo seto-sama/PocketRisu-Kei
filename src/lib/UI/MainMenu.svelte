@@ -2,7 +2,7 @@
     import { DBState } from 'src/ts/stores.svelte';
     import Hub from "./Realm/RealmMain.svelte";
     import { OpenRealmStore } from "src/ts/stores.svelte";
-    import { ChevronDown, HomeIcon, SendIcon, TriangleAlertIcon, UsersIcon } from "@lucide/svelte";
+    import { ChevronDownIcon, CompassIcon, HomeIcon, LayoutGridIcon, ListIcon, SendIcon, TriangleAlertIcon, UsersIcon } from "@lucide/svelte";
     import GithubIcon from "./GithubIcon.svelte";
     import { getVersionString, openURL } from "src/ts/globalApi.svelte";
     import { language } from "src/lang";
@@ -16,8 +16,19 @@
     import ShButton from "./GUI/ShButton.svelte";
     import ShAlert from "./GUI/ShAlert.svelte";
     import IconButton from "./GUI/IconButton.svelte";
+    import IconButtonGroup from "./GUI/IconButtonGroup.svelte";
+    import HorizontalMasonry from "./HorizontalMasonry.svelte";
+    import { readViewPreference, viewPreferenceKeys, writeViewPreference } from "src/ts/viewPreference";
 
     let realmOpen = $state(!DBState.db.hideRealm);
+    let realmViewMode = $state<'list' | 'icons'>(
+      readViewPreference(viewPreferenceKeys.mainRealm, ['list', 'icons'], 'list'),
+    );
+
+    function setRealmViewMode(mode: 'list' | 'icons') {
+      realmViewMode = mode;
+      writeViewPreference(viewPreferenceKeys.mainRealm, mode);
+    }
 
     const relatedLinkIconClass =
       "h-40 w-40 md:h-44 md:w-44 origin-right -rotate-12 opacity-[0.12] transition-all duration-500 group-hover:scale-105 group-hover:opacity-[0.22]";
@@ -69,28 +80,49 @@
         </ShAlert>
       {/if}
       <div class="mt-4 mb-4 w-full border-t border-t-selected"></div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 sm:flex-nowrap">
         <button
           type="button"
-          class="flex-1 flex items-center gap-2 rounded border border-transparent text-2xl font-bold text-left transition-colors"
+          class="flex min-w-0 flex-1 basis-full items-center gap-2 rounded border border-transparent text-left text-2xl font-bold transition-colors sm:basis-auto"
           aria-expanded={realmOpen}
           aria-controls="main-realm-section"
           onclick={() => (realmOpen = !realmOpen)}
         >
-          <span>Recently Uploaded</span>
-          <ChevronDown
+          <span>{language.recentlyUploadedCharacters}</span>
+          <ChevronDownIcon
             size={20}
             class="shrink-0 transition-transform duration-150 {realmOpen ? 'rotate-180' : ''}"
           />
         </button>
-        <ShButton
-          variant="ghost"
-          size="sm"
-          className="bg-darkbg"
-          onclick={() => {
-            $OpenRealmStore = true
-          }}
-        >Get More</ShButton>
+        <IconButtonGroup size="lg" className="ml-auto shrink-0 rounded-md border border-darkborderc bg-darkbg p-1 sm:ml-0">
+          <IconButton
+            active={realmViewMode === 'list'}
+            activeColor="primary"
+            title={language.simple}
+            aria-label={language.simple}
+            onclick={() => setRealmViewMode('list')}
+          >
+            <ListIcon />
+          </IconButton>
+          <IconButton
+            active={realmViewMode === 'icons'}
+            activeColor="primary"
+            title={language.grid}
+            aria-label={language.grid}
+            onclick={() => setRealmViewMode('icons')}
+          >
+            <LayoutGridIcon />
+          </IconButton>
+          <IconButton
+            title={language.getMoreCharacters}
+            aria-label={language.getMoreCharacters}
+            onclick={() => {
+              $OpenRealmStore = true
+            }}
+          >
+            <CompassIcon />
+          </IconButton>
+        </IconButtonGroup>
       </div>
       <div
         id="main-realm-section"
@@ -107,13 +139,23 @@
             }) then charas}
             {#if charas.length > 0}
               {@html hubAdditionalHTML}
-              <div class="grid w-full grid-cols-1 gap-4 p-2 md:grid-cols-2">
+              {#if realmViewMode === 'icons'}
+                <HorizontalMasonry itemCount={charas.length} className="py-2">
+                  {#snippet children(index)}
+                    <RisuHubIcon onClick={() => {
+                      $showRealmInfoStore = charas[index]
+                    }} chara={charas[index]} iconOnly />
+                  {/snippet}
+                </HorizontalMasonry>
+              {:else}
+              <div class="grid w-full grid-cols-1 gap-4 py-2 md:grid-cols-2">
                   {#each charas as chara}
                       <RisuHubIcon onClick={() => {
                         $showRealmInfoStore = chara
                       }} chara={chara} />
                   {/each}
               </div>
+              {/if}
             {:else}
               <div class="text-textcolor2">Failed to load {language.hub}...</div>
             {/if}
@@ -122,9 +164,9 @@
       </div>
       <div class="mt-4 mb-4 w-full border-t border-t-selected"></div>
       <h1 class="text-2xl font-bold mb-4">
-        Related Links
+        {language.relatedLinks}
       </h1>
-        <div class="grid w-full grid-cols-1 gap-4 p-2 md:grid-cols-2">
+        <div class="grid w-full grid-cols-1 gap-4 py-2 md:grid-cols-2">
           <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://github.com/PocketRisu/PocketRisu")
           }}>

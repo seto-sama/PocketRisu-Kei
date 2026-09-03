@@ -90,7 +90,7 @@
                     {/snippet}
                 </SettingLayout>
                 <SettingLayout variant="row" title={language.ttsVoicevoxUrl} description={language.help.ttsVoicevoxUrl}>
-                    {#snippet control()}<TextInput className="w-48 text-sm" size="sm" bind:value={DBState.db.voicevoxUrl}/>{/snippet}
+                    {#snippet control()}<TextInput commitMode="blur" className="w-48 text-sm" size="sm" bind:value={DBState.db.voicevoxUrl}/>{/snippet}
                 </SettingLayout>
 
                 <SettingLayout variant="row" title={language.openAIApiKey} description={language.help.ttsOpenAIKey}>

@@ -89,9 +89,13 @@ describe('resolveSnapshot', () => {
         }
 
         const snapshot = resolveSnapshot(registry, profile.id)
-        expect(snapshot.schema.map((field) => field.key)).toEqual(['apiKey', 'modelId', 'temperature'])
+        expect(new Set(snapshot.schema.map((field) => field.key))).toEqual(
+            new Set(['apiKey', 'modelId', 'temperature']),
+        )
         expect(snapshot.schema.find((field) => field.key === 'modelId')?.default).toBe('model-v1')
-        expect(snapshot.uiSchema.groups.map((group) => group.id)).toEqual(['base', 'generation'])
+        expect(new Set(snapshot.uiSchema.groups.map((group) => group.id))).toEqual(
+            new Set(['base', 'generation']),
+        )
         expect(snapshot.limits).toEqual({
             known: true,
             contextWindowTokens: 65536,

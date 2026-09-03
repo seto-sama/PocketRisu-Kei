@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { AudioLines, Copy, Download, Trash2, Video } from '@lucide/svelte'
+  import { AudioLinesIcon, CopyIcon, DownloadIcon, Trash2Icon, VideoIcon } from '@lucide/svelte'
   import OptionInput from "../../UI/GUI/OptionInput.svelte";
   import CheckInput from '../../UI/GUI/CheckInput.svelte'
   import ShButton from '../../UI/GUI/ShButton.svelte'
@@ -465,7 +465,7 @@
               {:else if item.type === 'video'}
                 {#if failedVideoThumbnails.has(item.id)}
                   <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-textcolor2/60">
-                    <Video size={36} />
+                    <VideoIcon size={36} />
                     <span class="text-[10px]">{language.inlayGallery.inlayVideoAsset}</span>
                   </div>
                 {:else}
@@ -480,7 +480,7 @@
                 {/if}
               {:else}
                 <div class="w-full h-full flex flex-col items-center justify-center gap-2 text-textcolor2/60">
-                  <AudioLines size={36} />
+                  <AudioLinesIcon size={36} />
                   <span class="text-[10px]">{language.inlayGallery.inlayAudioAsset}</span>
                 </div>
               {/if}
@@ -533,7 +533,7 @@
                     onclick={(e) => { e.stopPropagation(); copyInlayReference(item.id) }}
                     title={language.copy}
                   >
-                    <Copy size={11} />
+                    <CopyIcon size={11} />
                   </button>
                   <div class="flex gap-1.5 justify-end">
                     <button
@@ -541,14 +541,14 @@
                       onclick={(e) => { e.stopPropagation(); downloadCurrent(item) }}
                       title={language.download}
                     >
-                      <Download size={12} />
+                      <DownloadIcon size={12} />
                     </button>
                     <button
                       class="w-6 h-6 rounded bg-draculared/30 hover:bg-draculared/70 flex items-center justify-center text-white transition-colors"
                       onclick={(e) => { e.stopPropagation(); deleteAsset(item.id, item.name) }}
                       title={language.inlayGallery.inlayDelete}
                     >
-                      <Trash2 size={12} />
+                      <Trash2Icon size={12} />
                     </button>
                   </div>
                 </div>
@@ -599,7 +599,7 @@
       ></video>
     {:else if currentViewerItem?.type === 'audio'}
       <div class="flex w-full max-w-xl flex-col items-center gap-6 rounded-lg border border-darkborderc bg-darkbg p-8">
-        <AudioLines size={64} class="text-textcolor2" />
+        <AudioLinesIcon size={64} class="text-textcolor2" />
         <audio src={viewerUrl} controls class="w-full"></audio>
       </div>
     {:else}
@@ -615,13 +615,13 @@
   {#snippet actions()}
     {#if currentViewerItem}
       <IconButton onclick={() => copyInlayReference(currentViewerItem.id)} title={language.copy} aria-label={language.copy} className="text-textcolor">
-        <Copy />
+        <CopyIcon />
       </IconButton>
       <IconButton onclick={() => downloadCurrent(currentViewerItem)} title={language.download} aria-label={language.download} className="text-textcolor">
-        <Download />
+        <DownloadIcon />
       </IconButton>
       <IconButton tone="destructive" onclick={() => deleteAsset(currentViewerItem.id, currentViewerItem.name)} title={language.inlayGallery.inlayDelete} aria-label={language.inlayGallery.inlayDelete} className="text-textcolor">
-        <Trash2 />
+        <Trash2Icon />
       </IconButton>
     {/if}
   {/snippet}

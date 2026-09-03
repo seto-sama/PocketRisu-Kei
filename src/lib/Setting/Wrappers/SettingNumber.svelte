@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
-    import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
+    import { getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
     import NumberInput from 'src/lib/UI/GUI/NumberInput.svelte';
     import Help from 'src/lib/Others/Help.svelte';
@@ -21,16 +21,14 @@
         localValue = getSettingValue(item, ctx);
     });
 
-    // Write-back: local → DB (guarded)
-    $effect(() => {
-        const val = localValue;
-        if (val === UNINITIALIZED) return;
+    function commitValue(val: number) {
         untrack(() => {
             if (val !== getSettingValue(item, ctx)) {
                 setSettingValue(item, val, ctx);
             }
         });
-    });
+        void item.options?.onCommit?.(val, ctx);
+    }
 </script>
 
 {#if ctx.layout === 'row' || ctx.layout === 'block'}
@@ -49,7 +47,9 @@
                     placeholder={item.options?.placeholder}
                     {disabled}
                     bind:value={localValue}
-                    onChange={() => item.options?.onCommit?.(localValue, ctx)}
+                    commitMode={item.options?.commitMode ?? 'blur'}
+                    debounceMs={item.options?.debounceMs}
+                    onCommit={commitValue}
                 />
                 {#if item.options?.suffix}<span class="text-textcolor2 text-xs shrink-0">{item.options.suffix}</span>{/if}
             </div>
@@ -68,6 +68,8 @@
         placeholder={item.options?.placeholder}
         {disabled}
         bind:value={localValue}
-        onChange={() => item.options?.onCommit?.(localValue, ctx)}
+        commitMode={item.options?.commitMode ?? 'blur'}
+        debounceMs={item.options?.debounceMs}
+        onCommit={commitValue}
     />
 {/if}

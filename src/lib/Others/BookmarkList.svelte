@@ -1,188 +1,172 @@
 <script lang="ts">
-    import { XIcon, TrashIcon, PencilIcon, BookOpenCheckIcon, BookLockIcon, ArrowRightIcon } from "@lucide/svelte";
-    import Chat from "../ChatScreens/Chat.svelte";
-    import { getCharImage } from "src/ts/characters";
-    import { findCharacterbyId, getUserName, getUserIcon } from "src/ts/util";
-    import { createSimpleCharacter, bookmarkListOpen, DBState, selectedCharID, ScrollToMessageStore } from "src/ts/stores.svelte";
-    import { language } from "src/lang";
-    import { alertInput } from "src/ts/alert";
-    import OverlayPortal from "../UI/GUI/OverlayPortal.svelte";
+    import { BookmarkIcon, LoaderCircleIcon } from '@lucide/svelte'
+    import { onMount } from 'svelte'
+    import { alertError } from 'src/ts/alert'
+    import {
+        collectGlobalBookmarks,
+    } from 'src/ts/bookmarks/bookmarkData'
+    import {
+        assignBookmarkFolder,
+        bookmarkCatalog,
+        bookmarkCatalogLoading,
+        bookmarkKey,
+        deleteBookmark,
+        ensureBookmarkCatalog,
+        navigateToBookmark,
+        renameBookmark,
+        replaceBookmarkFolders,
+    } from 'src/ts/bookmarks/bookmarkService'
+    import type { GlobalBookmarkEntry } from 'src/ts/bookmarks/bookmarkTypes'
+    import { language } from 'src/lang'
+    import { bookmarkListOpen, DBState } from 'src/ts/stores.svelte'
+    import InlineNameInput from '../UI/GUI/InlineNameInput.svelte'
+    import PresetPickerActions from '../UI/PresetPickerActions.svelte'
+    import PresetPickerLayout from '../UI/PresetPickerLayout.svelte'
 
-    const close = () => $bookmarkListOpen = false;
-    let chara = $derived(DBState.db.characters[$selectedCharID]);
-    const simpleChar = $derived(createSimpleCharacter(chara));
+    const close = () => $bookmarkListOpen = false
+    let selectedFolder = $state('all')
+    let searchQuery = $state('')
+    let busyKey = $state('')
+    let editMode = $state(false)
 
-    const messageMap = $derived.by(() => {
-        if (!chara) return new Map();
+    const folders = $derived($bookmarkCatalog.folders)
+    const bookmarks = $derived(collectGlobalBookmarks(DBState.db, $bookmarkCatalog))
 
-        const chat = chara.chats[chara.chatPage];
-        const allMessages = chat.message;
-        const map = new Map();
-        
-        allMessages.forEach((m, index) => {
-            map.set(m.chatId, { ...m, originalIndex: index, saying: m.saying ?? '' });
-        });
-
-        return map;
-    });
-
-    const bookmarkedMessages = $derived.by(() => {
-        if (!chara) return [];
-
-        const chat = chara.chats[chara.chatPage];
-        const bookmarkIds = chat.bookmarks ?? [];
-        const map = messageMap; 
-
-        const messages = bookmarkIds
-            .map(id => {
-                const message = map.get(id); 
-                if (!message) return null;
-
-                let speaker = null;
-                if (message.saying) {
-                    speaker = findCharacterbyId(message.saying);
-                }
-
-                return { ...message, speaker };
-            })
-            .filter(Boolean);
-
-        return messages;
-    });
-
-    let expandedBookmarks = $state(new Set<string>());
-    let expandAll = $state(false);
-
-    function toggleExpand(chatId: string) {
-        if (expandAll) {
-            expandAll = false;
-            const allIds = bookmarkedMessages.map(m => m.chatId);
-            const newSet = new Set(allIds);
-            newSet.delete(chatId);
-            expandedBookmarks = newSet;
-        } else {
-            const newSet = new Set(expandedBookmarks);
-            if (newSet.has(chatId)) {
-                newSet.delete(chatId);
-            } else {
-                newSet.add(chatId);
-            }
-            expandedBookmarks = newSet;
+    async function runBookmarkMutation(
+        bookmark: GlobalBookmarkEntry,
+        operation: () => Promise<void>,
+    ) {
+        const key = bookmarkKey(bookmark)
+        if (busyKey) return
+        busyKey = key
+        try {
+            await operation()
+        }
+        catch (error) {
+            console.error('[bookmarks] Bookmark update failed', error)
+            alertError(language.bookmarkOperationFailed)
+        }
+        finally {
+            busyKey = ''
         }
     }
 
-    function toggleExpandAll() {
-        expandAll = !expandAll;
-        if (expandAll) {
-            expandedBookmarks.clear();
+    function assignToFolder(index: number, folderId?: string) {
+        const bookmark = bookmarks[index]
+        if (!bookmark) return
+        void runBookmarkMutation(bookmark, () => assignBookmarkFolder(bookmark, folderId))
+    }
+
+    async function commitName(index: number, value: string) {
+        const bookmark = bookmarks[index]
+        if (!bookmark) return
+        const name = value.trim()
+        if (!name || name === bookmark.name) return
+        await runBookmarkMutation(bookmark, () => renameBookmark(bookmark, name))
+    }
+
+    function deleteBookmarkAt(index: number) {
+        const bookmark = bookmarks[index]
+        if (!bookmark) return
+        void runBookmarkMutation(bookmark, () => deleteBookmark(bookmark))
+    }
+
+    async function goToBookmark(index: number) {
+        const bookmark = bookmarks[index]
+        if (!bookmark || busyKey) return
+        busyKey = bookmarkKey(bookmark)
+        try {
+            if (await navigateToBookmark(bookmark)) close()
+            else alertError(language.bookmarkTargetMissing)
+        }
+        catch (error) {
+            console.error('[bookmarks] Bookmark navigation failed', error)
+            alertError(language.bookmarkOperationFailed)
+        }
+        finally {
+            busyKey = ''
         }
     }
 
-    async function editName(chatId: string) {
-        const chat = chara.chats[chara.chatPage];
-        const newName = await alertInput(language.bookmarkAskNameOrCancel, [], chat.bookmarkNames?.[chatId] || '');
-        if (newName && newName.trim() !== '') {
-            chat.bookmarkNames[chatId] = newName;
-        }
-    }
-
-    function removeBookmark(chatId: string) {
-        const chat = chara.chats[chara.chatPage];
-        const index = chat.bookmarks.indexOf(chatId);
-        if (index > -1) {
-            chat.bookmarks.splice(index, 1);
-            delete chat.bookmarkNames[chatId];
-        }
-    }
-
-    function goToChat(index: number) {
-        ScrollToMessageStore.value = index;
-        close();
-    }
+    onMount(() => {
+        void ensureBookmarkCatalog().catch(error => {
+            console.error('[bookmarks] Catalog load failed', error)
+            alertError(language.bookmarkOperationFailed)
+        })
+    })
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<OverlayPortal onEscape={close}>
-<div
-    class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center"
-    onclick={(event) => {
-        if (event.target === event.currentTarget) {
-            close();
-        }
+<PresetPickerLayout
+    title={language.bookmarks}
+    {folders}
+    itemFolderIds={bookmarks.map(bookmark => bookmark.folderId)}
+    itemNames={bookmarks.map(bookmark => bookmark.name)}
+    itemSearchTexts={bookmarks.map(bookmark =>
+        `${bookmark.name} ${bookmark.characterName} ${bookmark.chatName}`
+    )}
+    itemDragDataKey="bookmarkIndex"
+    bind:selectedFolder
+    bind:searchQuery
+    searchPlaceholder={language.bookmarkSearchPlaceholder}
+    folderNamePrompt={language.bookmarkFolderNamePrompt}
+    folderRenamePrompt={language.bookmarkFolderRenamePrompt}
+    folderDeleteConfirm={language.bookmarkFolderDeleteConfirm}
+    folderEmptyMessage={language.noBookmarks}
+    noSearchResultsMessage={language.bookmarkNoSearchResults}
+    allowFolderAssignmentDrag
+    readOnly={!!busyKey}
+    itemEditMode={editMode}
+    {close}
+    onFoldersChange={(next) => {
+        void replaceBookmarkFolders(next).catch(error => {
+            console.error('[bookmarks] Folder update failed', error)
+            alertError(language.bookmarkOperationFailed)
+        })
     }}
-    onkeydown={(event) => {
-        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
-            close();
-        }
-    }}
+    onAssignItem={assignToFolder}
+    onDeleteFolder={() => {}}
+    onSelectItem={(index) => { void goToBookmark(index) }}
+    onDeleteItem={deleteBookmarkAt}
 >
-    <div class="bg-darkbg p-3 rounded-md flex flex-col max-w-4xl w-full max-h-[90%] overflow-y-auto">
-        <div class="flex items-center text-textcolor mb-4">
-            <h2 class="text-xl font-bold">{language.bookmarks}</h2>
-            <div class="ml-auto flex items-center gap-2">
-                <button 
-                    class="text-textcolor2 risu-interactive-accent"
-                    onclick={toggleExpandAll}
-                    title={expandAll ? language.collapseAll : language.expandAll}
-                >
-                    {#if expandAll}
-                        <BookLockIcon size={20} />
-                    {:else}
-                        <BookOpenCheckIcon size={20} />
-                    {/if}   
-                </button>
-                <button class="text-textcolor2 risu-interactive-accent" onclick={close}>
-                    <XIcon size={20}/>
-                </button>
-            </div>
-        </div>
-        
-        {#if bookmarkedMessages.length === 0}
-            <p class="text-textcolor2">{language.noBookmarks}</p>
-        {:else}
-            <div class="flex flex-col gap-2">
-                {#each bookmarkedMessages as msg (msg.chatId)}
-                    <div class="border border-darkborderc rounded-lg">
-                        <div 
-                            class="flex items-center p-3 cursor-pointer risu-interactive-surface-solid transition-colors"
-                            onclick={() => toggleExpand(msg.chatId)}
-                            onkeydown={(e) => e.key === 'Enter' && toggleExpand(msg.chatId)}
-                            role="button"
-                            tabindex="0"
-                        >
-                            <span class="grow text-left truncate">{chara.chats[chara.chatPage].bookmarkNames?.[msg.chatId] || msg.data.substring(0, 30) + '...'}</span>
-                            <div class="shrink-0 flex items-center gap-2 ml-2">
-                                <button class="text-textcolor2 risu-interactive-accent" title={language.goToChat} onclick={(e) => { e.stopPropagation(); goToChat(msg.originalIndex); }}>
-                                    <ArrowRightIcon size={20} />
-                                </button>
-                                <button class="text-textcolor2 risu-interactive-accent" onclick={(e) => { e.stopPropagation(); editName(msg.chatId); }}>
-                                    <PencilIcon size={16} />
-                                </button>
-                                <button class="text-textcolor2 risu-interactive-danger" onclick={(e) => { e.stopPropagation(); removeBookmark(msg.chatId); }}>
-                                    <TrashIcon size={16} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {#if expandAll || expandedBookmarks.has(msg.chatId)}
-                            <div class="p-1 border-t border-darkborderc">
-                                    <Chat
-                                        idx={msg.originalIndex}
-                                        message={msg.data}
-                                        name={msg.role === 'user' ? getUserName() : (msg.speaker?.name ?? chara.name)}
-                                        img={msg.role === 'user' ? getCharImage(getUserIcon(), 'css') : getCharImage(msg.speaker?.image ?? chara.image, 'css')}
-                                        role={msg.role}
-                                        messageGenerationInfo={msg.generationInfo}
-                                        rerollIcon={false}
-                                        largePortrait={msg.speaker?.largePortrait ?? (chara as import('src/ts/storage/database.svelte').character).largePortrait}
-                                        character={msg.speaker ? msg.saying : simpleChar}
-                                    />
-                            </div>
-                        {/if}
-                    </div>
-                {/each}
+    {#snippet itemContent(index)}
+        {@const bookmark = bookmarks[index]}
+        {#if bookmark}
+            <BookmarkIcon class="mr-2 shrink-0" size={18} />
+            {#if editMode}
+                <div class="min-w-0 grow">
+                    <InlineNameInput
+                        value={bookmark.name}
+                        size="default"
+                        onchange={(event) => { void commitName(index, event.currentTarget.value) }}
+                        onkeydown={(event) => {
+                            if (event.key === 'Enter') event.currentTarget.blur()
+                        }}
+                    />
+                </div>
+            {:else}
+                <div class="min-w-0 grow truncate">
+                    <span>{bookmark.name}</span>
+                    {#if bookmark.characterName}
+                        <span class="text-textcolor2"> / {bookmark.characterName}</span>
+                    {/if}
+                    {#if bookmark.chatName}
+                        <span class="text-textcolor2"> / {bookmark.chatName}</span>
+                    {/if}
+                </div>
+            {/if}
+            {#if busyKey === bookmarkKey(bookmark)}
+                <LoaderCircleIcon class="ml-2 shrink-0 animate-spin text-textcolor2" size={18} />
+            {/if}
+        {/if}
+    {/snippet}
+    {#snippet listFooter()}
+        {#if $bookmarkCatalogLoading}
+            <div class="flex items-center justify-center gap-2 py-3 text-sm text-textcolor2">
+                <LoaderCircleIcon class="animate-spin" size={16} />
+                <span>{language.loading}</span>
             </div>
         {/if}
-    </div>
-</div>
-</OverlayPortal>
+    {/snippet}
+
+    <PresetPickerActions onRename={() => { editMode = !editMode }} />
+</PresetPickerLayout>

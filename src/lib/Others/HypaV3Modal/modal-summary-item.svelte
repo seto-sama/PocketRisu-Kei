@@ -3,9 +3,9 @@
   import {
     LanguagesIcon,
     StarIcon,
-    RefreshCw,
+    RefreshCwIcon,
     Trash2Icon,
-    ScissorsLineDashed,
+    ScissorsLineDashedIcon,
     XIcon,
     CheckIcon,
     TagIcon,
@@ -478,7 +478,7 @@
         disabled={isOrphan()}
         onclick={async () => await toggleReroll()}
       >
-        <RefreshCw />
+        <RefreshCwIcon />
       </IconButton>
 
       <!-- Delete This Button -->
@@ -496,7 +496,7 @@
         tabindex={-1}
         onclick={async () => await deleteAfter()}
       >
-        <ScissorsLineDashed />
+        <ScissorsLineDashedIcon />
       </IconButton>
     </IconButtonGroup>
   </div>

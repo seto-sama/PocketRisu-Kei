@@ -65,7 +65,7 @@
         const preset = DBState.db.themePresets[index];
         if (!preset) return;
         if (DBState.db.themePresets.length === 1) {
-            notifyError(language.errors.onlyOneChat);
+            notifyError(language.errors.onlyOnePreset);
             return;
         }
         if (!await alertConfirm(`${language.removeConfirm}${preset.name}`)) return;
@@ -116,13 +116,11 @@
         onCreate={() => {
             const newPreset = safeStructuredClone(themePresetTemplate);
             newPreset.name = 'New Theme';
-            newPreset.folderId = selectedFolder !== 'all' && selectedFolder !== 'uncategorized' ? selectedFolder : undefined;
+            newPreset.folderId = undefined;
             DBState.db.themePresets = [...DBState.db.themePresets, newPreset];
         }}
         onImport={async () => {
-            const before = DBState.db.themePresets.length;
             await importThemePreset();
-            if (DBState.db.themePresets.length > before) assignPresetToFolder(DBState.db.themePresets.length - 1, selectedFolder);
         }}
         onRename={() => { editMode = !editMode }}
     />

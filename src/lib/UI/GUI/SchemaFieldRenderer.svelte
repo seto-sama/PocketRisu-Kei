@@ -253,18 +253,22 @@
         {/if}
         {#if uiField.widget === 'textarea'}
             <TextAreaInput
+                commitMode="blur"
                 className="mt-2"
                 bind:value={userValues[fieldKey] as string}
                 placeholder={uiField.placeholder ?? ''}
+                popupTitle={localizedLabel}
                 fullwidth
                 autocomplete="off"
                 height="default"
             />
         {:else}
             <TextAreaInput
+                commitMode="blur"
                 className="mt-2"
                 bind:value={stringArrayText}
                 placeholder={uiField.placeholder ?? ''}
+                popupTitle={localizedLabel}
                 fullwidth
                 autocomplete="off"
                 height="default"
@@ -287,6 +291,7 @@
         <div class="w-48 shrink-0">
             {#if uiField.widget === 'text'}
                 <TextInput
+                    commitMode="blur"
                     className="h-8 w-48 text-sm"
                     size="sm"
                     bind:value={userValues[fieldKey] as string}
@@ -318,6 +323,7 @@
                 </SelectInput>
             {:else if uiField.widget === 'combobox'}
                 <TextInput
+                    commitMode="blur"
                     className="h-8 w-48 text-sm"
                     size="sm"
                     bind:value={userValues[fieldKey] as string}
@@ -364,6 +370,7 @@
 
     {#if uiField.widget === 'text'}
         <TextInput
+            commitMode="blur"
             bind:value={userValues[fieldKey] as string}
             placeholder={uiField.placeholder ?? ''}
             fullwidth
@@ -376,8 +383,10 @@
         />
     {:else if uiField.widget === 'textarea'}
         <TextAreaInput
+            commitMode="blur"
             bind:value={userValues[fieldKey] as string}
             placeholder={uiField.placeholder ?? ''}
+            popupTitle={localizedLabel}
             fullwidth
             autocomplete="off"
             height="24"
@@ -427,16 +436,20 @@
         {/if}
     {:else if uiField.widget === 'string-array'}
         <TextAreaInput
+            commitMode="blur"
             bind:value={stringArrayText}
             placeholder={uiField.placeholder ?? ''}
+            popupTitle={localizedLabel}
             fullwidth
             autocomplete="off"
             height="default"
         />
     {:else if uiField.widget === 'json' || uiField.widget === 'key-value'}
         <TextAreaInput
+            commitMode="blur"
             bind:value={jsonText}
             placeholder={uiField.placeholder ?? '{}'}
+            popupTitle={localizedLabel}
             fullwidth
             autocomplete="off"
             height="32"

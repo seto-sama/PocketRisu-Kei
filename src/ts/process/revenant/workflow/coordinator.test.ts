@@ -1,6 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
 import {
-    combineProviderStartedHandlers,
     coordinateRevenantGeneration,
     type RevenantGenerationLifecycle,
 } from './coordinator'
@@ -8,15 +7,19 @@ import {
 describe('coordinateRevenantGeneration', () => {
     test('exposes durable registration before the provider result', async () => {
         let finish!: (value: string) => void
+        const onProviderStarted = vi.fn()
         const providerResult = new Promise<string>(resolve => {
             finish = resolve
         })
         const coordinated = coordinateRevenantGeneration(async lifecycle => {
             lifecycle.onJobCreated('job-1')
+            lifecycle.onProviderStarted(1234)
             return providerResult
-        })
+        }, { onProviderStarted })
 
         await expect(coordinated.registered).resolves.toBe('job-1')
+        expect(onProviderStarted).toHaveBeenCalledOnce()
+        expect(onProviderStarted).toHaveBeenCalledWith(1234)
         finish('done')
         await expect(coordinated.result).resolves.toBe('done')
     })
@@ -35,19 +38,6 @@ describe('coordinateRevenantGeneration', () => {
 
         await expect(coordinated.registered).resolves.toBeUndefined()
         await expect(coordinated.result).rejects.toThrow('prepare failed')
-    })
-
-    test('forwards provider start only when the server reports it', async () => {
-        const onProviderStarted = vi.fn()
-        const coordinated = coordinateRevenantGeneration(async lifecycle => {
-            lifecycle.onJobCreated('job-2')
-            lifecycle.onProviderStarted(1234)
-            return 'done'
-        }, { onProviderStarted })
-
-        await coordinated.result
-        expect(onProviderStarted).toHaveBeenCalledOnce()
-        expect(onProviderStarted).toHaveBeenCalledWith(1234)
     })
 
     test('keeps a streaming registration open until the transport settles it', async () => {
@@ -82,18 +72,5 @@ describe('coordinateRevenantGeneration', () => {
         lifecycle.onJobCreated('job-late')
 
         await expect(coordinated.registered).resolves.toBe('job-late')
-    })
-})
-
-describe('combineProviderStartedHandlers', () => {
-    test('preserves both request-status and caller lifecycle handlers', () => {
-        const first = vi.fn()
-        const second = vi.fn()
-        const combined = combineProviderStartedHandlers(first, second)
-
-        combined?.(5678)
-
-        expect(first).toHaveBeenCalledWith(5678)
-        expect(second).toHaveBeenCalledWith(5678)
     })
 })

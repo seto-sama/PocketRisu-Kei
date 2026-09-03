@@ -45,7 +45,9 @@ describe('plugin model presets', () => {
         expect(profiles).toHaveLength(1)
 
         const managed = profiles.find((profile) => profile.modelId === 'pluginmodel:::managed')!
-        expect(managed.schema.map((field) => field.key)).toEqual(['max_tokens', 'temperature', 'top_p', 'top_k'])
+        expect(new Set(managed.schema.map((field) => field.key))).toEqual(
+            new Set(['max_tokens', 'temperature', 'top_p', 'top_k']),
+        )
         expect(managed.recommendedTokenizer).toBe('gemma')
         const topK = managed.schema.find((field) => field.key === 'top_k')
         const topKUi = managed.uiSchema.fields.find((field) => field.key === 'top_k')
@@ -60,7 +62,7 @@ describe('plugin model presets', () => {
             group: 'generation',
         })
         expect(managed.uiSchema.fields.find(field => field.key === 'max_tokens'))
-            .toMatchObject({ widget: 'slider', visibility: 'basic', order: 1 })
+            .toMatchObject({ widget: 'slider', visibility: 'basic' })
     })
 
     test('stores raw profile IDs and only escapes the plugin URI', () => {

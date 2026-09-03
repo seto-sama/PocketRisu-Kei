@@ -307,6 +307,7 @@ export let requiresFullEncoderReload = $state({
 interface ImmediateSaveOptions {
     forceFullWrite?: boolean
     characterIds?: string[]
+    chatTargets?: { characterId: string, chatId: string }[]
 }
 
 let requestImmediateSaveImpl: ((options?: ImmediateSaveOptions) => Promise<void> | void) = () => {}
@@ -1043,8 +1044,8 @@ export async function saveDb() {
 
                 if (isChatGuardDebugEnabled()) {
                 // ── Diagnostic dump for unknown root cause ────────────────
-                // chatToStub is supposed to strip every chat down to 6
-                // metadata fields before the diff. If non-stub fields end
+                // chatToStub is supposed to strip every chat down to metadata
+                // fields before the diff. If non-stub fields end
                 // up in patch ops, something slipped past it. Dump enough
                 // shape info to figure out which side of the diff carries
                 // the contraband (baseline vs current) and what flags the
@@ -1290,6 +1291,9 @@ export async function saveDb() {
     }
 
     requestImmediateSaveImpl = async (options) => {
+        // An immediate save must include the changes requested by this call,
+        // even when it arrives while an earlier save is still finishing.
+        if (saveInFlight) await saveInFlight
         for (const characterId of options?.characterIds ?? []) {
             if (characterId) {
                 changeTracker.character = [
@@ -1297,6 +1301,14 @@ export async function saveDb() {
                     ...changeTracker.character.filter((trackedId) => trackedId !== characterId),
                 ]
             }
+        }
+        for (const target of options?.chatTargets ?? []) {
+            if (!target.characterId || !target.chatId) continue
+            changeTracker.chat = [
+                [target.characterId, target.chatId],
+                ...changeTracker.chat.filter(([characterId, chatId]) =>
+                    characterId !== target.characterId || chatId !== target.chatId),
+            ]
         }
         changed = true
         await tick()

@@ -6,7 +6,7 @@
     import { DBState, presetSelectCallback, settingsOpen } from 'src/ts/stores.svelte';
     import { get } from 'svelte/store';
     import { openSettings, SettingsRoute } from 'src/ts/routing';
-    import { GitCompare } from "@lucide/svelte";
+    import { GitCompareIcon } from "@lucide/svelte";
     import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
     import { prebuiltPresets } from "src/ts/process/templates/templates";
     import PromptDiffModal from "../Others/PromptDiffModal.svelte";
@@ -187,7 +187,7 @@
                     aria-pressed={selectedDiffPreset === index}
                     onclick={() => handleDiffMode(index)}
                 >
-                    <GitCompare />
+                    <GitCompareIcon />
                 </IconButton>
             {/if}
         {/snippet}
@@ -198,7 +198,7 @@
                     let newPreset = safeStructuredClone(prebuiltPresets.OAI2)
                     newPreset.id = uuidv4()
                     newPreset.name = `New Preset`
-                    newPreset.folderId = selectedFolder !== 'all' && selectedFolder !== 'uncategorized' ? selectedFolder : undefined
+                    newPreset.folderId = undefined
                     botPresets.push(newPreset)
 
                     DBState.db.botPresets = botPresets
@@ -208,7 +208,6 @@
                     await importPreset()
                     const after = DBState.db.botPresets.length
                     if (after > before) {
-                        assignPresetToFolder(after - 1, selectedFolder)
                         changeToPreset(after - 1)
                         notifySuccess(language.presetImported)
                     }

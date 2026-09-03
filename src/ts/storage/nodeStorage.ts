@@ -9,6 +9,14 @@ import { language } from "src/lang"
 import { alertInput, waitAlert, notifyError } from "../alert"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
+import type {
+    BookmarkCatalog,
+    BookmarkCompatibilityResult,
+    BookmarkTarget,
+} from '../bookmarks/bookmarkTypes'
+
+const BOOKMARKS_API_PATH = '/api/bookmarks'
+const BOOKMARK_FOLDERS_API_PATH = '/api/bookmark-folders'
 
 // Custom error class for database conflict detection
 export class ConflictError extends Error {
@@ -786,6 +794,81 @@ export class NodeStorage{
     }
 
     // ── Chat content (runtime lazy load) ────────────────────────────────────
+
+    async fetchBookmarkCatalog(): Promise<BookmarkCatalog> {
+        const da = await this.authFetch(BOOKMARKS_API_PATH)
+        if (da.status < 200 || da.status >= 300) {
+            throw new Error(`fetchBookmarks error: ${da.status}`)
+        }
+        return await da.json() as BookmarkCatalog
+    }
+
+    async putBookmark(entry: BookmarkTarget & { name: string, folderId?: string }): Promise<BookmarkCatalog> {
+        const da = await this.authFetch(BOOKMARKS_API_PATH, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(entry),
+        })
+        if (da.status < 200 || da.status >= 300) throw new Error(`putBookmark error: ${da.status}`)
+        return await da.json() as BookmarkCatalog
+    }
+
+    async patchBookmark(
+        target: BookmarkTarget,
+        patch: { name?: string, folderId?: string | null },
+    ): Promise<BookmarkCatalog> {
+        const da = await this.authFetch(BOOKMARKS_API_PATH, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ...target, ...patch }),
+        })
+        if (da.status < 200 || da.status >= 300) throw new Error(`patchBookmark error: ${da.status}`)
+        return await da.json() as BookmarkCatalog
+    }
+
+    async deleteBookmark(target: BookmarkTarget): Promise<BookmarkCatalog> {
+        const da = await this.authFetch(BOOKMARKS_API_PATH, {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(target),
+        })
+        if (da.status < 200 || da.status >= 300) throw new Error(`deleteBookmark error: ${da.status}`)
+        return await da.json() as BookmarkCatalog
+    }
+
+    async replaceBookmarkFolders(folders: { id: string, name: string }[]): Promise<BookmarkCatalog> {
+        const da = await this.authFetch(BOOKMARK_FOLDERS_API_PATH, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ folders }),
+        })
+        if (da.status < 200 || da.status >= 300) throw new Error(`bookmarkFolders error: ${da.status}`)
+        return await da.json() as BookmarkCatalog
+    }
+
+    async mergeBookmarkFolders(folders: unknown): Promise<{ idMap: Record<string, string>, catalog: BookmarkCatalog }> {
+        const da = await this.authFetch(`${BOOKMARK_FOLDERS_API_PATH}/merge`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ folders }),
+        })
+        if (da.status < 200 || da.status >= 300) throw new Error(`mergeBookmarkFolders error: ${da.status}`)
+        return await da.json()
+    }
+
+    async fetchBookmarkCompatibility(
+        targets: Array<{ characterId: string, chatId: string }>,
+    ): Promise<BookmarkCompatibilityResult> {
+        const da = await this.authFetch(`${BOOKMARKS_API_PATH}/compatibility`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ targets }),
+        })
+        if (da.status < 200 || da.status >= 300) {
+            throw new Error(`bookmarkCompatibility error: ${da.status}`)
+        }
+        return await da.json() as BookmarkCompatibilityResult
+    }
 
     async fetchChatContent(chaId: string, chatIndex: number, chatId: string): Promise<any | null> {
         const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {

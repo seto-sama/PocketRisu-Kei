@@ -1,6 +1,6 @@
 <script lang="ts">
 
-  import { SettingsIcon, GlobeIcon, HouseIcon, Volume2Icon, Braces, ActivityIcon, BookIcon, SmileIcon, UserIcon } from "@lucide/svelte";
+  import { SettingsIcon, GlobeIcon, HouseIcon, Volume2Icon, BracesIcon, ActivityIcon, BookIcon, SmileIcon, UserIcon } from "@lucide/svelte";
   import { language } from "src/lang";
   import { CharConfigSubMenu, DBState, MobileGUIStack, MobileSideBar, selectedCharID } from "src/ts/stores.svelte";
   import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
@@ -62,7 +62,7 @@
         <button class="flex justify-center items-center flex-col gap-2 w-16 max-w-16" class:text-textcolor={$CharConfigSubMenu === 4} onclick={() => {
             CharConfigSubMenu.set(4)
         }}>
-            <Braces />
+            <BracesIcon />
             <span class="text-xs truncate max-w-16">{language.scripts}</span>
         </button>
         <button class="flex justify-center items-center flex-col gap-2 w-16 max-w-16" class:text-textcolor={$CharConfigSubMenu === 2} onclick={() => {

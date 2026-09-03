@@ -9,7 +9,6 @@
         ListIcon,
         MessageSquareIcon,
         SearchIcon,
-        SquareMousePointer,
         TrashIcon,
         Undo2Icon,
     } from "@lucide/svelte";
@@ -22,7 +21,9 @@
     import { makeAgoText } from "src/ts/util";
     import SettingTabs from "../UI/GUI/SettingTabs.svelte";
     import ShInput from "../UI/GUI/ShInput.svelte";
-    import SidebarAvatar from "../SideBars/SidebarAvatar.svelte";
+    import CharacterMasonryIcon from "../UI/CharacterMasonryIcon.svelte";
+    import HorizontalMasonry from "../UI/HorizontalMasonry.svelte";
+    import { readViewPreference, viewPreferenceKeys, writeViewPreference } from "src/ts/viewPreference";
 
     interface Props {
         endGrid?: () => void;
@@ -41,9 +42,16 @@
     let { endGrid = () => {} }: Props = $props();
     let search = $state('');
     let section = $state(0);
-    let viewMode = $state<'simple' | 'grid'>('simple');
+    let viewMode = $state<'simple' | 'grid'>(
+        readViewPreference(viewPreferenceKeys.characterCatalog, ['simple', 'grid'], 'simple'),
+    );
     let deletingCharacterId = $state<string | null>(null);
     let emptyingTrash = $state(false);
+
+    function setViewMode(mode: 'simple' | 'grid') {
+        viewMode = mode;
+        writeViewPreference(viewPreferenceKeys.characterCatalog, mode);
+    }
 
     function selectAndClose(index = -1){
         changeChar(index);
@@ -174,7 +182,7 @@
                             activeColor="primary"
                             title={language.simple}
                             aria-label={language.simple}
-                            onclick={() => viewMode = 'simple'}
+                            onclick={() => setViewMode('simple')}
                         >
                             <ListIcon />
                         </IconButton>
@@ -183,7 +191,7 @@
                             activeColor="primary"
                             title={language.grid}
                             aria-label={language.grid}
-                            onclick={() => viewMode = 'grid'}
+                            onclick={() => setViewMode('grid')}
                         >
                             <LayoutGridIcon />
                         </IconButton>
@@ -235,59 +243,61 @@
                     {/each}
                 </div>
             {:else if viewMode === 'grid'}
-                <div class="grid grid-cols-[repeat(auto-fill,minmax(5rem,1fr))] gap-2">
-                    {#each formatChars(search, DBState.db) as char (char.chaId)}
-                        <div
-                            class="flex min-w-0 flex-col items-center gap-1 p-1 text-textcolor"
-                        >
-                            <SidebarAvatar
+                {@const gridCharacters = formatChars(search, DBState.db)}
+                {#if gridCharacters.length > 0}
+                    <HorizontalMasonry itemCount={gridCharacters.length}>
+                        {#snippet children(index)}
+                            {@const char = gridCharacters[index]}
+                            <CharacterMasonryIcon
                                 src={char.image ? getCharImage(char.image, 'plain') : ''}
-                                size="56"
-                                rounded={DBState.db.roundIcons}
                                 name={char.name}
-                                chaId={char.chaId}
                                 selected={char.index === $selectedCharID}
-                                onClick={() => selectAndClose(char.index)}
+                                onclick={() => selectAndClose(char.index)}
                             />
-                            <span class="w-full truncate text-center text-sm">{char.name}</span>
-                        </div>
-                    {:else}
-                        <div class="col-span-full flex min-h-48 items-center justify-center rounded-md border border-dashed border-darkborderc text-sm text-textcolor2">
-                            {language.noData}
-                        </div>
-                    {/each}
-                </div>
+                        {/snippet}
+                    </HorizontalMasonry>
+                {:else}
+                    <div class="flex min-h-48 items-center justify-center rounded-md border border-dashed border-darkborderc text-sm text-textcolor2">
+                        {language.noData}
+                    </div>
+                {/if}
             {:else}
                 <div class="flex flex-col gap-2">
                     {#each simpleChars(search, DBState.db) as char (char.chaId)}
                         <article class="rounded-md border border-darkborderc bg-bgcolor/20 transition-colors hover:bg-bgcolor/40">
-                            <div class="flex items-center gap-3 p-3">
-                                <div class="shrink-0">
-                                    <BarIcon interactive={false} additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
+                            <div class="flex items-stretch">
+                                <button
+                                    type="button"
+                                    class="flex min-w-0 grow items-center gap-3 p-3 text-left"
+                                    title={language.goToChat}
+                                    onclick={() => selectAndClose(char.index)}
+                                >
+                                    <div class="shrink-0">
+                                        <BarIcon interactive={false} additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
+                                    </div>
+                                    <div class="min-w-0 grow">
+                                        <h2 class="truncate font-semibold text-textcolor">{char.name}</h2>
+                                        <span class="mt-1 flex items-center gap-1.5 text-xs text-textcolor2">
+                                            <MessageSquareIcon size={12} />{char.chats}
+                                            {#if char.interaction > 0}
+                                                <span aria-hidden="true">·</span>{makeAgoText(char.interaction)}
+                                            {/if}
+                                        </span>
+                                    </div>
+                                </button>
+                                <div class="flex shrink-0 items-center py-3 pl-2 pr-3">
+                                    <IconButtonGroup>
+                                        <IconButton
+                                            tone="destructive"
+                                            title={language.trash}
+                                            aria-label={language.trash}
+                                            disabled={deletingCharacterId !== null || emptyingTrash}
+                                            onclick={(event) => deleteCharacter(event, char)}
+                                        >
+                                            <TrashIcon />
+                                        </IconButton>
+                                    </IconButtonGroup>
                                 </div>
-                                <div class="min-w-0 grow text-left">
-                                    <h2 class="truncate font-semibold text-textcolor">{char.name}</h2>
-                                    <span class="mt-1 flex items-center gap-1.5 text-xs text-textcolor2">
-                                        <MessageSquareIcon size={12} />{char.chats}
-                                        {#if char.interaction > 0}
-                                            <span aria-hidden="true">·</span>{makeAgoText(char.interaction)}
-                                        {/if}
-                                    </span>
-                                </div>
-                                <IconButtonGroup>
-                                    <IconButton title={language.goToChat} aria-label={language.goToChat} onclick={() => selectAndClose(char.index)}>
-                                        <SquareMousePointer />
-                                    </IconButton>
-                                    <IconButton
-                                        tone="destructive"
-                                        title={language.trash}
-                                        aria-label={language.trash}
-                                        disabled={deletingCharacterId !== null || emptyingTrash}
-                                        onclick={(event) => deleteCharacter(event, char)}
-                                    >
-                                        <TrashIcon />
-                                    </IconButton>
-                                </IconButtonGroup>
                             </div>
                             {#if char.desc.trim()}
                                 <details class="group/notes border-t border-darkborderc">
@@ -295,8 +305,8 @@
                                         {language.creatorNotes}
                                         <ChevronDownIcon class="transition-transform group-open/notes:rotate-180" size={16} />
                                     </summary>
-                                    <div class="bg-darkbg/30 px-3 py-3 text-sm text-textcolor2">
-                                        <MultiLangDisplay value={char.desc} markdown={true} showLanguageSelector={false} />
+                                    <div class="bg-darkbg/30 px-3 py-2 text-xs text-textcolor2">
+                                        <MultiLangDisplay value={char.desc} markdown={true} showLanguageSelector={false} contentClass="prose-sm" />
                                     </div>
                                 </details>
                             {/if}
