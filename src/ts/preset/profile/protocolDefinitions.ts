@@ -68,7 +68,7 @@ interface ProtocolDefinition {
 
 // Profile-definition revision. Catalog timestamps describe model metadata, so
 // protocol field/UI changes need their own revision when snapshots are refreshed.
-const PROTOCOL_PROFILE_UPDATED_AT = 1786723200000
+const PROTOCOL_PROFILE_UPDATED_AT = 1787356800000
 
 const PROTOCOL_DEFINITIONS: Record<ProfileProtocol, ProtocolDefinition> = {
     'openai-chat': {
@@ -298,6 +298,27 @@ function buildProfileFields(
         })
     }
 
+    const serviceTier = serviceTierConfig(wireProtocol, facts)
+    if (serviceTier) {
+        fields.push({
+            key: 'service_tier',
+            type: 'string',
+            label: 'Service Tier',
+            labelKey: 'modelPresetServiceTier',
+            helpKey: 'modelPresetServiceTierHelp',
+            enum: serviceTier.options.map((value) => ({ value, label: titleCase(value) })),
+            mapsTo: serviceTier.mapsTo,
+        })
+        uiFields.push({
+            key: 'service_tier',
+            widget: 'select',
+            visibility: 'basic',
+            layout: 'row',
+            group: 'connection',
+            order: 2,
+        })
+    }
+
     const outputPath = definition.outputPath(facts)
     const outputKey = outputPath.split('.').at(-1) ?? 'max_tokens'
     fields.push({
@@ -466,6 +487,40 @@ function buildProfileFields(
     }
 
     return { fields, uiFields }
+}
+
+function serviceTierConfig(
+    protocol: ProfileProtocol,
+    facts: ProtocolModelFacts,
+): { options: string[]; mapsTo: RegistryFieldSchema['mapsTo'] } | undefined {
+    // Service tiers are first-party request fields. Do not surface them on
+    // arbitrary OpenAI-compatible providers merely because they share a wire
+    // protocol. Vertex exposes the same choice through a request header rather
+    // than the request-body field used by the direct OpenAI and Gemini APIs.
+    if (facts.providerId === 'google-vertex' && protocol === 'vertex-gemini') {
+        return {
+            options: ['flex', 'priority'],
+            mapsTo: { target: 'header', path: 'X-Vertex-AI-LLM-Shared-Request-Type' },
+        }
+    }
+    // Direct image-only endpoints use a different request surface.
+    if (!facts.outputModalities.includes('text')) return undefined
+    if (
+        facts.providerId === 'openai'
+        && (protocol === 'openai-chat' || protocol === 'openai-responses')
+    ) {
+        return {
+            options: ['auto', 'default', 'flex', 'priority'],
+            mapsTo: { target: 'body', path: 'service_tier' },
+        }
+    }
+    if (facts.providerId === 'google' && protocol === 'gemini') {
+        return {
+            options: ['flex', 'priority'],
+            mapsTo: { target: 'body', path: 'service_tier' },
+        }
+    }
+    return undefined
 }
 
 function supportsGptApiMode(

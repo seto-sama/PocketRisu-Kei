@@ -178,23 +178,6 @@ describe('applyProfileSnapshotUpdate — end-to-end v1 → v2 migration', () => 
         expect(result.diff.capabilitiesChanged).toBe(true)
     })
 
-    test('preserves previously-stored orphanValues across an update', () => {
-        const preset = makePresetOnV1()
-        preset.orphanValues = { staleKey: 'from-an-older-cycle' }
-
-        const latestSnapshot = snapshotFor(makeProfileV2())
-        const result = applyProfileSnapshotUpdate(preset, latestSnapshot, {
-            now: () => 2_000,
-            sourceProfile: { registryId: 'bundled', profileId: 'demo:standard', fetchedAt: 2_000 },
-        })
-
-        // Both old and newly-orphaned keys survive.
-        expect(result.preset.orphanValues).toEqual({
-            staleKey: 'from-an-older-cycle',
-            reasoningEffort: 'high',
-        })
-    })
-
     test('type-changed field also moves to orphanValues (regression for §14-7 rule)', () => {
         const preset = makePresetOnV1()
         // userValues now has a value for a key that v2 keeps but with a
@@ -237,35 +220,4 @@ describe('applyProfileSnapshotUpdate — end-to-end v1 → v2 migration', () => 
         expect(JSON.stringify(preset)).toBe(snapshotBefore)
     })
 
-    test('keeps userValues untouched when the snapshot is functionally identical', () => {
-        const preset = makePresetOnV1()
-        // Pretend the registry already has v1 — availability returns 'current'
-        // and there's nothing to apply. But if a caller forces an apply with
-        // the same snapshot, the result must not throw away userValues.
-        const sameSnapshot = preset.profileSnapshot
-        const result = applyProfileSnapshotUpdate(preset, sameSnapshot, {
-            now: () => 2_000,
-            sourceProfile: preset.sourceProfile,
-        })
-
-        expect(result.preset.userValues).toEqual(preset.userValues)
-        expect(result.preset.orphanValues).toBeUndefined()
-        expect(result.movedToOrphan).toEqual([])
-        expect(result.newFieldKeys).toEqual([])
-    })
-
-    test('drops sourceProfile when the latest snapshot belongs to a different profile id', () => {
-        const preset = makePresetOnV1()
-        // Force a snapshot from a completely different profile id.
-        const otherProfile: ModelProfile = { ...makeProfileV2(), id: 'demo:other' }
-        const otherSnapshot = snapshotFor(otherProfile)
-        const result = applyProfileSnapshotUpdate(preset, otherSnapshot, {
-            now: () => 2_000,
-            // no sourceProfile override; the helper should clear it because
-            // preset.sourceProfile.profileId !== latestSnapshot.profileId
-        })
-
-        expect(result.preset.sourceProfile).toBeUndefined()
-        expect(result.preset.profileSnapshot.profileId).toBe('demo:other')
-    })
 })

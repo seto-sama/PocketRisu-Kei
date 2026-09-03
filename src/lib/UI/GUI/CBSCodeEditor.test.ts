@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { completionStatus, currentCompletions, startCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { mount, tick, unmount } from 'svelte'
@@ -14,7 +14,7 @@ afterEach(async () => {
 })
 
 describe('CBSCodeEditor', () => {
-    it('completes CBS names after opening braces', async () => {
+    it('offers a complete CBS insertion after opening braces', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
         const component = mount(CBSCodeEditor, {
@@ -24,23 +24,19 @@ describe('CBSCodeEditor', () => {
         mounted.push(component)
         await tick()
 
-        const content = target.querySelector<HTMLElement>('.cm-content')!
+        const content = target.querySelector<HTMLElement>('[role="textbox"]')!
         const editor = EditorView.findFromDOM(content)!
         editor.dispatch({ selection: { anchor: editor.state.doc.length } })
         content.focus()
         startCompletion(editor)
-        await new Promise(resolve => setTimeout(resolve, 150))
+        await vi.waitFor(() => {
+            expect(completionStatus(editor.state)).toBe('active')
+            expect(target.querySelector('[role="option"][aria-selected="true"]')).not.toBeNull()
+        })
 
-        expect(completionStatus(editor.state)).toBe('active')
-        expect(currentCompletions(editor.state).map(option => option.label)).toContain('char')
-
-        content.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'Enter',
-            code: 'Enter',
-            bubbles: true,
-            cancelable: true,
-        }))
-        expect(editor.state.doc.toString()).toBe('{{char}}')
+        expect(currentCompletions(editor.state)).toContainEqual(
+            expect.objectContaining({ label: 'char', apply: 'char}}' }),
+        )
     })
 
     it('completes syntax added to the shared CBS registry', async () => {
@@ -53,12 +49,14 @@ describe('CBSCodeEditor', () => {
         mounted.push(component)
         await tick()
 
-        const content = target.querySelector<HTMLElement>('.cm-content')!
+        const content = target.querySelector<HTMLElement>('[role="textbox"]')!
         const editor = EditorView.findFromDOM(content)!
         editor.dispatch({ selection: { anchor: editor.state.doc.length } })
         content.focus()
         startCompletion(editor)
-        await new Promise(resolve => setTimeout(resolve, 150))
+        await vi.waitFor(() => {
+            expect(currentCompletions(editor.state).some(option => option.label === '#when')).toBe(true)
+        })
 
         const whenCompletion = currentCompletions(editor.state).find(option => option.label === '#when')
         expect(whenCompletion).toMatchObject({
@@ -78,7 +76,7 @@ describe('CBSCodeEditor', () => {
         mounted.push(component)
         await tick()
 
-        const content = target.querySelector<HTMLElement>('.cm-content')!
+        const content = target.querySelector<HTMLElement>('[role="textbox"]')!
         expect(target.querySelector('.cm-cbs-depth-1')?.textContent).toBe('{{char}}')
 
         content.focus()

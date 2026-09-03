@@ -84,6 +84,18 @@ export function requestStatusIdForJob(job: { jobId: string, chatId?: string }): 
 // char/4 estimate — accurate for English, but poor for CJK, which is exactly
 // why the native counter is preferred at runtime.
 let tokenCounter: ((text: string) => Promise<number>) | null = null
+const pendingTokenWork = new Set<Promise<void>>()
+
+function trackTokenWork(work: Promise<void>): void {
+    pendingTokenWork.add(work)
+    void work.finally(() => pendingTokenWork.delete(work))
+}
+
+export async function settleRequestStatusTokenization(): Promise<void> {
+    while (pendingTokenWork.size > 0) {
+        await Promise.all([...pendingTokenWork])
+    }
+}
 export function setStatusTokenCounter(fn: ((text: string) => Promise<number>) | null): void {
     tokenCounter = fn
 }
@@ -362,7 +374,7 @@ export function endStatus(
         }
     })
     clearAbortBinding(id)
-    if (needFinalCount) void finalRecount(id, recountBase)
+    if (needFinalCount) trackTokenWork(finalRecount(id, recountBase))
 }
 
 export function abortStatusesForChat(chatId: string, now = Date.now()): void {
@@ -451,7 +463,7 @@ const tokenizing = new Set<string>()
 // Re-count tokens for entries whose text changed since the last pass. Async and
 // fire-and-forget: failures are swallowed (counts simply keep their last value)
 // so tokenization can never disrupt the request or the timer.
-async function tokenizeDirty(): Promise<void> {
+export async function refreshRequestStatusTokenCounts(): Promise<void> {
     const snapshot = get(requestStatuses)
     for (const [id, e] of snapshot) {
         if (!e.textDirty || tokenizing.has(id) || isTerminalPhase(e.phase)) continue
@@ -519,7 +531,7 @@ function tick(): void {
     })
     for (const id of abandonedIds) clearAbortBinding(id)
     // Authoritative token recount (async, off the sync path).
-    void tokenizeDirty()
+    trackTokenWork(refreshRequestStatusTokenCounts())
     if (!hasLiveEntries(get(requestStatuses))) {
         stopStatusTimer()
     }

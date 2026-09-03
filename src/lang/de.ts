@@ -1169,7 +1169,6 @@ export const languageGerman = {
     "insertAssetPrompt": "Asset-Anweisung einfügen",
     "requestLocation": "Anfrageort",
     "newImageHandlingBeta": "Neue Bildverarbeitung (Beta)",
-    "settingsExported": "Einstellungen für Fehlerbericht exportiert und in die Zwischenablage kopiert.",
     "bookmarks": "Lesezeichen",
     "noBookmarks": "Keine Lesezeichen",
     "bookmarkAskNameOrDefault": "Lesezeichennamen eingeben. Wenn nichts eingegeben wird, wird er automatisch zugewiesen.",

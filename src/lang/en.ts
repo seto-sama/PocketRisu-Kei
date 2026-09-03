@@ -24,6 +24,7 @@ export const languageEnglish = {
         onlyOnePreset: "There must be at least one preset",
         noUserIcon: "You must set your icon first.",
         emptyText: "Text is empty.",
+        emptyTranslationResponse: "Translation returned an empty response.",
         wrongPassword: "Wrong Password",
         coldStorageWriteFailed: "Cold storage write failed. Your chat data has been preserved.",
         coldStorageVerifyFailed: "Cold storage verification failed. Your chat data has been preserved.",
@@ -1112,11 +1113,13 @@ export const languageEnglish = {
     edit: "Edit",
     enableGlobal: "Enable Globally",
     chatModulesInfo: "You can enable or disable modules for this chat. You can also enable for this character by right clicking or long pressing the enable button.",
+    personaModuleBinding: "Persona Module Binding",
     sideMenuRerollButton: "Side Menu Reroll Button",
     persistentStorage: "Persistent Storage",
     persistentStorageSuccess: "Storage is successfully persisted",
     persistentStorageFail: "Storage is not persisted. Did you deny the request?, or is the browser not supported?",
     persistentStorageRecommended: "Persistent Storage Recommended",
+    unsupportedFileType: "Unsupported file type",
     persistentStorageDesc: "Your browser supports persistent storage. this is recommended for better performance and user experience.",
     enable: "Enable",
     postFile: "Post File",
@@ -1624,6 +1627,7 @@ export const languageEnglish = {
     modelPresetStartWithUser: "Start with user input",
     modelPresetStartWithUserHelp: "Prepend an empty user turn when the conversation does not start with user. Off by default. For models that reject a non-user first turn.",
     modelPresetRequestFormat: "Request Format",
+    modelPresetServiceTier: "Service Tier",
     modelPresetEndpointUrl: "Endpoint URL",
     modelPresetRequestModelId: "Request Model ID",
     modelPresetPromptCacheMode: "Prompt Cache Mode",
@@ -1781,8 +1785,6 @@ export const languageEnglish = {
     insertAssetPrompt: "Insert Asset Prompt",
     requestLocation: "Request Location",
     newImageHandlingBeta: "Add Asset Prompt Section",
-    exportCurrentSettings: "Export Current Settings",
-    settingsExported: "Settings for bug report exported and copied to clipboard.",
     bookmarks: "Bookmarks",
     noBookmarks: "No Bookmarks",
     bookmarkAskNameOrDefault: "Enter bookmark name. If not entered, it will be automatically assigned.",
@@ -2253,6 +2255,22 @@ export const languageEnglish = {
 
     storageCleanup: "Clean up unused DB space",
 
+    storageOrphan: "Orphan assets",
+    storageOrphanHeader: (count: number, size: number) =>
+        `${count.toLocaleString()} files · ${(size / 1024 / 1024).toFixed(1)} MB`,
+    storageOrphanWhat: "Stored media that is no longer referenced by a character, module, persona, image setting, or plugin.",
+    storageOrphanWhen: "Deletion cannot be undone. Make a backup first, then run DB cleanup above afterward to reclaim the file space.",
+    storageOrphanUnavailable: "Asset references cannot be scanned until the database is loaded on the server.",
+    storageOrphanPurge: "Delete orphan assets",
+    storageOrphanPurging: "Deleting orphan assets...",
+    storageOrphanConfirm: (count: number, size: number) =>
+        `Delete ${count.toLocaleString()} unreferenced asset(s) (${(size / 1024 / 1024).toFixed(1)} MB)? This cannot be undone.`,
+    storageOrphanDone: (count: number, size: number) =>
+        `Deleted ${count.toLocaleString()} asset(s) (${(size / 1024 / 1024).toFixed(1)} MB).`,
+    storageOrphanFailed: "Orphan asset cleanup failed",
+    storageOrphanAutoClean: "Automatically delete on startup",
+    storageOrphanAutoCleanDesc: "Uses the same protected reference scan whenever the app starts. Off by default; manual cleanup is safer for unfamiliar plugin data.",
+
     storageWalCleanupWhat: "WAL cleanup removes temporary database files.",
     storageWalCleanup_btn: "Clean up WAL",
     storageWalCleanuping: "Cleaning up WAL...",
@@ -2422,6 +2440,20 @@ export const languageEnglish = {
     backupLocalDownload: "Download backup to device",
     backupLocalDownloadDesc: "Generate a fresh backup from current data and download it directly to your device.",
     backupLocalRestoreDesc: "Restore from a backup file on your device.",
+
+    backupSettingsOnly: "Export Settings",
+    backupSettingsOnlyDesc: "Export a settings backup without chats, characters, and similar data.",
+    backupSettingsOnlyEstimating: "Calculating settings backup size...",
+    backupSettingsOnlySaving: "Exporting settings...",
+    backupSettingsOnlyConfirm: (size: string) =>
+        `Export a settings backup without chats and characters? Estimated size: ${size}.`,
+    backupSettingsOnlyBreakdown: (baseSize: string, moduleCount: number, assetCount: number, moduleSize: string) =>
+        `Export settings without chats and characters.\n\nSettings: ${baseSize}\nModule assets: ${moduleSize} (${moduleCount.toLocaleString()} modules, ${assetCount.toLocaleString()} files)`,
+    backupSettingsOnlyWithModuleAssets: (size: string) => `Include module assets (${size})`,
+    backupSettingsOnlyWithoutModuleAssets: (size: string) => `Exclude module assets (${size})`,
+    backupSettingsOnlyModuleAssetsSkipped: "Settings were exported without module assets. Module images may be blank until the modules are downloaded again.",
+    backupSettingsOnlyDone: "Settings exported.",
+    backupSettingsOnlyFailed: "Failed to export settings",
 
     relatedGithub: "GitHub",
     relatedGithubDesc: "Star this project to show your support.",

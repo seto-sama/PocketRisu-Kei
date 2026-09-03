@@ -318,13 +318,14 @@ export async function alertConfirm(msg:string, description?:string){
  *
  * @returns index of the picked action, or -1 if cancelled.
  */
-export async function alertConfirmMulti(prompt:string, actions:(string | AlertAction)[]){
+export async function alertConfirmMulti(prompt:string, actions:(string | AlertAction)[], description?:string){
     const normalized: AlertAction[] = actions.map(a =>
         typeof a === 'string' ? { label: a, variant: 'default' } : a
     )
     alertStoreImported.set({
         'type': 'confirmMulti',
         'msg': prompt,
+        'submsg': description,
         'actions': normalized,
     })
 

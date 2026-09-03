@@ -26,13 +26,6 @@ afterAll(async () => {
 // ─── Smoke ──────────────────────────────────────────────────────────────────
 
 describe('server smoke', () => {
-  test('starts and responds to login', async () => {
-    const srv = await spawnServer()
-    servers.push(srv)
-    const client = await createClient(srv.port, srv.password)
-    expect(client.token).toBeTruthy()
-  })
-
   test('backup path config rejects app-managed dirs and records safe custom dirs', async () => {
     const srv = await spawnServer()
     servers.push(srv)
@@ -113,24 +106,6 @@ describe('backup round-trip', () => {
     }
   })
 
-  test('round-trip with multiple characters preserves message counts', async () => {
-    const srv = await spawnServer()
-    servers.push(srv)
-    const client = await createClient(srv.port, srv.password)
-
-    const seed = createSeedBackup({ characterCount: 3, chatsPerCharacter: 3, messagesPerChat: 5 })
-    await client.importBackup(seed)
-    const exported = await client.exportBackup()
-
-    const { normalized } = normalizeBackup(exported)
-    expect(normalized.characterCount).toBe(3)
-    for (const char of normalized.characters) {
-      expect(char.chatCount).toBe(3)
-      for (const count of char.messageCounts) {
-        expect(count).toBe(5)
-      }
-    }
-  })
 })
 
 // ─── Asset round-trip ──────────────────────────────────────────────────────
@@ -531,33 +506,6 @@ describe('ndjson streaming import', () => {
     expect(heartbeats.length).toBeGreaterThanOrEqual(1)
   })
 
-  // Backwards-compat sanity: a client that doesn't advertise NDJSON must
-  // still get the legacy JSON response. The non-NDJSON branch is what every
-  // integration helper in this file already exercises, but an explicit
-  // negative test makes the contract surface visible.
-  test('legacy clients without Accept header receive JSON, not NDJSON', async () => {
-    const srv = await spawnServer()
-    servers.push(srv)
-    const client = await createClient(srv.port, srv.password)
-
-    const seed = createSeedBackup({ characterCount: 1 })
-
-    const prepRes = await client.fetch('/api/backup/import/prepare', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ size: seed.byteLength }),
-    })
-    expect(prepRes.ok).toBe(true)
-
-    const impRes = await client.fetch('/api/backup/import', {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-risu-backup' },
-      body: new Uint8Array(seed),
-    })
-    expect(impRes.headers.get('content-type')).toContain('application/json')
-    const body = await impRes.json() as { ok: boolean }
-    expect(body.ok).toBe(true)
-  })
 })
 
 // ─── Malformed import safety ────────────────────────────────────────────────

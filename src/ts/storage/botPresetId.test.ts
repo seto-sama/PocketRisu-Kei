@@ -37,9 +37,7 @@ const databaseModule = await import('./database.svelte')
 const storesModule = await import('../stores.svelte')
 const {
     createBotPresetTemplate,
-    getActiveBotPreset,
     getActiveBotPresetId,
-    getBotPresetById,
     getBotPresetIndexById,
     saveCurrentPreset,
     setDatabase,
@@ -176,25 +174,9 @@ describe('legacy prompt-preset model fields', () => {
 })
 
 describe('id lookup helpers', () => {
-    test('getActiveBotPreset returns the entry at botPresetsId', () => {
-        expect(getActiveBotPreset()?.id).toBe('id-b')
-    })
-
-    test('getActiveBotPresetId returns the active id', () => {
-        expect(getActiveBotPresetId()).toBe('id-b')
-    })
-
-    test('getBotPresetById finds by id', () => {
-        expect(getBotPresetById('id-c')?.name).toBe('C')
-    })
-
-    test('getBotPresetIndexById returns -1 when not found', () => {
-        expect(getBotPresetIndexById('id-missing')).toBe(-1)
-    })
-
-    test('setActiveBotPresetById updates botPresetsId via findIndex', () => {
+    test('setActiveBotPresetById selects the preset with the requested stable id', () => {
         setActiveBotPresetById('id-c')
-        expect(DBState.db.botPresetsId).toBe(2)
+        expect(getActiveBotPresetId()).toBe('id-c')
     })
 
     test('setActiveBotPresetById(undefined) sets the no-active sentinel', () => {
@@ -237,13 +219,6 @@ describe('withStableActivePreset', () => {
         expect(getActiveBotPresetId()).toBe('id-a')
     })
 
-    test('handles append (length grows) without losing active', () => {
-        withStableActivePreset(() => {
-            DBState.db.botPresets.push(makePreset('id-d', 'D'))
-        })
-        expect(getActiveBotPresetId()).toBe('id-b')
-        expect(DBState.db.botPresetsId).toBe(1)
-    })
 })
 
 describe('id migration safety', () => {

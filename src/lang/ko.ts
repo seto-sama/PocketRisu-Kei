@@ -25,6 +25,7 @@ export const languageKorean = {
     onlyOnePreset: "프리셋이 하나 이상 필요합니다",
     noUserIcon: "유저 아이콘이 없습니다.",
     emptyText: "텍스트가 비어있습니다.",
+    emptyTranslationResponse: "번역 결과가 비어 있습니다.",
     wrongPassword: "비밀번호가 잘못되었습니다.",
     networkFetch:
       "네트워크가 불안정하거나 서버가 응답하지 않을 때 자주 발생합니다.",
@@ -1188,12 +1189,14 @@ export const languageKorean = {
   enableGlobal: "글로벌 활성화",
   chatModulesInfo:
     "모듈을 이 채팅 한정으로 활성화/비활성화합니다. 우클릭 또는 길게 눌러 캐릭터 한정으로 활성화/비활성화할 수 있습니다.",
+  personaModuleBinding: "페르소나 연동 설정",
   sideMenuRerollButton: "햄버거 메뉴 리롤 버튼",
   persistentStorage: "영구 저장소",
   persistentStorageSuccess: "저장소가 영구적으로 설정되었습니다.",
   persistentStorageFail:
     "저장소 설정에 실패했습니다. 브라우저에서 거부되었을 수 있습니다.",
   persistentStorageRecommended: "영구 저장소 권장됨",
+  unsupportedFileType: "지원하지 않는 파일 형식입니다",
   persistentStorageDesc:
     "당신의 브라우저는 영구 저장소를 지원합니다. 이 기능을 활성화하면, 데이터가 브라우저에 더 오래 남습니다.",
   enable: "활성화",
@@ -1726,6 +1729,7 @@ export const languageKorean = {
   modelPresetAlternateRole: "역할 교차 강제",
   modelPresetStartWithUser: "user 입력으로 시작",
   modelPresetRequestFormat: "응답 포맷",
+  modelPresetServiceTier: "서비스 티어",
   modelPresetEndpointUrl: "엔드포인트 URL",
   modelPresetRequestModelId: "모델 ID",
   modelPresetPromptCacheMode: "프롬프트 캐시 모드",
@@ -1876,9 +1880,6 @@ export const languageKorean = {
   insertAssetPrompt: "에셋 프롬프트 삽입",
   requestLocation: "리퀘스트 위치",
   newImageHandlingBeta: "에셋 프롬프트 섹션 추가",
-  exportCurrentSettings: "설정 내보내기",
-  settingsExported:
-    "버그 리포트용 설정이 내보내지고 클립보드에 복사되었습니다.",
   bookmarks: "북마크",
   noBookmarks: "북마크 없음",
   bookmarkAskNameOrDefault:
@@ -2410,6 +2411,26 @@ export const languageKorean = {
 
   storageCleanup: "DB 수동 정리",
 
+  storageOrphan: "고아 에셋 정리",
+  storageOrphanHeader: (count: number, size: number) =>
+    `${count.toLocaleString()}개 · ${(size / 1024 / 1024).toFixed(1)} MB`,
+  storageOrphanWhat:
+    "캐릭터, 모듈, 페르소나, 이미지 설정 또는 플러그인에서 더 이상 참조하지 않는 저장 미디어입니다.",
+  storageOrphanWhen:
+    "삭제 후에는 복구할 수 없습니다. 먼저 백업하고, 삭제 후 위의 DB 수동 정리를 실행하면 실제 파일 공간을 회수할 수 있습니다.",
+  storageOrphanUnavailable:
+    "서버에서 데이터베이스 로딩을 마칠 때까지 에셋 참조를 검사할 수 없습니다.",
+  storageOrphanPurge: "고아 에셋 삭제",
+  storageOrphanPurging: "고아 에셋을 삭제하는 중...",
+  storageOrphanConfirm: (count: number, size: number) =>
+    `참조되지 않는 에셋 ${count.toLocaleString()}개(${(size / 1024 / 1024).toFixed(1)} MB)를 삭제할까요? 되돌릴 수 없습니다.`,
+  storageOrphanDone: (count: number, size: number) =>
+    `에셋 ${count.toLocaleString()}개를 삭제했습니다 (${(size / 1024 / 1024).toFixed(1)} MB).`,
+  storageOrphanFailed: "고아 에셋 정리 실패",
+  storageOrphanAutoClean: "시작할 때 자동 삭제",
+  storageOrphanAutoCleanDesc:
+    "앱을 시작할 때마다 동일한 보호 참조 검사를 사용합니다. 기본값은 꺼짐이며, 알 수 없는 플러그인 데이터가 있다면 수동 정리가 더 안전합니다.",
+
   storageWalCleanupWhat:
     "WAL 정리는 임시 변경사항을 DB에 통합하고 WAL 파일을 비웁니다.",
   storageWalCleanup_btn: "WAL 정리",
@@ -2593,6 +2614,26 @@ export const languageKorean = {
   backupLocalDesc:
     "사용자 기기로 백업을 다운로드하거나 기기 파일에서 복원합니다.",
   backupLocalDownload: "로컬 백업 다운로드",
+
+  backupSettingsOnly: "설정 내보내기",
+  backupSettingsOnlyDesc: "채팅 및 캐릭터 등을 제외한 설정 백업만 내보냅니다.",
+  backupSettingsOnlyEstimating: "설정 백업 용량 확인 중...",
+  backupSettingsOnlySaving: "설정 내보내는 중...",
+  backupSettingsOnlyConfirm: (size: string) =>
+    `채팅과 캐릭터를 제외한 설정 백업을 내보낼까요? 예상 용량은 ${size}입니다.`,
+  backupSettingsOnlyBreakdown: (
+    baseSize: string,
+    moduleCount: number,
+    assetCount: number,
+    moduleSize: string,
+  ) =>
+    `채팅과 캐릭터를 제외한 설정을 내보냅니다.\n\n설정: ${baseSize}\n모듈 에셋: ${moduleSize} (모듈 ${moduleCount.toLocaleString()}개, 파일 ${assetCount.toLocaleString()}개)`,
+  backupSettingsOnlyWithModuleAssets: (size: string) => `모듈 에셋 포함 (${size})`,
+  backupSettingsOnlyWithoutModuleAssets: (size: string) => `모듈 에셋 제외 (${size})`,
+  backupSettingsOnlyModuleAssetsSkipped:
+    "모듈 에셋을 제외하고 설정을 내보냈습니다. 모듈을 다시 다운로드하기 전까지 이미지가 비어 보일 수 있습니다.",
+  backupSettingsOnlyDone: "설정을 내보냈습니다.",
+  backupSettingsOnlyFailed: "설정 내보내기 실패",
 
   relatedGithub: "GitHub",
   relatedGithubDesc: "Star를 눌러 프로젝트를 응원해주세요.",

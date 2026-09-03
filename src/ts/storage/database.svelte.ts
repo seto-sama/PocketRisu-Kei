@@ -21,6 +21,8 @@ import { applyModelPresetDefaults } from '../preset/dbDefaults';
 import type { ApiKeyPoolEntry, ModelBindingFields, ModelBindingSet, ModelPreset, ModelPresetMigrationSummary, RegistryCache } from '../preset/types';
 import { emptyModelBinding } from '../preset/types';
 import { defaultHotkeys, type Hotkey } from '../defaulthotkeys';
+import { ensureMessageId } from './messageIdentity';
+import { isChatStub } from './chatStub';
 import { normalizeTextTheme } from '../gui/textTheme';
 import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/textOutline';
 
@@ -60,6 +62,27 @@ function normalizeCacheRole(role: unknown): 'user'|'assistant'|'system'|'all' {
         return 'assistant'
     }
     return 'all'
+}
+
+export function normalizeSystemRoleReplacement(role: unknown): 'user'|'assistant' {
+    return role === 'assistant' ? 'assistant' : 'user'
+}
+
+export function normalizePersonaSelection(data: Database): void {
+    if(!Array.isArray(data.personas) || data.personas.length === 0){
+        data.personas = [{
+            name: data.username,
+            personaPrompt: "",
+            icon: data.userIcon,
+            note: data.userNote,
+            largePortrait: false
+        }]
+    }
+    if(!Number.isInteger(data.selectedPersona)
+        || data.selectedPersona < 0
+        || data.selectedPersona >= data.personas.length){
+        data.selectedPersona = 0
+    }
 }
 
 function normalizePromptTemplate(template: PromptItem[]|null|undefined): PromptItem[]|null {
@@ -467,15 +490,8 @@ export function setDatabase(data:Database){
     if(!data.formatingOrder.includes('personaPrompt')){
         data.formatingOrder.splice(data.formatingOrder.indexOf('main'),0,'personaPrompt')
     }
-    data.selectedPersona ??= 0
     data.personaPrompt ??= ''
-    data.personas ??= [{
-        name: data.username,
-        personaPrompt: "",
-        icon: data.userIcon,
-        note: data.userNote,
-        largePortrait: false
-    }]
+    normalizePersonaSelection(data)
     data.personaFolders ??= []
     data.classicMaxWidth ??= false
     data.ooba ??= safeStructuredClone(defaultOoba)
@@ -632,7 +648,7 @@ export function setDatabase(data:Database){
     data.groupOtherBotRole ??= 'user'
     data.customAPIFormat ??= LLMFormat.OpenAICompatible
     data.systemContentReplacement ??= `system: {{slot}}`
-    data.systemRoleReplacement ??= 'user'
+    data.systemRoleReplacement = normalizeSystemRoleReplacement(data.systemRoleReplacement)
     data.vertexAccessToken ??= ''
     data.vertexAccessTokenExpires ??= 0
     data.vertexClientEmail ??= ''
@@ -765,6 +781,7 @@ export function setDatabase(data:Database){
     data.saveSignatures ??= false
     data.nodeOnlyScrollButtonType ??= 'four'
     data.nodeOnlyHideRecentChats ??= false
+    data.nodeOnlyAutoCleanAssets ??= false
     const legacyKeepSessionAlive = data.keepSessionAlive as unknown
     data.keepSessionAlive = legacyKeepSessionAlive === true
         || legacyKeepSessionAlive === 'sound'
@@ -784,6 +801,9 @@ export function setDatabase(data:Database){
 export function setDatabaseLite(data:Database){
     for (const character of data.characters ?? []) {
         initializeCharacterRuntimeState(character)
+        for (const chat of character.chats ?? []) {
+            if (!isChatStub(chat)) normalizeChat(chat)
+        }
     }
     DBState.db = data
 }
@@ -1493,6 +1513,8 @@ export interface Database{
     cornerBracketStyling?:boolean
     nodeOnlyScrollButtonType?:'four'|'two'|'off'
     nodeOnlyHideRecentChats?:boolean
+    /** Opt-in server-side orphan asset sweep after startup. */
+    nodeOnlyAutoCleanAssets?:boolean
     seperateParametersByModel?:boolean
     saveSignatures?:boolean
     keepSessionAlive: boolean
@@ -2045,6 +2067,7 @@ export type FormatingOrderItem = 'main'|'jailbreak'|'chats'|'lorebook'|'globalNo
 export function normalizeChat(chat: Partial<Chat>): Chat {
     const c = chat as Chat
     if (!Array.isArray(c.message)) c.message = []
+    for (const message of c.message) ensureMessageId(message)
     if (typeof c.note !== 'string') c.note = ''
     if (typeof c.name !== 'string') c.name = ''
     if (!Array.isArray(c.localLore)) c.localLore = []
@@ -2089,7 +2112,7 @@ export interface Chat{
 // without loading the Svelte runtime. Re-exported here to preserve existing
 // import paths across the codebase.
 export type { ChatStub } from './chatStub'
-export { isChatStub } from './chatStub'
+export { isChatStub }
 
 export type ChatOrStub = Chat | import('./chatStub').ChatStub
 

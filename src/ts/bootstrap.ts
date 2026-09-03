@@ -25,7 +25,6 @@ import {
     saveDb,
     setPatchSyncBaseline,
     getDbBackups,
-    getUncleanables,
     getBasename,
     checkCharOrder
 } from "./globalApi.svelte";
@@ -33,6 +32,7 @@ import { convertStubsToPlaceholders } from "./storage/chatStorage";
 import { isChatStub, purgeUnsupportedGroupChats } from "./storage/database.svelte";
 import { startSyncReceiver } from "./syncReceiver.svelte";
 import { ConflictError } from "./storage/nodeStorage";
+import { purgeOrphanAssets } from './storage/orphanAssets';
 
 /**
  * Loads the application data.
@@ -578,8 +578,17 @@ async function checkNewFormat(): Promise<void> {
  */
 async function cleanChunks() {
     const db = getDatabase()
-    const uncleanable = new Set(getUncleanables(db))
-    const indexes = await forageStorage.keys()
+    if(db.nodeOnlyAutoCleanAssets === true){
+        try {
+            await purgeOrphanAssets()
+        }
+        catch(error){
+            console.warn('[bootstrap] automatic orphan asset cleanup failed:', error)
+        }
+    }
+    // Asset deletion is handled transactionally by purgeOrphanAssets. Only
+    // enumerate remote-cache keys for the remaining grace-period cleanup.
+    const indexes = await forageStorage.keys('remotes/')
     const allKeys = new Set(indexes)
     const characterIds = new Set<string>(
         db.characters.map((v) => v.chaId)
@@ -587,12 +596,6 @@ async function cleanChunks() {
     for (const asset of indexes) {
         if (asset.endsWith('.meta')) {
             continue
-        }
-        else if (asset.startsWith('assets/')) {
-            const n = getBasename(asset)
-            if(!uncleanable.has(n)) {
-                await forageStorage.removeItem(asset)
-            }
         }
         else if (asset.startsWith('remotes/')) {
             const name = getBasename(asset).slice(0, -10) //remove .local.bin

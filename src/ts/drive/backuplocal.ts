@@ -1,4 +1,4 @@
-import { alertError, alertStore, alertWait, alertMd, alertConfirm, waitAlert, notifySuccess, notifyInfo, notifyError } from "../alert";
+import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertStore, alertWait, alertMd, waitAlert, notifySuccess, notifyInfo, notifyError } from "../alert";
 import { downloadFile, LocalWriter, forageStorage } from "../globalApi.svelte";
 import { encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase, type Chat } from "../storage/database.svelte";
@@ -13,7 +13,7 @@ function formatBytes(bytes: number): string {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
-async function streamBackupToDisk(response: Response, fallbackName: string){
+async function streamBackupToDisk(response: Response, fallbackName: string, progressLabel = 'Saving local backup...'){
     const disposition = response.headers.get('content-disposition') ?? ''
     const fileName = disposition.match(/filename=\"?([^"]+)\"?/)?.[1] ?? fallbackName
     const totalBytes = Number(response.headers.get('content-length') ?? '0')
@@ -33,9 +33,9 @@ async function streamBackupToDisk(response: Response, fallbackName: string){
             downloadedBytes += value.length
             if (totalBytes > 0) {
                 const progress = ((downloadedBytes / totalBytes) * 100).toFixed(2)
-                alertWait(`Saving local backup... (${progress}%)`)
+                alertWait(`${progressLabel} (${progress}%)`)
             } else {
-                alertWait(`Saving local backup... (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)`)
+                alertWait(`${progressLabel} (${(downloadedBytes / (1024 * 1024)).toFixed(1)} MB)`)
             }
             await writer.write(value)
         }
@@ -54,6 +54,61 @@ export async function SaveLocalBackup(){
     } catch (error) {
         console.error(error)
         alertError('Failed')
+    }
+}
+
+export async function SaveSettingsOnlyBackup(){
+    let includeModuleAssets = true
+    try {
+        alertWait(language.backupSettingsOnlyEstimating)
+        const estimate = await forageStorage.settingsBackupEstimate()
+        alertClear()
+
+        const baseBytes = estimate.dbBytes + estimate.baseAssets.bytes
+        if(estimate.moduleAssets.count > 0){
+            const choice = await alertConfirmMulti(
+                language.backupSettingsOnly,
+                [
+                    language.backupSettingsOnlyWithModuleAssets(
+                        formatBytes(baseBytes + estimate.moduleAssets.bytes),
+                    ),
+                    language.backupSettingsOnlyWithoutModuleAssets(formatBytes(baseBytes)),
+                ],
+                language.backupSettingsOnlyBreakdown(
+                    formatBytes(baseBytes),
+                    estimate.moduleAssets.moduleCount,
+                    estimate.moduleAssets.count,
+                    formatBytes(estimate.moduleAssets.bytes),
+                ),
+            )
+            if(choice !== 0 && choice !== 1) return
+            includeModuleAssets = choice === 0
+        }
+        else if(!(await alertConfirm(language.backupSettingsOnlyConfirm(formatBytes(baseBytes))))){
+            return
+        }
+
+        alertWait(language.backupSettingsOnlySaving)
+        const response = await forageStorage.exportBackup({
+            mode: 'settings',
+            moduleAssets: includeModuleAssets,
+        })
+        await streamBackupToDisk(
+            response,
+            `risu-settings-${Date.now()}.bin`,
+            language.backupSettingsOnlySaving,
+        )
+        if(!includeModuleAssets){
+            alertMd(language.backupSettingsOnlyModuleAssetsSkipped)
+        }
+        else{
+            notifySuccess(language.backupSettingsOnlyDone)
+        }
+    }
+    catch(error){
+        alertClear()
+        console.error(error)
+        alertError(language.backupSettingsOnlyFailed)
     }
 }
 

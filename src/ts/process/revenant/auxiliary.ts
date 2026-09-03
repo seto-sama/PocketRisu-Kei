@@ -1,4 +1,5 @@
 import {
+    consumeRevenantGenerationJob,
     createRevenantGenerationAuth,
     createRevenantJobMutationHeaders,
     isRevenantGenerationLocallyObserved,
@@ -356,13 +357,7 @@ async function consumeRecoverableAuxiliaryGenerationOnce(jobId: string): Promise
         notifyRecoverableTranslationSnapshot()
     }
     try {
-        const response = await fetch(`/api/generation/jobs/${encodeURIComponent(jobId)}/consume`, {
-            method: 'POST',
-            headers: await createRevenantJobMutationHeaders(jobId),
-        })
-        if (!response.ok) {
-            throw new Error(`Failed to consume auxiliary generation: ${response.status} ${await response.text()}`)
-        }
+        await consumeRevenantGenerationJob(jobId)
     }
     catch (error) {
         if (preserveTranslationIntent) {

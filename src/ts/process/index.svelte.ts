@@ -7,8 +7,10 @@ import { language } from "../../lang";
 import { alertError } from "../alert";
 import { parseChatML } from "../parser/chatML";
 import { loadLoreBookV3Prompt } from "./lorebook.svelte";
+import { renderLorebookContent } from "./lorebookPrompt";
 import { findCharacterbyId, getAuthorNoteDefaultText, getPersonaPrompt, getUserName, parseToggleSyntax, prebuiltAssetCommand } from "../util";
 import { requestChatData } from "./request/request";
+import { shouldSuppressGenerationErrorModal } from './generationErrorPresentation';
 import { processScript, processScriptFull, risuChatParser } from "./scripts";
 import { exampleMessage } from "./exampleMessages";
 import { sayTTS } from "./tts";
@@ -410,7 +412,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     updateWaiter.cancel()
                     const failedStep = workflow.steps.find(step => step.status === 'failed')
                     const error = failedStep?.metadata?.error
-                    if(workflow.status === 'failed' && typeof error === 'string') throwError(error)
+                    if(
+                        workflow.status === 'failed'
+                        && typeof error === 'string'
+                        && !shouldSuppressGenerationErrorModal(error)
+                    ) throwError(error)
                     // A server-side postprocess/materialization failure can
                     // arrive after the provider stream already updated the
                     // placeholder. Commit that visible projection (or restore
@@ -902,7 +908,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of normalActives){
         unformated.lorebook.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         })
     }
 
@@ -913,7 +919,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of descActives){
         const c = {
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         }
         if(lorebook.pos === 'before_desc'){
             beforeDescriptionPrompts.unshift(c)
@@ -948,7 +954,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of postEverythingLorebooks){
         unformated.postEverything.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         })
     }
 
@@ -969,7 +975,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const lorebook of postEverythingAssistantLorebooks){
         unformated.postEverything.push({
             role: lorebook.role,
-            content: risuChatParser(resolvePosition(lorebook.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(lorebook.prompt), currentChar)
         })
     }
 
@@ -1480,7 +1486,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const depthPrompt of depthPrompts){
         const chat:OpenAIChat = {
             role: depthPrompt.role,
-            content: risuChatParser(resolvePosition(depthPrompt.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(depthPrompt.prompt), currentChar)
         }
         currentTokens += await tokenizer.tokenizeChat(chat)
     }
@@ -1634,7 +1640,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     for(const depthPrompt of depthPrompts){
         const chat:OpenAIChat = {
             role: depthPrompt.role,
-            content: risuChatParser(resolvePosition(depthPrompt.prompt), {chara: currentChar})
+            content: renderLorebookContent(resolvePosition(depthPrompt.prompt), currentChar)
         }
         const depth = depthPrompt.pos === 'depth' ? (depthPrompt.depth) : (unformated.chats.length - depthPrompt.depth)
         unformated.chats.splice(depth,0,chat)
@@ -2170,6 +2176,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             previewBody: arg.previewPrompt,
             escape: nowChatroom.type === 'character' && nowChatroom.escapeOutput,
             rememberToolUsage: DBState.db.rememberToolUsage,
+            revenantWorkflowId: workflowSession.workflowId,
             revenantWorkflowDependency: revenantMainDependency,
             revenantRoomId: outgoingChat.id,
             revenantContinuationPrefix: continuationFallback,
@@ -2230,7 +2237,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
     catch(error) {
         const message = error instanceof Error ? error.message : String(error)
-        throwError(message)
+        if(!shouldSuppressGenerationErrorModal(error)) throwError(message)
         preserveFailedGenerationMessage('')
         finishStreamingDisplay()
         await setWorkflowStep('model.main', 'failed')
@@ -2250,7 +2257,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
     if(req.type === 'fail'){
         finishStreamingDisplay()
-        throwError(req.result)
+        if(!shouldSuppressGenerationErrorModal(req)) throwError(req.result)
         preserveFailedGenerationMessage('')
         await setWorkflowStep('model.main', 'failed')
         await finishWorkflow('failed')
@@ -2449,7 +2456,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             const message = streamFailure instanceof Error
                 ? streamFailure.message
                 : String(streamFailure)
-            throwError(message)
+            if(!shouldSuppressGenerationErrorModal(streamFailure)) throwError(message)
             preserveFailedGenerationMessage(rawResult || '')
             await setWorkflowStep('model.main', 'failed')
             await finishWorkflow('failed')

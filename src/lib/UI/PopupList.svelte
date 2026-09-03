@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { popupStore } from "src/ts/stores.svelte";
+    import { closePopup, popupStore } from "src/ts/stores.svelte";
     import { sleep } from "src/ts/util";
     import { onDestroy, onMount } from "svelte";
     import Portal from "./GUI/Portal.svelte";
@@ -24,17 +24,13 @@
         return styleString;
     });
 
-    const close = (() => {
-        popupStore.children = null;
-    });
-
     onMount(async () => {
         await sleep(0)
-        document.addEventListener('click', close);
+        document.addEventListener('click', closePopup);
     })
 
     onDestroy(() => {
-        document.removeEventListener('click', close);
+        document.removeEventListener('click', closePopup);
     })
 
 </script>

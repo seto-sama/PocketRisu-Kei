@@ -8,7 +8,7 @@ vi.mock(import('../parser.svelte'), () => ({
 
 const anythingNotToken = fc
   .string({ unit: 'grapheme' })
-  .filter((s) => s !== '<|im_start|>' && s !== '<|im_sep|>' && s !== '<|im_end|>')
+  .filter((s) => !s.includes('<|im_start|>') && !s.includes('<|im_sep|>') && !s.includes('<|im_end|>'))
 const anyRole = fc.constantFrom('assistant', 'system', 'user')
 
 test('returns null if input does not start with <|im_start|>', () => {
@@ -32,7 +32,7 @@ test('parses ChatML', () => {
         const result = parseChatML(input)
 
         expect(result).toHaveLength(2)
-        // FIXME: Implementation includes <|im_end|> into content, trims, AND THEN removes ending token, thus content only gets leading spaces trimmed
+        // Whitespace immediately before an end token belongs to the content.
         expect(result).toEqual([
           {
             role: role1,
@@ -50,21 +50,16 @@ test('parses ChatML', () => {
   )
 })
 
-// FIXME: Defend against:
-/*
-<|im_start|>assistant
-<|im_start|>assistant
-*/
-test.skip('parses ChatML without ending token', () => {
-  expect(parseChatML('<|im_start|>assistant\n<|im_start|>assistant')).toEqual([
+test('parses consecutive ChatML segments without ending tokens', () => {
+  expect(parseChatML('<|im_start|>assistant\nfirst<|im_start|>assistant\nsecond')).toEqual([
     {
       role: 'assistant',
-      content: '',
+      content: 'first',
       thoughts: [],
     },
     {
       role: 'assistant',
-      content: '',
+      content: 'second',
       thoughts: [],
     },
   ])
@@ -73,7 +68,7 @@ test.skip('parses ChatML without ending token', () => {
     fc.property(
       anyRole,
       anyRole,
-      anythingNotToken,
+      anythingNotToken.filter((content) => content.trim().length > 0),
       fc.constantFrom('<|im_sep|>', '\n', ' '),
       (role1, role2, content, sep) => {
         const input = `<|im_start|>${role1}${sep}${content}<|im_start|>${role2}${sep}${content}`
@@ -129,20 +124,6 @@ test('extracts thoughts', () => {
   )
 })
 
-// FIXME: /<Thoughts>(.+)<\/Thoughts>/gms
-//        => Matches with the whole bulk of <Thoughts>Thought 1</Thoughts> Middle <Thoughts>Thought 2</Thoughts>
-test.skip('extracts multiple thoughts', () => {
-  const input = `<|im_start|>assistant<|im_sep|>Start <Thoughts>Thought 1</Thoughts> Middle <Thoughts>Thought 2</Thoughts> End<|im_end|>`
-  const result = parseChatML(input)
-
-  expect(result).toHaveLength(1)
-  expect(result?.[0]).toEqual({
-    role: 'assistant',
-    content: 'Start  Middle  End',
-    thoughts: ['Thought 1', 'Thought 2'],
-  })
-})
-
 test('defaults to user role if unknown prefix', () => {
   fc.assert(
     fc.property(
@@ -167,14 +148,26 @@ test('defaults to user role if unknown prefix', () => {
 })
 
 test('handles empty segments', () => {
-  const input = `<|im_start|><|im_start|><|im_start|>user<|im_sep|><|im_sep|>Content<|im_sep|><|im_end|><|im_end|><|im_end|>`
+  const input = `<|im_start|><|im_start|><|im_start|>user<|im_sep|>Content<|im_end|>`
   const result = parseChatML(input)
 
   expect(result).toHaveLength(1)
   expect(result).toEqual([
     {
       role: 'user',
-      content: '<|im_sep|>Content<|im_sep|><|im_end|><|im_end|>',
+      content: 'Content',
+      thoughts: [],
+    },
+  ])
+})
+
+test('removes all <|im_end|> tokens from message content', () => {
+  const input = `<|im_start|>user<|im_sep|>Before<|im_end|>Middle<|im_end|><|im_end|>`
+
+  expect(parseChatML(input)).toEqual([
+    {
+      role: 'user',
+      content: 'BeforeMiddle',
       thoughts: [],
     },
   ])

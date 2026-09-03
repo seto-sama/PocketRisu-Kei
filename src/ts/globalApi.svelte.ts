@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { tick } from "svelte";
 import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
-import { setDatabase, type Chat, type Database, type Message, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat } from "./storage/database.svelte";
+import { setDatabase, type Chat, type Database, type Message, type character, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat, normalizeChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
@@ -15,6 +15,7 @@ import { decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEnc
 import { getChatServerEtag, isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat, convertStubsToPlaceholders, setChatServerEtag } from "./storage/chatStorage";
 import {
     acknowledgeProjectionOnlyChatConflict,
+    cloneChatValue,
     discardAllChatWorkingCopies,
     discardAllChatGenerationProjections,
     consumeChatSyncApplied,
@@ -1577,8 +1578,6 @@ async function createRequiredNodeAuth() {
  * 
  * @constant {RegExp}
  */
-const re = /\\/g;
-
 /**
  * Gets the basename of a given path.
  * 
@@ -1586,123 +1585,7 @@ const re = /\\/g;
  * @returns {string} - The basename of the path.
  */
 export function getBasename(data: string) {
-    const splited = data.replace(re, '/').split('/');
-    const lasts = splited[splited.length - 1];
-    return lasts;
-}
-
-/**
- * Retrieves uncleanable resources from the database.
- * 
- * @param {Database} db - The database to retrieve uncleanable resources from.
- * @param {'basename'|'pure'} [uptype='basename'] - The type of uncleanable resources to retrieve.
- * @returns {string[]} - An array of uncleanable resources.
- */
-export function getUncleanables(db: Database, uptype: 'basename' | 'pure' = 'basename') {
-    const uncleanable = new Set<string>();
-
-    /**
-     * Adds a resource to the uncleanable list if it is not already included.
-     * 
-     * @param {string} data - The resource to add.
-     */
-    function addUncleanable(data: string) {
-        if (!data) {
-            return;
-        }
-        if (data === '') {
-            return;
-        }
-        const bn = uptype === 'basename' ? getBasename(data) : data;
-        uncleanable.add(bn);
-    }
-
-    addUncleanable(db.customBackground);
-    addUncleanable(db.userIcon);
-    // Uploaded notification sounds. Preset-id values (e.g. "bell") are not
-    // asset paths, so they add a harmless basename that matches no stored asset.
-    addUncleanable(db.messageSound);
-    addUncleanable(db.translateSound);
-    if (db.customSounds) {
-        for (const s of db.customSounds) {
-            addUncleanable(s.path);
-        }
-    }
-
-    for (const cha of db.characters) {
-        if (cha.image) {
-            addUncleanable(cha.image);
-        }
-        if (cha.emotionImages) {
-            for (const em of cha.emotionImages) {
-                addUncleanable(em[1]);
-            }
-        }
-        if (cha.additionalAssets) {
-            for (const em of cha.additionalAssets) {
-                addUncleanable(em[1]);
-            }
-        }
-        if (cha.vits) {
-            const keys = Object.keys(cha.vits.files);
-            for (const key of keys) {
-                const vit = cha.vits.files[key];
-                addUncleanable(vit);
-            }
-        }
-        if (cha.ccAssets) {
-            for (const asset of cha.ccAssets) {
-                addUncleanable(asset.uri);
-            }
-        }
-    }
-
-    if (db.modules) {
-        for (const module of db.modules) {
-            const assets = module.assets
-            if (assets) {
-                for (const asset of assets) {
-                    addUncleanable(asset[1])
-                }
-            }
-            if(module.icon){
-                addUncleanable(module.icon)
-            }
-        }
-    }
-
-    if (db.personas) {
-        db.personas.map((v) => {
-            addUncleanable(v.icon);
-
-            if(v.embeddedModule){
-                const assets = v.embeddedModule.assets
-                if (assets) {
-                    for (const asset of assets) {
-                        addUncleanable(asset[1])
-                    }
-                }
-                if(v.embeddedModule.icon){
-                    addUncleanable(v.embeddedModule.icon)
-                }
-            }
-        });
-    }
-
-    if (db.characterOrder) {
-        db.characterOrder.forEach((item) => {
-            if (typeof item === 'object') {
-                addUncleanable(item.img);
-                addUncleanable(item.imgFile);
-            }
-        })
-    }
-    if (db.botPresets) {
-        for (const preset of db.botPresets) {
-            addUncleanable(preset.image)
-        }
-    }
-    return Array.from(uncleanable);
+    return data.replace(/\\/g, '/').split('/').pop() ?? '';
 }
 
 
@@ -2581,8 +2464,8 @@ export function changeChatTo(IdOrIndex: string | number) {
 
     chatDeselected.set(false)
     const char = DBState.db.characters[selIdState.selId]
-    char.chatPage = index
     const newChat = char.chats[index]
+    char.chatPage = index
     if(newChat){
         if(newChat._placeholder){
             const capturedIndex = index
@@ -2607,14 +2490,51 @@ export function changeChatTo(IdOrIndex: string | number) {
     ChatRoomReloadPointer.set(Math.random())
 }
 
-export function createChatCopyName(originalName: string,type:'Copy'|'Branch'): string {
+export function createChatCopyName(
+    originalName: string,
+    type: 'Copy'|'Branch',
+    chats = getCurrentCharacter().chats,
+): string {
     let name = originalName.replaceAll(/\(((Copy|Branch)( \d+)?)\)$/g, '').trim()
     let copyIndex = 1
     let newName = `${name} (${type})`
-    const char = getCurrentCharacter()
-    while (char.chats.find((v) => v.name === newName)) {
+    while (chats.find((v) => v.name === newName)) {
         copyIndex++
         newName = `${name} (${type} ${copyIndex})`
     }
     return newName
+}
+
+export async function createPersistedChatCopy(
+    character: character,
+    source: Chat,
+    type: 'Copy' | 'Branch',
+    prepare?: (copy: Chat) => void,
+): Promise<Chat> {
+    const copy = normalizeChat(cloneChatValue(source))
+    copy.name = createChatCopyName(copy.name, type, character.chats)
+    copy.id = uuidv4()
+    prepare?.(copy)
+
+    return createPersistedChat(character, copy)
+}
+
+export async function createPersistedChat(
+    character: character,
+    input: Chat,
+): Promise<Chat> {
+    const chat = normalizeChat(input)
+    if (!chat.id || character.chats.some(existing => existing?.id === chat.id)) {
+        throw new Error('New chat must have a unique id')
+    }
+
+    character.chats.unshift(chat)
+    // Enter immediately. The per-chat save queue snapshots later edits only
+    // after this creation commit has acknowledged its canonical ETag.
+    changeChatTo(chat.id)
+
+    markChatWorkingCopyDirty(character.chaId, chat.id)
+    await saveChatToServer(character.chaId, 0, chat.id, chat)
+    await requestImmediateSave({ characterIds: [character.chaId] })
+    return chat
 }

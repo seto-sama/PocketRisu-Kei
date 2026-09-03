@@ -13,6 +13,112 @@ const { createRevenantMaterializer } = materializerPkg as {
 }
 
 describe('revenant canonical materializer', () => {
+    it('materializes earlier cancellations in order before a newer response', async () => {
+        const inputChat = {
+            id: 'room-1',
+            message: [{ role: 'user', data: 'hello', chatId: 'user-1' }],
+        }
+        const newerChat = {
+            ...inputChat,
+            message: [
+                ...inputChat.message,
+                { role: 'char', data: 'try again later', chatId: 'message-3' },
+            ],
+        }
+        const jobs = new Map<string, any>([
+            ['standalone-job', {
+                jobId: 'standalone-job', jobType: 'model',
+                characterId: 'character-1', roomId: 'room-1', chatId: 'standalone-message',
+                status: 'generated', createdAt: 0,
+            }],
+            ['job-1', {
+                jobId: 'job-1', workflowId: 'workflow-1', jobType: 'model',
+                characterId: 'character-1', roomId: 'room-1', chatId: 'message-1',
+                status: 'cancelled', createdAt: 1,
+            }],
+            ['job-2', {
+                jobId: 'job-2', workflowId: 'workflow-2', jobType: 'model',
+                characterId: 'character-1', roomId: 'room-1', chatId: 'message-2',
+                status: 'cancelled', createdAt: 2,
+            }],
+            ['job-3', {
+                jobId: 'job-3', workflowId: 'workflow-3', jobType: 'model',
+                characterId: 'character-1', roomId: 'room-1', chatId: 'message-3',
+                status: 'generated', createdAt: 3,
+            }],
+        ])
+        const workflows = new Map([
+            ['workflow-1', {
+                workflowId: 'workflow-1', status: 'cancelled',
+                context: {
+                    inputCommit: { chat: inputChat },
+                    postprocess: { chat: inputChat, messageChatId: 'message-1' },
+                },
+                steps: [],
+            }],
+            ['workflow-2', {
+                workflowId: 'workflow-2', status: 'cancelled',
+                context: {
+                    inputCommit: { chat: inputChat },
+                    postprocess: { chat: inputChat, messageChatId: 'message-2' },
+                },
+                steps: [],
+            }],
+            ['workflow-3', {
+                workflowId: 'workflow-3', status: 'active',
+                context: {
+                    inputCommit: { chat: inputChat },
+                    postprocess: { chat: inputChat, messageChatId: 'message-3' },
+                },
+                steps: [{
+                    key: 'postprocess', status: 'completed', metadata: { chat: newerChat },
+                }],
+            }],
+        ])
+        const materializationOrder: string[] = []
+        const repository = {
+            getGenerationJob: (jobId: string) => jobs.get(jobId),
+            getGenerationWorkflow: (workflowId: string) => workflows.get(workflowId),
+            listGenerationWorkflowJobs: (workflowId: string) =>
+                [...jobs.values()].filter(job => job.workflowId === workflowId),
+            getEarlierRecoverableGenerationWorkflowJob: (
+                characterId: string,
+                roomId: string,
+                createdAt: number,
+            ) => [...jobs.values()]
+                .filter(job =>
+                    job.workflowId
+                    && job.characterId === characterId
+                    && job.roomId === roomId
+                    && job.createdAt < createdAt
+                    && !job.materializedAt)
+                .sort((left, right) => left.createdAt - right.createdAt)[0],
+            markGenerationMaterialized: (jobId: string) => {
+                const job = jobs.get(jobId)
+                if (!job) return false
+                job.materializedAt = Date.now()
+                materializationOrder.push(jobId)
+                return true
+            },
+            readGenerationJobRaw: () => Buffer.alloc(0),
+            updateGenerationWorkflowStep: vi.fn(),
+        }
+        const service = createRevenantMaterializer({
+            repository,
+            canonicalChatService: {
+                commitGenerationResult: vi.fn(async (input: any) => {
+                    await input.finalize()
+                    return { chat: input.chat }
+                }),
+            },
+        })
+
+        await service.materialize('job-3')
+
+        expect(materializationOrder).toEqual(['job-1', 'job-2', 'job-3'])
+        expect(jobs.get('standalone-job').materializedAt).toBeUndefined()
+    })
+
     it('persists the completed server trigger chat without a client message body', async () => {
         const stored = {
             id: 'room-1',
@@ -49,7 +155,7 @@ describe('revenant canonical materializer', () => {
                     },
                 }],
             }),
-            listRecoverableGenerationJobs: () => [],
+            getEarlierRecoverableGenerationWorkflowJob: () => undefined,
             markGenerationMaterialized: () => { materialized = true; return true },
             updateGenerationWorkflowStep: vi.fn(),
         }
@@ -141,7 +247,7 @@ describe('revenant canonical materializer', () => {
                     },
                 ],
             }),
-            listRecoverableGenerationJobs: () => [],
+            getEarlierRecoverableGenerationWorkflowJob: () => undefined,
             markGenerationMaterialized: () => true,
             updateGenerationWorkflowStep: vi.fn(),
         }
@@ -211,6 +317,7 @@ describe('revenant canonical materializer', () => {
         const repository = {
             getGenerationWorkflow: () => workflow,
             listGenerationWorkflowJobs: () => [job],
+            getEarlierRecoverableGenerationWorkflowJob: () => undefined,
             markGenerationMaterialized: vi.fn(() => true),
             readGenerationJobRaw: vi.fn(() => Buffer.from([
                 'data: {"choices":[{"delta":{"content":"before refresh"}}]}',

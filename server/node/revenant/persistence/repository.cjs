@@ -18,6 +18,7 @@ const {
     stmtSetProjectionError,
     stmtUpdateMetadata,
     stmtListRecoverable,
+    stmtGetEarlierRecoverableWorkflowJob,
     stmtListRecoverableAuxiliary,
     stmtListNeedingProjection,
     stmtListQueuedDispatches,
@@ -807,6 +808,13 @@ function listRecoverableGenerationJobs(limit = 50) {
     return stmtListRecoverable.all(normalized).map(row => rowToJob(row, false));
 }
 
+function getEarlierRecoverableGenerationWorkflowJob(characterId, roomId, createdAt) {
+    return rowToJob(
+        stmtGetEarlierRecoverableWorkflowJob.get(characterId, roomId, createdAt),
+        false,
+    );
+}
+
 function listRecoverableAuxiliaryJobs(limit = 200) {
     const normalized = Math.max(1, Math.min(500, Number(limit) || 200));
     return stmtListRecoverableAuxiliary.all(normalized).map(row => rowToJob(row, false));
@@ -914,6 +922,7 @@ module.exports = {
     updateGenerationJobMetadata,
     finishGenerationJob,
     listRecoverableGenerationJobs,
+    getEarlierRecoverableGenerationWorkflowJob,
     listRecoverableAuxiliaryJobs,
     listGenerationJobsNeedingProjection,
     markGenerationMaterialized,

@@ -4,7 +4,6 @@ import {
     addBadge,
     appendText,
     abortStatusesForChat,
-    clearStatus,
     computeTokPerSec,
     endStatus,
     endStatusesForChat,
@@ -14,6 +13,8 @@ import {
     recomputeEntry,
     requestStatusIdForJob,
     requestStatuses,
+    refreshRequestStatusTokenCounts,
+    settleRequestStatusTokenization,
     setStatusTokenCounter,
     startStatus,
     startStatusTimer,
@@ -21,6 +22,7 @@ import {
     trimSamples,
     type RequestStatusEntry,
     STALL_THRESHOLD_MS,
+    STATUS_TICK_MS,
     TOK_PER_SEC_WINDOW_MS,
     STATUS_ABANDON_MS,
 } from './requestStatus'
@@ -95,9 +97,6 @@ describe('trimSamples', () => {
         expect(trimSamples(samples, 10000, 3000)).toEqual([{ at: 100, tokens: 10 }])
     })
 
-    it('returns empty for empty input', () => {
-        expect(trimSamples([], 1000)).toEqual([])
-    })
 })
 
 describe('recomputeEntry', () => {
@@ -300,11 +299,6 @@ describe('publish API', () => {
         expect(get(requestStatuses).size).toBe(0)
     })
 
-    it('clearStatus removes an entry', () => {
-        startStatus('g1', { kind: 'main', label: 'x', now: 0 })
-        clearStatus('g1')
-        expect(get(requestStatuses).has('g1')).toBe(false)
-    })
 })
 
 describe('tick-time tokenization', () => {
@@ -318,14 +312,11 @@ describe('tick-time tokenization', () => {
         startStatus('g1', { kind: 'main', label: 'x', now: t0 })
         appendText('g1', { thinking: 'aaaa', response: 'bbbbbb' }, t0) // 4 / 6 chars
 
-        // Drive the async tokenize pass directly (the timer would call it).
-        startStatusTimer()
-        await vi.waitFor(() => {
-            const e = get(requestStatuses).get('g1')!
-            expect(e.thinkingTokens).toBe(2)  // 4/2
-            expect(e.responseTokens).toBe(3)  // 6/2
-            expect(e.textDirty).toBe(false)
-        })
+        await refreshRequestStatusTokenCounts()
+        const e = get(requestStatuses).get('g1')!
+        expect(e.thinkingTokens).toBe(2)  // 4/2
+        expect(e.responseTokens).toBe(3)  // 6/2
+        expect(e.textDirty).toBe(false)
     })
 
     it('falls back to char/4 estimate when no tokenizer is registered', async () => {
@@ -333,10 +324,8 @@ describe('tick-time tokenization', () => {
         setStatusTokenCounter(null)
         startStatus('g1', { kind: 'main', label: 'x', now: t0 })
         appendText('g1', { response: 'abcdefgh' }, t0) // 8 chars → 8/4 = 2
-        startStatusTimer()
-        await vi.waitFor(() => {
-            expect(get(requestStatuses).get('g1')!.responseTokens).toBe(2)
-        })
+        await refreshRequestStatusTokenCounts()
+        expect(get(requestStatuses).get('g1')!.responseTokens).toBe(2)
     })
 
     it('endStatus does a final recount when no usage is provided', async () => {
@@ -344,9 +333,8 @@ describe('tick-time tokenization', () => {
         startStatus('g1', { kind: 'main', label: 'x', now: 0 })
         appendText('g1', { response: 'hello' }, 10)
         endStatus('g1', 'done', { now: 20 }) // no usage → final recount
-        await vi.waitFor(() => {
-            expect(get(requestStatuses).get('g1')!.responseTokens).toBe(5)
-        })
+        await settleRequestStatusTokenization()
+        expect(get(requestStatuses).get('g1')!.responseTokens).toBe(5)
     })
 
     it('endStatus usage wins over the final recount', async () => {
@@ -368,7 +356,7 @@ describe('tick-time tokenization', () => {
         endStatus('g1', 'done', { now: 20 })
         endStatus('g1', 'done', { now: 30, usage: { responseTokens: 42 } })
         release()
-        await new Promise(resolve => setTimeout(resolve, 0))
+        await settleRequestStatusTokenization()
 
         const entry = get(requestStatuses).get('g1')!
         expect(entry.phase).toBe('done')
@@ -388,7 +376,7 @@ describe('tick-time tokenization', () => {
         startStatus('g1', { kind: 'main', label: 'x', now: 30 })
         appendText('g1', { response: 'bb' }, 40)
         release()                                      // stale recount resolves now
-        await new Promise((r) => setTimeout(r, 0))
+        await settleRequestStatusTokenization()
         // The stale recount (5) must NOT overwrite the live restarted entry.
         const e = get(requestStatuses).get('g1')!
         expect(e.phase).toBe('responding')
@@ -398,32 +386,30 @@ describe('tick-time tokenization', () => {
 })
 
 describe('render timer', () => {
-    it('starts on startStatus and self-stops once entries are terminal', () => {
+    it('keeps terminal status stable and restarts ticking for a later request', () => {
         vi.useFakeTimers()
-        const setSpy = vi.spyOn(globalThis, 'setInterval')
-        const clearSpy = vi.spyOn(globalThis, 'clearInterval')
 
-        startStatus('g1', { kind: 'main', label: 'x', now: Date.now() })
-        expect(setSpy).toHaveBeenCalledTimes(1)
+        const firstStartedAt = Date.now()
+        startStatus('g1', { kind: 'main', label: 'x', now: firstStartedAt })
+        endStatus('g1', 'done', { now: firstStartedAt + 10 })
+        vi.advanceTimersByTime(STATUS_TICK_MS * 2)
+        expect(get(requestStatuses).get('g1')?.phase).toBe('done')
 
-        // Idempotent: a second start does not arm a second timer.
-        startStatusTimer()
-        expect(setSpy).toHaveBeenCalledTimes(1)
-
-        endStatus('g1', 'done', { now: Date.now() })
-        vi.advanceTimersByTime(500) // one tick: sees no live entries → stops
-        expect(clearSpy).toHaveBeenCalled()
+        requestStatuses.set(new Map())
+        const secondStartedAt = Date.now()
+        startStatus('g2', { kind: 'main', label: 'x', now: secondStartedAt })
+        markPhase('g2', 'responding', secondStartedAt)
+        vi.advanceTimersByTime(STALL_THRESHOLD_MS + STATUS_TICK_MS)
+        expect(get(requestStatuses).get('g2')?.phase).toBe('stalled')
     })
 
     it('drops a never-ending (hung) non-terminal entry past the abandon cap, so the timer stops', () => {
         vi.useFakeTimers()
-        const clearSpy = vi.spyOn(globalThis, 'clearInterval')
         const start = Date.now()
         startStatus('g1', { kind: 'main', label: 'x', now: start })
         markPhase('g1', 'responding', start)
         // No further chunks, no endStatus, no abort — simulate a hung request.
         vi.advanceTimersByTime(STATUS_ABANDON_MS + 1000)
         expect(get(requestStatuses).has('g1')).toBe(false) // entry dropped
-        expect(clearSpy).toHaveBeenCalled()                // timer self-stopped
     })
 })

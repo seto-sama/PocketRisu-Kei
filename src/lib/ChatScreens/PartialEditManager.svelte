@@ -1,7 +1,7 @@
 <script lang="ts">
     import { CheckIcon, SaveIcon, Trash2Icon, XIcon } from '@lucide/svelte';
     import { onDestroy, tick, untrack } from 'svelte';
-    import { DBState, ReloadChatPointer } from 'src/ts/stores.svelte';
+    import { DBState, invalidateChatMessageRender } from 'src/ts/stores.svelte';
     import type { Message } from 'src/ts/storage/database.svelte';
     import { language } from 'src/lang';
     import { iconButtonSizeValues } from 'src/lib/UI/GUI/IconButton.svelte';
@@ -9,6 +9,7 @@
     import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte';
     import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte';
     import Portal from 'src/lib/UI/GUI/Portal.svelte';
+    import { isMobile } from 'src/ts/platform';
     import {
         findAllOriginalRangesFromHtml,
         findAllOriginalRangesFromText,
@@ -291,7 +292,10 @@
 
     function positionDragButtons(anchor: DOMRect, button: HTMLElement) {
         const layout = prepareEditButtons(button, PARTIAL_EDIT_BUTTON_GAP);
-        applyEditButtonPosition(anchor, button, anchor.right, anchor.bottom, layout);
+        const left = isMobile
+            ? anchor.right - layout.width - PARTIAL_EDIT_BUTTON_GAP
+            : anchor.right;
+        applyEditButtonPosition(anchor, button, left, anchor.bottom, layout);
     }
 
     function showBlockButton(block: HTMLElement, target: PartialEditTarget) {
@@ -514,10 +518,7 @@
             if (message.swipes && message.swipeId !== undefined) {
                 message.swipes[message.swipeId] = newData;
             }
-            ReloadChatPointer.update(value => ({
-                ...value,
-                [target.messageIndex]: (value[target.messageIndex] ?? 0) + 1,
-            }));
+            invalidateChatMessageRender(target.messageIndex);
         });
     }
 

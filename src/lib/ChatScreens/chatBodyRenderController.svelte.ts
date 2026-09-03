@@ -24,6 +24,32 @@ interface SharedTranslationTask {
 
 const sharedTranslationTasks = new Map<string, SharedTranslationTask>()
 const sharedTranslationTaskListeners = new Set<() => void>()
+const suspendedTranslationTaskKeys = new Set<string>()
+const translationResumeListeners = new Set<(taskKeys: ReadonlySet<string>) => void>()
+
+function notifyTranslationResume() {
+    if (document.visibilityState === 'hidden') return
+    if (suspendedTranslationTaskKeys.size === 0) return
+    const taskKeys = new Set(suspendedTranslationTaskKeys)
+    suspendedTranslationTaskKeys.clear()
+    translationResumeListeners.forEach(listener => listener(taskKeys))
+}
+
+export function subscribeTranslationResume(listener: (taskKeys: ReadonlySet<string>) => void) {
+    translationResumeListeners.add(listener)
+    if (translationResumeListeners.size === 1) {
+        document.addEventListener('visibilitychange', notifyTranslationResume)
+        window.addEventListener('pageshow', notifyTranslationResume)
+        if (document.visibilityState !== 'hidden') queueMicrotask(notifyTranslationResume)
+    }
+    return () => {
+        translationResumeListeners.delete(listener)
+        if (translationResumeListeners.size === 0) {
+            document.removeEventListener('visibilitychange', notifyTranslationResume)
+            window.removeEventListener('pageshow', notifyTranslationResume)
+        }
+    }
+}
 
 function notifySharedTranslationTasks() {
     sharedTranslationTaskListeners.forEach(listener => listener())
@@ -179,6 +205,9 @@ export function createChatBodyRenderController(
                     const clearSharedTask = () => {
                         if (sharedTranslationTasks.get(translationTaskKey) !== nextSharedTask) return
                         sharedTranslationTasks.delete(translationTaskKey)
+                        if (document.visibilityState === 'hidden') {
+                            suspendedTranslationTaskKeys.add(translationTaskKey)
+                        }
                         notifySharedTranslationTasks()
                     }
                     void taskPromise.then(clearSharedTask, clearSharedTask)

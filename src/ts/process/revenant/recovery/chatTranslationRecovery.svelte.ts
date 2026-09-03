@@ -37,12 +37,13 @@ export interface RevenantChatTranslationRecovery {
             data: string
             translated: boolean
             streaming: boolean
+            autoTranslationSuppressed?: boolean
             parseMarkdown: ParseMessageMarkdown
         },
     ) => Promise<boolean>
     waitForResult: (
         snapshot: RevenantChatTranslationRecoverySnapshot,
-    ) => Promise<void>
+    ) => Promise<boolean>
     acknowledgeResolved: (
         snapshot: RevenantChatTranslationRecoverySnapshot,
     ) => Promise<void>
@@ -122,12 +123,15 @@ export function createRevenantChatTranslationRecovery(options: {
             data: string
             translated: boolean
             streaming: boolean
+            autoTranslationSuppressed?: boolean
             parseMarkdown: ParseMessageMarkdown
         },
     ): Promise<boolean> {
         if (renderOptions.streaming) return false
         if (!renderOptions.data.trim()) return false
-        if (snapshot.pending || renderOptions.translated) return true
+        if (renderOptions.translated) return true
+        if (renderOptions.autoTranslationSuppressed) return false
+        if (snapshot.pending) return true
         if (!DBState.db.autoTranslate) return false
         if (
             !DBState.db.autoTranslateCachedOnly
@@ -147,13 +151,14 @@ export function createRevenantChatTranslationRecovery(options: {
 
     async function waitForResult(
         snapshot: RevenantChatTranslationRecoverySnapshot,
-    ): Promise<void> {
-        if (!snapshot.pending || !snapshot.cacheKey || !snapshot.scope) return
+    ): Promise<boolean> {
+        if (!snapshot.pending || !snapshot.cacheKey || !snapshot.scope) return true
         await recoverRevenantTranslationJobs(options.translationCache, {
             force: true,
             scope: snapshot.scope,
             cacheKey: snapshot.cacheKey,
         })
+        return await options.translationCache.get(snapshot.cacheKey) !== null
     }
 
     async function acknowledgeResolved(

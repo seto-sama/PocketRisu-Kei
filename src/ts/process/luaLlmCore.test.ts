@@ -21,9 +21,12 @@ describe('Lua LLM normalization', () => {
         ])
     })
 
-    it('normalizes options and multimodal references', () => {
+    it('normalizes valid options and rejects malformed options', () => {
         expect(parseLuaLlmOptions('{"streaming":true}')).toEqual({ streaming: true })
         expect(parseLuaLlmOptions('invalid')).toEqual({})
+    })
+
+    it('extracts supported multimodal references from message content', () => {
         expect(extractLuaLlmInlays({
             role: 'assistant', content: 'a{{inlay::skip}}b{{inlayeddata::keep}}',
         })).toEqual({ content: 'ab', inlayIds: ['keep'] })

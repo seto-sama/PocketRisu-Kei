@@ -37,6 +37,13 @@ import {
 } from "src/ts/process/ttsHooks";
 import { classifyPluginProviderFetch, type PluginProviderFetchOptions } from "./providerFetchClassification";
 import { getInlayAsset } from "src/ts/process/files/inlays";
+import {
+    clearPluginPermissionStateFor,
+    permissionKeyOf,
+    permissionLastGrantKeyOf,
+    PluginPermissionDialogQueue,
+    type PluginPermissionDesc,
+} from "./pluginPermissionState";
 
 /*
     V3 API for RisuAI Plugins
@@ -545,16 +552,10 @@ const unloadV3Plugin = async (pluginName: string) => {
     }
 }
 
-type PluginPermissionDesc = 'fetchLogs'|'db'|'mainDom'|'replacer'|'provider'|'sendChat';
-const pluginPermissionDescs: PluginPermissionDesc[] = ['fetchLogs', 'db', 'mainDom', 'replacer', 'provider', 'sendChat'];
-
 // Plugin names are free text (the //@name directive), so `${name}_${desc}` keys
 // can collide — both across permissions and with a legacy name-only entry that
 // happens to read like "name_desc". JSON-encoding the pair makes every key
 // unambiguous: ["foo","db"] can never equal a plain "foo_db" or ["foo_db","x"].
-const permissionKeyOf = (pluginName: string, permissionDesc: string) =>
-    JSON.stringify([pluginName, permissionDesc])
-
 const permissionGivenPlugins: Set<string> = new Set();
 const permissionDeniedPlugins: Set<string> = new Set();
 const permissionCache = new Map<string, boolean | number>();
@@ -603,14 +604,11 @@ export async function resetPluginPermission(pluginName: string) {
     // one rather than prefix-matching (which would also wipe another plugin's
     // keys). `pluginName` alone covers legacy name-only entries from older
     // versions, which JSON keys never collide with but reset should still clear.
-    const exactKeys = pluginPermissionDescs.map(desc => permissionKeyOf(pluginName, desc))
-    for (const key of [pluginName, ...exactKeys]) {
-        permissionGivenPlugins.delete(key)
-        permissionDeniedPlugins.delete(key)
-    }
-    for (const desc of pluginPermissionDescs) {
-        permissionCache.delete(permissionKeyOf(pluginName, desc) + '_lastGrantTime')
-    }
+    clearPluginPermissionStateFor({
+        given: permissionGivenPlugins,
+        denied: permissionDeniedPlugins,
+        cache: permissionCache,
+    }, pluginName)
     const plugin = DBState.db.plugins?.find(p => p.name === pluginName)
     if (plugin?.script) {
         const scriptHashBase = await hasher(new TextEncoder().encode(plugin.script))
@@ -644,19 +642,19 @@ export const customV3ProviderMetaStore:LLMModel[] = $state([])
 // otherwise overwrite each other's dialog — only the last one stays clickable
 // and a single click resolves all of them. The chain makes each dialog wait
 // for the previous one to finish, showing them one at a time.
-let pluginPermissionDialogChain: Promise<unknown> = Promise.resolve()
+const pluginPermissionDialogQueue = new PluginPermissionDialogQueue()
 
 const isPermissionResolved = async (
     pluginName: string,
     permissionDesc: PluginPermissionDesc,
     requiresReconfirm: boolean,
-): Promise<{ resolved: boolean; value: boolean; pluginHash: string }> => {
+): Promise<{ resolved: boolean; value: boolean; context: string }> => {
     const permissionKey = permissionKeyOf(pluginName, permissionDesc);
     if (!requiresReconfirm && permissionGivenPlugins.has(permissionKey)) {
-        return { resolved: true, value: true, pluginHash: '' }
+        return { resolved: true, value: true, context: '' }
     }
     if (!requiresReconfirm && permissionDeniedPlugins.has(permissionKey)) {
-        return { resolved: true, value: false, pluginHash: '' }
+        return { resolved: true, value: false, context: '' }
     }
 
     const pluginHash = await hasher(
@@ -667,10 +665,10 @@ const isPermissionResolved = async (
 
     if (!requiresReconfirm && permissionCache.get(pluginHash)) {
         permissionGivenPlugins.add(permissionKey);
-        return { resolved: true, value: true, pluginHash }
+        return { resolved: true, value: true, context: pluginHash }
     }
 
-    return { resolved: false, value: false, pluginHash }
+    return { resolved: false, value: false, context: pluginHash }
 }
 
 const getPluginPermission = async (pluginName: string, permissionDesc: PluginPermissionDesc, reconfirm: boolean|'periodically' = false) => {
@@ -681,66 +679,43 @@ const getPluginPermission = async (pluginName: string, permissionDesc: PluginPer
     // one may refresh it, making the reconfirm no longer due for the rest.
     const computeRequiresReconfirm = () => {
         if(reconfirm === 'periodically'){
-            const lastGrantTime = permissionCache.get(permissionKeyOf(pluginName, permissionDesc) + '_lastGrantTime') as number | undefined;
+            const lastGrantTime = permissionCache.get(permissionLastGrantKeyOf(pluginName, permissionDesc)) as number | undefined;
             return !lastGrantTime || Date.now() - lastGrantTime > 3 * 24 * 60 * 60 * 1000; //3 days
         }
         return reconfirm === true;
     }
 
-    // Fast path: if the answer is already known, skip the serialization queue
-    // entirely so cached/granted permissions never block on a pending dialog.
-    const early = await isPermissionResolved(pluginName, permissionDesc, computeRequiresReconfirm())
-    if (early.resolved) {
-        return early.value
-    }
-
-    const showDialog = async (): Promise<boolean> => {
-        // Re-check under the lock: an earlier queued dialog for the same plugin
-        // may have already granted/denied (or refreshed a periodic grant) while
-        // we were waiting our turn — recompute reconfirm so we don't re-prompt.
-        const requiresReconfirm = computeRequiresReconfirm()
-        const recheck = await isPermissionResolved(pluginName, permissionDesc, requiresReconfirm)
-        if (recheck.resolved) {
-            return recheck.value
-        }
-        const pluginHash = recheck.pluginHash
-
-        let alertTitle =
-            permissionDesc === 'fetchLogs' ? language.fetchLogConsent.replace("{}", pluginName)
-            : permissionDesc === 'db' ? language.getFullDatabaseConsent.replace("{}", pluginName)
-            : permissionDesc === 'mainDom' ? language.mainDomAccessConsent.replace("{}", pluginName)
-            : permissionDesc === 'replacer' ? language.replacerPermissionConsent.replace("{}", pluginName)
-            : permissionDesc === 'provider' ? language.providerPermissionConsent.replace("{}", pluginName)
-            : permissionDesc === 'sendChat' ? language.sendChatConsent.replace("{}", pluginName)
-            : `Error`
-        if(alertTitle === 'Error'){
-            return false;
-        }
-        const permissionKey = permissionKeyOf(pluginName, permissionDesc);
-        const conf = await alertConfirm(alertTitle)
-        if(conf && pluginHash){
-            permissionGivenPlugins.add(permissionKey);
-            permissionDeniedPlugins.delete(permissionKey);
-            permissionCache.set(pluginHash, true);
-            if(reconfirm === 'periodically'){
-                permissionCache.set(permissionKeyOf(pluginName, permissionDesc) + '_lastGrantTime', Date.now());
+    return pluginPermissionDialogQueue.request(
+        () => isPermissionResolved(pluginName, permissionDesc, computeRequiresReconfirm()),
+        async (pluginHash): Promise<boolean> => {
+            let alertTitle =
+                permissionDesc === 'fetchLogs' ? language.fetchLogConsent.replace("{}", pluginName)
+                : permissionDesc === 'db' ? language.getFullDatabaseConsent.replace("{}", pluginName)
+                : permissionDesc === 'mainDom' ? language.mainDomAccessConsent.replace("{}", pluginName)
+                : permissionDesc === 'replacer' ? language.replacerPermissionConsent.replace("{}", pluginName)
+                : permissionDesc === 'provider' ? language.providerPermissionConsent.replace("{}", pluginName)
+                : permissionDesc === 'sendChat' ? language.sendChatConsent.replace("{}", pluginName)
+                : `Error`
+            if(alertTitle === 'Error'){
+                return false;
             }
+            const permissionKey = permissionKeyOf(pluginName, permissionDesc);
+            const conf = await alertConfirm(alertTitle)
+            if(conf && pluginHash){
+                permissionGivenPlugins.add(permissionKey);
+                permissionDeniedPlugins.delete(permissionKey);
+                permissionCache.set(pluginHash, true);
+                if(reconfirm === 'periodically'){
+                    permissionCache.set(permissionLastGrantKeyOf(pluginName, permissionDesc), Date.now());
+                }
+                await persistPluginPermissionState()
+                return true;
+            }
+            permissionDeniedPlugins.add(permissionKey);
             await persistPluginPermissionState()
-            return true;
-        }
-        permissionDeniedPlugins.add(permissionKey);
-        await persistPluginPermissionState()
-        return false;
-    }
-
-    // Append to the dialog chain so only one permission dialog is shown at a
-    // time. finally restores the chain even if showDialog throws, so a single
-    // failure never deadlocks every later permission request.
-    const run = pluginPermissionDialogChain
-        .catch(() => {})
-        .then(() => showDialog())
-    pluginPermissionDialogChain = run.catch(() => {})
-    return run
+            return false;
+        },
+    )
 }
 
 const urlBlacklist = [

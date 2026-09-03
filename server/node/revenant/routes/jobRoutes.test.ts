@@ -127,4 +127,73 @@ describe('generation job cancellation route', () => {
         await request
         expect(notifyRevenantWorkflowUpdated).toHaveBeenCalledOnce()
     })
+
+    it('allows a caller-owned standalone main job to be consumed', async () => {
+        const routes = new Map<string, Function>()
+        const app = {
+            get: vi.fn(),
+            post: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            put: vi.fn(),
+            delete: vi.fn(),
+        }
+        repository.getGenerationJob.mockReturnValue({
+            jobId: 'job-1',
+            jobType: 'model',
+            status: 'generated',
+        })
+        repository.markGenerationMaterialized.mockReturnValue(true)
+
+        installRevenantJobRoutes(app, {
+            checkProxyAuth: vi.fn().mockResolvedValue(true),
+            requireSyncClientId: vi.fn(() => true),
+            generationRuntimeJobs: new Map(),
+            terminateGenerationWorkflow: vi.fn(),
+            getGenerationJob: repository.getGenerationJob,
+            markGenerationMaterialized: repository.markGenerationMaterialized,
+        })
+
+        const send = vi.fn()
+        await routes.get('/api/generation/jobs/:jobId/consume')?.(
+            { params: { jobId: 'job-1' } },
+            { send, status: vi.fn() },
+        )
+
+        expect(repository.markGenerationMaterialized).toHaveBeenCalledWith('job-1')
+        expect(send).toHaveBeenCalledWith({ success: true })
+    })
+
+    it('keeps workflow-owned main jobs behind canonical materialization', async () => {
+        const routes = new Map<string, Function>()
+        const app = {
+            get: vi.fn(),
+            post: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            put: vi.fn(),
+            delete: vi.fn(),
+        }
+        repository.getGenerationJob.mockReturnValue({
+            jobId: 'job-1',
+            jobType: 'model',
+            workflowId: 'workflow-1',
+            status: 'generated',
+        })
+
+        installRevenantJobRoutes(app, {
+            checkProxyAuth: vi.fn().mockResolvedValue(true),
+            requireSyncClientId: vi.fn(() => true),
+            generationRuntimeJobs: new Map(),
+            terminateGenerationWorkflow: vi.fn(),
+            getGenerationJob: repository.getGenerationJob,
+            markGenerationMaterialized: repository.markGenerationMaterialized,
+        })
+
+        const send = vi.fn()
+        const status = vi.fn(() => ({ send }))
+        await routes.get('/api/generation/jobs/:jobId/consume')?.(
+            { params: { jobId: 'job-1' } },
+            { send, status },
+        )
+
+        expect(status).toHaveBeenCalledWith(400)
+        expect(repository.markGenerationMaterialized).not.toHaveBeenCalled()
+    })
 })

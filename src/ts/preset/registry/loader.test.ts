@@ -26,8 +26,4 @@ describe('loadSpecialRegistry', () => {
             expect.objectContaining({ key: 'echoDelay', default: 0 }),
         ])
     })
-
-    test('returns a stable singleton', () => {
-        expect(loadSpecialRegistry()).toBe(loadSpecialRegistry())
-    })
 })

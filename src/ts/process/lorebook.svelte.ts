@@ -3,7 +3,6 @@ import { getChatVar, setChatVar } from '../parser/chatVar.svelte';
 import {selectedCharID} from '../stores.svelte'
 import { type Message, type loreBook } from "../storage/database.svelte";
 import { DBState } from '../stores.svelte';
-import { tokenize } from "../tokenizer";
 import { findCharacterbyId, pickHashRand, selectSingleFile } from "../util";
 import { alertError, notifySuccess } from "../alert";
 import { language } from "../../lang";
@@ -11,6 +10,7 @@ import { downloadFile } from "../globalApi.svelte";
 import { getModuleLorebooks } from "./modules";
 import { CCardLib } from "@risuai/ccardlib";
 import { v4 } from "uuid";
+import { selectLorebookPromptsWithinBudget } from "./lorebookPrompt";
 
 export function addLorebook(type:number) {
     const selectedID = get(selectedCharID)
@@ -239,7 +239,6 @@ export async function loadLoreBookV3Prompt(options: {
         role:'system'|'user'|'assistant'
         hasRoleOverride:boolean
         order:number
-        tokens:number
         priority:number
         source:string
         inject:{
@@ -575,7 +574,6 @@ export async function loadLoreBookV3Prompt(options: {
                     role: role,
                     hasRoleOverride: hasRoleOverride,
                     order: order,
-                    tokens: await tokenize(content),
                     priority: priority,
                     source: fullLore[i].comment || `lorebook ${i}`,
                     inject: inject ?? null
@@ -607,23 +605,7 @@ export async function loadLoreBookV3Prompt(options: {
         }
     }
 
-    const activesSorted = actives.sort((a,b) => {
-        return b.priority - a.priority
-    })
-
-    let usedTokens = 0
-
-    const activesFiltered = activesSorted.filter((act) => {
-        if(usedTokens + act.tokens <= loreToken){
-            usedTokens += act.tokens
-            return true
-        }
-        return false
-    })
-
-    let activesResorted = activesFiltered.sort((a,b) => {
-        return b.order - a.order
-    })
+    let activesResorted = await selectLorebookPromptsWithinBudget(actives, loreToken, char)
 
 
     const loreinjectionLores = activesResorted.filter((act) => {
@@ -673,7 +655,7 @@ export async function importLoreBook(mode:'global'|'local'){
     let lore = 
         mode === 'global' ? DBState.db.characters[selectedID].globalLore : 
         DBState.db.characters[selectedID].chats[page].localLore
-    const lorebook = (await selectSingleFile(['json', 'lorebook'])).data
+    const lorebook = (await selectSingleFile(['json', 'lorebook']))?.data
     if(!lorebook){
         return
     }

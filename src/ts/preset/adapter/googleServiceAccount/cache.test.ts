@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { createServiceAccountTokenCache } from './cache'
-import type { ExchangeServiceAccountInput } from './token'
+import type { AccessTokenResult, ExchangeServiceAccountInput } from './token'
 import { makeServiceAccountFixture } from './__testFixtures'
 
 interface ExchangeCall {
@@ -9,7 +9,7 @@ interface ExchangeCall {
 }
 
 function makeExchanger(opts: {
-    delayMs?: number
+    waitFor?: Promise<void>
     expiresInSeconds?: number
     issuedAtMs: number
     accessToken?: string
@@ -24,9 +24,7 @@ function makeExchanger(opts: {
             failedOnce = true
             throw new Error('simulated fetch failure')
         }
-        if (opts.delayMs && opts.delayMs > 0) {
-            await new Promise((r) => setTimeout(r, opts.delayMs))
-        }
+        await opts.waitFor
         counter += 1
         return {
             accessToken: opts.accessToken ?? `token-${counter}`,
@@ -89,19 +87,24 @@ describe('createServiceAccountTokenCache', () => {
 
     test('single-flights concurrent requests for same key', async () => {
         const nowMs = 1_000_000
+        let releaseExchange!: () => void
+        const exchangeGate = new Promise<void>(resolve => { releaseExchange = resolve })
         const { exchange, calls } = makeExchanger({
             issuedAtMs: nowMs,
             expiresInSeconds: 3600,
-            delayMs: 30,
+            waitFor: exchangeGate,
         })
         const cache = createServiceAccountTokenCache({ now: () => nowMs, exchange })
         const sa = makeServiceAccountFixture()
 
-        const [a, b, c] = await Promise.all([
+        const requests = Promise.all([
             cache.getAccessToken({ serviceAccount: sa }),
             cache.getAccessToken({ serviceAccount: sa }),
             cache.getAccessToken({ serviceAccount: sa }),
         ])
+        expect(calls).toHaveLength(1)
+        releaseExchange()
+        const [a, b, c] = await requests
         expect(calls).toHaveLength(1)
         expect(a.accessToken).toBe('token-1')
         expect(b.accessToken).toBe('token-1')
@@ -181,10 +184,12 @@ describe('createServiceAccountTokenCache', () => {
 
     test('aborting one caller does NOT cancel a concurrent caller sharing the same refresh', async () => {
         const nowMs = 1_000_000
+        let releaseExchange!: () => void
+        const exchangeGate = new Promise<void>(resolve => { releaseExchange = resolve })
         const { exchange, calls } = makeExchanger({
             issuedAtMs: nowMs,
             expiresInSeconds: 3600,
-            delayMs: 50,
+            waitFor: exchangeGate,
         })
         const cache = createServiceAccountTokenCache({ now: () => nowMs, exchange })
         const sa = makeServiceAccountFixture()
@@ -201,6 +206,7 @@ describe('createServiceAccountTokenCache', () => {
             retryable: false,
             fallbackEligible: false,
         })
+        releaseExchange()
         const bResult = await bPromise
         expect(bResult.accessToken).toBe('token-1')
         // Exchange ran exactly once — A's abort didn't kill B's refresh.
@@ -241,27 +247,29 @@ describe('createServiceAccountTokenCache', () => {
         expect(calls).toHaveLength(0)
     })
 
-    test('caller-aborted + later shared exchange failure does not produce an unhandled rejection', async () => {
+    test('retries cleanly after an aborted caller leaves a failed shared exchange', async () => {
         // Reproduce: a single caller starts the shared refresh and aborts
         // before it resolves. The shared exchange then rejects in the
         // background. Without a defensive .catch on the inflight promise the
         // rejection would escape to process unhandledRejection.
         const nowMs = 1_000_000
         let rejectExchange: (err: unknown) => void = () => undefined
-        const exchange = (): Promise<never> =>
-            new Promise<never>((_resolve, reject) => {
-                rejectExchange = reject
-            })
+        let attempts = 0
+        const exchange = (): Promise<AccessTokenResult> => {
+            attempts += 1
+            if (attempts > 1) {
+                return Promise.resolve({
+                    accessToken: 'recovered-token',
+                    tokenType: 'Bearer',
+                    expiresInSeconds: 3600,
+                    issuedAtMs: nowMs,
+                })
+            }
+            return new Promise((_resolve, reject) => { rejectExchange = reject })
+        }
         const cache = createServiceAccountTokenCache({ now: () => nowMs, exchange })
         const sa = makeServiceAccountFixture()
         const controller = new AbortController()
-
-        const unhandled: unknown[] = []
-        const onUnhandled = (event: PromiseRejectionEvent): void => {
-            unhandled.push(event.reason)
-            event.preventDefault?.()
-        }
-        globalThis.addEventListener?.('unhandledrejection', onUnhandled)
 
         const callerPromise = cache.getAccessToken({
             serviceAccount: sa,
@@ -270,15 +278,13 @@ describe('createServiceAccountTokenCache', () => {
         controller.abort()
         await expect(callerPromise).rejects.toMatchObject({ kind: 'aborted' })
 
-        // Now make the shared exchange fail with no other awaiter attached.
+        // The abandoned shared exchange fails after its only caller aborted.
         rejectExchange(new Error('background exchange failure'))
-        // Drain microtasks so any rejection has a chance to surface.
-        await new Promise((r) => setTimeout(r, 10))
+        await Promise.resolve()
 
-        try {
-            expect(unhandled).toEqual([])
-        } finally {
-            globalThis.removeEventListener?.('unhandledrejection', onUnhandled)
-        }
+        await expect(cache.getAccessToken({ serviceAccount: sa })).resolves.toMatchObject({
+            accessToken: 'recovered-token',
+        })
+        expect(attempts).toBe(2)
     })
 })

@@ -55,8 +55,9 @@ const maybeSaved = new Set<string>()
 // operations on the same key keep their submission order. Errors are swallowed:
 // a failed draft write must never disrupt chatting.
 let writeChain: Promise<void> = Promise.resolve()
-function enqueue(op: () => Promise<void>): void {
+function enqueue(op: () => Promise<void>): Promise<void> {
     writeChain = writeChain.then(() => op().catch(() => {}))
+    return writeChain
 }
 
 async function persistSave(key: string, draft: ChatDraft): Promise<void> {
@@ -118,17 +119,17 @@ export function scheduleSaveChatDraft(chaId: string, chatId: string, draft: Chat
 }
 
 /** Immediate save (blur / chat switch / unmount / page hide). Cancels any pending debounce. */
-export function flushChatDraft(chaId: string, chatId: string, draft: ChatDraft): void {
-    if (!chaId || !chatId) return
+export function flushChatDraft(chaId: string, chatId: string, draft: ChatDraft): Promise<void> {
+    if (!chaId || !chatId) return Promise.resolve()
     cancelPending()
-    enqueue(() => persistSave(chatDraftKey(chaId, chatId), draft))
+    return enqueue(() => persistSave(chatDraftKey(chaId, chatId), draft))
 }
 
 /** Drop a chat's draft after its message is sent. The chat lives on, so the key stays writable. */
-export function removeChatDraft(chaId: string, chatId: string): void {
-    if (!chaId || !chatId) return
+export function removeChatDraft(chaId: string, chatId: string): Promise<void> {
+    if (!chaId || !chatId) return Promise.resolve()
     cancelPending()
-    enqueue(() => persistRemove(chatDraftKey(chaId, chatId)))
+    return enqueue(() => persistRemove(chatDraftKey(chaId, chatId)))
 }
 
 /**

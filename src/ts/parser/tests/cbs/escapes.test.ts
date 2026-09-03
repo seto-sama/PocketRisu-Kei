@@ -88,10 +88,6 @@ test(';', () => {
   expect(parse('{{;}}')).toBe(';')
 })
 
-test(':', () => {
-  expect(parse('{{;}}')).toBe(';')
-})
-
 test('()', () => {
   expect(parse('{{(}}')).toBe('(')
   expect(parse('{{)}}')).toBe(')')

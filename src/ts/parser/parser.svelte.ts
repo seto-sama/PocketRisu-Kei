@@ -151,6 +151,7 @@ export function risuEscape(text:string){
 }
 
 const quoteBlockEndingRegex = /[\p{P}\p{S}]$/u
+const quoteBracketEndingRegex = /[\p{Ps}\p{Pe}]$/u
 const quoteClosingCharsRegex = /[\uE9b1\uE9b3"'’”」』»》]+$/u
 const blockquoteBreakPlaceholder = '\uE9B4'
 const cornerBracketStyles = [
@@ -166,7 +167,7 @@ function shouldRenderAsBlockquote(content:string){
         .trim()
         .replace(quoteClosingCharsRegex, '')
         .trim()
-    return quoteBlockEndingRegex.test(trimmed)
+    return quoteBlockEndingRegex.test(trimmed) && !quoteBracketEndingRegex.test(trimmed)
 }
 
 function renderMarkedText(open:string, content:string, close:string, mark:string){

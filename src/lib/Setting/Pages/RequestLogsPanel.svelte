@@ -1,15 +1,12 @@
 <script lang="ts">
     import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
     import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
-    import ShBadge from 'src/lib/UI/GUI/ShBadge.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import { Collapsible, Tooltip } from 'bits-ui'
     import {
         CopyIcon,
         Trash2Icon,
         ChevronDownIcon,
-        MonitorIcon,
-        SmartphoneIcon,
         ScrollTextIcon,
     } from '@lucide/svelte'
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert'
@@ -23,7 +20,7 @@
         type FetchLog,
         type FetchLogSummary,
     } from 'src/ts/globalApi.svelte'
-    import { language } from 'src/lang'
+    import { language, getCurrentLocale } from 'src/lang'
     import { formatResponseBody } from 'src/ts/requestLogFormat'
     import RequestLogDetail from 'src/lib/UI/RequestLogDetail.svelte'
 
@@ -52,6 +49,8 @@
             log.platform,
             log.chatId,
             log.responseType,
+            log.provider,
+            log.model,
             log.date,
         ].join(' ').toLowerCase().includes(needle))
     })
@@ -68,12 +67,22 @@
         return formatAbsolute(log.timestamp)
     }
 
-    function requestDeviceLabel(log: { platform?: string; clientId?: string }): string {
-        return `${log.platform ?? 'Desktop'}${log.clientId ? ` #${log.clientId}` : ''}`
+    function number(value?: number): string {
+        return value === undefined ? '—' : value.toLocaleString(getCurrentLocale())
     }
 
-    function requestDeviceKind(log: { platform?: string }): 'mobile' | 'desktop' {
-        return (log.platform ?? '').toLowerCase().includes('mobile') ? 'mobile' : 'desktop'
+    function requestModel(log: FetchLogSummary): string {
+        return log.model ?? log.provider ?? language.usageUnknownModel
+    }
+
+    function formatDuration(durationMs?: number | null): string {
+        if (typeof durationMs !== 'number' || !Number.isFinite(durationMs)) return '—'
+        if (durationMs < 1_000) return `${durationMs} ms`
+        if (durationMs < 10_000) return `${(durationMs / 1_000).toFixed(2)} s`
+        if (durationMs < 60_000) return `${(durationMs / 1_000).toFixed(1)} s`
+        const minutes = Math.floor(durationMs / 60_000)
+        const seconds = Math.floor(durationMs % 60_000 / 1_000)
+        return `${minutes}m ${seconds}s`
     }
 
     async function loadServerRequestLogs() {
@@ -267,12 +276,22 @@
                                 {formatRequestLogTime(log)}
                             </Tooltip.Content>
                         </Tooltip.Root>
-                        <span class="flex-1 min-w-0 truncate text-sm text-textcolor font-mono">{log.url}</span>
-                        <ShBadge variant="default" className="shrink-0">
-                            {#if requestDeviceKind(log) === 'mobile'}<SmartphoneIcon size={12} />
-                            {:else}<MonitorIcon size={12} />{/if}
-                            <span class="hidden md:inline text-[10px]">{requestDeviceLabel(log)}</span>
-                        </ShBadge>
+                        <span class="flex flex-1 min-w-0 items-center gap-2">
+                            <span class="min-w-0 truncate text-sm text-textcolor font-medium">{requestModel(log)}</span>
+                            {#if log.model && log.provider}
+                                <span class="shrink-0 hidden sm:inline text-xs text-textcolor2">{log.provider}</span>
+                            {/if}
+                        </span>
+                        <span class="w-16 shrink-0 text-right text-xs text-textcolor2 tabular-nums">
+                            {formatDuration(log.responseDurationMs)}
+                        </span>
+                        <span
+                            class="grid w-28 shrink-0 grid-cols-2 gap-2 whitespace-nowrap text-right text-xs text-textcolor2 tabular-nums"
+                            aria-label={`${language.usageInputTokens} ${number(log.promptTokens)}, ${language.usageOutputTokens} ${number(log.completionTokens)}`}
+                        >
+                            <span>{number(log.promptTokens)}</span>
+                            <span>{number(log.completionTokens)}</span>
+                        </span>
                         <ChevronDownIcon size={16} class="shrink-0 text-textcolor2 transition-transform group-data-[state=open]:rotate-180" />
                         </SettingLayout>
                     </Collapsible.Trigger>

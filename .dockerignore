@@ -1,6 +1,13 @@
+backups
+dist
 node_modules
 save
+server/node/ssl/certificate
 .git
 .github
 .claude
-dist
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3

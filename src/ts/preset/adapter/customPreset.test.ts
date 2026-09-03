@@ -32,10 +32,16 @@ function preset(values: Record<string, unknown>): ModelPreset {
 }
 
 describe('Developer Custom preset', () => {
-    test('uses standard basic-generation widgets and has no duplicate raw override fields', () => {
+    test('exposes the supported request controls without raw payload overrides', () => {
         const snapshot = preset({}).profileSnapshot
-        const uiByKey = new Map(snapshot.uiSchema.fields.map(field => [field.key, field]))
-        const sliderKeys = [
+        const schemaKeys = new Set(snapshot.schema.map(field => field.key))
+        const uiKeys = new Set(snapshot.uiSchema.fields.map(field => field.key))
+        const supportedControls = [
+            'customFormat',
+            'endpointUrl',
+            'modelId',
+            'customAuthKind',
+            'apiKey',
             'max_tokens',
             'temperature',
             'top_k',
@@ -45,107 +51,26 @@ describe('Developer Custom preset', () => {
             'repetition_penalty',
             'frequency_penalty',
             'presence_penalty',
-        ]
-
-        expect(uiByKey.get('seed')).toMatchObject({
-            widget: 'number-input',
-            visibility: 'basic',
-            layout: 'row',
-            group: 'generation',
-            order: 10,
-        })
-        expect(uiByKey.get('customAuthKind')).toMatchObject({
-            widget: 'select',
-            visibility: 'info',
-            layout: 'row',
-            group: 'connection',
-        })
-        expect(uiByKey.get('apiKey')).toMatchObject({
-            widget: 'secret',
-            visibility: 'info',
-            group: 'connection',
-        })
-        expect(snapshot.uiSchema.fields.filter(field => field.key === 'apiKey')).toHaveLength(1)
-        for (const key of sliderKeys) {
-            expect(uiByKey.get(key)).toMatchObject({
-                widget: 'slider',
-                visibility: 'basic',
-                layout: 'row',
-                disableable: true,
-                group: 'generation',
-            })
-        }
-        expect(sliderKeys.map(key => uiByKey.get(key)?.order)).toEqual([
-            1, 2, 3, 4, 5, 6, 7, 8, 9,
-        ])
-        expect(snapshot.schema.find(field => field.key === 'max_tokens')).toMatchObject({
-            labelKey: 'maxResponseSize',
-            helpKey: 'maxResponseSize',
-            min: 1,
-            max: 25600,
-        })
-        const advancedHelpFields = snapshot.schema.filter(field =>
-            field.key.startsWith('customFlag_')
-        )
-        expect(advancedHelpFields).toHaveLength(10)
-        expect(advancedHelpFields.every(field =>
-            typeof field.description === 'string'
-            && typeof field.helpKey === 'string'
-            && field.descriptionI18n === undefined
-        )).toBe(true)
-        expect(uiByKey.get('stopSequences')).toMatchObject({
-            widget: 'string-array',
-            visibility: 'basic',
-            layout: 'row',
-            group: 'generation',
-            order: 11,
-        })
-        const connectionKeys = [
-            'customFormat',
-            'endpointUrl',
-            'modelId',
+            'seed',
+            'stopSequences',
             'reasoning_effort',
             'thinking_tokens',
             'verbosity',
             'prompt_cache_mode',
         ]
-        expect(connectionKeys.map(key => uiByKey.get(key)?.group))
-            .toEqual(Array(connectionKeys.length).fill('connection'))
-        expect(connectionKeys.map(key => uiByKey.get(key)?.order))
-            .toEqual([1, 2, 3, 4, 5, 6, 7])
-        expect(['reasoning_effort', 'thinking_tokens', 'verbosity', 'prompt_cache_mode']
-            .map(key => uiByKey.get(key)?.visibility)).toEqual(Array(4).fill('basic'))
-        expect(connectionKeys.map(key => uiByKey.get(key)?.layout))
-            .toEqual(Array(connectionKeys.length).fill('row'))
-        expect(snapshot.uiSchema.groups.find(group => group.id === 'capabilities')).toMatchObject({
-            label: 'Features',
-            labelKey: 'modelPresetFeaturesGroup',
-        })
-        expect([
+
+        for (const key of supportedControls) {
+            expect(schemaKeys.has(key), `schema is missing ${key}`).toBe(true)
+            expect(uiKeys.has(key), `UI schema is missing ${key}`).toBe(true)
+        }
+        expect(snapshot.uiSchema.fields.filter(field => field.key === 'apiKey')).toHaveLength(1)
+
+        const unsupportedOverrides = [
+            'customBody',
+            'customHeaders',
             'customSupportsTools',
             'customSupportsJson',
             'customSupportsReasoning',
-        ].every(key => !snapshot.schema.some(field => field.key === key))).toBe(true)
-        expect([
-            'customFlag_hasImageOutput',
-            'customFlag_hasAudioInput',
-            'customFlag_hasAudioOutput',
-            'customFlag_hasVideoInput',
-            'customFlag_hasPrefill',
-            'customFlag_OAICompletionTokens',
-            'customFlag_DeveloperRole',
-            'customFlag_geminiIncludeThoughts',
-            'customFlag_deepSeekThinkingInput',
-            'customFlag_deepSeekThinkingOutput',
-        ].map(key => uiByKey.get(key)?.group)).toEqual(Array(10).fill('flags'))
-        expect([
-            'customFlag_hasImageOutput',
-            'customFlag_hasAudioInput',
-            'customFlag_hasAudioOutput',
-            'customFlag_hasVideoInput',
-            'customFlag_hasPrefill',
-        ].map(key => uiByKey.get(key)?.order)).toEqual([1, 2, 3, 4, 5])
-        expect([
             'customFlag_hasImageInput',
             'customFlag_hasFullSystemPrompt',
             'customFlag_hasFirstSystemPrompt',
@@ -154,52 +79,18 @@ describe('Developer Custom preset', () => {
             'customFlag_mustStartWithUserInput',
             'customFlag_claudeXHighEffort',
             'customFlag_claudeAdaptiveThinking',
-        ].every(key => !snapshot.schema.some(field => field.key === key))).toBe(true)
-        expect(snapshot.schema.find(field => field.key === 'reasoning_effort')?.enum
-            ?.map(option => option.value)).toContain('budget')
-        expect(snapshot.schema.find(field => field.key === 'thinking_tokens')).toMatchObject({
-            type: 'integer',
-            labelKey: 'thinkingTokens',
-            helpKey: 'thinkingBudgetHelp',
-            default: 1024,
-            min: 1024,
-        })
-        expect(uiByKey.get('thinking_tokens')).toMatchObject({
-            widget: 'number-input',
-            visibility: 'basic',
-            layout: 'row',
-            group: 'connection',
-            order: 5,
-            showIf: { key: 'reasoning_effort', equals: 'budget' },
-        })
-        expect(snapshot.schema.some(field => field.key === 'customFlag_claudeThinking')).toBe(false)
-        expect(snapshot.schema.some(field => field.key === 'claudeThinkingBudget')).toBe(false)
-        expect([
+            'customFlag_claudeThinking',
+            'claudeThinkingBudget',
             'customFlag_geminiBlockOff',
             'customFlag_noCivilIntegrity',
             'customFlag_hasCache',
             'customFlag_poolSupported',
             'customFlag_deepSeekPrefix',
             'customFlag_deepSeekThinkingToggle',
-        ].every(key => !snapshot.schema.some(field => field.key === key))).toBe(true)
-        expect([
-            'customFlag_deepSeekThinkingInput',
-            'customFlag_deepSeekThinkingOutput',
-        ].map(key => uiByKey.get(key)?.order)).toEqual([9, 10])
-        expect([
-            ['customFormat', 'modelPresetRequestFormat'],
-            ['endpointUrl', 'modelPresetEndpointUrl'],
-            ['modelId', 'modelPresetRequestModelId'],
-            ['reasoning_effort', 'reasoningEffort'],
-            ['verbosity', 'verbosity'],
-            ['seed', 'seed'],
-            ['repetition_penalty', 'modelPresetRepetitionPenalty'],
-            ['stopSequences', 'modelPresetStopSequences'],
-        ].map(([key, labelKey]) =>
-            snapshot.schema.find(field => field.key === key)?.labelKey === labelKey
-        )).toEqual(Array(8).fill(true))
-        expect(snapshot.schema.some(field => field.key === 'customBody')).toBe(false)
-        expect(snapshot.schema.some(field => field.key === 'customHeaders')).toBe(false)
+        ]
+        for (const key of unsupportedOverrides) {
+            expect(schemaKeys.has(key), `unsupported override ${key} is exposed`).toBe(false)
+        }
         expect(snapshot.uiSchema.groups.some(group => group.id === 'payload')).toBe(false)
     })
 

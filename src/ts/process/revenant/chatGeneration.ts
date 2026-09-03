@@ -89,14 +89,11 @@ export function isGenerationOwnedMessage(input: {
     generationTargetIndex: number
     roomIsResponding: boolean
 }) {
-    return input.message.role === 'char'
-        && (
-            input.message.isRecovering === true
-            || (
-                input.roomIsResponding
-                && input.messageIndex === input.generationTargetIndex
-            )
-        )
+    if (input.message.role !== 'char') return false
+    if (input.roomIsResponding) {
+        return input.messageIndex === input.generationTargetIndex
+    }
+    return input.message.isRecovering === true
 }
 
 export type ActiveRerollSession = {

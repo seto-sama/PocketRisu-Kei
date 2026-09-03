@@ -83,6 +83,8 @@
   $effect.pre(() => {
     hypaV3Data?.summaries?.length;
     filterSelected;
+    filterState.showImportantOnly;
+    filterState.selectedCategoryFilter;
 
     untrack(() => {
       DBState.db.characters[$selectedCharID].chats[
@@ -166,6 +168,8 @@
     const lowerQuery = query.toLowerCase();
 
     hypaV3Data.summaries.forEach((summary, summaryIndex) => {
+      if (!isSummaryVisible(summaryIndex)) return;
+
       // Search in summary text
       const summaryText = summary.text.toLowerCase();
       let index = 0;

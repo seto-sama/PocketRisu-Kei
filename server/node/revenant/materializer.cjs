@@ -80,7 +80,7 @@ function createRevenantMaterializer(options) {
         getGenerationJob,
         getGenerationWorkflow,
         listGenerationWorkflowJobs,
-        listRecoverableGenerationJobs,
+        getEarlierRecoverableGenerationWorkflowJob,
         markGenerationMaterialized,
         readGenerationJobRaw = () => Buffer.alloc(0),
         setGenerationJobProjection = () => false,
@@ -100,6 +100,35 @@ function createRevenantMaterializer(options) {
         }
     }
 
+    async function drainEarlierCancelledGenerations(job) {
+        let earlierJob = getEarlierRecoverableGenerationWorkflowJob(
+            job.characterId,
+            job.roomId,
+            job.createdAt,
+        );
+        while (earlierJob) {
+            const earlierWorkflow = getGenerationWorkflow(earlierJob.workflowId);
+            if (earlierWorkflow?.status !== 'cancelled') {
+                throw new RevenantMaterializationError(
+                    409,
+                    `Earlier generation must materialize first: ${earlierJob.jobId}`,
+                );
+            }
+            await materializeCancelledJob(earlierWorkflow, earlierJob);
+            if (!getGenerationJob(earlierJob.jobId, false)?.materializedAt) {
+                throw new RevenantMaterializationError(
+                    409,
+                    `Earlier generation must materialize first: ${earlierJob.jobId}`,
+                );
+            }
+            earlierJob = getEarlierRecoverableGenerationWorkflowJob(
+                job.characterId,
+                job.roomId,
+                job.createdAt,
+            );
+        }
+    }
+
     async function materialize(jobId) {
         const job = getGenerationJob(jobId, false);
         if (!job) throw new RevenantMaterializationError(404, 'Generation job not found');
@@ -110,17 +139,11 @@ function createRevenantMaterializer(options) {
         if (['queued', 'generating'].includes(job.status)) {
             throw new RevenantMaterializationError(409, 'Generation job is not complete');
         }
-        const earlierJob = listRecoverableGenerationJobs(200).find(candidate =>
-            candidate.jobId !== job.jobId
-            && candidate.characterId === job.characterId
-            && candidate.roomId === job.roomId
-            && candidate.createdAt < job.createdAt);
-        if (earlierJob) {
-            throw new RevenantMaterializationError(
-                409,
-                `Earlier generation must materialize first: ${earlierJob.jobId}`,
-            );
-        }
+        // Cancelled workflows are not part of the ordinary postprocess queue.
+        // A crash or cancellation/materialization race can therefore leave an
+        // older partial result pending forever. Drain that durable cancellation
+        // before committing the newer response so room ordering can progress.
+        await drainEarlierCancelledGenerations(job);
 
         const workflow = job.workflowId ? getGenerationWorkflow(job.workflowId) : undefined;
         const serverChat = completedServerChat(workflow);
@@ -171,25 +194,7 @@ function createRevenantMaterializer(options) {
      * completion owns its postprocessed projection. Browsers only render it;
      * they never race to persist a partial response.
      */
-    async function materializeCancellation(workflowId) {
-        const workflow = getGenerationWorkflow(workflowId);
-        if (!workflow) throw new RevenantMaterializationError(404, 'Generation workflow not found');
-        if (workflow.status !== 'cancelled') {
-            return { success: true, notCancelled: true };
-        }
-        const job = listGenerationWorkflowJobs(workflowId)
-            .find(candidate => candidate.jobType === 'model'
-                && candidate.characterId && candidate.roomId && candidate.chatId);
-        if (!job) {
-            await canonicalChatService.publishCurrent(
-                workflow.characterId,
-                workflow.roomId,
-                'generation-cancelled',
-            );
-            return { success: true, noGenerationJob: true };
-        }
-        if (job.materializedAt) return { success: true, alreadyMaterialized: true };
-
+    async function materializeCancelledJob(workflow, job) {
         const inputChat = workflow.context?.inputCommit?.chat;
         const recipe = workflow.context?.postprocess;
         if (!inputChat?.id || !Array.isArray(inputChat.message) || !recipe?.chat) {
@@ -241,6 +246,29 @@ function createRevenantMaterializer(options) {
             chat: commit.chat,
             message: commit.chat.message.find(item => item?.chatId === job.chatId),
         };
+    }
+
+    async function materializeCancellation(workflowId) {
+        const workflow = getGenerationWorkflow(workflowId);
+        if (!workflow) throw new RevenantMaterializationError(404, 'Generation workflow not found');
+        if (workflow.status !== 'cancelled') {
+            return { success: true, notCancelled: true };
+        }
+        const job = listGenerationWorkflowJobs(workflowId)
+            .find(candidate => candidate.jobType === 'model'
+                && candidate.characterId && candidate.roomId && candidate.chatId);
+        if (!job) {
+            await canonicalChatService.publishCurrent(
+                workflow.characterId,
+                workflow.roomId,
+                'generation-cancelled',
+            );
+            return { success: true, noGenerationJob: true };
+        }
+        if (job.materializedAt) return { success: true, alreadyMaterialized: true };
+
+        await drainEarlierCancelledGenerations(job);
+        return materializeCancelledJob(workflow, job);
     }
 
     return { materialize, materializeCancellation };

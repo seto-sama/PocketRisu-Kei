@@ -312,6 +312,47 @@ describe('buildPreparedRequest', () => {
         )
     })
 
+    test('sends both Vertex routing headers for a selected Flex tier', () => {
+        const preset = makePreset({
+            profileSnapshot: makeSnapshot({
+                auth: { kind: 'none', fields: [] },
+                endpoint: { kind: 'vertex-gemini' },
+                schema: [
+                    {
+                        key: 'project',
+                        type: 'string',
+                        label: 'Project',
+                        mapsTo: { target: 'custom', path: 'project' },
+                    },
+                    {
+                        key: 'location',
+                        type: 'string',
+                        label: 'Location',
+                        default: 'global',
+                        mapsTo: { target: 'custom', path: 'location' },
+                    },
+                    {
+                        key: 'service_tier',
+                        type: 'string',
+                        label: 'Service Tier',
+                        mapsTo: {
+                            target: 'header',
+                            path: 'X-Vertex-AI-LLM-Shared-Request-Type',
+                        },
+                    },
+                ],
+            }),
+            userValues: { project: 'my-proj', service_tier: 'flex' },
+        })
+
+        const result = buildPreparedRequest({ preset })
+
+        expect(result.headers).toMatchObject({
+            'X-Vertex-AI-LLM-Request-Type': 'shared',
+            'X-Vertex-AI-LLM-Shared-Request-Type': 'flex',
+        })
+    })
+
     test('throws invalid-request when Vertex project is missing', () => {
         const preset = makePreset({
             profileSnapshot: makeSnapshot({

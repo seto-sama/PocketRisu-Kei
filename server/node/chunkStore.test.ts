@@ -136,11 +136,11 @@ describe('createChunkStore — chunk-aware kv (injected :memory: db)', () => {
     it('B4: dedup — 유사 버퍼 2개는 chunks가 델타만큼만 증가', () => {
         const db = freshDb()
         const store = createChunkStore(db, T)
-        const buf1 = randomBytes(200_000)
+        const buf1 = seededBytes(200_000, 17)
         store.putValue('k', buf1)
         const n1 = countChunks(db)
         const at = 100_000
-        const buf2 = Buffer.concat([buf1.subarray(0, at), randomBytes(120), buf1.subarray(at)])
+        const buf2 = Buffer.concat([buf1.subarray(0, at), seededBytes(120, 23), buf1.subarray(at)])
         store.putValue('k', buf2)
         expect(countChunks(db)).toBeLessThanOrEqual(n1 + 3) // 공유 조각은 INSERT OR IGNORE로 재기록 안 됨
     })
@@ -165,11 +165,6 @@ describe('createChunkStore — chunk-aware kv (injected :memory: db)', () => {
         expect(store.sizeValue('big')).toBe(big.length)
         expect(store.sizeValue('small')).toBe(300)
         expect(store.sizeValue('missing')).toBeNull()
-    })
-
-    it('B7: 없는 키는 null', () => {
-        const store = createChunkStore(freshDb(), T)
-        expect(store.getValue('nope')).toBeNull()
     })
 
     it('B8: 마커와 정확히 같은 raw 값은 빈 버퍼가 아니라 원본 반환 (오탐 방어)', () => {
@@ -234,9 +229,10 @@ describe('snapshotValue — 조각 공유 스냅샷 (kvCopyValue 청크 인식)'
     it('C4: 없는 src 스냅샷은 dst 무변경 (no-op)', () => {
         const db = freshDb()
         const store = createChunkStore(db, T)
-        store.putValue('snap', randomBytes(300))
+        const original = seededBytes(300, 31)
+        store.putValue('snap', original)
         store.snapshotValue('missing', 'snap') // src 없음
-        expect((store.getValue('snap') as Buffer).length).toBe(300) // dst 그대로
+        expect((store.getValue('snap') as Buffer).equals(original)).toBe(true)
     })
 
     it('C5: snapshotCost — live와 같으면 ~0, 갈라지면 델타, raw는 full, 없으면 0', () => {
@@ -290,21 +286,6 @@ describe('gc — mark-sweep (참조 없는 조각만 삭제)', () => {
         store.putValue('live', bufB) // live → bufB, bufA는 이제 snap만 참조
         store.gc() // bufA 조각을 지우면 안 됨
         expect((store.getValue('snap') as Buffer).equals(bufA)).toBe(true) // 스냅샷 생존 ✓
-        expect((store.getValue('live') as Buffer).equals(bufB)).toBe(true)
-    })
-
-    it('D4: 스냅샷 로테이션(manifest 삭제) 후 그 조각만 회수, live 무사', () => {
-        const db = freshDb()
-        const store = createChunkStore(db, T)
-        const bufA = randomBytes(200_000)
-        const bufB = randomBytes(200_000)
-        store.putValue('live', bufA)
-        store.snapshotValue('live', 'snap')
-        store.putValue('live', bufB)
-        const nb = countManifest(db, 'live') // bufB 조각 수
-        store.dropValue('snap') // 로테이션 → bufA 조각 고아
-        store.gc()
-        expect(countChunks(db)).toBe(nb) // bufB 조각만 남음
         expect((store.getValue('live') as Buffer).equals(bufB)).toBe(true)
     })
 

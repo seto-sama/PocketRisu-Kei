@@ -5,7 +5,7 @@ import {
     type Message,
     type character,
 } from '../../../storage/database.svelte'
-import { DBState, ReloadChatPointer } from '../../../stores.svelte'
+import { DBState, invalidateChatMessageRender } from '../../../stores.svelte'
 import {
     awaitChatGenerationCanonical,
     beginChatGenerationProjection,
@@ -17,6 +17,7 @@ import {
     listRecoverableAuxiliaryGenerations,
 } from '../auxiliary'
 import {
+    consumeRevenantGenerationJob,
     isRevenantGenerationLocallyObserved,
     listRecoverableGenerations,
     setRevenantGenerationLocallyObserved,
@@ -83,10 +84,7 @@ const recoveryStreamSubscriptions = new Map<string, {
 
 function invalidateRecoveredMessage(character: character, messageIndex: number): void {
     character.reloadKeys += 1
-    ReloadChatPointer.update(pointers => ({
-        ...pointers,
-        [messageIndex]: (pointers[messageIndex] ?? 0) + 1,
-    }))
+    invalidateChatMessageRender(messageIndex)
 }
 
 function resolveCurrentRecoveryTarget(options: {
@@ -580,6 +578,37 @@ export async function recoverRevenantGenerationsForChat(
                 role: 'char',
                 data: '',
             }
+            if (!isActiveGeneration && !job.workflowId) {
+                // Caller-owned standalone main jobs have no server postprocess
+                // workflow. Recover their durable projection at the caller
+                // boundary, then acknowledge it through the shared consume
+                // route so a reload cannot leave this message locked.
+                const recoveredContent = await readRecoverableGenerationContent(job)
+                const projectedContent = job.isContinuation
+                    && job.continuationPrefix
+                    && !recoveredContent.startsWith(job.continuationPrefix)
+                    ? job.continuationPrefix + recoveredContent
+                    : recoveredContent
+                applyCancelledGenerationProjection(chat, {
+                    messageChatId,
+                    content: projectedContent,
+                    isContinuation: job.isContinuation === true,
+                    targetMessage,
+                    rerollSnapshot,
+                })
+                await consumeRevenantGenerationJob(job.jobId)
+                setRevenantGenerationLocallyObserved(job.jobId, false)
+                endStatus(
+                    requestStatusIdForJob(job),
+                    job.status === 'generated'
+                        ? 'done'
+                        : job.status === 'cancelled' ? 'aborted' : 'failed',
+                    { now: job.completedAt ?? Date.now() },
+                )
+                invalidateRecoveredMessage(character, Math.max(0, msgIndex))
+                recovered++
+                continue
+            }
             if (job.status === 'cancelled') {
                 const recoveredContent = await readRecoverableGenerationContent(job)
                 const projectedContent = job.isContinuation
@@ -667,10 +696,9 @@ export async function recoverRevenantGenerationsForChat(
                             liveMessage.recoveryDisplayData = displayContent
                             liveMessage.isRecovering = true
                             liveChat.isStreaming = true
-                            // Chats.svelte is manually mounted and uses this store as
-                            // its explicit render invalidation signal. Updating only
-                            // character.reloadKeys leaves a reattached recovery stream
-                            // invisible until the completed chat is materialized.
+                            // Publish raw recovery-object mutations through the
+                            // same per-message render invalidation pipeline used
+                            // by local edits and swipe navigation.
                             invalidateRecoveredMessage(liveCharacter, liveMessageIndex)
                         },
                         onDone: (terminal, usage) => {

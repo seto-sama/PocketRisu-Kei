@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import streamPkg from './generationStream.cjs'
 import generationPkg from './generation.cjs'
 
@@ -303,11 +303,13 @@ describe('revenant journal stream', () => {
             },
         })
 
-        while (liveJob.journalWaiters.length === 0) await Promise.resolve()
+        await vi.waitFor(() => expect(liveJob.journalWaiters).not.toHaveLength(0))
         journal = Buffer.from('later')
         liveJob.rawBytes = journal.length
         notifyRevenantJournalWaiters(liveJob)
-        while (!socket.messages.some(message => message.type === 'chunk')) await Promise.resolve()
+        await vi.waitFor(() => {
+            expect(socket.messages.some(message => message.type === 'chunk')).toBe(true)
+        })
         liveJob.done = true
         notifyRevenantJournalWaiters(liveJob)
         await streaming

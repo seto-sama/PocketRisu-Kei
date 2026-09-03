@@ -44,11 +44,6 @@ describe('revenant output transform', () => {
         expect(result.errors).toEqual([])
     })
 
-    it('does not execute removed plugin v2 output hooks', () => {
-        const result = runRevenantOutputTransform('Hello Bob', recipe())
-        expect(result.text).toBe('Alice says: Bob')
-    })
-
     it('keeps a matched status line when a nested CBS condition is true', () => {
         const input = recipe()
         input.chat.scriptstate = { $status_type: '1' }

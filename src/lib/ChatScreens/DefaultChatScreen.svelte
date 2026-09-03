@@ -11,7 +11,8 @@
     import Chat from "./Chat.svelte";
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
     import { type Chat as ChatData, type Message, type character } from "../../ts/storage/database.svelte";
-    import { DBState } from 'src/ts/stores.svelte';
+    import { ensureMessageId } from 'src/ts/storage/messageIdentity';
+    import { DBState, invalidateChatMessageRender } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
     import { chatProcessStage, doingChat, recoverRevenantGenerationsForChat, sendChat } from "../../ts/process/index.svelte";
     import { ensureCurrentChatReady } from "../../ts/storage/chatStorage";
@@ -641,11 +642,11 @@ import { isMobile } from 'src/ts/platform'
             if(submittedMessageInput === ''){
                 if(cha.length === 0 || cha[cha.length - 1].role !== 'user'){
                     if(DBState.db.useSayNothing){
-                        cha.push({
+                        cha.push(ensureMessageId({
                             role: 'user',
                             data: '*says nothing*',
                             name: null
-                        })
+                        }))
                     }
                 }
             }
@@ -657,20 +658,20 @@ import { isMobile } from 'src/ts/platform'
                         cha = triggerResult.chat.message
                     }
 
-                    cha.push({
+                    cha.push(ensureMessageId({
                         role: 'user',
                         data: await processScript(char,submittedMessageInput,'editinput'),
                         time: Date.now(),
                         name: null
-                    })
+                    }))
                 }
                 else{
-                    cha.push({
+                    cha.push(ensureMessageId({
                         role: 'user',
                         data: submittedMessageInput,
                         time: Date.now(),
                         name: null
-                    })
+                    }))
                 }
             }
             const targetChatIndex = DBState.db.characters[selectedChar].chats.findIndex(chat =>
@@ -749,6 +750,11 @@ import { isMobile } from 'src/ts/platform'
         return msg
     }
 
+    function invalidateSwipeMessage(message: Message, idx?: number) {
+        DBState.db.characters[$selectedCharID].reloadKeys += 1
+        invalidateChatMessageRender(idx ?? currentChat.indexOf(message))
+    }
+
     async function reroll() {
         if(currentRoomHasMainGeneration) return
         const activeMessage = getLastActiveMessage()
@@ -824,7 +830,7 @@ import { isMobile } from 'src/ts/platform'
 
         lastMsg.swipeId = lastMsg.swipeId <= 0 ? lastMsg.swipes.length - 1 : lastMsg.swipeId - 1
         lastMsg.data = lastMsg.swipes[lastMsg.swipeId]
-        DBState.db.characters[$selectedCharID].reloadKeys += 1
+        invalidateSwipeMessage(lastMsg, idx)
     }
 
     function nextSwipe(idx?: number) {
@@ -833,7 +839,7 @@ import { isMobile } from 'src/ts/platform'
 
         lastMsg.swipeId = lastMsg.swipeId >= lastMsg.swipes.length - 1 ? 0 : lastMsg.swipeId + 1
         lastMsg.data = lastMsg.swipes[lastMsg.swipeId]
-        DBState.db.characters[$selectedCharID].reloadKeys += 1
+        invalidateSwipeMessage(lastMsg, idx)
     }
 
     function deleteSwipe(idx?: number) {
@@ -861,7 +867,7 @@ import { isMobile } from 'src/ts/platform'
             delete lastMsg.swipeId
             delete lastMsg.swipeMetadata
         }
-        DBState.db.characters[$selectedCharID].reloadKeys += 1
+        invalidateSwipeMessage(lastMsg, idx)
     }
 
     function beginForegroundGeneration(
@@ -1195,7 +1201,7 @@ import { isMobile } from 'src/ts/platform'
     {#if DBState.db.nodeOnlyScrollButtonType !== 'off' && currentChat.length > 0}
         <Portal>
         <div
-            class="fixed right-3 bottom-16 z-40 flex flex-col rounded-lg bg-bgcolor/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
+            class="chat-side-navigation fixed right-3 z-40 flex flex-col rounded-lg bg-bgcolor/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
             class:opacity-0={!showScrollNav}
             class:pointer-events-none={!showScrollNav}
         >
@@ -1745,7 +1751,11 @@ import { isMobile } from 'src/ts/platform'
     </div>
     </Portal>
 {/if}
+
 <style>
+    .chat-side-navigation {
+        bottom: calc(10rem + env(safe-area-inset-bottom, 0px));
+    }
 
     :global(.default-chat-screen > :not([data-chat-scroll-anchor])) {
         overflow-anchor: none;
@@ -1772,7 +1782,8 @@ import { isMobile } from 'src/ts/platform'
 
     /* While a finger or pointer owns the scroll position, browser viewport
        resizing must not make the native bottom anchor pull against it. */
-    :global(.default-chat-screen[data-chat-direct-manipulation] > [data-chat-scroll-anchor]) {
+    :global(.default-chat-screen[data-chat-direct-manipulation] > [data-chat-scroll-anchor]),
+    :global(.default-chat-screen[data-chat-history-read] > [data-chat-scroll-anchor]) {
         overflow-anchor: none;
     }
 
