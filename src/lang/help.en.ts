@@ -98,7 +98,7 @@ export const helpEn = {
         openAIFixer: "OpenAI Fixer is a plugin that fixes some of the problems of OpenAI.",
         sayNothing: "If enabled, it will input 'say nothing' when no string inputed.",
         showUnrecommended: "If enabled, it will show unrecommended, deprecated settings. it is NOT RECOMMENDED to use these settings.",
-        allowV2Plugin: "Warning: This enables deprecated V2.0 plugin execution. V2.0 plugins bypass the V2.1 safety check and may be unsafe. Leave this disabled unless you explicitly trust the plugin and cannot migrate it to V3 yet.",
+        allowV2Plugin: "Warning: This allows deprecated V2.0 and V2.1 plugins to be installed and run. These plugins may be unsafe. When disabled, installed V2 plugins are switched off and cannot be enabled. Enable only for plugins you explicitly trust and cannot migrate to V3 yet.",
         imageCompression: "If enabled, it will compress images when exporting character. if animated images doesn't works, try disabling this option.",
         disableGlobalLorebookRecursiveScanning: "Turns off lorebook recursive scanning. If recursive scanning is enabled in a character's individual settings, that setting takes precedence.",
         inlayImageCompression: "When enabled, new inlay images are compressed using the settings below. When disabled, they are saved as lossless PNG at their original size.",

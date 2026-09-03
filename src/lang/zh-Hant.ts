@@ -643,7 +643,7 @@ export const languageChineseTraditional = {
     "unrecommended": "不建議",
     "chatNotes": "對話備註",
     "showUnrecommended": "顯示不建議的設定",
-    "allowV2Plugin": "允許已棄用的 V2.0 外掛",
+    "allowV2Plugin": "允許已棄用的 V2 外掛",
     "altGreet": "備選問候語",
     "scripts": "指令碼",
     "settings": "設定",

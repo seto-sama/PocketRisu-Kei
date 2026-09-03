@@ -6,7 +6,7 @@
     import { TriangleAlertIcon } from '@lucide/svelte';
 
     import { DBState, showPopupEditor } from "src/ts/stores.svelte";
-    import { checkPluginUpdate, createBlankPlugin, getBlankPluginSource, importPlugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
+    import { checkPluginUpdate, createBlankPlugin, getBlankPluginSource, importPlugin, isLegacyV2Plugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
     import { downloadFile, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { resetPluginPermission } from "src/ts/plugins/apiV3/v3.svelte";
     import Input from "../../UI/components/Input.svelte";
@@ -149,6 +149,9 @@
         <div class="text-subtext text-sm text-center py-8">{language.noData}</div>
     {/if}
     {#each visiblePlugins as { plugin, index } (plugin.name)}
+        {@const legacyV2Plugin = isLegacyV2Plugin(plugin)}
+        {@const pluginPowerLocked = legacyV2Plugin && !DBState.db.allowV2Plugin}
+        {@const pluginPoweredOn = !!plugin.enabled && !pluginPowerLocked}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
             data-sortable-key={pluginKey(plugin, index)}
@@ -171,7 +174,7 @@
                 <span class="text-xs text-subtext truncate">{pluginDescription(plugin)}</span>
             </div>
             <IconButtonGroup size="default" className="no-sort shrink-0 ml-2">
-            {#if plugin.version === 2 || plugin.version === "2.1"}
+            {#if legacyV2Plugin}
                 <IconButton title={language.pluginV2WarningTitle} aria-label={language.pluginV2WarningTitle} className="text-warning" onclick={(e) => {
                     e.stopPropagation()
                     alertMd(language.pluginV2Warning);
@@ -222,19 +225,21 @@
             {/if}
 
             <IconButton
-                title={plugin.enabled ? language.disablePlugin : language.enablePlugin}
-                aria-label={plugin.enabled ? language.disablePlugin : language.enablePlugin}
-                active={plugin.enabled}
+                title={pluginPowerLocked ? language.allowV2Plugin : pluginPoweredOn ? language.disablePlugin : language.enablePlugin}
+                aria-label={pluginPowerLocked ? language.allowV2Plugin : pluginPoweredOn ? language.disablePlugin : language.enablePlugin}
+                active={pluginPoweredOn}
                 activeColor="primary"
-                onclick={async (e) => {
+                disabled={pluginPowerLocked}
+                onclick={(e) => {
+                    e.stopPropagation()
+                    if(pluginPowerLocked) return
                     plugin.enabled = !plugin.enabled
                     DBState.db.plugins[index] = plugin
-                    loadPlugins()
+                    void loadPlugins()
                     void requestImmediateSave()
-                    e.stopPropagation()
                 }}
             >
-                {#if plugin.enabled}
+                {#if pluginPoweredOn}
                     <PowerIcon />
                 {:else}
                     <PowerOffIcon />

@@ -881,7 +881,7 @@ export const languageEnglish = {
     unrecommended: "Not Recommended",
     chatNotes: "Chat Notes",
     showUnrecommended: "Show Unrecommended Settings",
-    allowV2Plugin: "Allow V2.0 Plugins",
+    allowV2Plugin: "Allow Legacy V2 Plugins",
     altGreet: "Alternative First Messages",
     scripts: "Scripts",
     settings: "Settings",

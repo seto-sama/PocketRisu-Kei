@@ -14,6 +14,18 @@ import { pluginCodeTranspiler } from "./apiV3/transpiler";
 
 export const customProviderStore = writable([] as string[])
 
+const supportedPluginApiVersions = ['2.0', '2.1', '3.0'] as const
+type DeclaredPluginApiVersion = typeof supportedPluginApiVersions[number]
+type LegacyV2Version = 2 | '2.0' | '2.1'
+
+function isSupportedPluginApiVersion(version: string): version is DeclaredPluginApiVersion {
+    return supportedPluginApiVersions.some((supportedVersion) => supportedVersion === version)
+}
+
+function isLegacyV2Version(version: unknown): version is LegacyV2Version {
+    return version === 2 || version === '2.0' || version === '2.1'
+}
+
 interface ProviderPlugin {
     name: string
     displayName?: string
@@ -34,6 +46,11 @@ interface ProviderPluginCustomLink {
 }
 
 export type RisuPlugin = ProviderPlugin
+type LegacyV2Plugin = RisuPlugin & { version: 2 | '2.1' }
+
+export function isLegacyV2Plugin(plugin: RisuPlugin): plugin is LegacyV2Plugin {
+    return isLegacyV2Version(plugin.version)
+}
 
 export function getBlankPluginSource(){
     const plugins = getDatabase().plugins ?? []
@@ -180,7 +197,7 @@ export async function importPlugin(code:string|null = null, argu:{
         let customLink: ProviderPluginCustomLink[] = []
         let updateURL: string = ''
         let versionOfPlugin: string = '' //This is the version of the plugin itself, not the API version
-        let apiVersion = '2.0'
+        let apiVersion: DeclaredPluginApiVersion = '2.0'
         let ipcList: string[] = []
         for (const line of splitedJs) {
             if (line.startsWith('//@name')) {
@@ -193,9 +210,8 @@ export async function importPlugin(code:string|null = null, argu:{
             }
             if(line.startsWith('//@api')){
                 const proviedVersions = line.slice(6).trim().split(' ')
-                const supportedVersions = ['2.0','2.1','3.0']
                 for(const ver of proviedVersions){
-                    if(supportedVersions.includes(ver)){
+                    if(isSupportedPluginApiVersion(ver)){
                         apiVersion = ver
                         break
                     }
@@ -343,6 +359,10 @@ export async function importPlugin(code:string|null = null, argu:{
         }
 
         let apiInternalVersion: 2|'2.1'|'3.0' = '2.1'
+        if(isLegacyV2Version(apiVersion) && !DBState.db.allowV2Plugin){
+            showError(`Your plugin uses API version ${apiVersion}, which is outdated and no longer supported. Please update your plugin to use at least API version 3.0.`)
+            return false
+        }
 
         if(apiVersion === '2.1'){
             const safety = await checkCodeSafety(jsFile)
@@ -362,10 +382,6 @@ export async function importPlugin(code:string|null = null, argu:{
             apiInternalVersion = '2.1'
         }
         else if(apiVersion === '2.0'){
-            if(!DBState.db.allowV2Plugin){
-                showError('Your code does not include //@api or specifies API version 2.0, which is outdated. Please update your plugin to use at least API version 2.1.')
-                return false
-            }
             apiInternalVersion = 2
         }
         else if(apiVersion === '3.0'){
@@ -441,15 +457,31 @@ let pluginTranslator = false
 
 export async function loadPlugins() {
     console.log('Loading plugins...')
-    let db = getDatabase()
+    const db = getDatabase()
+
+    // The legacy API permission is also the source of truth for each plugin's
+    // power state. Keep legacy plugins off until the user explicitly allows
+    // the API and then enables individual plugins again.
+    let disabledLegacyPlugin = false
+    if(!db.allowV2Plugin){
+        for(const plugin of db.plugins ?? []){
+            if(isLegacyV2Plugin(plugin) && plugin.enabled){
+                plugin.enabled = false
+                disabledLegacyPlugin = true
+            }
+        }
+    }
+    if(disabledLegacyPlugin){
+        void requestImmediateSave()
+    }
 
     // addProvider registrations are rebuilt from enabled plugins on every load.
     // Clear the display list with the provider maps so disabled/hot-reloaded
     // plugins cannot leave duplicate or stale models in either model picker.
     customProviderStore.set([])
 
-    const enabledPlugins = safeStructuredClone(db.plugins).filter((p: RisuPlugin) => p.enabled)
-    const pluginV2 = enabledPlugins.filter((a: RisuPlugin) => a.version === 2 || a.version === '2.1')
+    const enabledPlugins = safeStructuredClone(db.plugins ?? []).filter((p: RisuPlugin) => p.enabled)
+    const pluginV2 = enabledPlugins.filter(isLegacyV2Plugin)
     const pluginV3 = enabledPlugins.filter((a: RisuPlugin) => a.version === '3.0')
 
     await loadV2Plugin(pluginV2)
@@ -833,7 +865,7 @@ export const getV2PluginAPIs = () => {
     }
 }
 
-export async function loadV2Plugin(plugins: RisuPlugin[]) {
+export async function loadV2Plugin(plugins: LegacyV2Plugin[]) {
 
     if (pluginV2.loaded) {
         for (const unload of pluginV2.unload) {
@@ -853,10 +885,10 @@ export async function loadV2Plugin(plugins: RisuPlugin[]) {
     globalThis.__pluginApis__ = getV2PluginAPIs()
 
     for (const plugin of plugins) {
-        let data = ''
-        let version = plugin.version || 2
+        let data: string
+        const version = plugin.version
 
-        const createRealScript = (data:string): string => {
+        const createRealScript = (source:string): string => {
             const tt = (window as unknown as Window & {
                 trustedTypes?: {
                     createPolicy: (name: string, rules: { createScript: (input: string) => string }) => { createScript: (input: string) => string }
@@ -867,7 +899,7 @@ export async function loadV2Plugin(plugins: RisuPlugin[]) {
             }
 
             const policy = policyFactory.createPolicy('plugin-policy', {
-                createScript: (_input) => {
+                createScript: (input) => {
                     return `(async () => {
                         const risuFetch = globalThis.__pluginApis__.risuFetch
                         const nativeFetch = globalThis.__pluginApis__.nativeFetch
@@ -898,44 +930,36 @@ export async function loadV2Plugin(plugins: RisuPlugin[]) {
                             const SafeFunction = globalThis.__pluginApis__.SafeFunction
                         ` : ''}
 
-                        ${data}
+                        ${input}
                     })();`
                 }
             });
 
-            return policy.createScript(data);
+            return policy.createScript(source);
         }
 
         if(version === '2.1'){
-            const safety = (await checkCodeSafety(plugin.script))
+            const safety = await checkCodeSafety(plugin.script)
             data = safety.modifiedCode
             console.log('Safety check result:', safety)
             console.log('Loading V2.1 Plugin', plugin.name, data)
-
-            try {
-                new Function(createRealScript(data))()
-            } catch (error) {
-                console.error(error)
-            }
-
-            console.log('Loaded V2.1 Plugin', plugin.name)
         }
         else{
             data = plugin.script
             console.log('Loading V2.0 Plugin', plugin.name)
+        }
 
-            if(DBState.db.allowV2Plugin){
-                try {
-                    new Function(createRealScript(data))()
-                } catch (error) {
-                    console.error(error)
-                }
+        try {
+            new Function(createRealScript(data))()
+        } catch (error) {
+            console.error(error)
+        }
 
-                console.warn(`Plugin 2.0 support is deprecated and disabled by default. Please update plugin "${plugin.name}" to API version 3.0`)
-            }
-            else{
-                console.warn(`Plugin 2.0 is disabled by default. Enable deprecated V2.0 plugin support in advanced settings to run plugin "${plugin.name}", and please update it to API version 3.0`)
-            }
+        if(version === '2.1'){
+            console.log('Loaded V2.1 Plugin', plugin.name)
+        }
+        else{
+            console.warn(`Plugin 2.0 support is deprecated. Please update plugin "${plugin.name}" to API version 3.0`)
         }
     }
 }

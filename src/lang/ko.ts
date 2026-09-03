@@ -961,7 +961,7 @@ export const languageKorean = {
   unrecommended: "비권장",
   chatNotes: "채팅 노트",
   showUnrecommended: "비권장 설정 보이기",
-  allowV2Plugin: "플러그인 V2.0 허용",
+  allowV2Plugin: "플러그인 V2 허용",
   altGreet: "추가 첫 메시지",
   scripts: "스크립트",
   settings: "설정",

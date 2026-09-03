@@ -129,7 +129,7 @@ export const helpZhHant = {
         "hypaV3SummarizationMaxConcurrent": "最大同時發送的總結模型請求數。僅在總結模型設為「輔助模型」時適用。",
         "hypaV3EmbeddingRequestsPerMinute": "用於相似性搜尋的每分鐘最大嵌入模型請求數。",
         "hypaV3EmbeddingMaxConcurrent": "用於相似性搜尋的最大同時嵌入模型請求數。",
-        "allowV2Plugin": "警告：此選項將啟用已棄用的 V2.0 外掛執行功能。V2.0 外掛會繞過 V2.1 安全檢查機制，可能存在安全風險。除非您明確信任該外掛且尚無法將其遷移至 V3，否則請保持停用。",
+        "allowV2Plugin": "警告：此選項允許安裝及執行已棄用且可能存在安全風險的 V2.0 與 V2.1 外掛。停用時，已安裝的 V2 外掛會關閉且無法重新啟用。僅限明確信任且尚無法遷移至 V3 的外掛使用。",
         "inlayImageCompression": "啟用後，新嵌入圖片會依照下方設定壓縮；關閉後則以原始尺寸的無損 PNG 儲存。",
         "inlayImageSize": "1K、2K、4K 分別限制為約 100 萬、400 萬及 1,600 萬像素；僅縮小超過限制的圖片並維持比例。",
         "inlayImageFormat": "將嵌入圖片儲存為 WebP 或無損 PNG。",
