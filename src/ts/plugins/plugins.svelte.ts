@@ -520,6 +520,14 @@ export type PluginV2ProviderOptions = {
 
 export type EditFunction = (content: string) => string | null | undefined | Promise<string | null | undefined>
 type ReplacerFunction = (content: OpenAIChat[], type: string) => OpenAIChat[] | Promise<OpenAIChat[]>
+export type ChatOutputListenerArg = {
+    char: any
+    chat: any
+    characterIndex: number
+    chatIndex: number
+    messageIndex: number
+}
+type ChatOutputListener = (arg: ChatOutputListenerArg) => void | Promise<void>
 
 export const pluginV2 = {
     providers: new Map<string, (arg: PluginV2ProviderArgument, abortSignal?: AbortSignal) => Promise<{ success: boolean, content: string | ReadableStream<string> }>>(),
@@ -530,6 +538,7 @@ export const pluginV2 = {
     editinput: new Set<EditFunction>(),
     replacerbeforeRequest: new Set<ReplacerFunction>(),
     replacerafterRequest: new Set<(content: string, type: string) => string | Promise<string>>(),
+    chatOutput: new Set<ChatOutputListener>(),
     unload: new Set<() => void | Promise<void>>(),
     loaded: false
 }
@@ -620,6 +629,14 @@ export const getV2PluginAPIs = () => {
             else {
                 throw (`replacer handler named ${name} not found`)
             }
+        },
+        addRisuChatListener: (mode: string, func: ChatOutputListener) => {
+            if(mode !== 'output') throw (`chat listener mode ${mode} not found`)
+            pluginV2.chatOutput.add(func)
+        },
+        removeRisuChatListener: (mode: string, func: ChatOutputListener) => {
+            if(mode !== 'output') throw (`chat listener mode ${mode} not found`)
+            pluginV2.chatOutput.delete(func)
         },
         onUnload: (func: () => void | Promise<void>) => {
             pluginV2.unload.add(func)
@@ -878,6 +895,7 @@ export async function loadV2Plugin(plugins: LegacyV2Plugin[]) {
         pluginV2.editoutput.clear()
         pluginV2.editprocess.clear()
         pluginV2.editinput.clear()
+        pluginV2.chatOutput.clear()
     }
 
     pluginV2.loaded = true

@@ -87,6 +87,7 @@ import {
     setGenerationMessageContent,
     setGenerationMessageInfo,
 } from './revenant/recovery';
+import { pluginV2 } from '../plugins/plugins.svelte';
 
 export { recoverRevenantGenerationsForChat } from "./revenant/recovery";
 
@@ -100,6 +101,34 @@ export interface OpenAIChat{
     multimodals?: MultiModal[]
     thoughts?: string[]
     cachePoint?: boolean
+}
+
+async function runChatOutputListeners(characterId: string, roomId: string, messageId: string){
+    if(pluginV2.chatOutput.size === 0) return
+
+    const characterIndex = DBState.db.characters.findIndex(character => character?.chaId === characterId)
+    const character = DBState.db.characters[characterIndex]
+    const chatIndex = character?.chats.findIndex(chat => chat?.id === roomId) ?? -1
+    const chat = character?.chats[chatIndex]
+    if(!character || !chat) return
+
+    const messageIndex = chat.message.findIndex(message => message?.chatId === messageId)
+    const charSnapshot = $state.snapshot(character)
+    const chatSnapshot = $state.snapshot(chat)
+    for(const listener of pluginV2.chatOutput){
+        try {
+            await listener({
+                char: charSnapshot,
+                chat: chatSnapshot,
+                characterIndex,
+                chatIndex,
+                messageIndex,
+            })
+        }
+        catch(error){
+            console.error('[Plugin] Chat output listener failed:', error)
+        }
+    }
 }
 
 export interface MultiModal{
@@ -343,6 +372,11 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     } else {
                         endChatGenerationProjection(nowChatroom.chaId, outgoingChat.id)
                     }
+                    await runChatOutputListeners(
+                        nowChatroom.chaId,
+                        outgoingChat.id,
+                        messageChatId,
+                    )
                     const resend = workflow.steps
                         .find(step => step.key === 'postprocess')
                         ?.metadata?.foregroundEffects

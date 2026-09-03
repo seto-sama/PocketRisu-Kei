@@ -268,6 +268,20 @@ type ScriptMode = 'display' | 'output' | 'input' | 'process';
  */
 type ReplacerType = 'beforeRequest' | 'afterRequest';
 
+/** Argument passed to chat lifecycle listeners. */
+type ChatOutputListenerArg = {
+    /** Current character snapshot. */
+    char: any;
+    /** Current chat snapshot. */
+    chat: any;
+    /** Index of the character in the database. Use with `setCharacterToIndex`. */
+    characterIndex: number;
+    /** Index of the chat within the character. Use with `setChatToIndex`. */
+    chatIndex: number;
+    /** Index of the generated message, or -1 if post-processing removed it. */
+    messageIndex: number;
+};
+
 /**
  * Risuai Plugin definition
  */
@@ -1906,6 +1920,24 @@ interface RisuaiPluginAPI {
     removeRisuReplacer(
         type: ReplacerType,
         func: Function
+    ): Promise<void>;
+
+    /**
+     * Adds a listener that runs after the canonical model output is committed,
+     * including output triggers and inlay transformations.
+     * Listeners are awaited in registration order and receive snapshots; mutate
+     * persisted data through the indexed character/chat APIs instead of modifying
+     * these snapshots.
+     */
+    addRisuChatListener(
+        mode: 'output',
+        func: (arg: ChatOutputListenerArg) => void | Promise<void>
+    ): Promise<void>;
+
+    /** Removes a previously registered chat listener. */
+    removeRisuChatListener(
+        mode: 'output',
+        func: (arg: ChatOutputListenerArg) => void | Promise<void>
     ): Promise<void>;
 
     // ========== Body Interceptors ==========
