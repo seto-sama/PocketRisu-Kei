@@ -116,7 +116,6 @@
     folderEmptyMessage={language.noBookmarks}
     noSearchResultsMessage={language.bookmarkNoSearchResults}
     allowFolderAssignmentDrag
-    readOnly={!!busyKey}
     {close}
     onFoldersChange={(next) => {
         void replaceBookmarkTags(next).catch(error => {

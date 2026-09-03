@@ -4,6 +4,23 @@
     import { openSettings, SettingsRoute } from 'src/ts/routing'
     import PresetPickerLayout from './PresetPickerLayout.svelte'
     import PresetBindingTrigger from './PresetBindingTrigger.svelte'
+    import PresetPickerActions from './PresetPickerActions.svelte'
+    import InlineEditableName from './components/InlineEditableName.svelte'
+    import { removePresetTag, togglePresetTag } from 'src/ts/preset/tags'
+    import { alertConfirm, alertError, notifyError, notifySuccess } from 'src/ts/alert'
+    import { downloadFile } from 'src/ts/globalApi.svelte'
+    import {
+        appendTranslatorPreset,
+        createTranslatorPreset,
+        decodeTranslatorPresetFile,
+        duplicateTranslatorPreset,
+        encodeTranslatorPresetFile,
+        getTranslatorPresetDownloadName,
+        moveTranslatorPreset,
+        removeTranslatorPreset,
+        translatorPresetImportExtensions,
+    } from 'src/ts/translator/presets'
+    import { selectSingleFile } from 'src/ts/util'
 
     interface Props {
         value?: string
@@ -41,6 +58,56 @@
         onConfigure()
         openSettings(SettingsRoute.Language)
     }
+
+    function movePreset(fromIndex: number, toIndex: number) {
+        moveTranslatorPreset(DBState.db, fromIndex, toIndex)
+    }
+
+    function addPreset() {
+        const preset = createTranslatorPreset()
+        preset.tagIds = undefined
+        appendTranslatorPreset(DBState.db, preset)
+    }
+
+    function duplicatePreset(index: number) {
+        if (duplicateTranslatorPreset(DBState.db, index, language.copy)) {
+            notifySuccess(language.presetDuplicated)
+        }
+    }
+
+    async function removePreset(index: number) {
+        if (presets.length <= 1) {
+            notifyError(language.errors.onlyOnePreset)
+            return
+        }
+        const preset = presets[index]
+        if (!preset || !await alertConfirm(`${language.removeConfirm}${preset.name}`)) return
+        removeTranslatorPreset(DBState.db, index)
+    }
+
+    async function exportPreset(index: number) {
+        try {
+            const preset = presets[index]
+            if (!preset) return
+            await downloadFile(getTranslatorPresetDownloadName(preset.name), await encodeTranslatorPresetFile(preset))
+            notifySuccess(language.successExport)
+        } catch (error) {
+            alertError(`${error}`)
+        }
+    }
+
+    async function importPreset() {
+        try {
+            const file = await selectSingleFile(translatorPresetImportExtensions)
+            if (!file) return
+            const decoded = await decodeTranslatorPresetFile(file.data)
+            const preset = createTranslatorPreset(decoded.name, { ...decoded, id: undefined })
+            appendTranslatorPreset(DBState.db, preset)
+            notifySuccess(language.successImport)
+        } catch (error) {
+            alertError(`${error}`)
+        }
+    }
 </script>
 
 {#if open}
@@ -55,16 +122,39 @@
         bind:visibleItemIndexes
         close={() => { open = false }}
         configure={showConfigure ? configure : undefined}
-        readOnly
-        onFoldersChange={() => {}}
-        onAssignItem={() => {}}
-        onDeleteFolder={() => {}}
+        onFoldersChange={(nextTags) => { DBState.db.translatorPresetTags = nextTags }}
+        onAssignItem={(index, tagId) => {
+            const preset = presets[index]
+            if (!preset) return
+            DBState.db.translatorPresets = presets.map((item, presetIndex) => presetIndex === index
+                ? { ...item, tagIds: togglePresetTag(item.tagIds, tagId) }
+                : item)
+        }}
+        onDeleteFolder={(tagId) => {
+            DBState.db.translatorPresets = presets.map(preset => ({
+                ...preset,
+                tagIds: removePresetTag(preset.tagIds, tagId),
+            }))
+        }}
         {selectedItemIndex}
+        onMoveItem={movePreset}
         onSelectItem={selectPreset}
+        onDuplicateItem={duplicatePreset}
+        onExportItem={exportPreset}
+        onDeleteItem={removePreset}
+        itemRenameable
     >
-        {#snippet itemContent(index)}
-            <span class="truncate flex-1">{presets[index].name}</span>
+        {#snippet itemContent(index, renameController)}
+            <InlineEditableName
+                controller={renameController}
+                bind:value={DBState.db.translatorPresets[index].name}
+                size="default"
+                editorLeadingInset="row"
+                placeholder="string"
+                onActivate={() => selectPreset(index)}
+            />
         {/snippet}
+        <PresetPickerActions onCreate={addPreset} onImport={importPreset} />
     </PresetPickerLayout>
 {/if}
 

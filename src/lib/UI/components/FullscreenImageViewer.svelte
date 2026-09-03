@@ -182,7 +182,7 @@
             {/if}
 
             {#if metadataOpen && metadataOverlay}
-                <div class="absolute bottom-3 left-3 right-3 z-10 max-h-[calc(100%-4.25rem)] overflow-y-auto rounded-md border border-darkborderc bg-darkbg/90 px-3 py-2 shadow-lg backdrop-blur-sm sm:right-auto sm:max-w-md">
+                <div class="absolute bottom-3 left-3 right-3 z-10 max-h-[35dvh] overflow-y-auto rounded-md border border-darkborderc bg-darkbg/90 px-3 py-2 shadow-lg backdrop-blur-sm sm:right-auto sm:max-w-md">
                     {@render metadataOverlay()}
                 </div>
             {/if}

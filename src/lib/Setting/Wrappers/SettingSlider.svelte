@@ -53,7 +53,8 @@
     // binding boundary (track/input show 0.00–2.00, storage stays 0–200).
     // The -1000 "slider disabled" sentinel is surfaced as a header Switch
     // (the slot the ModelPreset editor uses for its Reset affordance); turning
-    // it on restores `min`, matching the legacy checkbox behavior.
+    // it on restores the field default (falling back to `min` when no default
+    // is declared).
     let blockHelpText = $derived(
         item.helpKey ? (language.help as any)[item.helpKey] : undefined
     );
@@ -89,7 +90,11 @@
     }
 
     function setSliderEnabled(on: boolean) {
-        localValue = on ? (item.options?.min ?? 0) : -1000;
+        const defaultValue = item.options?.defaultValue;
+        const enabledValue = typeof defaultValue === 'number' && Number.isFinite(defaultValue)
+            ? defaultValue
+            : (item.options?.min ?? 0);
+        localValue = on ? enabledValue : -1000;
     }
 </script>
 

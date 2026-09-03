@@ -10,6 +10,7 @@
         compact?: boolean
         disabled?: boolean
         onOpen: () => void
+        onEdit?: () => void
     }
 
     let {
@@ -19,7 +20,15 @@
         compact = false,
         disabled = false,
         onOpen,
+        onEdit,
     }: Props = $props()
+
+    function handleContextMenu(event: MouseEvent) {
+        if (disabled || !onEdit) return
+        event.preventDefault()
+        event.stopPropagation()
+        onEdit()
+    }
 
     const className = $derived(
         state === 'selected'
@@ -36,6 +45,7 @@
         {label}
         {activeName}
         onManage={onOpen}
+        onContextMenu={onEdit ? handleContextMenu : undefined}
         {disabled}
         variant={state === 'warning' ? 'warning' : 'secondary'}
         {className}
@@ -46,6 +56,7 @@
         size="default"
         className={`w-full min-w-0 justify-start${disabled ? ' opacity-50 pointer-events-none' : ''} ${className}`}
         onclick={() => { if (!disabled) onOpen() }}
+        oncontextmenu={onEdit ? handleContextMenu : undefined}
     >
         {#if state === 'selected'}
             <PinIcon class="shrink-0" />

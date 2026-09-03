@@ -14,6 +14,7 @@ export const helpEn = {
         "usageEntryTokens": "Input is shown as total input (cache read | cache creation), and output as total output (reasoning). When no cache is created, only cache read is shown.",
         "translationCacheSearchLimit": "Loads translation cache entries 100 at a time, newest first, and searches the entries loaded so far.",
         "translationDialogClearAfterConfirm": "Clears the translation input after the translated content has been appended to the message input.",
+        "translationDialog": "Translates the entered text. After translation, select Confirm to append the result to the chat input.",
         "banCharacterset": "Automatically regenerates the response if it contains any character from a selected character set.",
         model: "Model option is a main model used in chat.",
         submodel: "Auxiliary Model is used for tasks such as emotion analysis, translation, and summarization. A smaller model is recommended.",
@@ -162,6 +163,8 @@ export const helpEn = {
             "You can enable modules by putting the module namespace in the module intergartion sections. if you want to enable multiple modules, you can seperate them by comma. for example, `module1,module2,module3`. this is for advanced users, who wants to vary the use of modules by presets.",
         personaModuleBinding:
             "Only personas selected here will have this module enabled in chats where they are active.",
+        chatModulesInfo:
+            "You can enable or disable modules for this chat. You can also enable them for this character by right-clicking or long-pressing the enable button.",
         customCSS: "Custom CSS for styling.",
         globalCustomCSS: "Global custom CSS that remains active when switching themes.",
         betaMobileGUI: "If enabled, it will use beta mobile GUI on small (less than 800px) screens. requires refresh.",
@@ -577,6 +580,8 @@ export const helpEn = {
             "Seed for deterministic output. Same input + same seed ≈ same response. Use it to remove variance when comparing prompts. Only honored on OpenAI / reverse-proxy / OpenRouter models.",
         imageGenerationSeed:
             "When left blank, a random value is sent.",
+        imageGenerationPresetQuickEdit:
+            "Right-click the generation settings or style preset field to edit the selected preset directly.",
         thinkingType:
             "Claude thinking mode.\n\n- **Off**: no thinking (faster and cheaper)\n- **Budget (Manual Tokens)**: spend up to the \"Thinking Tokens\" amount on thinking\n- **Adaptive**: Claude adjusts its thinking budget to the difficulty of the task (newest Claude models only)",
         thinkingTokens:

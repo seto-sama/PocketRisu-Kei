@@ -23,15 +23,17 @@
     import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
     import InlineEditableName from "../../UI/components/InlineEditableName.svelte";
     import {
+        appendImageGenerationPreset,
         createImageGenerationPreset,
+        decodeImageGenerationPresetFile,
+        duplicateImageGenerationPreset,
         moveImageGenerationPreset,
-        normalizeImageGenerationPresetSettings,
         removeImageGenerationPreset,
-        type ImageGenerationPresetSettings,
     } from "src/ts/imageGeneration/presets";
     import { untrack } from "svelte";
     import NovelAIImageCoreSettings from "src/lib/UI/NovelAIImageCoreSettings.svelte";
-    import { normalizeTagIds, removePresetTag, togglePresetTag } from "src/ts/preset/tags";
+    import ImageStylePresetList from "src/lib/UI/ImageStylePresetList.svelte";
+    import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
     const emotionPromptItems: SettingItem[] = [
         {
@@ -96,18 +98,13 @@
             language.imageGenerationPresetNew,
             settings,
         );
-        DBState.db.imageGenerationPresets = [...DBState.db.imageGenerationPresets, preset];
-        DBState.db.imageGenerationPresetId = DBState.db.imageGenerationPresets.length - 1;
+        appendImageGenerationPreset(DBState.db, preset);
     }
 
     function duplicateImagePreset(index: number) {
-        const source = DBState.db.imageGenerationPresets[index];
-        if (!source) return;
-        const preset = createImageGenerationPreset(`${source.name} ${language.copy}`, source.settings);
-        preset.tagIds = safeStructuredClone(source.tagIds);
-        DBState.db.imageGenerationPresets = [...DBState.db.imageGenerationPresets, preset];
-        DBState.db.imageGenerationPresetId = DBState.db.imageGenerationPresets.length - 1;
-        notifySuccess(language.presetDuplicated);
+        if (duplicateImageGenerationPreset(DBState.db, index, language.copy)) {
+            notifySuccess(language.presetDuplicated);
+        }
     }
 
     async function deleteImagePreset(index: number) {
@@ -126,25 +123,8 @@
         try {
             const file = await selectSingleFile(["json"]);
             if (!file?.data) return;
-            const container = JSON.parse(Buffer.from(file.data).toString("utf-8"));
-            const imported = container?.data;
-            if (container?.type !== "risu-image-generation-preset"
-                || typeof imported?.name !== "string"
-                || typeof imported?.settings?.sdProvider !== "string"
-                || typeof imported?.settings?.NAIImgConfig !== "object"
-                || typeof imported?.settings?.comfyConfig !== "object") {
-                throw new Error(language.imageGenerationPresetInvalid);
-            }
-            const preset = createImageGenerationPreset(
-                imported.name,
-                normalizeImageGenerationPresetSettings(
-                    imported.settings as Partial<ImageGenerationPresetSettings>,
-                    settings,
-                ),
-            );
-            preset.tagIds = normalizeTagIds(imported.tagIds ?? imported.folderId);
-            DBState.db.imageGenerationPresets = [...DBState.db.imageGenerationPresets, preset];
-            DBState.db.imageGenerationPresetId = DBState.db.imageGenerationPresets.length - 1;
+            const preset = decodeImageGenerationPresetFile(file.data, settings, language.imageGenerationPresetInvalid);
+            appendImageGenerationPreset(DBState.db, preset);
             notifySuccess(language.successImport);
         } catch (error) {
             alertError(`${error}`);
@@ -227,6 +207,11 @@
                     activeName={imagePreset.name}
                     onManage={() => presetPickerOpen = true}
                 />
+            {/snippet}
+        </SettingLayout>
+        <SettingLayout variant="row" title={language.imageStylePreset}>
+            {#snippet control()}
+                <ImageStylePresetList compact />
             {/snippet}
         </SettingLayout>
         <SettingLayout variant="row" title={`${language.imageGeneration} ${language.provider}`} description={language.help.sdProvider}>

@@ -9,6 +9,7 @@
         type NAIImageSizePreset,
     } from 'src/ts/imageGeneration/presets'
     import NumberInput from './components/NumberInput.svelte'
+    import Slider from './components/Slider.svelte'
     import SelectOption from './components/SelectOption.svelte'
     import Select from './components/Select.svelte'
     import Button from './components/Button.svelte'
@@ -97,6 +98,24 @@
     <SelectOption value="exponential">exponential</SelectOption>
     <SelectOption value="polyexponential">polyexponential</SelectOption>
 </Select>{/snippet}</SettingLayout>
-<SettingLayout variant="row" title={language.imageSettings.steps} description={language.help.naiSteps}>{#snippet control()}<NumberInput className="w-48 text-sm" size="sm" min={0} max={2048} bind:value={settings.NAIImgConfig.steps}/>{/snippet}</SettingLayout>
-<SettingLayout variant="row" title={language.imageSettings.cfgScale} description={language.help.naiCFG}>{#snippet control()}<NumberInput className="w-48 text-sm" size="sm" min={0} max={2048} bind:value={settings.NAIImgConfig.scale}/>{/snippet}</SettingLayout>
-<SettingLayout variant="row" title={language.imageSettings.cfgRescale} description={language.help.naiCFGRescale}>{#snippet control()}<NumberInput className="w-48 text-sm" size="sm" min={0} max={1} bind:value={settings.NAIImgConfig.cfg_rescale}/>{/snippet}</SettingLayout>
+<SettingLayout variant="row" title={language.imageSettings.steps} description={language.help.naiSteps}>
+    {#snippet control()}
+        <div class="w-48">
+            <Slider min={1} max={28} step={1} inputWidth="w-16" bind:value={settings.NAIImgConfig.steps} />
+        </div>
+    {/snippet}
+</SettingLayout>
+<SettingLayout variant="row" title={language.imageSettings.cfgScale} description={language.help.naiCFG}>
+    {#snippet control()}
+        <div class="w-48">
+            <Slider min={1} max={10} step={0.1} fixed={1} inputWidth="w-16" bind:value={settings.NAIImgConfig.scale} />
+        </div>
+    {/snippet}
+</SettingLayout>
+<SettingLayout variant="row" title={language.imageSettings.cfgRescale} description={language.help.naiCFGRescale}>
+    {#snippet control()}
+        <div class="w-48">
+            <Slider min={0} max={1} step={0.01} fixed={2} inputWidth="w-16" bind:value={settings.NAIImgConfig.cfg_rescale} />
+        </div>
+    {/snippet}
+</SettingLayout>

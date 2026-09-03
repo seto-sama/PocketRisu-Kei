@@ -57,10 +57,68 @@
         children,
         ariaLabel,
     }: Props = $props();
+    let contentRef = $state<HTMLElement | null>(null);
 
     const overlayLayer = provideOverlayLayer(() => open);
     const overlayStyle = $derived(`--risu-overlay-z: ${overlayLayer.zIndex};`);
     const escapeEnabled = $derived(closeOnEscape ?? closeOnOutsideClick);
+
+    const focusableSelector = [
+        'a[href]',
+        'button:not([disabled])',
+        'input:not([disabled]):not([type="hidden"])',
+        'select:not([disabled])',
+        'textarea:not([disabled])',
+        '[contenteditable="true"]',
+        '[tabindex]:not([tabindex="-1"])',
+    ].join(',');
+
+    function dialogFocusOrder(root: HTMLElement): HTMLElement[] {
+        const candidates = Array.from(root.querySelectorAll<HTMLElement>(focusableSelector))
+            .filter(element => !element.closest('[hidden], [inert], [aria-hidden="true"]'));
+        const help = candidates.filter(element => element.hasAttribute('data-risu-help'));
+        const close = candidates.filter(element => element.hasAttribute('data-risu-dialog-close'));
+        const regular = candidates.filter(element => !element.hasAttribute('data-risu-help')
+            && !element.hasAttribute('data-risu-dialog-close'));
+        return [...regular, ...help, ...close];
+    }
+
+    function handleOpenAutoFocus(event: Event) {
+        if (onOpenAutoFocus) {
+            onOpenAutoFocus(event);
+            return;
+        }
+        event.preventDefault();
+        const focusFirst = () => {
+            const root = contentRef;
+            if (!root) return false;
+            const first = dialogFocusOrder(root)[0];
+            (first ?? root).focus();
+            return true;
+        };
+        if (!focusFirst()) queueMicrotask(focusFirst);
+    }
+
+    function handleTabKeydown(event: KeyboardEvent) {
+        if (!open || event.key !== 'Tab' || event.ctrlKey || event.altKey || event.metaKey) return;
+        const root = contentRef;
+        const target = event.target;
+        if (!root || !(target instanceof Node) || !root.contains(target)) return;
+        const order = dialogFocusOrder(root);
+        const active = document.activeElement;
+        const index = order.findIndex(element => element === active);
+        if (index < 0 || order.length < 2) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const offset = event.shiftKey ? -1 : 1;
+        order[(index + offset + order.length) % order.length]?.focus();
+    }
+
+    $effect(() => {
+        if (!open || typeof window === 'undefined') return;
+        window.addEventListener('keydown', handleTabKeydown, true);
+        return () => window.removeEventListener('keydown', handleTabKeydown, true);
+    });
 
     const sizeClasses: Record<DialogSize, string> = {
         sm: 'max-w-sm',
@@ -116,6 +174,7 @@
             style={overlayStyle}
         />
         <Dialog.Content
+            bind:ref={contentRef}
             data-risu-overlay-layer={overlayLayer.allocatedZIndex}
             class={cn(contentBase, 'risu-layer-overlay', sizeClasses[size], contentClass)}
             style={overlayStyle}
@@ -123,7 +182,7 @@
             interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
             onEscapeKeydown={handleEscapeKeydown}
             onInteractOutside={handleInteractOutside}
-            {onOpenAutoFocus}
+            onOpenAutoFocus={handleOpenAutoFocus}
             {onCloseAutoFocus}
         >
             {#if title || description || closable}
@@ -142,6 +201,7 @@
                         {#if onRequestClose}
                             <button
                                 type="button"
+                                data-risu-dialog-close
                                 class="absolute right-0 top-0 rounded-sm border border-transparent text-subtext risu-interactive-foreground transition-colors cursor-pointer"
                                 aria-label="Close"
                                 onclick={onRequestClose}
@@ -150,6 +210,7 @@
                             </button>
                         {:else}
                             <Dialog.Close
+                                data-risu-dialog-close
                                 class="absolute right-0 top-0 rounded-sm border border-transparent text-subtext risu-interactive-foreground transition-colors cursor-pointer"
                                 aria-label="Close"
                             >

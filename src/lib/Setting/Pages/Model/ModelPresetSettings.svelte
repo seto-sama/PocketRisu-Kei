@@ -159,6 +159,7 @@
                 label: 'Max Context Size',
                 labelKey: 'maxContextSize',
                 helpKey: 'maxContextSize',
+                default: parameterDefaultMaxContext,
                 min: 1,
                 max: parameterMaxContext,
                 step: 1,
@@ -315,7 +316,7 @@
         if (!src) return;
         const copy = safeStructuredClone(src);
         copy.id = uuidv4();
-        copy.name = `${src.name} Copy`;
+        copy.name = `${src.name} ${language.copy}`;
         copy.createdAt = Date.now();
         copy.updatedAt = Date.now();
         DBState.db.modelPresets = [...DBState.db.modelPresets, copy];

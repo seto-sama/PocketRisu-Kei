@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount, tick, unmount } from 'svelte'
+import { createRawSnippet, mount, tick, unmount } from 'svelte'
 import Dialog from './Dialog.svelte'
 import { overlayLayerMinimum } from 'src/ts/gui/overlayStack'
 import OverlayStackHarness from './overlay/OverlayStackHarness.test.svelte'
@@ -15,6 +15,70 @@ afterEach(async () => {
 })
 
 describe('Dialog close requests', () => {
+    it('focuses the dialog content when it has no interactive controls', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Dialog, {
+            target,
+            props: { open: true, closable: false },
+        })
+        mounted.push(component)
+        await tick()
+
+        expect(document.activeElement).toBe(document.querySelector('[role="dialog"]'))
+    })
+
+    it('tabs through regular controls, help triggers, then close', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const title = createRawSnippet(() => ({
+            render: () => '<span data-risu-help role="button" tabindex="0" data-testid="title-help">?</span>',
+        }))
+        const children = createRawSnippet(() => ({
+            render: () => `
+                <div>
+                    <button data-testid="first-control">First</button>
+                    <span data-risu-help role="button" tabindex="0" data-testid="body-help">?</span>
+                    <input data-testid="second-control" />
+                </div>
+            `,
+        }))
+        const footer = createRawSnippet(() => ({
+            render: () => '<button data-testid="footer-control">Footer</button>',
+        }))
+        const component = mount(Dialog, {
+            target,
+            props: { open: true, closable: true, title, children, footer },
+        })
+        mounted.push(component)
+        await tick()
+
+        const order = [
+            'first-control',
+            'second-control',
+            'footer-control',
+            'title-help',
+            'body-help',
+        ]
+        const first = document.querySelector<HTMLElement>('[data-testid="first-control"]')!
+        expect(document.activeElement).toBe(first)
+        first.focus()
+        for (const testId of order.slice(1)) {
+            document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'Tab',
+                bubbles: true,
+                cancelable: true,
+            }))
+            expect(document.activeElement).toBe(document.querySelector(`[data-testid="${testId}"]`))
+        }
+        document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Tab',
+            bubbles: true,
+            cancelable: true,
+        }))
+        expect(document.activeElement).toBe(document.querySelector('[data-risu-dialog-close]'))
+    })
+
     it('closes with Escape by default when outside click closing is enabled', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)

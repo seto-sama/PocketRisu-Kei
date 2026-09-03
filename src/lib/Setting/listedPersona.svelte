@@ -44,7 +44,7 @@
         if (!source) return;
         const copy = safeStructuredClone(source);
         copy.id = uuidv4();
-        copy.name = `${source.name} Copy`;
+        copy.name = `${source.name} ${language.copy}`;
         DBState.db.personas = [...DBState.db.personas, copy];
         void requestImmediateSave();
     }
@@ -68,7 +68,6 @@
     itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
     searchPlaceholder={language.personaSearch}
     itemDragDataKey="personaIndex"
-    readOnly={!$settingsOpen}
     bind:selectedFolder
     bind:searchQuery
     bind:visibleItemIndexes
@@ -113,7 +112,6 @@
             controller={renameController}
             bind:value={DBState.db.personas[index].name}
             size="default"
-            disabled={!$settingsOpen}
             onActivate={() => selectPersona(index)}
             onValueChange={(value) => {
                 if (index === DBState.db.selectedPersona) DBState.db.username = value;
@@ -126,10 +124,8 @@
         </InlineEditableName>
     {/snippet}
 
-    {#if $settingsOpen}
-        <PresetPickerActions
-            onCreate={createUserPersona}
-            onImport={importPersona}
-        />
-    {/if}
+    <PresetPickerActions
+        onCreate={createUserPersona}
+        onImport={importPersona}
+    />
 </PresetPickerLayout>

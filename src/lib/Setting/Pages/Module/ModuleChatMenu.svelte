@@ -135,7 +135,7 @@
 
 <PresetPickerLayout
     title={language.modules}
-    titleHelp={folderManagement ? undefined : language.chatModulesInfo}
+    titleHelpKey={folderManagement ? undefined : 'chatModulesInfo'}
     folders={moduleTags}
     itemFolderIds={DBState.db.modules.map((rmodule) => rmodule.tagIds)}
     organizationKind="tag"
@@ -143,7 +143,6 @@
     itemSearchTexts={DBState.db.modules.map((rmodule) => `${rmodule.name}\n${rmodule.description ?? ''}`)}
     searchPlaceholder={language.search}
     itemDragDataKey="moduleIndex"
-    readOnly={!folderManagement}
     bind:selectedFolder
     bind:searchQuery={moduleSearch}
     bind:visibleItemIndexes={visibleModuleIndexes}
@@ -169,7 +168,7 @@
         void requestImmediateSave();
     }}
     configure={folderManagement ? undefined : openModuleSettings}
-    itemRenameable
+    itemRenameable={folderManagement}
 >
     {#snippet itemContent(index, renameController)}
         {@const rmodule = DBState.db.modules[index]}

@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { safeStructuredClone } from '../polyfill'
 import type { Database, NAIImgConfig } from '../storage/database.svelte'
-import { normalizePresetTagFields, type PresetTagFields } from '../preset/tags'
+import { normalizePresetTagFields, normalizeTagIds, type PresetTagFields } from '../preset/tags'
 
 export type NAIImageSizePreset = 'small' | 'normal' | 'large' | 'custom'
 export type NAIImageOrientation = 'landscape' | 'portrait' | 'square'
@@ -92,6 +92,28 @@ type ImageGenerationPresetCollection = Pick<
     'imageGenerationPresets' | 'imageGenerationPresetId'
 >
 
+export function appendImageGenerationPreset(
+    db: ImageGenerationPresetCollection,
+    preset: ImageGenerationPreset,
+): number {
+    db.imageGenerationPresets = [...db.imageGenerationPresets, preset]
+    db.imageGenerationPresetId = db.imageGenerationPresets.length - 1
+    return db.imageGenerationPresetId
+}
+
+export function duplicateImageGenerationPreset(
+    db: ImageGenerationPresetCollection,
+    index: number,
+    copyLabel: string,
+): ImageGenerationPreset | undefined {
+    const source = db.imageGenerationPresets[index]
+    if (!source) return undefined
+    const preset = createImageGenerationPreset(`${source.name} ${copyLabel}`, source.settings)
+    preset.tagIds = safeStructuredClone(source.tagIds)
+    appendImageGenerationPreset(db, preset)
+    return preset
+}
+
 export function removeImageGenerationPreset(
     db: ImageGenerationPresetCollection,
     index: number,
@@ -173,6 +195,31 @@ export function createImageGenerationPreset(
         name,
         settings: removeEmbeddedReferenceImages(safeStructuredClone(settings)),
     }
+}
+
+export function decodeImageGenerationPresetFile(
+    data: Uint8Array,
+    fallback: ImageGenerationPresetSettings,
+    invalidMessage = 'Invalid image generation preset',
+): ImageGenerationPreset {
+    const container = JSON.parse(new TextDecoder().decode(data))
+    const imported = container?.data
+    if (container?.type !== 'risu-image-generation-preset'
+        || typeof imported?.name !== 'string'
+        || typeof imported?.settings?.sdProvider !== 'string'
+        || typeof imported?.settings?.NAIImgConfig !== 'object'
+        || typeof imported?.settings?.comfyConfig !== 'object') {
+        throw new Error(invalidMessage)
+    }
+    const preset = createImageGenerationPreset(
+        imported.name,
+        normalizeImageGenerationPresetSettings(
+            imported.settings as Partial<ImageGenerationPresetSettings>,
+            fallback,
+        ),
+    )
+    preset.tagIds = normalizeTagIds(imported.tagIds ?? imported.folderId)
+    return preset
 }
 
 export function normalizeImageGenerationPresetSettings(

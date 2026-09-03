@@ -36,7 +36,11 @@
     }
 
     function setNumberEnabled(on: boolean) {
-        commitValue(on ? (item.options?.min ?? 0) : undefined);
+        const defaultValue = item.options?.defaultValue;
+        const enabledValue = typeof defaultValue === 'number' && Number.isFinite(defaultValue)
+            ? defaultValue
+            : (item.options?.min ?? 0);
+        commitValue(on ? enabledValue : undefined);
     }
 </script>
 

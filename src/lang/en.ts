@@ -790,6 +790,8 @@ export const languageEnglish = {
     imageStylePresetNone: "Don't Use a Preset",
     imageStylePresetNew: "New Art Style Preset",
     imageStylePresetName: "Preset Name",
+    imageStylePresetGenerationBinding: "Generation Preset Binding",
+    imageStylePresetBindingNone: "Don't Bind",
     imageStylePresetDeleteConfirm: "Delete this art style preset?",
     imageStylePresetPositive: "Positive Prompt",
     imageStylePresetNegative: "Negative Prompt",
