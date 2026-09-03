@@ -1,9 +1,9 @@
 <script lang="ts">
     import { TriangleAlertIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
+    import Alert from "../UI/components/Alert.svelte";
+    import Button from "../UI/components/Button.svelte";
+    import Dialog from "../UI/components/Dialog.svelte";
     import { pluginAlertModalStore } from "src/ts/stores.svelte";
 
     const reasons: [string, string][] = $derived.by(() => {
@@ -28,7 +28,7 @@
 </script>
 
 {#if pluginAlertModalStore.open}
-    <ShDialog
+    <Dialog
         open={true}
         onOpenChange={(open) => { if (!open) rejectPlugin(); }}
         closable={false}
@@ -39,7 +39,7 @@
     >
         {#snippet title()}{language.pluginRiskDetectedTitle}{/snippet}
 
-        <ShAlert variant="destructive">
+        <Alert variant="destructive">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}
             <p class="m-0">{language.pluginRiskDetectedAlert}</p>
             <ul class="mt-3 flex list-none flex-col divide-y divide-danger/30 border-t border-danger/30 p-0 pt-1 text-sm">
@@ -50,7 +50,7 @@
                     </li>
                 {/each}
             </ul>
-        </ShAlert>
+        </Alert>
 
         <details class="rounded-md border border-darkborderc bg-lightbg/30 px-3 py-2 text-sm text-subtext">
             <summary class="cursor-pointer font-medium risu-interactive-foreground">Dev Info</summary>
@@ -60,14 +60,14 @@
                 {/each}
             </div>
         </details>
-    </ShDialog>
+    </Dialog>
 {/if}
 
 {#snippet footerActions()}
-    <ShButton variant="destructive" onclick={continueAnyway}>
+    <Button variant="destructive" onclick={continueAnyway}>
         {language.continueAnyway}
-    </ShButton>
-    <ShButton variant="primary" onclick={rejectPlugin}>
+    </Button>
+    <Button variant="primary" onclick={rejectPlugin}>
         {language.doNotInstall}
-    </ShButton>
+    </Button>
 {/snippet}

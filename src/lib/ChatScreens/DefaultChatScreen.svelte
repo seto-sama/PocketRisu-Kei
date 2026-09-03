@@ -1,11 +1,8 @@
 <script lang="ts">
 
     import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, StepForwardIcon, XIcon, BrainIcon, ArrowDownIcon, ZapIcon, Maximize2Icon, WandSparklesIcon } from "@lucide/svelte";
-    import ShDropdownMenu from 'src/lib/UI/GUI/ShDropdownMenu.svelte';
-    import ShDropdownMenuTrigger from 'src/lib/UI/GUI/ShDropdownMenuTrigger.svelte';
-    import ShDropdownMenuContent from 'src/lib/UI/GUI/ShDropdownMenuContent.svelte';
-    import ShDropdownMenuItem from 'src/lib/UI/GUI/ShDropdownMenuItem.svelte';
-    import IconButtonGroup from 'src/lib/UI/GUI/IconButtonGroup.svelte';
+    import * as DropdownMenu from '../UI/components/dropdown-menu';
+    import IconButtonGroup from '../UI/components/IconButtonGroup.svelte';
     import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, clearMessageScrollRequest, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
     import { onDestroy, tick, untrack } from 'svelte';
     import Chat from "./Chat.svelte";
@@ -62,18 +59,18 @@ import { isMobile } from 'src/ts/platform'
 
     import Chats from './Chats.svelte';
     import PartialEditManager from './PartialEditManager.svelte';
-    import ShButton from '../UI/GUI/ShButton.svelte';
+    import Button from '../UI/components/Button.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
-    import Portal from '../UI/GUI/Portal.svelte';
+    import Portal from '../UI/components/overlay/Portal.svelte';
     import ImageGenerationDialog from './ImageGenerationDialog.svelte';
     import TranslationDialog from './TranslationDialog.svelte';
     import { getCurrentImageGenerationPreset } from 'src/ts/imageGeneration/presets';
     import { navigateToRequestStatusChat } from 'src/ts/status/requestStatusNavigation';
     import { canonicalizeInlayTokens, INLAY_VIEWER_ID_ATTRIBUTE } from 'src/ts/util/inlayTokens';
     import { isChatImagePreloadingEnabled, preloadInlayAssets } from 'src/ts/parser/parser.svelte';
-    import AssetViewerActions from 'src/lib/UI/GUI/AssetViewerActions.svelte';
-    import FullscreenImageViewer from 'src/lib/UI/GUI/FullscreenImageViewer.svelte';
-    import InlayViewerMetadata from 'src/lib/UI/GUI/InlayViewerMetadata.svelte';
+    import AssetViewerActions from '../UI/components/AssetViewerActions.svelte';
+    import FullscreenImageViewer from '../UI/components/FullscreenImageViewer.svelte';
+    import InlayViewerMetadata from '../UI/components/InlayViewerMetadata.svelte';
     import { copyInlayReference, downloadInlayAsset } from 'src/lib/UI/inlayViewerActions';
     import {
         collectChatInlayViewerEntries,
@@ -1052,12 +1049,18 @@ import { isMobile } from 'src/ts/platform'
             value: messageInput,
             title: language.chatInputExpandTitle,
             mode: 'cbs',
-            onSave: async (nextValue) => {
+            commitMode: 'debounce',
+            hideCancel: true,
+            submitKind: 'send',
+            onCommit: async (nextValue) => {
                 messageInput = nextValue
-                persistDraftNow()
                 await tick()
                 updateInputSizeAll()
                 updateInputTransateMessage(false)
+            },
+            onSubmit: (nextValue) => {
+                messageInput = nextValue
+                void send()
                 return true
             },
         })
@@ -1694,9 +1697,9 @@ import { isMobile } from 'src/ts/platform'
                      plugins that locate the composer via div[class*="items-stretch"] (e.g. gemini-cache-keeper)
                      relied on the pre-redesign container class. Keep it so they can still find/anchor their UI,
                      and it scopes the timer re-flow rules in <style> below. -->
-                <IconButtonGroup size="lg" className="risu-field-border items-end gap-1 rounded-3xl bg-lightbg px-2 py-1.5 plugin-compat-items-stretch">
-                    <ShDropdownMenu bind:open={openMenu}>
-                        <ShDropdownMenuTrigger>
+                <IconButtonGroup size="lg" className="risu-field-border risu-chat-composer-field items-end gap-1 rounded-3xl bg-lightbg px-2 py-1.5 plugin-compat-items-stretch">
+                    <DropdownMenu.Root bind:open={openMenu}>
+                        <DropdownMenu.Trigger>
                             {#snippet child({ props })}
                                 <button {...props}
                                         aria-label="menu"
@@ -1704,30 +1707,30 @@ import { isMobile } from 'src/ts/platform'
                                     <MenuIcon />
                                 </button>
                             {/snippet}
-                        </ShDropdownMenuTrigger>
-                        <ShDropdownMenuContent side="top" align="start" class="min-w-48">
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Content side="top" align="start" class="min-w-48">
                             <IconButtonGroup size="sm" direction="vertical" className="w-full items-stretch">
                                 {#if DBState.db.ttsEnabled && (DBState.db.characters[$selectedCharID].ttsMode === 'webspeech' || DBState.db.characters[$selectedCharID].ttsMode === 'elevenlab')}
-                                    <ShDropdownMenuItem onSelect={() => stopTTS()}>
+                                    <DropdownMenu.Item onSelect={() => stopTTS()}>
                                         <MicOffIcon /><span>{language.ttsStop}</span>
-                                    </ShDropdownMenuItem>
+                                    </DropdownMenu.Item>
                                 {/if}
                                 {#if DBState.db.showMenuChatList}
-                                    <ShDropdownMenuItem onSelect={() => { openChatList = true }}>
+                                    <DropdownMenu.Item onSelect={() => { openChatList = true }}>
                                         <DatabaseIcon /><span>{language.chatList}</span>
-                                    </ShDropdownMenuItem>
+                                    </DropdownMenu.Item>
                                 {/if}
                                 {#each additionalChatMenu as menu}
-                                    <ShDropdownMenuItem onSelect={() => { menu.callback() }}>
+                                    <DropdownMenu.Item onSelect={() => { menu.callback() }}>
                                         <PluginDefinedIcon ico={menu} /><span>{menu.name}</span>
-                                    </ShDropdownMenuItem>
+                                    </DropdownMenu.Item>
                                 {/each}
                                 {#if DBState.db.hypaV3}
-                                    <ShDropdownMenuItem onSelect={() => { $hypaV3ModalOpen = true }}>
+                                    <DropdownMenu.Item onSelect={() => { $hypaV3ModalOpen = true }}>
                                         <BrainIcon /><span>{language.hypaMemoryV3Modal}</span>
-                                    </ShDropdownMenuItem>
+                                    </DropdownMenu.Item>
                                 {/if}
-                                <ShDropdownMenuItem onSelect={async () => {
+                                <DropdownMenu.Item onSelect={async () => {
                                     const results = await postChatFile(messageInput)
                                     if(!results) return
                                     for(const res of results){
@@ -1741,34 +1744,34 @@ import { isMobile } from 'src/ts/platform'
                                     updateInputSizeAll()
                                 }}>
                                     <ImagePlusIcon /><span>{language.postFile}</span>
-                                </ShDropdownMenuItem>
+                                </DropdownMenu.Item>
                                 {#if currentCharacter?.type === 'character'}
-                                    <ShDropdownMenuItem onSelect={() => { imageGenerationOpen = true }}>
+                                    <DropdownMenu.Item onSelect={() => { imageGenerationOpen = true }}>
                                         <WandSparklesIcon /><span>{language.imageGeneration}</span>
-                                    </ShDropdownMenuItem>
+                                    </DropdownMenu.Item>
                                 {/if}
-                                <ShDropdownMenuItem onSelect={() => { translationOpen = true }}>
+                                <DropdownMenu.Item onSelect={() => { translationOpen = true }}>
                                     <LanguagesIcon /><span>{language.translate}</span>
-                                </ShDropdownMenuItem>
-                                <ShDropdownMenuItem onSelect={() => {
+                                </DropdownMenu.Item>
+                                <DropdownMenu.Item onSelect={() => {
                                     DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules ??= []
                                     openModuleList = true
                                 }}>
                                     <PackageIcon /><span>{language.modules}</span>
-                                </ShDropdownMenuItem>
-                                <ShDropdownMenuItem onSelect={openMessageInputPopupEditor}>
+                                </DropdownMenu.Item>
+                                <DropdownMenu.Item onSelect={openMessageInputPopupEditor}>
                                     <Maximize2Icon /><span>{language.chatInputPopupEditor}</span>
-                                </ShDropdownMenuItem>
+                                </DropdownMenu.Item>
                                 {#if DBState.db.sideMenuRerollButton}
-                                    <ShDropdownMenuItem onSelect={() => { reroll() }}>
+                                    <DropdownMenu.Item onSelect={() => { reroll() }}>
                                         <RefreshCcwIcon /><span>{language.reroll}</span>
-                                    </ShDropdownMenuItem>
+                                    </DropdownMenu.Item>
                                 {/if}
                             </IconButtonGroup>
-                        </ShDropdownMenuContent>
-                </ShDropdownMenu>
+                        </DropdownMenu.Content>
+                </DropdownMenu.Root>
 
-                <textarea class="text-input-area outline-hidden text-maintext px-2 py-1.5 min-w-0 flex-1 bg-transparent input-text text-base resize-none overflow-x-hidden max-w-full"
+                <textarea class="text-input-area outline-hidden text-maintext py-1.5 min-w-0 flex-1 bg-transparent input-text text-base resize-none overflow-x-hidden max-w-full"
                           class:overflow-y-auto={inputOverflow}
                           class:overflow-y-hidden={!inputOverflow}
                           placeholder={willResend ? language.resendLastMessage : language.enterMessageToPersona(activePersonaName)}
@@ -1954,12 +1957,12 @@ import { isMobile } from 'src/ts/platform'
 
             {#if chatFoldedStateMessageIndex.index !== -1}
                 <button class="w-full flex justify-center max-w-full p-4">
-                    <ShButton className="max-w-xl w-full" onclick={() => {
+                    <Button className="max-w-xl w-full" onclick={() => {
                         loadPages += chatFoldedStateMessageIndex.index + 1
                         chatFoldedState.data = null
                     }}>
                         {language.loadMore}
-                    </ShButton>
+                    </Button>
                 </button>
             {/if}
             

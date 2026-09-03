@@ -2,7 +2,7 @@
   import type { SerializableHypaV3Data } from "src/ts/process/memory/hypav3";
   import { language } from "src/lang";
   import { getFirstMessage, getNextSummarizationTarget } from "./utils";
-  import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
+  import Textarea from "../../UI/components/Textarea.svelte";
 
   interface Props {
     hypaV3Data: SerializableHypaV3Data;
@@ -26,7 +26,7 @@
         {language.hypaV3Modal.nextSummarizationLabel.replace("{0}", chatId)}
       </div>
 
-      <TextAreaInput
+      <Textarea
         fullwidth
         actionBar
         className="bg-darkbg"

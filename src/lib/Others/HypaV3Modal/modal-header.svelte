@@ -16,12 +16,9 @@
   } from "src/ts/stores.svelte";
   import { openSettings, SettingsRoute } from "src/ts/routing";
   import type { SearchState } from "./types";
-  import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-  import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-  import ShDropdownMenu from "src/lib/UI/GUI/ShDropdownMenu.svelte";
-  import ShDropdownMenuContent from "src/lib/UI/GUI/ShDropdownMenuContent.svelte";
-  import ShDropdownMenuItem from "src/lib/UI/GUI/ShDropdownMenuItem.svelte";
-  import ShDropdownMenuTrigger from "src/lib/UI/GUI/ShDropdownMenuTrigger.svelte";
+  import IconButton from "../../UI/components/IconButton.svelte";
+  import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import * as DropdownMenu from "../../UI/components/dropdown-menu";
   import { handleDualAction } from "./utils";
 
   interface Props {
@@ -149,33 +146,33 @@
 
     <!-- Open Dropdown Button -->
     <div class="flex h-[var(--icon-cell-size)] items-center leading-none">
-      <ShDropdownMenu>
-        <ShDropdownMenuTrigger>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger>
           {#snippet child({ props })}
             <IconButton {...props} size="lg" tabindex={-1}>
               <MoreVerticalIcon />
             </IconButton>
           {/snippet}
-        </ShDropdownMenuTrigger>
-        <ShDropdownMenuContent align="end" class="min-w-44">
-        <ShDropdownMenuItem class="dropdown-category-action" onSelect={onOpenCategoryManager}>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content align="end" class="min-w-44">
+        <DropdownMenu.Item class="dropdown-category-action" onSelect={onOpenCategoryManager}>
           <TagIcon />
           {language.hypaV3Modal.categoryManager}
-        </ShDropdownMenuItem>
-        <ShDropdownMenuItem class="dropdown-settings-action" onSelect={openGlobalSettings}>
+        </DropdownMenu.Item>
+        <DropdownMenu.Item class="dropdown-settings-action" onSelect={openGlobalSettings}>
           <SettingsIcon />
           {language.settings}
-        </ShDropdownMenuItem>
-        <ShDropdownMenuItem onSelect={onToggleFilterSelected}>
+        </DropdownMenu.Item>
+        <DropdownMenu.Item onSelect={onToggleFilterSelected}>
           <BarChartIcon class={filterSelected ? "text-primary" : ""} />
           {language.hypaV3Modal.filterMetrics}
-        </ShDropdownMenuItem>
-        <ShDropdownMenuItem variant="destructive" onSelect={resetData}>
+        </DropdownMenu.Item>
+        <DropdownMenu.Item variant="destructive" onSelect={resetData}>
           <Trash2Icon />
           {language.reset}
-        </ShDropdownMenuItem>
-        </ShDropdownMenuContent>
-      </ShDropdownMenu>
+        </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
     </div>
 
     <!-- Close Modal Button -->

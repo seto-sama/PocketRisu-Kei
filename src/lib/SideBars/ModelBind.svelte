@@ -3,8 +3,8 @@
     import { language } from "src/lang";
     import { ChevronDownIcon } from "@lucide/svelte";
     import ModelPresetList from "../UI/ModelPresetList.svelte";
-    import ShSwitch from "../UI/GUI/ShSwitch.svelte";
-    import ShButton from "../UI/GUI/ShButton.svelte";
+    import Switch from "../UI/components/Switch.svelte";
+    import Button from "../UI/components/Button.svelte";
     import { emptyModelBinding } from "src/ts/preset/types";
 
     let currentChat = $derived(
@@ -49,15 +49,15 @@
             <div class="flex-1 min-w-0">
                 <ModelPresetList showConfigure warnIfEmpty bind:value={currentChat.modelBinding.sub} />
             </div>
-            <ShButton size="icon" className="shrink-0" onclick={() => { auxExpanded = !auxExpanded }} title={language.seperateModelsForAxModels}>
+            <Button size="icon" className="shrink-0" onclick={() => { auxExpanded = !auxExpanded }} title={language.seperateModelsForAxModels}>
                 <ChevronDownIcon class={`transition-transform${auxExpanded ? ' rotate-180' : ''}`} />
-            </ShButton>
+            </Button>
         </div>
         {#if auxExpanded}
             <div class="flex flex-col gap-1 mt-1 pl-2 border-l border-selected">
                 <div class="w-full flex items-center justify-between gap-2 min-h-10 rounded-md px-1">
                     <span class="min-w-0">{language.seperateModelsForAxModels}</span>
-                    <ShSwitch className="shrink-0" bind:checked={currentChat.modelBinding.separateAux} />
+                    <Switch className="shrink-0" bind:checked={currentChat.modelBinding.separateAux} />
                 </div>
                 <div class="text-[11px] text-subtext px-1">{language.axModelMemory}</div>
                 <ModelPresetList showConfigure blankable disabled={!currentChat.modelBinding.separateAux} bind:value={currentChat.modelBinding.aux.memory} />

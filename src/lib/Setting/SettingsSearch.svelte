@@ -1,7 +1,7 @@
 <script lang="ts">
     import { SearchIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte';
+    import Dialog from '../UI/components/Dialog.svelte';
     import { DBState } from 'src/ts/stores.svelte';
     import { navigateToSearchResult, searchSettings, type SettingSearchResult } from 'src/ts/setting/searchIndex';
     import type { SettingContext } from 'src/ts/setting/types';
@@ -29,7 +29,7 @@
     }
 </script>
 
-<ShDialog bind:open size="default" closeOnEscape closable={false} ariaLabel={language.searchSettingsPlaceholder}>
+<Dialog bind:open size="default" closeOnEscape closable={false} ariaLabel={language.searchSettingsPlaceholder}>
     <div class="risu-field-border flex items-center gap-2 rounded-md px-2.5 py-2">
         <SearchIcon size={18} class="text-subtext shrink-0" />
         <!-- svelte-ignore a11y_autofocus -->
@@ -56,4 +56,4 @@
             {/each}
         {/if}
     </div>
-</ShDialog>
+</Dialog>

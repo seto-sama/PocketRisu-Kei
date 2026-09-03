@@ -2,11 +2,11 @@
     import { CheckIcon, CopyIcon, LanguagesIcon, LoaderCircleIcon, RefreshCwIcon } from '@lucide/svelte'
     import { onDestroy, onMount, tick } from 'svelte'
     import { language } from 'src/lang'
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
-    import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte'
-    import IconButton from 'src/lib/UI/GUI/IconButton.svelte'
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte'
+    import Button from '../UI/components/Button.svelte'
+    import Dialog from '../UI/components/Dialog.svelte'
+    import Textarea from '../UI/components/Textarea.svelte'
+    import IconButton from '../UI/components/IconButton.svelte'
+    import Switch from '../UI/components/Switch.svelte'
     import Help from 'src/lib/Others/Help.svelte'
     import ModelPresetList from 'src/lib/UI/ModelPresetList.svelte'
     import TranslatorPresetList from 'src/lib/UI/TranslatorPresetList.svelte'
@@ -85,7 +85,7 @@
     })
 </script>
 
-<ShDialog
+<Dialog
     bind:open
     size="default"
     closeOnEscape={!promptPickerOpen && !modelPickerOpen}
@@ -125,7 +125,7 @@
                             name={language.translationDialogClearAfterConfirm}
                         />
                     </span>
-                    <ShSwitch
+                    <Switch
                         className="shrink-0"
                         bind:checked={DBState.db.translationDialogClearAfterConfirm}
                         ariaLabel={language.translationDialogClearAfterConfirm}
@@ -133,7 +133,7 @@
                 </div>
             </div>
             <div class="mt-2 border-t border-darkborderc pt-3">
-                <TextAreaInput
+                <Textarea
                     bind:value={input}
                     fullwidth
                     commitMode="input"
@@ -164,7 +164,7 @@
                     <RefreshCwIcon />
                 </IconButton>
             {/snippet}
-            <TextAreaInput
+            <Textarea
                 bind:value={output}
                 fullwidth
                 readonly
@@ -176,16 +176,16 @@
     </div>
 
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => { open = false }}>
+        <Button variant="outline" onclick={() => { open = false }}>
             {translating ? language.close : language.cancel}
-        </ShButton>
+        </Button>
         {#if output && !translating}
-            <ShButton variant="primary" onclick={confirmOutput}>
+            <Button variant="primary" onclick={confirmOutput}>
                 <CheckIcon />
                 {language.confirm}
-            </ShButton>
+            </Button>
         {:else}
-            <ShButton
+            <Button
                 variant="primary"
                 disabled={translating
                     || !input.trim()
@@ -194,7 +194,7 @@
             >
                 <LanguagesIcon />
                 {translating ? language.loading : language.translate}
-            </ShButton>
+            </Button>
         {/if}
     {/snippet}
-</ShDialog>
+</Dialog>

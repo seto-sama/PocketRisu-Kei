@@ -5,7 +5,7 @@
     import PresetBindingTrigger from "./PresetBindingTrigger.svelte";
     import PresetPickerLayout from "./PresetPickerLayout.svelte";
     import PresetPickerActions from "./PresetPickerActions.svelte";
-    import InlineEditableName from "./GUI/InlineEditableName.svelte";
+    import InlineEditableName from "./components/InlineEditableName.svelte";
     import { v4 as uuidv4 } from "uuid";
     import { ModelPresetTab, openSettings, SettingsRoute } from "src/ts/routing";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
@@ -146,6 +146,7 @@
                 controller={renameController}
                 bind:value={DBState.db.modelPresets[index].name}
                 size="default"
+                editorLeadingInset="row"
                 placeholder="string"
                 disabled={showConfigure}
                 onActivate={() => pick(presets[index].id)}

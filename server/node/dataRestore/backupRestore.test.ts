@@ -95,7 +95,6 @@ async function fullRestoreHarness(
         savePath,
         inlayDir,
         inlayMigrationMarker: join(inlayDir, '.migrated_to_fs'),
-        remoteMigrationMarkerKey: 'migration/disable-remote-saving',
         sqliteDb: db,
         kvGet: (key: string) => get.get(key)?.value ?? null,
         kvSet: (key: string, value: Buffer) => set.run(key, value, Date.now()),
@@ -138,18 +137,12 @@ function legacyRestoreDependencies(
         kvDel: (key: string) => del.run(key),
         kvDelPrefix: (prefix: string) =>
             db.prepare('DELETE FROM kv WHERE key LIKE ?').run(`${prefix}%`),
-        kvCopyValue: () => {},
         clearEntities: () => {},
         flushPendingDb: async () => {},
         createBackupAndRotate: () => {},
         invalidateDbCache: () => {},
         prepareDatabaseProjection: async () => ({ install: () => {} }),
-        isCanonicalDatabaseInstalled: () => false,
-        decodeRisuSave: async () => ({}),
-        encodeRisuSaveLegacy: () => Buffer.alloc(0),
-        hasRemoteBlocks: () => false,
         logger: { info: () => {}, warn: () => {}, error: () => {} },
-        setDbEtag: () => {},
         ...overrides,
     }
 }
@@ -397,17 +390,12 @@ describe('createLegacyRestoreService', () => {
             kvSet: (key: string, value: Buffer) => set.run(key, value, Date.now()),
             kvDel: (key: string) => db.prepare('DELETE FROM kv WHERE key = ?').run(key),
             kvDelPrefix: () => {},
-            kvCopyValue: () => {},
             clearEntities: () => {},
             flushPendingDb: async () => {},
             createBackupAndRotate: () => {},
             invalidateDbCache: () => {},
             prepareDatabaseProjection: async () => ({ install: () => {} }),
-            decodeRisuSave: async () => ({}),
-            encodeRisuSaveLegacy: () => Buffer.alloc(0),
-            hasRemoteBlocks: () => false,
             logger: { info: () => {}, warn: () => {}, error: () => {} },
-            setDbEtag: () => {},
         })
         const id = '12345678-1234-1234-1234-123456789abc'
         expect(service.normalizeColdStorageStorageKey(`coldstorage_${id}.json`))
@@ -509,7 +497,6 @@ describe('createLegacyRestoreService', () => {
             kvDel: (key: string) => del.run(key),
             kvDelPrefix: (prefix: string) =>
                 db.prepare('DELETE FROM kv WHERE key LIKE ?').run(`${prefix}%`),
-            kvCopyValue: () => {},
             clearEntities: () => {},
             flushPendingDb: async () => {},
             createBackupAndRotate: () => {},
@@ -529,11 +516,7 @@ describe('createLegacyRestoreService', () => {
                     ).run(raw),
                 }
             },
-            decodeRisuSave: async () => ({}),
-            encodeRisuSaveLegacy: () => Buffer.alloc(0),
-            hasRemoteBlocks: () => false,
             logger: { info: () => {}, warn: () => {}, error: () => {} },
-            setDbEtag: () => {},
         })
 
         await expect(service.importHexEntries([
@@ -628,32 +611,4 @@ describe('createLegacyRestoreService', () => {
             .toBe('current')
     })
 
-    it('never runs the REMOTE blob migration after relational data is canonical', async () => {
-        const root = await makeTemporaryDirectory('pocketrisu-legacy-remote-')
-        const db = freshDb()
-        const set = db.prepare(
-            'INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?)',
-        )
-        set.run('database/database.bin', Buffer.from('stale remote blob'), 1)
-        let remoteChecks = 0
-        let copies = 0
-
-        const service = createLegacyRestoreService(legacyRestoreDependencies(db, root, {
-            isCanonicalDatabaseInstalled: () => true,
-            hasRemoteBlocks: () => {
-                remoteChecks++
-                return true
-            },
-            kvCopyValue: () => { copies++ },
-        }))
-
-        await expect(service.migrateRemoteBlocksIfNeeded()).resolves.toEqual({
-            ran: false,
-            reason: 'canonical-database',
-        })
-        expect(remoteChecks).toBe(0)
-        expect(copies).toBe(0)
-        expect(db.prepare('SELECT value FROM kv WHERE key = ?')
-            .get('database/database.bin').value).toEqual(Buffer.from('stale remote blob'))
-    })
 })

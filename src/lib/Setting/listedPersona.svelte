@@ -8,7 +8,7 @@
     import { openSettings, SettingsRoute } from "src/ts/routing";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
-    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
+    import InlineEditableName from "../UI/components/InlineEditableName.svelte";
     import AvatarFallback from "../UI/AvatarFallback.svelte";
     import { v4 as uuidv4 } from "uuid";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";

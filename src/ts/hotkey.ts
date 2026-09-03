@@ -155,7 +155,7 @@ export function initHotkey() {
                     handled = true
                     break
                 case 'popupEditor':
-                    // TextAreaInput owns this action so it can bind the edited
+                    // The shared textarea owns this action so it can bind the edited
                     // value back to the field that opened the popup.
                     break
             }

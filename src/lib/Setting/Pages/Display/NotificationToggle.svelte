@@ -2,7 +2,7 @@
     import { language } from 'src/lang';
     import { notifyError } from 'src/ts/alert';
     import { DBState } from 'src/ts/stores.svelte';
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
+    import Switch from '../../../UI/components/Switch.svelte';
     import SoundRow from '../Sound/SoundRow.svelte';
 
     async function onToggle(check: boolean) {
@@ -27,5 +27,5 @@
 </script>
 
 <SoundRow label={language.notificationEnable} description={language.help.descBrowserNotification}>
-    <ShSwitch checked={DBState.db.notification} onCheckedChange={onToggle} />
+    <Switch checked={DBState.db.notification} onCheckedChange={onToggle} />
 </SoundRow>

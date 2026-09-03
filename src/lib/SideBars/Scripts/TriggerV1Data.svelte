@@ -3,11 +3,11 @@
     import { language } from "src/lang";
     import { alertConfirm } from "src/ts/alert";
     import type { triggerscript } from "src/ts/storage/database.svelte";
-    import TextInput from "../../UI/GUI/TextInput.svelte";
-    import SelectInput from "../../UI/GUI/SelectInput.svelte";
-    import OptionInput from "../../UI/GUI/OptionInput.svelte";
-    import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
+    import Input from "../../UI/components/Input.svelte";
+    import Select from "../../UI/components/Select.svelte";
+    import SelectOption from "../../UI/components/SelectOption.svelte";
+    import NumberInput from "../../UI/components/NumberInput.svelte";
+    import Textarea from "../../UI/components/Textarea.svelte";
     import Help from "src/lib/Others/Help.svelte";
 
 
@@ -59,14 +59,14 @@
     {#if open}
         <div class="seperator p-2">
             <span class="text-maintext mt-6">{language.name}</span>
-            <TextInput size="sm" bind:value={value.comment} />
+            <Input size="sm" bind:value={value.comment} />
             <span class="text-maintext mt-4">{language.type}</span>
-            <SelectInput bind:value={value.type}>
-                <OptionInput value="start">{language.triggerStart}</OptionInput>
-                <OptionInput value="output">{language.triggerOutput}</OptionInput>
-                <OptionInput value="input">{language.triggerInput}</OptionInput>
-                <OptionInput value="manual">{language.triggerManual}</OptionInput>
-            </SelectInput>
+            <Select bind:value={value.type}>
+                <SelectOption value="start">{language.triggerStart}</SelectOption>
+                <SelectOption value="output">{language.triggerOutput}</SelectOption>
+                <SelectOption value="input">{language.triggerInput}</SelectOption>
+                <SelectOption value="manual">{language.triggerManual}</SelectOption>
+            </Select>
             
             <span class="text-maintext mt-4">Conditions
                 <button aria-labelledby="Add Conditions" class="float-right text-subtext risu-interactive-accent" onclick={() => {
@@ -96,7 +96,7 @@
                         }}><XIcon size={18} /></button>
 
                     </span>
-                    <SelectInput bind:value={cond.type} size="sm" onchange={() => {
+                    <Select bind:value={cond.type} size="sm" onchange={() => {
                         if(cond.type === 'exists'){
                             value.conditions[i] = {
                                 type: 'exists',
@@ -121,20 +121,20 @@
                             }
                         }
                     }}>
-                        <OptionInput value="value">{language.ifValue}</OptionInput>
-                        <OptionInput value="exists">{language.triggerCondExists}</OptionInput>
-                        <OptionInput value="var">{language.triggerCondVar}</OptionInput>
-                        <OptionInput value="chatindex">{language.ifChatIndex}</OptionInput>
-                    </SelectInput>
+                        <SelectOption value="value">{language.ifValue}</SelectOption>
+                        <SelectOption value="exists">{language.triggerCondExists}</SelectOption>
+                        <SelectOption value="var">{language.triggerCondVar}</SelectOption>
+                        <SelectOption value="chatindex">{language.ifChatIndex}</SelectOption>
+                    </Select>
 
                     {#if cond.type === 'exists'}
-                        <SelectInput bind:value={cond.type2} size="sm">
-                            <OptionInput value="loose">{language.triggerMatchLoose}</OptionInput>
-                            <OptionInput value="strict">{language.triggerMatchStrict}</OptionInput>
-                            <OptionInput value="regex">{language.triggerMatchRegex}</OptionInput>
-                        </SelectInput>
+                        <Select bind:value={cond.type2} size="sm">
+                            <SelectOption value="loose">{language.triggerMatchLoose}</SelectOption>
+                            <SelectOption value="strict">{language.triggerMatchStrict}</SelectOption>
+                            <SelectOption value="regex">{language.triggerMatchRegex}</SelectOption>
+                        </Select>
                         <span  class="text-subtext text-sm">{language.value}</span>
-                        <TextAreaInput bind:value={cond.value} />
+                        <Textarea bind:value={cond.value} />
 
                         <span  class="text-subtext text-sm">{language.searchDepth}</span>
                         <NumberInput size="sm" bind:value={cond.depth} />
@@ -142,25 +142,25 @@
                     {#if cond.type === 'var' || cond.type === 'chatindex' || cond.type === 'value'}
                         {#if cond.type === 'var'}
                             <span class="text-subtext text-sm">{language.varableName}</span>
-                            <TextInput size="sm" bind:value={cond.var} />
+                            <Input size="sm" bind:value={cond.var} />
                         {/if}
                         {#if cond.type === 'value'}
-                            <TextAreaInput size="sm" bind:value={cond.var} />
+                            <Textarea size="sm" bind:value={cond.var} />
                         {/if}
                         <span  class="text-subtext text-sm">{language.value}</span>
-                        <SelectInput bind:value={cond.operator} size="sm">
-                            <OptionInput value="true">{language.truthy}</OptionInput>
-                            <OptionInput value="=">{language.equal}</OptionInput>
-                            <OptionInput value="!=">{language.notEqual}</OptionInput>
-                            <OptionInput value=">">{language.greater}</OptionInput>
-                            <OptionInput value="<">{language.less}</OptionInput>
-                            <OptionInput value=">=">{language.greaterEqual}</OptionInput>
-                            <OptionInput value="<=">{language.lessEqual}</OptionInput>
-                            <OptionInput value="null">{language.isNull}</OptionInput>
+                        <Select bind:value={cond.operator} size="sm">
+                            <SelectOption value="true">{language.truthy}</SelectOption>
+                            <SelectOption value="=">{language.equal}</SelectOption>
+                            <SelectOption value="!=">{language.notEqual}</SelectOption>
+                            <SelectOption value=">">{language.greater}</SelectOption>
+                            <SelectOption value="<">{language.less}</SelectOption>
+                            <SelectOption value=">=">{language.greaterEqual}</SelectOption>
+                            <SelectOption value="<=">{language.lessEqual}</SelectOption>
+                            <SelectOption value="null">{language.isNull}</SelectOption>
 
-                        </SelectInput>
+                        </Select>
                         {#if cond.operator !== 'null' && cond.operator !== 'true'}
-                            <TextAreaInput size="sm" bind:value={cond.value} />
+                            <Textarea size="sm" bind:value={cond.value} />
                         {/if}
                     {/if}
                 {/each}
@@ -204,7 +204,7 @@
                         }}><XIcon size={18} /></button>
 
                     </span>
-                    <SelectInput bind:value={effect.type} size="sm" onchange={() => {
+                    <Select bind:value={effect.type} size="sm" onchange={() => {
                         if(effect.type === 'systemprompt'){
                             value.effect[i] = {
                                 type: 'systemprompt',
@@ -312,22 +312,22 @@
                             }
                         }
                     }}>
-                        <OptionInput value="setvar">{language.triggerEffSetVar}</OptionInput>
-                        <OptionInput value="impersonate">{language.triggerEffImperson}</OptionInput>
-                        <OptionInput value="command">{language.triggerEffCommand}</OptionInput>
-                        <OptionInput value="systemprompt">{language.triggerEffSysPrompt}</OptionInput>
-                        <OptionInput value="stop">{language.triggerEffStop}</OptionInput>
-                        <OptionInput value="runtrigger">{language.triggerEffRunTrigger}</OptionInput>
-                        <OptionInput value="runLLM">{language.triggerEffRunLLM}</OptionInput>
-                        <OptionInput value="checkSimilarity">{language.triggerEffCheckSim}</OptionInput>
-                        <OptionInput value="showAlert">{language.triggerEffShowAlert}</OptionInput>
-                        <OptionInput value="sendAIprompt">{language.triggerEffectSendAI}</OptionInput>
-                        <OptionInput value="extractRegex">{language.extractRegex}</OptionInput>
-                        <OptionInput value="runImgGen">{language.runImgGen}</OptionInput>
-                        <OptionInput value="cutchat">{language.cutChat}</OptionInput>
-                        <OptionInput value="modifychat">{language.modifyChat}</OptionInput>
-                        <OptionInput value="runAxLLM">{language.triggerEffRunAxLLM}</OptionInput>
-                    </SelectInput>
+                        <SelectOption value="setvar">{language.triggerEffSetVar}</SelectOption>
+                        <SelectOption value="impersonate">{language.triggerEffImperson}</SelectOption>
+                        <SelectOption value="command">{language.triggerEffCommand}</SelectOption>
+                        <SelectOption value="systemprompt">{language.triggerEffSysPrompt}</SelectOption>
+                        <SelectOption value="stop">{language.triggerEffStop}</SelectOption>
+                        <SelectOption value="runtrigger">{language.triggerEffRunTrigger}</SelectOption>
+                        <SelectOption value="runLLM">{language.triggerEffRunLLM}</SelectOption>
+                        <SelectOption value="checkSimilarity">{language.triggerEffCheckSim}</SelectOption>
+                        <SelectOption value="showAlert">{language.triggerEffShowAlert}</SelectOption>
+                        <SelectOption value="sendAIprompt">{language.triggerEffectSendAI}</SelectOption>
+                        <SelectOption value="extractRegex">{language.extractRegex}</SelectOption>
+                        <SelectOption value="runImgGen">{language.runImgGen}</SelectOption>
+                        <SelectOption value="cutchat">{language.cutChat}</SelectOption>
+                        <SelectOption value="modifychat">{language.modifyChat}</SelectOption>
+                        <SelectOption value="runAxLLM">{language.triggerEffRunAxLLM}</SelectOption>
+                    </Select>
                     {#if
                         (value.type !== 'start' && (effect.type === 'systemprompt' || effect.type === 'stop')) ||
                         (value.type !== 'output' && effect.type === 'sendAIprompt')
@@ -351,130 +351,130 @@
 
                     {#if effect.type === 'systemprompt'}
                         <span class="text-subtext text-sm">{language.location}</span>
-                        <SelectInput bind:value={effect.location}>
-                            <OptionInput value="start">{language.promptstart}</OptionInput>
-                            <OptionInput value="historyend">{language.historyend}</OptionInput>
-                            <OptionInput value="promptend">{language.promptend}</OptionInput>
-                        </SelectInput>
+                        <Select bind:value={effect.location}>
+                            <SelectOption value="start">{language.promptstart}</SelectOption>
+                            <SelectOption value="historyend">{language.historyend}</SelectOption>
+                            <SelectOption value="promptend">{language.promptend}</SelectOption>
+                        </Select>
                         <span class="text-subtext text-sm">{language.value}</span>
-                        <TextAreaInput bind:value={effect.value} />
+                        <Textarea bind:value={effect.value} />
                     {/if}
                     {#if effect.type === 'setvar'}
                         <span class="text-subtext text-sm">{language.varableName}</span>
-                        <TextInput bind:value={effect.var} />
+                        <Input bind:value={effect.var} />
                         <span class="text-subtext text-sm">{language.operator}</span>
-                        <SelectInput bind:value={effect.operator} >
-                            <OptionInput value="=">{language.TriggerSetToVar}</OptionInput>
-                            <OptionInput value="+=">{language.TriggerAddToVar}</OptionInput>
-                            <OptionInput value="-=">{language.TriggerSubToVar}</OptionInput>
-                            <OptionInput value="*=">{language.TriggerMulToVar}</OptionInput>
-                            <OptionInput value="/=">{language.TriggerDivToVar}</OptionInput>
-                        </SelectInput>
+                        <Select bind:value={effect.operator} >
+                            <SelectOption value="=">{language.TriggerSetToVar}</SelectOption>
+                            <SelectOption value="+=">{language.TriggerAddToVar}</SelectOption>
+                            <SelectOption value="-=">{language.TriggerSubToVar}</SelectOption>
+                            <SelectOption value="*=">{language.TriggerMulToVar}</SelectOption>
+                            <SelectOption value="/=">{language.TriggerDivToVar}</SelectOption>
+                        </Select>
                         <span class="text-subtext text-sm">{language.value}</span>
-                        <TextAreaInput bind:value={effect.value} />
+                        <Textarea bind:value={effect.value} />
                     {/if}
 
                     {#if effect.type === 'runtrigger'}
                         <span class="text-subtext text-sm">{language.name}</span>
-                        <TextInput size="sm" bind:value={effect.value} />
+                        <Input size="sm" bind:value={effect.value} />
                     {/if}
                     {#if effect.type === 'command'}
                         <span class="text-subtext text-sm">{language.value}</span>
-                        <TextAreaInput bind:value={effect.value} />
+                        <Textarea bind:value={effect.value} />
                     {/if}
                     {#if effect.type === 'runLLM'}
                         <span class="text-subtext text-sm">{language.prompt}<Help key="triggerLLMPrompt" /></span>
-                        <TextAreaInput bind:value={effect.value} />
+                        <Textarea bind:value={effect.value} />
 
                         <span class="text-subtext text-sm">{language.resultStoredVar}</span>
-                        <TextInput bind:value={effect.inputVar} />
+                        <Input bind:value={effect.inputVar} />
                     {/if}
                     {#if effect.type === 'checkSimilarity'}
                         <span class="text-subtext text-sm">{language.prompt}</span>
-                        <TextAreaInput bind:value={effect.source} />
+                        <Textarea bind:value={effect.source} />
 
                         <span class="text-subtext text-sm">{language.value}</span>
-                        <TextAreaInput bind:value={effect.value} />
+                        <Textarea bind:value={effect.value} />
 
                         <span class="text-subtext text-sm">{language.resultStoredVar}</span>
-                        <TextInput bind:value={effect.inputVar} />
+                        <Input bind:value={effect.inputVar} />
                     {/if}
                     {#if effect.type === 'showAlert'}
                         <span class="text-subtext text-sm">{language.type}</span>
-                        <SelectInput bind:value={effect.alertType}>
-                            <OptionInput value="normal">{language.normal}</OptionInput>
-                            <OptionInput value="error">{language.error}</OptionInput>
-                            <OptionInput value="input">{language.input}</OptionInput>
-                            <OptionInput value="select">{language.select}</OptionInput>
-                        </SelectInput>
+                        <Select bind:value={effect.alertType}>
+                            <SelectOption value="normal">{language.normal}</SelectOption>
+                            <SelectOption value="error">{language.error}</SelectOption>
+                            <SelectOption value="input">{language.input}</SelectOption>
+                            <SelectOption value="select">{language.select}</SelectOption>
+                        </Select>
 
                         <span class="text-subtext text-sm">{language.value}</span>
-                        <TextAreaInput bind:value={effect.value} />
+                        <Textarea bind:value={effect.value} />
 
                         <span class="text-subtext text-sm">{language.resultStoredVar}</span>
-                        <TextInput bind:value={effect.inputVar} />
+                        <Input bind:value={effect.inputVar} />
                     {/if}
                     {#if effect.type === 'impersonate'}
                         <span class="text-subtext text-sm">{language.role}</span>
-                        <SelectInput bind:value={effect.role} size="sm">
-                            <OptionInput value="user">{language.user}</OptionInput>
-                            <OptionInput value="char">{language.character}</OptionInput>
-                        </SelectInput>
+                        <Select bind:value={effect.role} size="sm">
+                            <SelectOption value="user">{language.user}</SelectOption>
+                            <SelectOption value="char">{language.character}</SelectOption>
+                        </Select>
                         <span class="text-subtext text-sm">{language.value}</span>
-                        <TextAreaInput bind:value={effect.value} />
+                        <Textarea bind:value={effect.value} />
                     {/if}
 
                     {#if effect.type === 'extractRegex'}
                         <span class="text-subtext text-sm">{language.value}</span>
-                        <TextAreaInput bind:value={effect.value} />
+                        <Textarea bind:value={effect.value} />
 
                         <span class="text-subtext text-sm">{language.regex}</span>
-                        <TextInput bind:value={effect.regex} />
+                        <Input bind:value={effect.regex} />
 
                         <span class="text-subtext text-sm">{language.flags}</span>
-                        <TextInput bind:value={effect.flags} />
+                        <Input bind:value={effect.flags} />
 
                         <span class="text-subtext text-sm">{language.resultFormat}</span>
-                        <TextInput bind:value={effect.result} />
+                        <Input bind:value={effect.result} />
 
                         <span class="text-subtext text-sm">{language.resultStoredVar}</span>
-                        <TextInput bind:value={effect.inputVar} />
+                        <Input bind:value={effect.inputVar} />
                     {/if}
 
                     {#if effect.type === 'runImgGen'}
                         <span class="text-subtext text-sm">{language.prompt}</span>
-                        <TextAreaInput bind:value={effect.value} />
+                        <Textarea bind:value={effect.value} />
 
                         <span class="text-subtext text-sm">{language.negPrompt}</span>
-                        <TextAreaInput bind:value={effect.negValue} />
+                        <Textarea bind:value={effect.negValue} />
 
                         <span class="text-subtext text-sm">{language.resultStoredVar}</span>
-                        <TextInput bind:value={effect.inputVar} />
+                        <Input bind:value={effect.inputVar} />
                     {/if}
 
                     {#if effect.type === 'cutchat'}
                         <span class="text-subtext text-sm">{language.start}</span>
-                        <TextInput bind:value={effect.start} />
+                        <Input bind:value={effect.start} />
 
                         <span class="text-subtext text-sm">{language.end}</span>
-                        <TextInput bind:value={effect.end} />
+                        <Input bind:value={effect.end} />
                     {/if}
 
                     {#if effect.type === 'modifychat'}
                         <span class="text-subtext text-sm">{language.index}</span>
-                        <TextInput bind:value={effect.index} />
+                        <Input bind:value={effect.index} />
 
                         <span class="text-subtext text-sm">{language.value}</span>
-                        <TextAreaInput bind:value={effect.value} />
+                        <Textarea bind:value={effect.value} />
                     
                     {/if}
 
                     {#if effect.type === 'runAxLLM'}
                     <span class="text-subtext text-sm">{language.prompt}<Help key="triggerLLMPrompt" /></span>
-                    <TextAreaInput bind:value={effect.value} />
+                    <Textarea bind:value={effect.value} />
 
                     <span class="text-subtext text-sm">{language.resultStoredVar}</span>
-                    <TextInput bind:value={effect.inputVar} />
+                    <Input bind:value={effect.inputVar} />
                     {/if}
                 {/each}
             </div>

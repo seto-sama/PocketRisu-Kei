@@ -9,7 +9,7 @@
         themePresetTemplate,
     } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
-    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
+    import InlineEditableName from "../UI/components/InlineEditableName.svelte";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import { updateColorScheme, updateTextThemeAndCSS } from "src/ts/gui/colorscheme";
@@ -107,6 +107,7 @@
             controller={renameController}
             bind:value={DBState.db.themePresets[index].name}
             size="default"
+            editorLeadingInset="row"
             placeholder="string"
             onActivate={() => selectPreset(index)}
         />

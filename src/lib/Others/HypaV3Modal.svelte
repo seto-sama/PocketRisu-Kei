@@ -16,7 +16,7 @@
   import SummaryResult from "./HypaV3Modal/summary-result.svelte";
   import ManualSummaryPanel from "./HypaV3Modal/manual-summary-panel.svelte";
   import ModalSearch from "./HypaV3Modal/modal-search.svelte";
-  import OverlayPortal from "../UI/GUI/OverlayPortal.svelte";
+  import OverlayPortal from "../UI/components/overlay/OverlayPortal.svelte";
   
   import type {
     SummaryItemState,
@@ -35,8 +35,8 @@
     getCategoriesWithUnclassified,
   } from "./HypaV3Modal/utils";
   import type { OpenAIChat } from "src/ts/process/index.svelte";
-  import ShInput from "../UI/GUI/ShInput.svelte";
-  import ShButton from "../UI/GUI/ShButton.svelte";
+  import Input from "../UI/components/Input.svelte";
+  import Button from "../UI/components/Button.svelte";
 
   const hypaV3Data = $derived(
     DBState.db.characters[$selectedCharID].chats[
@@ -660,18 +660,18 @@
         {:else}
           <div class="flex min-h-0 flex-1 flex-col gap-3">
             <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <ShInput
+              <Input
                 placeholder={language.hypaV3Modal.reSummarizeSearchPlaceholder}
                 bind:value={resummarySearch}
               />
-              <ShButton
+              <Button
                 variant="primary"
                 className="w-full sm:w-24"
                 disabled={resummarySelectionState.selectedSummaries.size < 2}
                 onclick={resummarizeSelected}
               >
                 {language.hypaV3Modal.reSummarize}
-              </ShButton>
+              </Button>
             </div>
 
             <div class="text-xs text-subtext">

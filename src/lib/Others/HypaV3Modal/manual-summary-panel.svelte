@@ -17,9 +17,9 @@
     processHypaV3Message,
     processMessageCBS,
   } from "./utils";
-  import ShInput from "src/lib/UI/GUI/ShInput.svelte";
-  import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-  import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
+  import Input from "../../UI/components/Input.svelte";
+  import Button from "../../UI/components/Button.svelte";
+  import Checkbox from "../../UI/components/Checkbox.svelte";
 
   type ManualSummaryMessage = {
     index: number;
@@ -354,18 +354,18 @@
     {:else}
       <div class="flex flex-col gap-3 min-h-0 flex-1">
         <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <ShInput
+          <Input
             placeholder={language.hypaV3Modal.manualSummarizeSearchPlaceholder}
             bind:value={manualSummarySearch}
           />
-          <ShButton
+          <Button
             variant="primary"
             className="w-full sm:w-24"
             disabled={manualSummaryState?.isProcessing || manualSelectedMessageIndices.size === 0}
             onclick={summarizeManualSelected}
           >
             {language.hypaV3Modal.manualSummarizeGenerate}
-          </ShButton>
+          </Button>
         </div>
 
         <div class="text-xs text-subtext">
@@ -378,7 +378,7 @@
               {#each filteredManualMessages as message (message.index)}
                 <details class="group" class:opacity-50={message.disabled}>
                   <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 risu-interactive-surface">
-                    <CheckInput
+                    <Checkbox
                       check={manualSelectedMessageIndices.has(message.index)}
                       hiddenName
                       margin={false}
@@ -397,22 +397,22 @@
                       <div class="mb-2 text-xs text-danger">{language.hypaV3Modal.manualSummarizeNoMessageId}</div>
                     {/if}
                     <div class="flex flex-wrap gap-2 mb-2">
-                      <ShButton
+                      <Button
                         size="xs"
                         variant="outline"
                         disabled={message.disabled || manualSummaryState?.isProcessing}
                         onclick={() => handleToggleManualMessageSelection(message)}
                       >
                         {manualSelectedMessageIndices.has(message.index) ? language.cancel : language.select}
-                      </ShButton>
-                      <ShButton
+                      </Button>
+                      <Button
                         size="xs"
                         variant="outline"
                         disabled={manualMessageTranslating.has(message.index)}
                         onclick={() => toggleManualMessageTranslation(message)}
                       >
                         {manualMessageTranslations[message.index] ? language.cancel : language.hypaV3Modal.translate}
-                      </ShButton>
+                      </Button>
                     </div>
                     <pre class="whitespace-pre-wrap break-all rounded-md border border-darkborderc bg-lightbg/50 p-2 text-xs text-maintext">{manualMessageTranslations[message.index] ?? message.displayData}</pre>
                     {#if manualMessageTranslations[message.index]}

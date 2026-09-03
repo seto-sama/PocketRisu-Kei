@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-    import TextInput from './GUI/TextInput.svelte'
+    import Input from './components/Input.svelte'
     import { parseMarkdownSafe } from 'src/ts/parser/parser.svelte'
 
     interface Props {
@@ -30,7 +30,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col gap-3">
-    <TextInput
+    <Input
         placeholder={searchPlaceholder}
         className="w-full shrink-0"
         fullwidth

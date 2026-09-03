@@ -2,7 +2,7 @@
     import { language } from 'src/lang'
     import { getCBSDocumentation, type CBSDocumentationItem } from 'src/ts/cbsDocumentation'
     import DocumentationList from 'src/lib/UI/DocumentationList.svelte'
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
+    import Dialog from '../UI/components/Dialog.svelte'
 
     let { open = $bindable(false) }:{ open?:boolean } = $props()
     let documentation:CBSDocumentationItem[] = $state([])
@@ -16,7 +16,7 @@
     })
 </script>
 
-<ShDialog
+<Dialog
     bind:open
     size="xl"
     contentClass="h-[calc(100dvh-2rem)]"
@@ -33,4 +33,4 @@
     {:else}
         <p class="text-sm text-subtext">{language.loading}</p>
     {/if}
-</ShDialog>
+</Dialog>

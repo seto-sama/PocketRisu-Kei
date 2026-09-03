@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
     import { getLabel, getSettingValue } from 'src/ts/setting/utils';
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte';
+    import Button from '../../UI/components/Button.svelte';
     import Help from 'src/lib/Others/Help.svelte';
 
     interface Props {
@@ -29,14 +29,14 @@
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>
-    <ShButton className="mt-2" onclick={item.options?.onClick}>
+    <Button className="mt-2" onclick={item.options?.onClick}>
         {buttonText}
-    </ShButton>
+    </Button>
 {:else}
-    <ShButton
+    <Button
         className={item.classes ?? 'mt-4'}
         onclick={item.options?.onClick}
     >
         {buttonText}
-    </ShButton>
+    </Button>
 {/if}

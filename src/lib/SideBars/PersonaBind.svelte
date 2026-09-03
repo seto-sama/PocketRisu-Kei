@@ -5,7 +5,7 @@
     import { alertConfirmMulti, alertSelect, notifySuccess } from "src/ts/alert";
     import { PinIcon, PinOffIcon } from "@lucide/svelte";
     import { openPersonaList, personaSelectCallback } from "src/ts/stores.svelte";
-    import ShButton from "../UI/GUI/ShButton.svelte";
+    import Button from "../UI/components/Button.svelte";
     import { bindPersonaToCurrentChat } from "src/ts/chatBindings";
 
     let currentChat = $derived(DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage])
@@ -58,7 +58,7 @@
 
 <div class="text-[11px] text-subtext mt-4 px-1">{language.personaBindingLabel}</div>
 <div class="flex gap-1 mt-1 items-stretch">
-    <ShButton
+    <Button
         className={`flex-1 min-w-0 justify-start ${isPersonaBound
             ? 'border-selected text-maintext'
             : 'text-subtext opacity-75 risu-interactive-reveal'}`}
@@ -73,5 +73,5 @@
         {#if displayPersona?.note}
             <span class="truncate text-xs opacity-60">({displayPersona.note})</span>
         {/if}
-    </ShButton>
+    </Button>
 </div>

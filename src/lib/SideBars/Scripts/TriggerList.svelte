@@ -3,7 +3,7 @@
     import type { triggerCode } from "src/ts/process/triggers";
     import { language } from "src/lang";
     import { alertConfirm } from "src/ts/alert";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
+    import Textarea from "../../UI/components/Textarea.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import type { Snippet } from "svelte";
     import { getTriggerScriptMode } from "./triggerScriptMode";
@@ -109,7 +109,7 @@
     <span class="text-xs text-danger">{language.triggerV1Warning}</span>
 {/if}
 {#if triggerMode === 'lua'}
-    <TextAreaInput margin="both" autocomplete="off" bind:value={(value[0].effect[0] as triggerCode).code}></TextAreaInput>
+    <Textarea margin="both" autocomplete="off" bind:value={(value[0].effect[0] as triggerCode).code}></Textarea>
 {:else if triggerMode === 'v2'}
     {#await loadTriggerV2List(triggerV2LoadRevision)}
         <div class="mt-2 text-sm text-subtext">{language.loading}</div>

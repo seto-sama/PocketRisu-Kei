@@ -12,10 +12,10 @@
     import { publicStatsStore } from "src/ts/publicStats";
     import { isSecureContext } from "src/ts/secureContext";
     import { openSettings, SettingsRoute } from "src/ts/routing";
-    import ShButton from "./GUI/ShButton.svelte";
-    import ShAlert from "./GUI/ShAlert.svelte";
-    import IconButton from "./GUI/IconButton.svelte";
-    import IconButtonGroup from "./GUI/IconButtonGroup.svelte";
+    import Button from "./components/Button.svelte";
+    import Alert from "./components/Alert.svelte";
+    import IconButton from "./components/IconButton.svelte";
+    import IconButtonGroup from "./components/IconButtonGroup.svelte";
     import HorizontalMasonry from "./HorizontalMasonry.svelte";
     import { readViewPreference, viewPreferenceKeys, writeViewPreference } from "src/ts/viewPreference";
     import { filterMutedRealmCharacters, realmMuteStore } from "src/ts/realmMute";
@@ -37,7 +37,7 @@
     <Title />
     <h3 class="text-subtext mt-1">v{getVersionString()}</h3>
     {#if $updateInfoStore?.hasUpdate}
-        <ShButton
+        <Button
           variant={$updateInfoStore.severity === 'optional' ? 'success' : 'destructive'}
           size="sm"
           className="mt-1.5 rounded-full"
@@ -50,7 +50,7 @@
           {:else}
             {language.updateAvailable.replace('{{version}}', $updateInfoStore.latestVersion)}
           {/if}
-        </ShButton>
+        </Button>
     {/if}
     {#if $publicStatsStore}
       <div class="mt-3 flex gap-2 flex-wrap justify-center">
@@ -65,16 +65,16 @@
     {/if}
     <div class="w-full flex p-4 flex-col text-maintext max-w-4xl">
       {#if !isSecureContext}
-        <ShAlert variant="warning" className="mt-4 w-full">
+        <Alert variant="warning" className="mt-4 w-full">
           {#snippet icon()}<TriangleAlertIcon />{/snippet}
           {#snippet title()}{language.httpInsecureWarningTitle}{/snippet}
           {language.httpInsecureWarningBody}
           {#snippet action()}
-            <ShButton variant="outline" size="sm" onclick={() => openSettings(SettingsRoute.RemoteAccess)}>
+            <Button variant="outline" size="sm" onclick={() => openSettings(SettingsRoute.RemoteAccess)}>
               {language.httpInsecureOpenRemoteAccess}
-            </ShButton>
+            </Button>
           {/snippet}
-        </ShAlert>
+        </Alert>
       {/if}
       <div class="mt-4 mb-4 w-full border-t border-t-selected"></div>
       <div class="flex items-center gap-2 sm:flex-nowrap">

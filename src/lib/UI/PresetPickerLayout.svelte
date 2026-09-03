@@ -4,14 +4,15 @@
     import { language } from "src/lang";
     import { alertConfirm, alertConfirmMulti, alertInput } from "src/ts/alert";
     import { v4 as uuidv4 } from "uuid";
-    import ShTooltip from "./GUI/ShTooltip.svelte";
+    import Tooltip from "./components/Tooltip.svelte";
     import SettingLayout from "../Setting/Wrappers/SettingLayout.svelte";
-    import ShSortableList, { restoreSortableDragOrigin, type SortableDragOrigin } from "./GUI/ShSortableList.svelte";
-    import IconButton from "./GUI/IconButton.svelte";
-    import IconButtonGroup from "./GUI/IconButtonGroup.svelte";
-    import OverlayPortal from "./GUI/OverlayPortal.svelte";
-    import InlineRenameAction from "./GUI/InlineRenameAction.svelte";
-    import { InlineEditableNameController } from "./GUI/inlineEditableNameController.svelte";
+    import SortableList, { restoreSortableDragOrigin, type SortableDragOrigin } from "./components/SortableList.svelte";
+    import IconButton from "./components/IconButton.svelte";
+    import IconButtonGroup from "./components/IconButtonGroup.svelte";
+    import OverlayPortal from "./components/overlay/OverlayPortal.svelte";
+    import InlineRenameAction from "./components/InlineRenameAction.svelte";
+    import { InlineEditableNameController } from "./components/InlineEditableNameController.svelte";
+    import { isEventFromInteractiveChild } from "src/lib/utils";
 
     interface PresetFolder {
         id: string;
@@ -297,7 +298,7 @@
         <div class="flex items-center text-maintext mb-4">
             <h2 class="mt-0 mb-0">{title}</h2>
             {#if titleHelp}
-                <ShTooltip>
+                <Tooltip>
                     {#snippet trigger(props)}
                         <button
                             {...props}
@@ -308,7 +309,7 @@
                         </button>
                     {/snippet}
                     {titleHelp}
-                </ShTooltip>
+                </Tooltip>
             {/if}
             <div class="grow flex justify-end">
                 {#if configure}
@@ -355,7 +356,7 @@
                     {/each}
                 </div>
                 <div class="my-3 border-t border-darkborderc"></div>
-                <ShSortableList
+                <SortableList
                     className="flex flex-col"
                     disabled={!folderReorderable}
                     dataTransferKey="presetFolderId"
@@ -385,7 +386,9 @@
                         ondragleave={() => { if (!draggingFolderId) itemDropTarget = null }}
                         ondrop={(e) => { if (!draggingFolderId) dropOnFolder(folder.id, e) }}
                         onclick={() => selectedFolder = folder.id}
-                        onkeydown={(e) => { if (e.key === 'Enter') selectedFolder = folder.id }}>
+                        onkeydown={(e) => {
+                            if (!isEventFromInteractiveChild(e) && e.key === 'Enter') selectedFolder = folder.id
+                        }}>
                         {#if folder.kind === 'module'}
                             <PackageIcon size={18} class="shrink-0"/>
                         {:else if organizationKind === 'tag'}
@@ -415,7 +418,7 @@
                         {/if}
                     </div>
                 {/each}
-                </ShSortableList>
+                </SortableList>
             </div>
             {#if showCreateFolder || sidebarFooterActions}
                 <div class="shrink-0 mt-2 flex items-center gap-1">
@@ -442,7 +445,7 @@
                 </div>
             </SettingLayout>
             {#if itemContent && onSelectItem}
-                <ShSortableList
+                <SortableList
                     className="grow min-h-0 overflow-y-auto flex flex-col [&>*]:shrink-0"
                     disabled={itemReadOnly || (!onMoveItem && !allowFolderAssignmentDrag)}
                     dataTransferKey={itemDragDataKey}
@@ -474,7 +477,10 @@
                             data-selected={index === selectedItemIndex}
                             class:cursor-grab={!itemReadOnly && (!!onMoveItem || allowFolderAssignmentDrag)}
                             onclick={() => onSelectItem(index)}
-                            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectItem(index) } }}>
+                            onkeydown={(e) => {
+                                if (isEventFromInteractiveChild(e)) return
+                                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectItem(index) }
+                            }}>
                             {@render itemContent(index, renameController)}
                             {#if (itemRenameable && !itemReadOnly) || itemActions || (!itemReadOnly && (onDuplicateItem || onExportItem || onDeleteItem))}
                                 <IconButtonGroup className="-my-2 -ml-2 -mr-2 shrink-0 py-2 pl-5 pr-2" onclick={(e) => e.stopPropagation()}>
@@ -492,7 +498,7 @@
                         <div class="h-full min-h-32 flex items-center justify-center text-subtext text-sm">{emptyMessage}</div>
                     {/each}
                     {@render listFooter?.()}
-                </ShSortableList>
+                </SortableList>
             {/if}
             {@render children?.()}
         </section>

@@ -15,7 +15,6 @@ function createBackupRestoreService({
     savePath,
     inlayDir,
     inlayMigrationMarker,
-    remoteMigrationMarkerKey,
     sqliteDb,
     kvSet,
     kvDel,
@@ -439,7 +438,6 @@ function createBackupRestoreService({
                 kvDelPrefix('coldstorage/');
                 kvDelPrefix('drafts/');
                 kvDelPrefix('remotes/');
-                kvDel(remoteMigrationMarkerKey);
                 // The compatibility projection is import input only. Remove a
                 // pre-migration live blob/manifest instead of retaining it in KV.
                 kvDel('database/database.bin');

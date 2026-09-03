@@ -25,7 +25,6 @@ import {
     saveDb,
     setPatchSyncBaseline,
     getDbBackups,
-    getBasename,
     checkCharOrder
 } from "./globalApi.svelte";
 import { convertStubsToPlaceholders } from "./storage/chatStorage";
@@ -605,47 +604,6 @@ async function cleanChunks() {
         }
         catch(error){
             console.warn('[bootstrap] automatic orphan asset cleanup failed:', error)
-        }
-    }
-    // Asset deletion is handled transactionally by purgeOrphanAssets. Only
-    // enumerate remote-cache keys for the remaining grace-period cleanup.
-    const indexes = await forageStorage.keys('remotes/')
-    const allKeys = new Set(indexes)
-    const characterIds = new Set<string>(
-        db.characters.map((v) => v.chaId)
-    )
-    for (const asset of indexes) {
-        if (asset.endsWith('.meta')) {
-            continue
-        }
-        else if (asset.startsWith('remotes/')) {
-            const name = getBasename(asset).slice(0, -10) //remove .local.bin
-            const exists = characterIds.has(name)
-            if(!exists){
-                let okayToDelete = false
-                try {
-                    const metaPath = asset + '.meta'
-                    const metaExists = allKeys.has(metaPath)
-                    if (metaExists) {
-                        const metaData: Uint8Array = await forageStorage.getItem(metaPath) as unknown as Uint8Array
-                        const metaJson = JSON.parse(new TextDecoder().decode(metaData))
-                        const lastUsed = metaJson.lastUsed as number
-                        if(Date.now() - lastUsed > 1000 * 60 * 60 * 24 * 7) { //not used for 7 days
-                            okayToDelete = true
-                        }
-                    }
-                    else{
-                        //write meta for next time
-                        const metaJson = {
-                            lastUsed: Date.now()
-                        }
-                        await forageStorage.setItem(metaPath, new TextEncoder().encode(JSON.stringify(metaJson)))
-                    }
-                } catch (error) {}
-                if (okayToDelete) {
-                    await forageStorage.removeItem(asset)
-                }
-            }
         }
     }
 }

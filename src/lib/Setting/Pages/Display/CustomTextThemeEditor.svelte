@@ -1,7 +1,7 @@
 <script lang="ts">
     import { DBState } from 'src/ts/stores.svelte';
     import { updateTextThemeAndCSS } from 'src/ts/gui/colorscheme';
-    import ColorInput from 'src/lib/UI/GUI/ColorInput.svelte';
+    import ColorInput from '../../../UI/components/ColorInput.svelte';
 
     const colors = [
         ['FontColorStandard', 'Normal Text', false],

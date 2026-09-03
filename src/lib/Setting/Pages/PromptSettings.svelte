@@ -9,9 +9,9 @@
     import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
     import { onDestroy, onMount } from "svelte";
-    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
+    import SortableList from "../../UI/components/SortableList.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import Alert from "../../UI/components/Alert.svelte";
 
     let warns: TemplateWarning[] = $state([])
     let tokens = $state(0)
@@ -113,7 +113,7 @@
     </div>
 {/if}
 {#if warns.length > 0 && subMenu === 0}
-    <ShAlert variant="destructive" className="mt-4">
+    <Alert variant="destructive" className="mt-4">
         {#snippet icon()}<TriangleAlertIcon />{/snippet}
         {#snippet title()}{language.promptTemplateWarnings.title}{/snippet}
         <ul class="m-0 list-disc space-y-1 pl-4">
@@ -121,11 +121,11 @@
                 <li>{warningText(warn)}</li>
             {/each}
         </ul>
-    </ShAlert>
+    </Alert>
 {/if}
 
 {#if subMenu === 0}
-    <ShSortableList
+    <SortableList
         className="contain w-full max-w-full mt-4 flex flex-col"
         draggable="[data-risu-idx]"
         dataAttribute="data-risu-idx"
@@ -163,7 +163,7 @@
                     }}
                 />
         {/each}
-    </ShSortableList>
+    </SortableList>
 
     <div class="flex items-center mb-6">
         <IconButton size="lg" onclick={() => {

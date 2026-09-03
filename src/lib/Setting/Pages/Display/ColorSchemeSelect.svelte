@@ -2,9 +2,9 @@
     import { language } from 'src/lang';
     import { DBState } from 'src/ts/stores.svelte';
     import { changeColorScheme, colorSchemeList, nonLegacyColorSchemes, colorSchemeLabels } from 'src/ts/gui/colorscheme';
-    import SelectInput from 'src/lib/UI/GUI/SelectInput.svelte';
-    import OptionInput from 'src/lib/UI/GUI/OptionInput.svelte';
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
+    import Select from '../../../UI/components/Select.svelte';
+    import SelectOption from '../../../UI/components/SelectOption.svelte';
+    import Switch from '../../../UI/components/Switch.svelte';
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte';
 
     let showLegacy = $state(false);
@@ -39,19 +39,19 @@
 
 <SettingLayout variant="row" title={language.colorScheme} description={language.help.colorScheme}>
     {#snippet control()}
-        <SelectInput className="w-48" size="sm" value={DBState.db.colorSchemeName} onchange={onSchemeInputChange}>
+        <Select className="w-48" size="sm" value={DBState.db.colorSchemeName} onchange={onSchemeInputChange}>
             {#each visibleSchemes as scheme}
-                <OptionInput value={scheme}>{optionLabel(scheme)}</OptionInput>
+                <SelectOption value={scheme}>{optionLabel(scheme)}</SelectOption>
             {/each}
-            <OptionInput value="custom">Custom</OptionInput>
-        </SelectInput>
+            <SelectOption value="custom">Custom</SelectOption>
+        </Select>
     {/snippet}
 </SettingLayout>
 
 {#if DBState.db.colorSchemeName !== 'custom'}
     <SettingLayout variant="row" title={language.showLegacyColorSchemes}>
         {#snippet control()}
-            <ShSwitch checked={showLegacy} onCheckedChange={(c) => (showLegacy = c)} />
+            <Switch checked={showLegacy} onCheckedChange={(c) => (showLegacy = c)} />
         {/snippet}
     </SettingLayout>
 {/if}

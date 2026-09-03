@@ -4,11 +4,11 @@
     import { DBState, invalidateChatMessageRender } from 'src/ts/stores.svelte';
     import type { Message } from 'src/ts/storage/database.svelte';
     import { language } from 'src/lang';
-    import { iconButtonSizeValues } from 'src/lib/UI/GUI/IconButton.svelte';
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte';
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte';
-    import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte';
-    import OverlayPortal from 'src/lib/UI/GUI/OverlayPortal.svelte';
+    import { iconButtonSizeValues } from '../UI/components/IconButton.svelte';
+    import Button from '../UI/components/Button.svelte';
+    import Dialog from '../UI/components/Dialog.svelte';
+    import Textarea from '../UI/components/Textarea.svelte';
+    import OverlayPortal from '../UI/components/overlay/OverlayPortal.svelte';
     import { isMobile } from 'src/ts/platform';
     import { layerZIndexes } from 'src/ts/gui/layers';
     import { getVisualViewportBounds } from 'src/ts/gui/visualViewport';
@@ -736,10 +736,10 @@
                 {/each}
             </div>
             <div class="partial-edit-buttons">
-                <ShButton variant="outline" size="sm" onclick={cancelMatchSelection}>
+                <Button variant="outline" size="sm" onclick={cancelMatchSelection}>
                     <XIcon size={12} />
                     <span>{language.cancel}</span>
-                </ShButton>
+                </Button>
             </div>
         </div>
     </div>
@@ -758,10 +758,10 @@
             </div>
             <p class="partial-match-failed-message">{language.partialEdit.matchFailedMessage}</p>
             <div class="partial-edit-buttons">
-                <ShButton variant="primary" size="sm" onclick={() => showMatchFailedModal = false}>
+                <Button variant="primary" size="sm" onclick={() => showMatchFailedModal = false}>
                     <CheckIcon size={12} />
                     <span>{language.confirm}</span>
-                </ShButton>
+                </Button>
             </div>
         </div>
     </div>
@@ -793,14 +793,14 @@
                 {matchingState.selectedRange ? matchingState.sourceData.slice(matchingState.selectedRange.start, matchingState.selectedRange.end).slice(0, 200) : ''}{matchingState.selectedRange && matchingState.sourceData.slice(matchingState.selectedRange.start, matchingState.selectedRange.end).length > 200 ? '...' : ''}
             </div>
             <div class="partial-edit-buttons">
-                <ShButton variant="destructive" size="sm" onclick={handleConfirmDelete}>
+                <Button variant="destructive" size="sm" onclick={handleConfirmDelete}>
                     <Trash2Icon size={12} />
                     <span>{language.partialEdit.deleteYes}</span>
-                </ShButton>
-                <ShButton variant="outline" size="sm" onclick={handleCancelDelete}>
+                </Button>
+                <Button variant="outline" size="sm" onclick={handleCancelDelete}>
                     <XIcon size={12} />
                     <span>{language.partialEdit.deleteNo}</span>
-                </ShButton>
+                </Button>
             </div>
         </div>
     </div>
@@ -816,7 +816,7 @@
 
 <!-- Edit modal (shown only during edit) -->
 {#if isEditing}
-    <ShDialog
+    <Dialog
         bind:open={isEditing}
         size="default"
         closable={false}
@@ -838,7 +838,7 @@
             </div>
         {/snippet}
         <div use:attachPartialEditTextarea>
-            <TextAreaInput
+            <Textarea
                 bind:value={editText}
                 fullwidth
                 size="sm"
@@ -849,15 +849,15 @@
         {#snippet footer()}
             <div class="partial-edit-footer">
                 <div class="partial-edit-buttons">
-                    <ShButton
+                    <Button
                         variant="outline"
                         size="sm"
                         onclick={handleCancel}
                         title={language.partialEdit.cancelShortcut}
                     >
                         <span>{language.partialEdit.cancel}</span>
-                    </ShButton>
-                    <ShButton
+                    </Button>
+                    <Button
                         variant="primary"
                         size="sm"
                         className="partial-edit-save-btn"
@@ -866,11 +866,11 @@
                     >
                         <SaveIcon />
                         <span>{language.partialEdit.save}</span>
-                    </ShButton>
+                    </Button>
                 </div>
             </div>
         {/snippet}
-    </ShDialog>
+    </Dialog>
 {/if}
 
 <style>

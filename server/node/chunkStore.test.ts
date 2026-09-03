@@ -192,7 +192,7 @@ describe('createChunkStore — chunk-aware kv (injected :memory: db)', () => {
     })
 })
 
-describe('snapshotValue — 조각 공유 스냅샷 (kvCopyValue 청크 인식)', () => {
+describe('snapshotValue — 조각 공유 스냅샷', () => {
     const T = { threshold: 1024 }
 
     it('C1: 청킹 값 스냅샷 → 바이트 동일 + 조각 중복 없음(공유)', () => {

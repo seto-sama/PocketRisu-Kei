@@ -8,13 +8,13 @@
     import { DBState, ReloadGUIPointer } from 'src/ts/stores.svelte';
     import { selectedCharID, chatDeselected } from "src/ts/stores.svelte";
 
-    import ShButton from "../UI/GUI/ShButton.svelte";
-    import ShSortableList from "../UI/GUI/ShSortableList.svelte";
-    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
-    import IconButton from "../UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
-    import InlineRenameAction from "../UI/GUI/InlineRenameAction.svelte";
-    import { InlineEditableNameController } from "../UI/GUI/inlineEditableNameController.svelte";
+    import Button from "../UI/components/Button.svelte";
+    import SortableList from "../UI/components/SortableList.svelte";
+    import InlineEditableName from "../UI/components/InlineEditableName.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
+    import InlineRenameAction from "../UI/components/InlineRenameAction.svelte";
+    import { InlineEditableNameController } from "../UI/components/InlineEditableNameController.svelte";
 
     import { exportChat, importChat, exportAllChats } from "src/ts/characters";
     import { alertConfirm, alertError, alertSelect, notifySuccess, notifyError } from "src/ts/alert";
@@ -33,6 +33,7 @@
     }
 
     let { chara = $bindable() }: Props = $props();
+    const chatSortableOptions = { group: 'chats' };
 
     // Safety net: chats whose folderId references a deleted folder would
     // otherwise be invisible (excluded from both the no-folder section and
@@ -103,10 +104,10 @@
 </script>
 <div class="flex flex-col w-full">
     <div class="relative bottom-2 flex items-stretch gap-1">
-        <ShButton className="min-w-0 flex-1" onclick={createNewChat}>
+        <Button className="min-w-0 flex-1" onclick={createNewChat}>
             {language.newChat}
-        </ShButton>
-        <ShButton
+        </Button>
+        <Button
             size="icon"
             className="shrink-0"
             title={language.presetNewFolder}
@@ -114,12 +115,12 @@
             onclick={createNewFolder}
         >
             <FolderPlusIcon />
-        </ShButton>
+        </Button>
     </div>
 
     <div class="flex flex-col mt-2 overflow-y-auto max-h-100" bind:this={listEle}>
         <!-- folder div -->
-        <ShSortableList
+        <SortableList
             className="flex flex-col"
             handle=".chat-folder-header"
             dragPreviewText={(folderId) => chara.chatFolders.find(folder => folder.id === folderId)?.name}
@@ -147,7 +148,7 @@
                             $ReloadGUIPointer += 1
                         }
                     }}
-                    class="chat-folder-header flex min-w-0 items-center text-maintext border-0 p-2 cursor-pointer rounded-md {folderColorStyle.fill}"
+                    class="chat-folder-header flex h-10 min-w-0 items-center text-maintext border-0 p-2 cursor-pointer rounded-md {folderColorStyle.fill}"
                 >
                     <InlineEditableName
                         controller={renameController}
@@ -200,12 +201,12 @@
                     </IconButtonGroup>
                 </div>
                 <!-- chats in folder -->
-                <ShSortableList
+                <SortableList
                     className="risu-sidebar-chat-list flex flex-col w-full text-maintext border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md {folder.folded ? 'hidden' : ''}"
                     draggable="[data-sortable-chat-id]"
                     dataAttribute="data-sortable-chat-id"
                     dragPreviewText={(chatId) => chara.chats.find(chat => chat.id === chatId)?.name}
-                    options={{ group: 'chats' }}
+                    options={chatSortableOptions}
                     onReorder={syncChatOrderFromDom}
                 >
                     {#if chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id).length == 0}
@@ -220,8 +221,8 @@
                             event.preventDefault()
                             changeChatTo(chatIdx)
                         }
-                    }} class="risu-selectable-row risu-chats flex min-w-0 items-center text-maintext border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md" data-selected={chatIdx === chara.chatPage && !$chatDeselected}>
-                        <InlineEditableName controller={renameController} bind:value={chat.name} onActivate={() => changeChatTo(chatIdx)} />
+                    }} class="risu-selectable-row risu-chats flex h-10 min-w-0 items-center text-maintext border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md" data-selected={chatIdx === chara.chatPage && !$chatDeselected}>
+                        <InlineEditableName controller={renameController} bind:value={chat.name} editorLeadingInset="row" onActivate={() => changeChatTo(chatIdx)} />
                         <IconButtonGroup className="no-sort ml-3 shrink-0" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
                             <InlineRenameAction controller={renameController} />
                             <IconButton onclick={async () => {
@@ -270,17 +271,17 @@
                     </div>
                     {/each}
                     {/if}
-                </ShSortableList>
+                </SortableList>
             </div>
             {/each}
-        </ShSortableList>
+        </SortableList>
         <!-- chat without folder div -->
-        <ShSortableList
+        <SortableList
             className="risu-sidebar-chat-list flex flex-col"
             draggable="[data-sortable-chat-id]"
             dataAttribute="data-sortable-chat-id"
             dragPreviewText={(chatId) => chara.chats.find(chat => chat.id === chatId)?.name}
-            options={{ group: 'chats' }}
+            options={chatSortableOptions}
             onReorder={syncChatOrderFromDom}
         >
             {#each chara.chats as chat, i (chat.id)}
@@ -292,9 +293,9 @@
                     changeChatTo(i)
                 }
             }}
-            class="risu-selectable-row flex min-w-0 items-center text-maintext border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
+            class="risu-selectable-row flex h-10 min-w-0 items-center text-maintext border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
             data-selected={i === chara.chatPage && !$chatDeselected}>
-                <InlineEditableName controller={renameController} bind:value={chara.chats[i].name} onActivate={() => changeChatTo(i)} />
+                <InlineEditableName controller={renameController} bind:value={chara.chats[i].name} editorLeadingInset="row" onActivate={() => changeChatTo(i)} />
                 <IconButtonGroup className="no-sort ml-3 shrink-0" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
                     <InlineRenameAction controller={renameController} />
                     <IconButton onclick={async () => {
@@ -342,7 +343,7 @@
             </div>
             {/if}
             {/each}
-        </ShSortableList>
+        </SortableList>
     </div>
 
     <div class="border-t border-selected mt-2">
@@ -371,7 +372,7 @@
             {/if}
             <Toggles bind:chara={chara} noContainer />
             {#if DBState.db.showModuleSidebar}
-                <ShButton className="w-full mt-2" onclick={() => {
+                <Button className="w-full mt-2" onclick={() => {
                     const char = DBState.db.characters[$selectedCharID]
                     if (!char) return
                     char.chats[char.chatPage].modules ??= []
@@ -379,7 +380,7 @@
                 }}>
                     <PackageIcon class="shrink-0" />
                     <span class="truncate">{language.modules}</span>
-                </ShButton>
+                </Button>
             {/if}
         {/if}
     </div>

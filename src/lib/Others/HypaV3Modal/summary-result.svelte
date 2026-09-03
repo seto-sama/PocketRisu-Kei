@@ -8,9 +8,9 @@
   import { language } from "src/lang";
   import type { SummaryResultState } from "./types";
   import { handleDualAction } from "./utils";
-  import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-  import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-  import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
+  import IconButton from "../../UI/components/IconButton.svelte";
+  import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+  import Textarea from "../../UI/components/Textarea.svelte";
 
   interface Props {
     summaryResultState: SummaryResultState | null;
@@ -102,7 +102,7 @@
             : ""}
         >
           <div class={fillHeight ? "min-h-0" : ""}>
-            <TextAreaInput
+            <Textarea
               fullwidth
               actionBar
               className="bg-darkbg"
@@ -119,7 +119,7 @@
                 {language.hypaV3Modal.translationLabel}
               </div>
               <div class={fillHeight ? "min-h-0 flex-1" : ""}>
-                <TextAreaInput
+                <Textarea
                   fullwidth
                   actionBar
                   className="bg-darkbg"

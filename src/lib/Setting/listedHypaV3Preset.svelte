@@ -2,7 +2,7 @@
     import { XIcon } from "@lucide/svelte";
     import { language } from "../../lang";
     import { DBState } from 'src/ts/stores.svelte';
-    import OverlayPortal from "../UI/GUI/OverlayPortal.svelte";
+    import OverlayPortal from "../UI/components/overlay/OverlayPortal.svelte";
 
     interface Props {
         close?: () => void;

@@ -1,5 +1,5 @@
 import { mount, unmount } from 'svelte';
-import AudioPlayer from 'src/lib/UI/GUI/AudioPlayer.svelte';
+import AudioPlayer from '../lib/UI/components/AudioPlayer.svelte';
 
 let domObserver: MutationObserver | null = null;
 const audioPlayerInstances = new Map<HTMLElement, ReturnType<typeof mount>>();

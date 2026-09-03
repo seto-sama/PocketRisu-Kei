@@ -1,13 +1,13 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
     import { forageStorage } from "src/ts/globalApi.svelte";
     import { getSyncClientId } from "src/ts/storage/nodeStorage";
     import { alertConfirm } from "src/ts/alert";
     import { isSecureContext } from "src/ts/secureContext";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShInput from "src/lib/UI/GUI/ShInput.svelte";
-    import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
+    import Button from "../../UI/components/Button.svelte";
+    import Input from "../../UI/components/Input.svelte";
+    import Alert from "../../UI/components/Alert.svelte";
     import { LoaderCircleIcon, CopyIcon, CheckIcon, DownloadIcon, TriangleAlertIcon, InfoIcon, MonitorIcon, SmartphoneIcon } from "@lucide/svelte";
     import QRCode from "qrcode";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
@@ -191,20 +191,20 @@
     <p class="text-subtext text-sm leading-relaxed mb-3">{language.remoteAccessDesc}</p>
 
     {#if platform === 'android'}
-        <ShAlert variant="destructive">
+        <Alert variant="destructive">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}
             {language.remoteAccessTermuxWarning}
-        </ShAlert>
+        </Alert>
 
     {:else if status === 'disabled'}
         <div class="text-sm text-warning">{language.remoteAccessDisabled}</div>
 
     {:else if status === 'off'}
         <div class="flex justify-end">
-            <ShButton variant="outline" onclick={startTunnel}>
+            <Button variant="outline" onclick={startTunnel}>
                 <SmartphoneIcon />
                 {language.remoteAccessOpen}
-            </ShButton>
+            </Button>
         </div>
 
     {:else if status === 'downloading'}
@@ -227,34 +227,34 @@
             {/if}
 
             <div class="flex items-center gap-2 w-full max-w-md">
-                <ShInput
+                <Input
                     type="text"
                     readonly
                     value={tunnelUrl ?? ''}
                     className="flex-1 select-all"
                 />
                 {#if isSecureContext}
-                <ShButton variant="outline" size="icon" onclick={copyUrl} aria-label={language.remoteAccessCopyUrl}>
+                <Button variant="outline" size="icon" onclick={copyUrl} aria-label={language.remoteAccessCopyUrl}>
                     {#if copied}
                         <CheckIcon />
                     {:else}
                         <CopyIcon />
                     {/if}
-                </ShButton>
+                </Button>
                 {/if}
             </div>
 
-            <ShAlert variant="destructive" className="w-full max-w-md">
+            <Alert variant="destructive" className="w-full max-w-md">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {language.remoteAccessWarning}
-            </ShAlert>
+            </Alert>
 
-            <ShAlert variant="info" className="w-full max-w-md">
+            <Alert variant="info" className="w-full max-w-md">
                 {#snippet icon()}<InfoIcon />{/snippet}
                 {language.remoteAccessInfo}
-            </ShAlert>
+            </Alert>
 
-            <ShButton variant="destructive" onclick={stopTunnel} className="mt-2">{language.remoteAccessClose}</ShButton>
+            <Button variant="destructive" onclick={stopTunnel} className="mt-2">{language.remoteAccessClose}</Button>
         </div>
 
     {:else if status === 'error'}
@@ -262,7 +262,7 @@
             <div class="text-sm text-danger">
                 {language.remoteAccessError}{tunnelError ? `: ${tunnelError}` : ''}
             </div>
-            <ShButton variant="outline" size="sm" onclick={startTunnel} className="mt-1 self-start">{language.remoteAccessRetry}</ShButton>
+            <Button variant="outline" size="sm" onclick={startTunnel} className="mt-1 self-start">{language.remoteAccessRetry}</Button>
         </div>
     {/if}
 </SettingLayout>

@@ -3,7 +3,7 @@
     import { type character } from "src/ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { ChatRoomReloadPointer, moduleBackgroundEmbedding, ReloadGUIPointer, selIdState } from "src/ts/stores.svelte";
-    import Portal from "../UI/GUI/Portal.svelte";
+    import Portal from "../UI/components/overlay/Portal.svelte";
 
     let backgroundHTML = $derived(DBState.db?.characters?.[selIdState.selId]?.backgroundHTML)
     let currentChar:character = $derived(DBState.db?.characters?.[selIdState.selId])

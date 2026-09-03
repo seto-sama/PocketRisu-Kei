@@ -7,12 +7,12 @@
     import { get } from 'svelte/store';
     import { openSettings, SettingsRoute } from 'src/ts/routing';
     import { GitCompareIcon } from "@lucide/svelte";
-    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
+    import InlineEditableName from "../UI/components/InlineEditableName.svelte";
     import { prebuiltPresets } from "src/ts/process/templates/templates";
     import PromptDiffModal from "../Others/PromptDiffModal.svelte";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
-    import IconButton from "../UI/GUI/IconButton.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
     import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
     let selectedFolder = $state<string>('all')
@@ -173,6 +173,7 @@
                 controller={renameController}
                 bind:value={DBState.db.botPresets[index].name}
                 size="default"
+                editorLeadingInset={preset.image ? 'border' : 'row'}
                 placeholder="string"
                 disabled={!$settingsOpen}
                 onActivate={() => selectPreset(index)}

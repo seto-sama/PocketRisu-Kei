@@ -1,6 +1,6 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import Input from "../../../UI/components/Input.svelte";
     import type { loreBook } from "src/ts/storage/database.svelte";
     import LoreBookList from "src/lib/SideBars/LoreBook/LoreBookList.svelte";
     import { type CCLorebook, convertExternalLorebook } from "src/ts/process/lorebook.svelte";
@@ -8,17 +8,17 @@
     import { DownloadIcon, FolderPlusIcon, UploadIcon, PlusIcon } from "@lucide/svelte";
     import RegexList from "src/lib/SideBars/Scripts/RegexList.svelte";
     import TriggerList from "src/lib/SideBars/Scripts/TriggerList.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import Switch from "../../../UI/components/Switch.svelte";
     import Help from "src/lib/Others/Help.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
+    import Textarea from "../../../UI/components/Textarea.svelte";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { alertError, notifySuccess } from "src/ts/alert";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
     import { selectMultipleFile } from "src/ts/util";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
+    import IconButton from "../../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../../UI/components/IconButtonGroup.svelte";
     import AdditionalAssetsEditor from "src/lib/UI/AdditionalAssetsEditor.svelte";
-    import ShChoiceGroup from "src/lib/UI/GUI/ShChoiceGroup.svelte";
+    import ChoiceGroup from "../../../UI/components/ChoiceGroup.svelte";
     import { v4 } from "uuid";
 
     let submenu = $state('basic')
@@ -155,7 +155,7 @@
     }
 </script>
 
-<ShChoiceGroup
+<ChoiceGroup
     variant="pill"
     size="md"
     name="moduleSubmenu"
@@ -176,16 +176,16 @@
 
 {#if submenu === 'basic'}
     <span>{language.name}<Help key="moduleName" /></span>
-    <TextInput commitMode="blur" bind:value={currentModule.name} className="mt-2"/>
+    <Input commitMode="blur" bind:value={currentModule.name} className="mt-2"/>
     <span class="mt-4">{language.description}<Help key="moduleDescription" /></span>
-    <TextInput commitMode="blur" bind:value={currentModule.description} className="mt-2"/>
+    <Input commitMode="blur" bind:value={currentModule.description} className="mt-2"/>
     <span class="mt-4">{language.namespace}<Help key="namespace" /></span>
-    <TextInput commitMode="blur" bind:value={currentModule.namespace} className="mt-2"/>
+    <Input commitMode="blur" bind:value={currentModule.namespace} className="mt-2"/>
     <span class="mt-4">{language.customPromptTemplateToggle}<Help key='customPromptTemplateToggle' /></span>
-    <TextAreaInput commitMode="debounce" className="mt-2 mb-4" bind:value={currentModule.customModuleToggle}/>
+    <Textarea commitMode="debounce" className="mt-2 mb-4" bind:value={currentModule.customModuleToggle}/>
     <div class="mt-2 flex min-h-10 w-full items-center justify-between gap-2 px-1">
         <span class="min-w-0 text-maintext">{language.hideChatIcon}<Help key="moduleHideChatIcon" /></span>
-        <ShSwitch bind:checked={currentModule.hideIcon}/>
+        <Switch bind:checked={currentModule.hideIcon}/>
     </div>
 {/if}
 {#if submenu === 'lorebook' && (Array.isArray(currentModule.lorebook))}
@@ -210,7 +210,7 @@
 
 {#if submenu === 'regex' && (Array.isArray(currentModule.regex))}
     <span class="mt-2 flex items-center">{language.backgroundHTML}<Help key="moduleBackgroundEmbedding" /></span>
-    <TextAreaInput commitMode="debounce" bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
+    <Textarea commitMode="debounce" bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
     <span class="mt-4 flex items-center">{language.moduleRegexLabel}<Help key="moduleRegexList" /></span>
     <RegexList bind:value={currentModule.regex} actionIconSize="default"/>
     <IconButtonGroup size="default" className="mt-2">
@@ -239,7 +239,7 @@
 {#if submenu === 'trigger' && (Array.isArray(currentModule.trigger))}
     <div class="mt-2 flex min-h-10 w-full items-center justify-between gap-2 px-1">
         <span class="min-w-0 text-maintext">{language.lowLevelAccess}<Help key="lowLevelAccess" name={language.lowLevelAccess}/></span>
-        <ShSwitch bind:checked={currentModule.lowLevelAccess}/>
+        <Switch bind:checked={currentModule.lowLevelAccess}/>
     </div>
 
     <TriggerList bind:value={currentModule.trigger} lowLevelAble={currentModule.lowLevelAccess} />

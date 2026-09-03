@@ -847,7 +847,7 @@ export const languageKorean = {
   others: "기타",
   advancedRequestTab: "리퀘스트",
   dataDisplay: "데이터 표시",
-  developerSettings: "개발자 설정",
+  laboratory: "실험실",
   sectionInterface: "인터페이스",
   sectionHomeList: "홈 / 채팅 목록",
   sectionChatView: "채팅 화면",
@@ -2475,6 +2475,7 @@ export const languageKorean = {
   storageRefresh: "새로고침",
   storageLoading: "불러오는 중...",
   storageFailedLoad: "스토리지 통계를 불러오지 못했습니다",
+  unsupportedRemoteSave: "PocketRisu Kei는 리모트 데이터를 처리하지 않습니다. 기존에 사용 중이던 RisuAI의 고급 설정 탭에서 'Enable Remote Saving' 옵션을 끈 후 save 폴더를 다시 복사해 주세요.",
 
   // 디스크 사용량 (맥OS 스타일 막대)
   storageDiskUsage: "저장공간",
@@ -2507,9 +2508,6 @@ export const languageKorean = {
   storageRowLlmTranslationCache: "LLM 번역 캐시",
   storageRowLlmTranslationCacheDesc:
     "LLM 번역 요청을 반복하지 않도록 저장한 원문과 번역 결과 캐시입니다.",
-  storageRowKvRemotes: "원격 채팅 데이터",
-  storageRowKvRemotesDesc:
-    "캐릭터별 원격 동기화 캐시 (remotes/{chaId}.local.bin).",
   storageRowKvColdStorage: "콜드 스토리지",
   storageRowKvColdStorageDesc: "레거시·휴면 저장 영역. 보통 비어 있습니다.",
   storageRowKvUncategorized: "기타 데이터",

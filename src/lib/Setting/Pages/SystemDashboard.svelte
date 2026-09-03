@@ -1,11 +1,11 @@
 <script lang="ts">
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShBadge from 'src/lib/UI/GUI/ShBadge.svelte'
-    import ShAlert from 'src/lib/UI/GUI/ShAlert.svelte'
-    import ShAccordion from 'src/lib/UI/GUI/ShAccordion.svelte'
-    import ShLoadingDialog from 'src/lib/UI/GUI/ShLoadingDialog.svelte'
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte'
-    import ShTooltip from 'src/lib/UI/GUI/ShTooltip.svelte'
+    import Button from '../../UI/components/Button.svelte'
+    import Badge from '../../UI/components/Badge.svelte'
+    import Alert from '../../UI/components/Alert.svelte'
+    import Accordion from '../../UI/components/Accordion.svelte'
+    import LoadingDialog from '../../UI/components/LoadingDialog.svelte'
+    import Switch from '../../UI/components/Switch.svelte'
+    import Tooltip from '../../UI/components/Tooltip.svelte'
     import {
         HardDriveIcon,
         UsersIcon,
@@ -294,9 +294,7 @@
     }
 
     // ── Disk usage rows ──────────────────────────────────────────────────────
-    // 10 distinct hues spanning the wheel — visually separable even at narrow
-    // bar widths, and intuitive grouping (red/orange = data, green/teal = media,
-    // blue/violet = backups, gray = overhead).
+    // Theme-derived categorical colors shared with the rest of the UI.
     interface DiskRow {
         id: string
         label: string
@@ -338,8 +336,8 @@
         // else lives in kv (test keys, migration leftovers), it shows up
         // under "uncategorized" so the bar always sums correctly.
         const knownKv =
-            get('assets/') + inlayKvTotal + get('remotes/') + get('coldstorage/')
-            + get('cache/hypa-vector/') + get('cache/llm-translate/') + rawDbBlob
+            get('assets/') + inlayKvTotal + get('cache/hypa-vector/')
+            + get('cache/llm-translate/') + rawDbBlob
         const uncategorizedKv = Math.max(0, stats.kvTotalBytes - knownKv)
         const otherData = uncategorizedKv + stats.files.wal + stats.files.shm
         // SQLite overhead splits into "structural" (always present — indexes,
@@ -350,22 +348,20 @@
         const totalReclaimable = reclaimable + orphanChunkBytes
         const structuralOverhead = Math.max(0, stats.files.db - stats.kvTotalBytes - chunkedDbBytes - reclaimable)
         const rows: DiskRow[] = [
-            { id: 'kv-database',     label: language.storageRowKvDatabase,     desc: language.storageRowKvDatabaseDesc,     size: dbRowSize,                     color: 'bg-rose-500' },
-            { id: 'kv-assets',       label: language.storageRowKvAssets,       desc: language.storageRowKvAssetsDesc,       size: get('assets/'),                color: 'bg-amber-500' },
-            { id: 'kv-inlay',        label: language.storageRowKvInlay,        desc: language.storageRowKvInlayDesc,        size: inlayTotal,                    color: 'bg-emerald-500' },
-            { id: 'hypa-vector',      label: language.storageRowHypaVectorCache, desc: language.storageRowHypaVectorCacheDesc, size: get('cache/hypa-vector/'), color: 'bg-violet-500' },
-            { id: 'llm-translation',  label: language.storageRowLlmTranslationCache, desc: language.storageRowLlmTranslationCacheDesc, size: get('cache/llm-translate/'), color: 'bg-indigo-500' },
-            { id: 'kv-remotes',      label: language.storageRowKvRemotes,      desc: language.storageRowKvRemotesDesc,      size: get('remotes/'),               color: 'bg-cyan-500' },
-            { id: 'kv-cold',         label: language.storageRowKvColdStorage,  desc: language.storageRowKvColdStorageDesc,  size: get('coldstorage/'),           color: 'bg-stone-500' },
-            { id: 'kv-uncat',        label: language.storageRowKvUncategorized, desc: language.storageRowKvUncategorizedDesc, size: otherData,                   color: 'bg-stone-600' },
-            { id: 'overhead',        label: language.storageRowSqliteOverhead, desc: language.storageRowSqliteOverheadDesc, size: structuralOverhead,            color: 'bg-zinc-500' },
-            { id: 'reclaimable',     label: language.storageRowReclaimablePages, desc: language.storageRowReclaimablePagesDesc, size: totalReclaimable,          color: 'bg-warning' },
+            { id: 'kv-database',     label: language.storageRowKvDatabase,     desc: language.storageRowKvDatabaseDesc,     size: dbRowSize,                     color: 'bg-palette-5' },
+            { id: 'kv-assets',       label: language.storageRowKvAssets,       desc: language.storageRowKvAssetsDesc,       size: get('assets/'),                color: 'bg-palette-2' },
+            { id: 'kv-inlay',        label: language.storageRowKvInlay,        desc: language.storageRowKvInlayDesc,        size: inlayTotal,                    color: 'bg-palette-1' },
+            { id: 'hypa-vector',      label: language.storageRowHypaVectorCache, desc: language.storageRowHypaVectorCacheDesc, size: get('cache/hypa-vector/'), color: 'bg-palette-7' },
+            { id: 'llm-translation',  label: language.storageRowLlmTranslationCache, desc: language.storageRowLlmTranslationCacheDesc, size: get('cache/llm-translate/'), color: 'bg-palette-6' },
+            { id: 'kv-uncat',        label: language.storageRowKvUncategorized, desc: language.storageRowKvUncategorizedDesc, size: otherData,                   color: 'bg-palette-8' },
+            { id: 'overhead',        label: language.storageRowSqliteOverhead, desc: language.storageRowSqliteOverheadDesc, size: structuralOverhead,            color: 'bg-palette-9' },
+            { id: 'reclaimable',     label: language.storageRowReclaimablePages, desc: language.storageRowReclaimablePagesDesc, size: totalReclaimable,          color: 'bg-palette-3' },
             // File backups are only on the same disk as save/ when sameAsSaveDir
             // is true. If user pointed backupsDir at a different mount, those
             // bytes don't belong in this chart's geometry — they're shown in
             // the dedicated Backups card instead.
             ...(stats.backupDisk?.sameAsSaveDir !== false
-                ? [{ id: 'file-backup', label: language.storageRowFileBackups, desc: language.storageRowFileBackupsDesc, size: stats.backups.file.totalSize, color: 'bg-fuchsia-500' }]
+                ? [{ id: 'file-backup', label: language.storageRowFileBackups, desc: language.storageRowFileBackupsDesc, size: stats.backups.file.totalSize, color: 'bg-palette-4' }]
                 : []),
         ]
         return rows.filter(r => r.size > 0)
@@ -448,10 +444,10 @@
 <p class="text-subtext text-sm mb-4">{language.storageDashboardDesc}</p>
 
 {#if loadError}
-    <ShAlert variant="destructive" className="mb-4">
+    <Alert variant="destructive" className="mb-4">
         {#snippet icon()}<TriangleAlertIcon />{/snippet}
         {language.storageFailedLoad}: {loadError}
-    </ShAlert>
+    </Alert>
 {/if}
 
 {#if stats}
@@ -474,36 +470,36 @@
         </div>
 
         {#if diskUsageLevel === 'crit' && diskUsedPct != null}
-            <ShAlert variant="destructive" className="mb-3">
+            <Alert variant="destructive" className="mb-3">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {language.storageDiskUsageHighWarning(diskUsedPct)}
-            </ShAlert>
+            </Alert>
         {:else if diskUsageLevel === 'warn' && diskUsedPct != null}
-            <ShAlert variant="warning" className="mb-3">
+            <Alert variant="warning" className="mb-3">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {language.storageDiskUsageHighWarning(diskUsedPct)}
-            </ShAlert>
+            </Alert>
         {/if}
 
         <!-- Stacked bar — each slice is a Tooltip trigger so hover shows label + size. -->
         <div class="flex h-7 bg-lightbg border border-darkborderc rounded-md overflow-hidden mb-3">
             {#each diskRows as row (row.id)}
-                <ShTooltip>
+                <Tooltip>
                     {#snippet trigger(props)}
                         <div {...props} class={row.color + ' cursor-help'} style:width={slicePct(row.size).toFixed(3) + '%'}></div>
                     {/snippet}
                     <div class="font-medium">{row.label}</div>
                     <div class="text-subtext tabular-nums">{fmtBytes(row.size)}</div>
-                </ShTooltip>
+                </Tooltip>
             {/each}
             {#if showFullDisk && otherUsed != null && otherUsed > 0}
-                <ShTooltip>
+                <Tooltip>
                     {#snippet trigger(props)}
                         <div {...props} class="bg-subtext/40 cursor-help" style:width={slicePct(otherUsed).toFixed(3) + '%'}></div>
                     {/snippet}
                     <div class="font-medium">{language.storageDiskOther}</div>
                     <div class="text-subtext tabular-nums">{fmtBytes(otherUsed)}</div>
-                </ShTooltip>
+                </Tooltip>
             {/if}
         </div>
 
@@ -513,7 +509,7 @@
                 <div class="flex items-center gap-2 py-1.5 border-b border-darkborderc/30 last:border-b-0">
                     <span class={'inline-block size-3 rounded-sm shrink-0 ' + row.color}></span>
                     <span class="text-maintext text-sm flex-1 min-w-0 truncate">{row.label}</span>
-                    <ShTooltip className="max-w-70">
+                    <Tooltip className="max-w-70">
                         {#snippet trigger(props)}
                             <button
                                 {...props}
@@ -526,7 +522,7 @@
                             </button>
                         {/snippet}
                         {row.desc}
-                    </ShTooltip>
+                    </Tooltip>
                     <span class="text-maintext text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(row.size)}</span>
                 </div>
             {/each}
@@ -551,7 +547,7 @@
         <!-- Footer: internal-only switch -->
         <div class="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-darkborderc/50">
             <label class="flex items-center gap-2 cursor-pointer select-none">
-                <ShSwitch bind:checked={showFullDisk} />
+                <Switch bind:checked={showFullDisk} />
                 <span class="text-maintext text-sm">{language.storageInternalOnly}</span>
             </label>
             <span class="text-subtext text-xs hidden sm:inline">{language.storageInternalOnlyHint}</span>
@@ -572,20 +568,20 @@
 
         <!-- Used vs reclaimable inside risuai.db -->
         <div class="flex h-7 bg-lightbg border border-darkborderc rounded-md overflow-hidden mb-3">
-            <ShTooltip>
+            <Tooltip>
                 {#snippet trigger(props)}
                     <div {...props} class="bg-primary cursor-help" style:width={pctOf(overheadUsed, stats.files.db).toFixed(3) + '%'}></div>
                 {/snippet}
                 <div class="font-medium">{language.storageOptimizeBarUsed}</div>
                 <div class="text-subtext tabular-nums">{fmtBytes(overheadUsed)}</div>
-            </ShTooltip>
-            <ShTooltip>
+            </Tooltip>
+            <Tooltip>
                 {#snippet trigger(props)}
                     <div {...props} class="bg-warning cursor-help" style:width={pctOf(totalReclaimable, stats.files.db).toFixed(3) + '%'}></div>
                 {/snippet}
                 <div class="font-medium">{language.storageOptimizeBarReclaimable}</div>
                 <div class="text-subtext tabular-nums">{fmtBytes(totalReclaimable)}</div>
-            </ShTooltip>
+            </Tooltip>
         </div>
         <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-subtext text-xs mb-3 tabular-nums">
             <span><span class="inline-block size-2 bg-primary rounded-sm align-middle mr-1"></span>{language.storageOptimizeBarUsed} {fmtBytes(overheadUsed)}</span>
@@ -595,14 +591,14 @@
         <p class="text-subtext text-sm leading-relaxed mb-2">{language.storageOptimizeWhat}</p>
         <p class="text-subtext text-sm leading-relaxed mb-3">{language.storageWalCleanupWhat}</p>
         <div class="flex justify-end gap-2">
-            <ShButton variant="outline" onclick={runWalCleanup} disabled={walCleanupOpen}>
+            <Button variant="outline" onclick={runWalCleanup} disabled={walCleanupOpen}>
                 <HardDriveIcon />
                 {language.storageWalCleanup_btn}
-            </ShButton>
-            <ShButton variant="primary" onclick={runOptimize} disabled={totalReclaimable < 50 * 1024 * 1024}>
+            </Button>
+            <Button variant="primary" onclick={runOptimize} disabled={totalReclaimable < 50 * 1024 * 1024}>
                 <SparklesIcon />
                 {language.storageOptimize}
-            </ShButton>
+            </Button>
         </div>
     </SettingLayout>
 
@@ -625,14 +621,14 @@
         </div>
         <p class="text-subtext text-sm leading-relaxed mb-3">{language.storageHypaCleanupWhat}</p>
         <div class="flex justify-end">
-            <ShButton
+            <Button
                 variant="outline"
                 onclick={runHypaCleanup}
                 disabled={hypaCleanupOpen || (stats.prefixes['cache/hypa-vector/']?.count ?? 0) === 0}
             >
                 <SparklesIcon />
                 {language.storageHypaCleanup_btn}
-            </ShButton>
+            </Button>
         </div>
     </SettingLayout>
 
@@ -643,18 +639,18 @@
                 <UsersIcon size={16} />
                 <span class="font-medium">{language.storageCharacters}</span>
             </div>
-            <ShButton variant="outline" size="sm" onclick={loadCharacters} disabled={charLoading}>
+            <Button variant="outline" size="sm" onclick={loadCharacters} disabled={charLoading}>
                 {charLoading ? language.storageCharactersMeasuring : language.storageCharactersMeasure}
-            </ShButton>
+            </Button>
         </div>
         {#if !characters && !charError && !charLoading}
             <div class="text-subtext text-sm">{language.storageCharactersDesc}</div>
         {/if}
         {#if charError}
-            <ShAlert variant="destructive">
+            <Alert variant="destructive">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {charError}
-            </ShAlert>
+            </Alert>
         {/if}
         {#if characters}
             <div class="text-subtext text-xs mb-3 flex items-baseline justify-between gap-2 flex-wrap">
@@ -678,7 +674,7 @@
                             <div class="flex items-baseline justify-between gap-2 mb-1">
                                 <div class="flex items-center gap-2 min-w-0">
                                     {#if c.trashed}
-                                        <ShBadge variant="secondary">{language.storageCharactersTrashed}</ShBadge>
+                                        <Badge variant="secondary">{language.storageCharactersTrashed}</Badge>
                                     {/if}
                                     <span class="text-maintext text-sm truncate">{c.name || '(unnamed)'}</span>
                                 </div>
@@ -699,17 +695,17 @@
                 </div>
                 {#if charRemaining > 0}
                     <div class="flex justify-center mb-3">
-                        <ShButton variant="outline" size="sm" onclick={() => charShown += PAGE_SIZE}>
+                        <Button variant="outline" size="sm" onclick={() => charShown += PAGE_SIZE}>
                             {language.storageLoadMore(charRemaining)}
-                        </ShButton>
+                        </Button>
                     </div>
                 {/if}
             {/if}
             {#if characters.orphan.count > 0}
-                <ShAlert variant="warning">
+                <Alert variant="warning">
                     {#snippet icon()}<TriangleAlertIcon />{/snippet}
                     {language.storageCharactersOrphan(characters.orphan.count, characters.orphan.totalSize)}
-                </ShAlert>
+                </Alert>
             {/if}
         {/if}
     </SettingLayout>
@@ -721,18 +717,18 @@
                 <BlocksIcon size={16} />
                 <span class="font-medium">{language.storageModules}</span>
             </div>
-            <ShButton variant="outline" size="sm" onclick={loadModules} disabled={modLoading}>
+            <Button variant="outline" size="sm" onclick={loadModules} disabled={modLoading}>
                 {modLoading ? language.storageModulesMeasuring : language.storageModulesMeasure}
-            </ShButton>
+            </Button>
         </div>
         {#if !modules && !modError && !modLoading}
             <div class="text-subtext text-sm">{language.storageModulesDesc}</div>
         {/if}
         {#if modError}
-            <ShAlert variant="destructive">
+            <Alert variant="destructive">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {modError}
-            </ShAlert>
+            </Alert>
         {/if}
         {#if modules}
             <div class="text-subtext text-xs mb-3 flex items-baseline justify-between gap-2 flex-wrap">
@@ -764,9 +760,9 @@
                 </div>
                 {#if modRemaining > 0}
                     <div class="flex justify-center">
-                        <ShButton variant="outline" size="sm" onclick={() => modShown += PAGE_SIZE}>
+                        <Button variant="outline" size="sm" onclick={() => modShown += PAGE_SIZE}>
                             {language.storageLoadMore(modRemaining)}
-                        </ShButton>
+                        </Button>
                     </div>
                 {/if}
             {/if}
@@ -774,7 +770,7 @@
     </SettingLayout>
 
     <!-- ⑦ Debug -->
-    <ShAccordion name={language.storageDebug} variant="card">
+    <Accordion name={language.storageDebug} variant="card">
         <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-subtext text-sm font-mono">
             <div>journal_mode</div><div class="text-maintext">{stats.sqlite.journalMode}</div>
             <div>page_size</div><div class="text-maintext tabular-nums">{stats.sqlite.pageSize}</div>
@@ -785,10 +781,10 @@
             <div>kv total bytes</div><div class="text-maintext tabular-nums">{fmtBytes(stats.kvTotalBytes)}</div>
             <div>etag</div><div class="text-maintext truncate">{stats.etag ?? '—'}</div>
         </div>
-    </ShAccordion>
+    </Accordion>
 
 {/if}
 
-<ShLoadingDialog open={optimizeOpen} message={optimizeMessage} />
-<ShLoadingDialog open={walCleanupOpen} message={language.storageWalCleanuping} />
-<ShLoadingDialog open={hypaCleanupOpen} message={language.storageHypaCleanuping} />
+<LoadingDialog open={optimizeOpen} message={optimizeMessage} />
+<LoadingDialog open={walCleanupOpen} message={language.storageWalCleanuping} />
+<LoadingDialog open={hypaCleanupOpen} message={language.storageHypaCleanuping} />

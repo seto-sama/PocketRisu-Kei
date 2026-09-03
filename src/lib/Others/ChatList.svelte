@@ -6,7 +6,7 @@
     import { changeChatTo, createPersistedChat, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { newChatModelDefaults, type ChatFolder } from "src/ts/storage/database.svelte";
     import { DBState, ReloadGUIPointer, selectedCharID } from "src/ts/stores.svelte";
-    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
+    import InlineEditableName from "../UI/components/InlineEditableName.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
 
@@ -153,6 +153,7 @@
                     controller={renameController}
                     bind:value={character.chats[index].name}
                     size="default"
+                    editorLeadingInset="row"
                     onActivate={() => selectChat(index)}
                     onCommit={persistListChange}
                 />

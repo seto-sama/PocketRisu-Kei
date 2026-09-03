@@ -8,10 +8,10 @@
         listFilterableProviderGroups,
         resolveProviderFilterHiddenIds,
     } from "src/ts/preset/registry";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
-    import ShInput from "src/lib/UI/GUI/ShInput.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import Dialog from "../../../UI/components/Dialog.svelte";
+    import Input from "../../../UI/components/Input.svelte";
+    import Switch from "../../../UI/components/Switch.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
 
     let open = $state(false);
@@ -91,13 +91,13 @@
             {/if}
         </p>
     </div>
-    <ShButton variant="outline" size="sm" onclick={openDialog} className="shrink-0">
+    <Button variant="outline" size="sm" onclick={openDialog} className="shrink-0">
         <ListFilterIcon />
         <span class="ml-1">{language.modelProviderFilterConfigure}</span>
-    </ShButton>
+    </Button>
 </div>
 
-<ShDialog bind:open size="lg" closeOnEscape={true}>
+<Dialog bind:open size="lg" closeOnEscape={true}>
     {#snippet title()}{language.modelProviderFilterDialogTitle}{/snippet}
     {#snippet description()}{language.modelProviderFilterDialogDescription}{/snippet}
 
@@ -111,19 +111,19 @@
                         size={16}
                         class="absolute left-2.5 top-1/2 -translate-y-1/2 text-subtext pointer-events-none"
                     />
-                    <ShInput
+                    <Input
                         bind:value={query}
                         placeholder={language.modelProviderFilterSearch}
                         aria-label={language.modelProviderFilterSearch}
                         className="pl-8"
                     />
                 </div>
-                <ShButton variant="outline" onclick={() => setAllProvidersVisible(true)}>
+                <Button variant="outline" onclick={() => setAllProvidersVisible(true)}>
                     {language.modelProviderFilterShowAll}
-                </ShButton>
-                <ShButton variant="outline" onclick={() => setAllProvidersVisible(false)}>
+                </Button>
+                <Button variant="outline" onclick={() => setAllProvidersVisible(false)}>
                     {language.modelProviderFilterHideAll}
-                </ShButton>
+                </Button>
             </div>
 
             <SettingLayout variant="list">
@@ -141,7 +141,7 @@
                                 </span>
                             </div>
                             {#snippet control()}
-                                <ShSwitch
+                                <Switch
                                     checked={!draftHiddenProviderSet.has(provider.id)}
                                     ariaLabel={`${provider.label}: ${language.modelProviderFilter}`}
                                     onCheckedChange={(checked) => setProviderVisible(provider.id, checked)}
@@ -155,8 +155,8 @@
     {/if}
 
     {#snippet footer()}
-        <ShButton variant="primary" size="sm" onclick={saveDialog}>
+        <Button variant="primary" size="sm" onclick={saveDialog}>
             {language.modelProviderFilterSave}
-        </ShButton>
+        </Button>
     {/snippet}
-</ShDialog>
+</Dialog>

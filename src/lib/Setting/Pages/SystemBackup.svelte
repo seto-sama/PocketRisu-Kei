@@ -1,17 +1,17 @@
 <script lang="ts">
     // System → Backups tab. Single home for snapshot management, full server
     // backups, local backup actions, and migration-style import/export tools.
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShAlert from 'src/lib/UI/GUI/ShAlert.svelte'
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
-    import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
+    import Button from '../../UI/components/Button.svelte'
+    import Alert from '../../UI/components/Alert.svelte'
+    import Dialog from '../../UI/components/Dialog.svelte'
+    import Input from '../../UI/components/Input.svelte'
     import ServerBackupList from 'src/lib/Setting/ServerBackupList.svelte'
     import SettingItemRow from 'src/lib/Setting/Wrappers/SettingItemRow.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import SettingRenderer from 'src/lib/Setting/SettingRenderer.svelte'
-    import IconButton from 'src/lib/UI/GUI/IconButton.svelte'
-    import IconButtonGroup from 'src/lib/UI/GUI/IconButtonGroup.svelte'
-    import InlineRenameAction from 'src/lib/UI/GUI/InlineRenameAction.svelte'
+    import IconButton from '../../UI/components/IconButton.svelte'
+    import IconButtonGroup from '../../UI/components/IconButtonGroup.svelte'
+    import InlineRenameAction from '../../UI/components/InlineRenameAction.svelte'
     import BackupNoteEditor from 'src/lib/Setting/BackupNoteEditor.svelte'
     import type { SettingItem } from 'src/ts/setting/types'
     import {
@@ -94,7 +94,7 @@
 
     let limits = $state<SnapshotLimits | null>(null)
     let limitsDialogOpen = $state(false)
-    // ShInput is string-typed; we parse in submitLimits.
+    // Input is string-typed; we parse in submitLimits.
     let limitsDraftCount = $state('20')
     let limitsDraftMB = $state('500')
     let limitsDialogError = $state<string | null>(null)
@@ -638,34 +638,34 @@
     </div>
 
     {#if insufficientForBackup}
-        <ShAlert variant="destructive" className="mb-3">
+        <Alert variant="destructive" className="mb-3">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}
             {language.backupServerInsufficient}
-        </ShAlert>
+        </Alert>
     {:else if diskUsageLevel === 'crit' && diskUsedPct != null}
-        <ShAlert variant="destructive" className="mb-3">
+        <Alert variant="destructive" className="mb-3">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}
             {language.storageDiskUsageHighWarning(diskUsedPct)}
-        </ShAlert>
+        </Alert>
     {:else if diskUsageLevel === 'warn' && diskUsedPct != null}
-        <ShAlert variant="warning" className="mb-3">
+        <Alert variant="warning" className="mb-3">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}
             {language.storageDiskUsageHighWarning(diskUsedPct)}
-        </ShAlert>
+        </Alert>
     {/if}
 
     <div class="mb-3 [&>*:first-child]:border-t-0">
         <SettingItemRow item={backupNowItem}>
             {#snippet control()}
                 <div class="flex items-center gap-2 flex-wrap justify-end">
-                    <ShButton variant="outline" size="sm" onclick={() => openCreateNoteEditor('snapshot')} disabled={manualSnapshotSaving}>
+                    <Button variant="outline" size="sm" onclick={() => openCreateNoteEditor('snapshot')} disabled={manualSnapshotSaving}>
                         <CameraIcon />
                         {language.manualSnapshotCreate}
-                    </ShButton>
-                    <ShButton variant="primary" size="sm" onclick={() => openCreateNoteEditor('server')} disabled={backupSaving || insufficientForBackup}>
+                    </Button>
+                    <Button variant="primary" size="sm" onclick={() => openCreateNoteEditor('server')} disabled={backupSaving || insufficientForBackup}>
                         <SaveIcon />
                         {language.backupServerCreate}
-                    </ShButton>
+                    </Button>
                 </div>
             {/snippet}
         </SettingItemRow>
@@ -684,9 +684,9 @@
         {#if pathInfo?.isDefault}
             <span class="text-subtext text-xs shrink-0 opacity-60">({language.backupServerPathDefault})</span>
         {/if}
-        <ShButton variant="outline" size="sm" onclick={openPathDialog}>
+        <Button variant="outline" size="sm" onclick={openPathDialog}>
             {language.backupServerPathChange}
-        </ShButton>
+        </Button>
     </div>
 </SettingLayout>
 
@@ -735,9 +735,9 @@
                 </span>
             </div>
             <div class="shrink-0">
-                <ShButton variant="outline" size="sm" onclick={openLimitsDialog}>
+                <Button variant="outline" size="sm" onclick={openLimitsDialog}>
                     {language.backupSnapshotLimitsChange}
-                </ShButton>
+                </Button>
             </div>
         </div>
     {/if}
@@ -747,10 +747,10 @@
     </div>
 
     {#if snapshotError}
-        <ShAlert variant="destructive">
+        <Alert variant="destructive">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}
             {snapshotError}
-        </ShAlert>
+        </Alert>
     {:else if snapshots.length === 0 && !snapshotLoading}
         <p class="text-subtext text-sm">{language.backupSnapshotEmpty}</p>
     {:else if snapshots.length > 0}
@@ -783,9 +783,9 @@
         </SettingLayout>
         {#if snapshotsRemaining > 0}
             <div class="flex justify-center mt-3">
-                <ShButton variant="outline" size="sm" onclick={() => snapshotsShown += SNAPSHOT_PAGE_SIZE}>
+                <Button variant="outline" size="sm" onclick={() => snapshotsShown += SNAPSHOT_PAGE_SIZE}>
                     {language.systemLogsLoadMore}
-                </ShButton>
+                </Button>
             </div>
         {/if}
     {/if}
@@ -826,9 +826,9 @@
         </SettingLayout>
         {#if manualSnapshotsRemaining > 0}
             <div class="flex justify-center mt-3">
-                <ShButton variant="outline" size="sm" onclick={() => manualSnapshotsShown += SNAPSHOT_PAGE_SIZE}>
+                <Button variant="outline" size="sm" onclick={() => manualSnapshotsShown += SNAPSHOT_PAGE_SIZE}>
                     {language.systemLogsLoadMore}
-                </ShButton>
+                </Button>
             </div>
         {/if}
     {/if}
@@ -845,18 +845,18 @@
     <div class="flex flex-col gap-3">
         <SettingLayout variant="action" title={language.backupLocalDownload} description={language.help.backupLocalDownloadDesc}>
             {#snippet control()}
-            <ShButton variant="outline" size="sm" onclick={downloadLocal}>
+            <Button variant="outline" size="sm" onclick={downloadLocal}>
                 <DownloadIcon />
                 {language.backupLocalDownload}
-            </ShButton>
+            </Button>
             {/snippet}
         </SettingLayout>
         <SettingLayout variant="action" title={language.loadBackupLocal} description={language.help.backupLocalRestoreDesc}>
             {#snippet control()}
-            <ShButton variant="outline" size="sm" onclick={restoreFromLocalFile}>
+            <Button variant="outline" size="sm" onclick={restoreFromLocalFile}>
                 <UploadIcon />
                 {language.loadBackupLocal}
-            </ShButton>
+            </Button>
             {/snippet}
         </SettingLayout>
     </div>
@@ -873,42 +873,42 @@
     <div class="flex flex-col gap-3">
         <SettingLayout variant="action" title={language.backupSettingsOnly} description={language.backupSettingsOnlyDesc}>
             {#snippet control()}
-            <ShButton variant="outline" size="sm" onclick={SaveSettingsOnlyBackup}>
+            <Button variant="outline" size="sm" onclick={SaveSettingsOnlyBackup}>
                 <SettingsIcon />
                 {language.backupSettingsOnly}
-            </ShButton>
+            </Button>
             {/snippet}
         </SettingLayout>
         <SettingLayout variant="action" title={language.saveBackupForUpstream} description={language.help.migrationUpstreamExportDesc}>
             {#snippet control()}
-            <ShButton variant="outline" size="sm" onclick={downloadUpstreamLocal}>
+            <Button variant="outline" size="sm" onclick={downloadUpstreamLocal}>
                 <DownloadIcon />
                 {language.migrationCompatBackupExportButton}
-            </ShButton>
+            </Button>
             {/snippet}
         </SettingLayout>
         <SettingLayout variant="action" title={language.savePartialLocalBackup} description={language.help.migrationPartialBackupDesc}>
             {#snippet control()}
-            <ShButton variant="outline" size="sm" onclick={SavePartialLocalBackup}>
+            <Button variant="outline" size="sm" onclick={SavePartialLocalBackup}>
                 <DownloadIcon />
                 {language.migrationCompatSnapshotExportButton}
-            </ShButton>
+            </Button>
             {/snippet}
         </SettingLayout>
         <SettingLayout variant="action" title={language.migrationLoadUpstreamBackup} description={language.help.migrationUpstreamRestoreDesc}>
             {#snippet control()}
-            <ShButton variant="outline" size="sm" onclick={restoreFromUpstreamLocalFile}>
+            <Button variant="outline" size="sm" onclick={restoreFromUpstreamLocalFile}>
                 <UploadIcon />
                 {language.migrationCompatBackupImportButton}
-            </ShButton>
+            </Button>
             {/snippet}
         </SettingLayout>
         <SettingLayout variant="action" title={language.exportAsDataset} description={language.help.migrationDatasetExportDesc}>
             {#snippet control()}
-            <ShButton variant="outline" size="sm" onclick={exportAsDataset}>
+            <Button variant="outline" size="sm" onclick={exportAsDataset}>
                 <DownloadIcon />
                 {language.migrationDatasetExportButton}
-            </ShButton>
+            </Button>
             {/snippet}
         </SettingLayout>
     </div>
@@ -935,37 +935,37 @@
 />
 
 <!-- Path-change dialog ──────────────────────────────────────────────────── -->
-<ShDialog bind:open={pathDialogOpen} size="lg">
+<Dialog bind:open={pathDialogOpen} size="lg">
     {#snippet title()}{language.backupServerPathDialog}{/snippet}
     <p class="text-subtext text-sm leading-relaxed mb-3">{language.backupServerPathDialogDesc}</p>
-    <ShInput bind:value={pathDraft} placeholder="/absolute/path/to/backups" aria-label={language.backupServerPath} />
+    <Input bind:value={pathDraft} placeholder="/absolute/path/to/backups" aria-label={language.backupServerPath} />
     {#if pathDialogError}
-        <ShAlert variant="destructive" className="mt-3">
+        <Alert variant="destructive" className="mt-3">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}
             {pathDialogError}
-        </ShAlert>
+        </Alert>
     {/if}
     {#snippet footer()}
         <div class="flex justify-end gap-2">
-            <ShButton variant="outline" onclick={() => (pathDialogOpen = false)} disabled={pathDialogBusy}>
+            <Button variant="outline" onclick={() => (pathDialogOpen = false)} disabled={pathDialogBusy}>
                 {language.cancel}
-            </ShButton>
-            <ShButton variant="primary" onclick={submitPathChange} disabled={pathDialogBusy}>
+            </Button>
+            <Button variant="primary" onclick={submitPathChange} disabled={pathDialogBusy}>
                 {language.confirm}
-            </ShButton>
+            </Button>
         </div>
     {/snippet}
-</ShDialog>
+</Dialog>
 
 <!-- Snapshot limits dialog ──────────────────────────────────────────────── -->
-<ShDialog bind:open={limitsDialogOpen} size="lg">
+<Dialog bind:open={limitsDialogOpen} size="lg">
     {#snippet title()}{language.backupSnapshotLimitsDialog}{/snippet}
     <p class="text-subtext text-sm leading-relaxed mb-3">{language.backupSnapshotLimitsDialogDesc}</p>
     {#if limits}
         <div class="flex flex-col gap-3">
             <label class="flex flex-col gap-1">
                 <span class="text-subtext text-sm">{language.backupSnapshotLimitsCount}</span>
-                <ShInput type="number" bind:value={limitsDraftCount}
+                <Input type="number" bind:value={limitsDraftCount}
                     min={limits.bounds.minCount} max={limits.bounds.maxCount} step={1} />
                 <span class="text-subtext text-xs opacity-70">
                     {language.backupSnapshotLimitsCountRange(limits.bounds.minCount, limits.bounds.maxCount)}
@@ -973,7 +973,7 @@
             </label>
             <label class="flex flex-col gap-1">
                 <span class="text-subtext text-sm">{language.backupSnapshotLimitsBytes}</span>
-                <ShInput type="number" bind:value={limitsDraftMB}
+                <Input type="number" bind:value={limitsDraftMB}
                     min={Math.round(limits.bounds.minBytes / 1024 / 1024)}
                     max={Math.round(limits.bounds.maxBytes / 1024 / 1024)}
                     step={10} />
@@ -987,19 +987,19 @@
         </div>
     {/if}
     {#if limitsDialogError}
-        <ShAlert variant="destructive" className="mt-3">
+        <Alert variant="destructive" className="mt-3">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}
             {limitsDialogError}
-        </ShAlert>
+        </Alert>
     {/if}
     {#snippet footer()}
         <div class="flex justify-end gap-2">
-            <ShButton variant="outline" onclick={() => (limitsDialogOpen = false)} disabled={limitsDialogBusy}>
+            <Button variant="outline" onclick={() => (limitsDialogOpen = false)} disabled={limitsDialogBusy}>
                 {language.cancel}
-            </ShButton>
-            <ShButton variant="primary" onclick={submitLimits} disabled={limitsDialogBusy}>
+            </Button>
+            <Button variant="primary" onclick={submitLimits} disabled={limitsDialogBusy}>
                 {language.confirm}
-            </ShButton>
+            </Button>
         </div>
     {/snippet}
-</ShDialog>
+</Dialog>

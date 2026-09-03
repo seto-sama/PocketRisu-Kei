@@ -13,9 +13,9 @@
     import type { ModelPreset } from "src/ts/preset/types";
     import type { SettingItem } from "src/ts/setting/types";
     import SettingRenderer from "src/lib/Setting/SettingRenderer.svelte";
-    import SchemaFormRenderer from "src/lib/UI/GUI/SchemaFormRenderer.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShBadge from "src/lib/UI/GUI/ShBadge.svelte";
+    import SchemaFormRenderer from "../../../UI/components/SchemaFormRenderer.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import Badge from "../../../UI/components/Badge.svelte";
     import { v4 as uuidv4 } from "uuid";
 
     interface Props {
@@ -224,9 +224,9 @@
         <div class="flex items-center justify-between gap-2">
             <span class="text-sm text-maintext truncate">{profileDisplayId}</span>
             {#if updateStatus === 'updatable'}
-                <ShButton variant="attention" size="xs" onclick={applyUpdate}>{language.profileUpdateAvailable}</ShButton>
+                <Button variant="attention" size="xs" onclick={applyUpdate}>{language.profileUpdateAvailable}</Button>
             {:else if updateStatus === 'missing'}
-                <ShBadge variant="warning">{language.profileSourceMissing}</ShBadge>
+                <Badge variant="warning">{language.profileSourceMissing}</Badge>
             {/if}
         </div>
         {#if description}
@@ -261,25 +261,25 @@
             </div>
         {/if}
         <div class="flex gap-2 mt-2">
-            <ShButton size="sm" className="flex-1" onclick={replaceProfile}>
+            <Button size="sm" className="flex-1" onclick={replaceProfile}>
                 <RefreshCwIcon class="shrink-0" />
                 <span class="ml-1">{language.profileReplace}</span>
-            </ShButton>
-            <ShButton size="sm" className="flex-1" onclick={exportPreset}>
+            </Button>
+            <Button size="sm" className="flex-1" onclick={exportPreset}>
                 <DownloadIcon class="shrink-0" />
                 <span class="ml-1">{language.profileExport}</span>
-            </ShButton>
+            </Button>
         </div>
     </div>
 
     <div class="flex flex-col gap-2 mt-8">
-        <ShButton variant="default" size="default" className="w-full" onclick={duplicate}>
+        <Button variant="default" size="default" className="w-full" onclick={duplicate}>
             <CopyIcon/>
             <span class="ml-1">{language.presetDuplicate}</span>
-        </ShButton>
-        <ShButton variant="destructive" size="default" className="w-full" onclick={remove}>
+        </Button>
+        <Button variant="destructive" size="default" className="w-full" onclick={remove}>
             <Trash2Icon/>
             <span class="ml-1">{language.presetDelete}</span>
-        </ShButton>
+        </Button>
     </div>
 </div>

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
 import TriggerV2List from './TriggerV2List.svelte';
 import type { triggerscript } from 'src/ts/process/triggers';
+import { language } from 'src/lang';
 
 const mounted: ReturnType<typeof mount>[] = [];
 
@@ -35,20 +36,23 @@ describe('Trigger V2 effect picker', () => {
         const trigger = target.querySelector<HTMLElement>('[data-trigger-v2-index="1"]');
         trigger?.querySelector<HTMLElement>('[data-disclosure-toggle]')?.click();
         await tick();
-        trigger?.querySelector<HTMLButtonElement>(`button[aria-label="Add"]`)?.click();
+        trigger?.querySelector<HTMLButtonElement>(`button[aria-label="${language.add}"]`)?.click();
         await tick();
 
-        const categoryPicker = trigger?.querySelectorAll<HTMLElement>('[role="combobox"]')[1];
+        const categorySelect = Array.from(trigger?.querySelectorAll<HTMLSelectElement>('select') ?? [])
+            .find(select => Array.from(select.options).some(option => option.textContent?.trim() === 'Lorebook V2'));
+        const categoryPicker = categorySelect?.parentElement?.querySelector<HTMLElement>('[data-slot="select-trigger"]');
         expect(categoryPicker).toBeTruthy();
-        categoryPicker!.click();
+        categoryPicker!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
         await tick();
         const lorebookOption = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
             .find(option => option.textContent?.trim() === 'Lorebook V2');
         expect(lorebookOption).toBeTruthy();
-        lorebookOption!.click();
+        lorebookOption!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
         await tick();
 
-        const actionSelect = trigger?.querySelectorAll<HTMLSelectElement>('select')[2];
+        const actionSelect = Array.from(trigger?.querySelectorAll<HTMLSelectElement>('select') ?? [])
+            .find(select => Array.from(select.options).some(option => option.value === 'v2GetAllLorebooks'));
         expect(Array.from(actionSelect?.options ?? []).map(option => option.value)).toEqual([
             '',
             'v2GetAllLorebooks',

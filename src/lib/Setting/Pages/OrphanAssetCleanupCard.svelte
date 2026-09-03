@@ -1,10 +1,10 @@
 <script lang="ts">
     import { ImageOffIcon, InfoIcon } from '@lucide/svelte'
     import { language } from 'src/lang'
-    import ShAlert from 'src/lib/UI/GUI/ShAlert.svelte'
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShLoadingDialog from 'src/lib/UI/GUI/ShLoadingDialog.svelte'
-    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte'
+    import Alert from '../../UI/components/Alert.svelte'
+    import Button from '../../UI/components/Button.svelte'
+    import LoadingDialog from '../../UI/components/LoadingDialog.svelte'
+    import Switch from '../../UI/components/Switch.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert'
     import { DBState } from 'src/ts/stores.svelte'
@@ -60,10 +60,10 @@
     <p class="text-subtext text-sm leading-relaxed mb-3">{language.storageOrphanWhen}</p>
 
     {#if !orphan.available}
-        <ShAlert variant="default">
+        <Alert variant="default">
             {#snippet icon()}<InfoIcon />{/snippet}
             {language.storageOrphanUnavailable}
-        </ShAlert>
+        </Alert>
     {/if}
 
     <div class="flex items-center justify-between gap-3 mb-3">
@@ -71,19 +71,19 @@
             <div class="text-maintext text-sm">{language.storageOrphanAutoClean}</div>
             <div class="text-subtext text-xs leading-relaxed">{language.storageOrphanAutoCleanDesc}</div>
         </div>
-        <ShSwitch bind:checked={DBState.db.nodeOnlyAutoCleanAssets} />
+        <Switch bind:checked={DBState.db.nodeOnlyAutoCleanAssets} />
     </div>
 
     <div class="flex justify-end">
-        <ShButton
+        <Button
             variant="primary"
             onclick={cleanOrphanAssets}
             disabled={!orphan.available || orphan.count === 0 || cleaning}
         >
             <ImageOffIcon />
             {language.storageOrphanPurge}
-        </ShButton>
+        </Button>
     </div>
 </SettingLayout>
 
-<ShLoadingDialog open={cleaning} message={language.storageOrphanPurging} />
+<LoadingDialog open={cleaning} message={language.storageOrphanPurging} />

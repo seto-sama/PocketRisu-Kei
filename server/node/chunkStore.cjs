@@ -275,7 +275,7 @@ function createChunkStore(db, opts = {}) {
 
     // Copy src's value to dst. For a chunked src, only the manifest (list of
     // chunk hashes) is copied — chunks stay shared, so a snapshot costs ~nothing
-    // and never duplicates bytes. Mirrors kvCopyValue: missing src is a no-op.
+    // and never duplicates bytes. A missing source is a no-op.
     const snapshotValue = db.transaction((srcKey, dstKey) => {
         const row = kvGet.get(srcKey);
         if (!row) return;

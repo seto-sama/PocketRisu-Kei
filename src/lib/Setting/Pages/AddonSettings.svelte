@@ -1,7 +1,7 @@
 <script lang="ts">
     import { language } from "src/lang";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
+    import SettingTabs from "../../UI/components/SettingTabs.svelte";
     import PluginSettings from "./PluginSettings.svelte";
     import ModuleSettings from "./Module/ModuleSettings.svelte";
     import { AddonSubmenuIndex } from "src/ts/stores.svelte";

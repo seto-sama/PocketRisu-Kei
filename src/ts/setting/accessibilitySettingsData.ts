@@ -9,7 +9,7 @@ import { getCurrentChat, getDatabase, getStickyChatToolbarVariant, loadTogglesFr
 import { syncMobileBackNavigationGuard } from '../mobileBackNavigation';
 
 export const accessibilitySettingsItems: SettingItem[] = [
-    // Checkboxes
+    // Boolean switches
     {
         id: 'acc.confirmReroll',
         type: 'check',

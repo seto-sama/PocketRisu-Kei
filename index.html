@@ -2,6 +2,45 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Restore the last applied palette before styles and the app database load.
+      // The database remains authoritative; this cache only prevents a default-
+      // palette flash while the loading screen is visible.
+      try {
+        const cachedTheme = JSON.parse(localStorage.getItem('risu-early-color-scheme') || 'null');
+        const themeProperties = {
+          lightbg: '--risu-theme-lightbg',
+          darkbg: '--risu-theme-darkbg',
+          lightborderc: '--risu-theme-lightborderc',
+          selected: '--risu-theme-selected',
+          darkborderc: '--risu-theme-darkborderc',
+          button: '--risu-theme-button',
+          maintext: '--risu-theme-maintext',
+          subtext: '--risu-theme-subtext',
+          white: '--risu-theme-white',
+          black: '--risu-theme-black',
+          danger: '--risu-theme-danger',
+          highlight: '--risu-theme-highlight',
+          warning: '--risu-theme-warning',
+          success: '--risu-theme-success',
+          primary: '--risu-theme-primary',
+          accent: '--risu-theme-accent',
+          scoped: '--risu-theme-scoped',
+        };
+
+        if (cachedTheme && typeof cachedTheme === 'object') {
+          for (const [key, property] of Object.entries(themeProperties)) {
+            const value = cachedTheme[key];
+            if (typeof value === 'string' && CSS.supports('color', value)) {
+              document.documentElement.style.setProperty(property, value);
+            }
+          }
+        }
+      } catch (_) {
+        // Storage can be unavailable or contain an obsolete value. In that case
+        // styles.css supplies the normal default palette.
+      }
+    </script>
     <link rel="icon" type="image/png" sizes="16x16" href="/logo_16.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/logo_32.png" />
     <link rel="icon" type="image/png" sizes="256x256" href="/logo_256.png" />

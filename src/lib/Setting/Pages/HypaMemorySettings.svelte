@@ -2,19 +2,19 @@
     import { Buffer } from "buffer";
     import { language } from "src/lang";
     import Help from "src/lib/Others/Help.svelte";
-    import Accordion from "src/lib/UI/Accordion.svelte";
+    import Accordion from "../../UI/components/Accordion.svelte";
     import PresetPickerActions from "src/lib/UI/PresetPickerActions.svelte";
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import ApiKeyModeControl, { getInitialApiKeyInputMode, type ApiKeyInputMode } from "src/lib/Setting/ApiKeyModeControl.svelte";
-    import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
-    import ShSlider from "src/lib/UI/GUI/ShSlider.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
-    import InlineEditableName from "src/lib/UI/GUI/InlineEditableName.svelte";
+    import PresetHeader from "../../UI/components/PresetHeader.svelte";
+    import Slider from "../../UI/components/Slider.svelte";
+    import Switch from "../../UI/components/Switch.svelte";
+    import Select from "../../UI/components/Select.svelte";
+    import SelectOption from "../../UI/components/SelectOption.svelte";
+    import Textarea from "../../UI/components/Textarea.svelte";
+    import Input from "../../UI/components/Input.svelte";
+    import InlineEditableName from "../../UI/components/InlineEditableName.svelte";
     import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { listApiKeys } from "src/ts/preset/apiKeyPool";
@@ -166,7 +166,7 @@
     <SettingLayout variant="section" title={language.HypaMemory} first>
         <div class="[&>*:first-child]:border-t-0">
         <SettingLayout variant="row" title={`${language.HypaMemory} V3`} description={language.help.hypaV3Description}>
-            {#snippet control()}<ShSwitch bind:checked={DBState.db.hypaV3} onCheckedChange={(on) => DBState.db.memoryAlgorithmType = on ? "hypaMemoryV3" : "none"}/>{/snippet}
+            {#snippet control()}<Switch bind:checked={DBState.db.hypaV3} onCheckedChange={(on) => DBState.db.memoryAlgorithmType = on ? "hypaMemoryV3" : "none"}/>{/snippet}
         </SettingLayout>
 
         {#if DBState.db.hypaV3}
@@ -183,40 +183,40 @@
 
             {#if settings}
                 <SettingLayout variant="row" title={language.summarizationPrompt} description={help("summarizationPrompt")} stacked>
-                    <TextAreaInput commitMode="debounce" bind:value={settings.summarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
+                    <Textarea commitMode="debounce" bind:value={settings.summarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
                 </SettingLayout>
                 <SettingLayout variant="row" title={language.reSummarizationPrompt} description={help("reSummarizationPrompt")} stacked>
-                    <TextAreaInput commitMode="debounce" bind:value={settings.reSummarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
+                    <Textarea commitMode="debounce" bind:value={settings.reSummarizationPrompt} placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder}/>
                 </SettingLayout>
 
                 <h3 class="text-base font-bold mt-8 mb-1">{language.hypaV3Settings.memoryConfigurationLabel}</h3>
                 <div class="[&>*:first-child]:border-t-0">
-                <SettingLayout variant="row" title={language.hypaV3Settings.maxMemoryTokensRatioLabel}>{#snippet control()}<div class="w-48">{#await maxMemoryRatio then ratio}<ShSlider min={0} max={1} step={0.01} fixed={2} disabled value={ratio}/>{:catch}<span class="text-sm text-danger">{language.hypaV3Settings.maxMemoryTokensRatioError}</span>{/await}</div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.memoryTokensRatioLabel} description={help("hypaV3MemoryTokensRatio")}>{#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.01} fixed={2} bind:value={settings.memoryTokensRatio}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.extraSummarizationRatioLabel} description={help("hypaV3ExtraSummarizationRatio")}>{#snippet control()}<div class="w-48"><ShSlider min={0} max={1 - settings.memoryTokensRatio} step={0.01} fixed={2} bind:value={settings.extraSummarizationRatio}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.recentMemoryRatioLabel} description={help("hypaV3RecentMemoryRatio")}>{#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.01} fixed={2} bind:value={settings.recentMemoryRatio}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.similarMemoryRatioLabel} description={help("hypaV3SimilarMemoryRatio")}>{#snippet control()}<div class="w-48"><ShSlider min={0} max={1 - settings.recentMemoryRatio} step={0.01} fixed={2} bind:value={settings.similarMemoryRatio}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.randomMemoryRatioLabel} description={help("hypaV3RandomMemoryRatio")}>{#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.01} fixed={2} disabled value={Math.max(0, 1 - settings.recentMemoryRatio - settings.similarMemoryRatio)}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.maxChatsPerSummaryLabel} description={help("hypaV3MaxChatsPerSummary")}>{#snippet control()}<div class="w-48"><ShSlider min={1} max={12} step={1} bind:value={settings.maxChatsPerSummary}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.queryChatCountLabel} description={help("hypaV3QueryChatCount")}>{#snippet control()}<div class="w-48"><ShSlider min={1} max={12} step={1} bind:value={settings.queryChatCount}/></div>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.summaryChunkSeparatorLabel} description={help("hypaV3SummaryChunkSeparator")}>{#snippet control()}<TextInput commitMode="blur" className="w-48 text-sm" size="sm" bind:value={settings.summaryChunkSeparator}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.maxMemoryTokensRatioLabel}>{#snippet control()}<div class="w-48">{#await maxMemoryRatio then ratio}<Slider min={0} max={1} step={0.01} fixed={2} disabled value={ratio}/>{:catch}<span class="text-sm text-danger">{language.hypaV3Settings.maxMemoryTokensRatioError}</span>{/await}</div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.memoryTokensRatioLabel} description={help("hypaV3MemoryTokensRatio")}>{#snippet control()}<div class="w-48"><Slider min={0} max={1} step={0.01} fixed={2} bind:value={settings.memoryTokensRatio}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.extraSummarizationRatioLabel} description={help("hypaV3ExtraSummarizationRatio")}>{#snippet control()}<div class="w-48"><Slider min={0} max={1 - settings.memoryTokensRatio} step={0.01} fixed={2} bind:value={settings.extraSummarizationRatio}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.recentMemoryRatioLabel} description={help("hypaV3RecentMemoryRatio")}>{#snippet control()}<div class="w-48"><Slider min={0} max={1} step={0.01} fixed={2} bind:value={settings.recentMemoryRatio}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.similarMemoryRatioLabel} description={help("hypaV3SimilarMemoryRatio")}>{#snippet control()}<div class="w-48"><Slider min={0} max={1 - settings.recentMemoryRatio} step={0.01} fixed={2} bind:value={settings.similarMemoryRatio}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.randomMemoryRatioLabel} description={help("hypaV3RandomMemoryRatio")}>{#snippet control()}<div class="w-48"><Slider min={0} max={1} step={0.01} fixed={2} disabled value={Math.max(0, 1 - settings.recentMemoryRatio - settings.similarMemoryRatio)}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.maxChatsPerSummaryLabel} description={help("hypaV3MaxChatsPerSummary")}>{#snippet control()}<div class="w-48"><Slider min={1} max={12} step={1} bind:value={settings.maxChatsPerSummary}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.queryChatCountLabel} description={help("hypaV3QueryChatCount")}>{#snippet control()}<div class="w-48"><Slider min={1} max={12} step={1} bind:value={settings.queryChatCount}/></div>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.summaryChunkSeparatorLabel} description={help("hypaV3SummaryChunkSeparator")}>{#snippet control()}<Input commitMode="blur" className="w-48 text-sm" size="sm" bind:value={settings.summaryChunkSeparator}/>{/snippet}</SettingLayout>
 
-                <SettingLayout variant="row" title={language.hypaV3Settings.preserveOrphanedMemoryLabel} description={help("hypaV3PreserveOrphanedMemory")}>{#snippet control()}<ShSwitch bind:checked={settings.preserveOrphanedMemory}/>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.applyRegexScriptWhenRerollingLabel} description={help("hypaV3ProcessRegexScript")}>{#snippet control()}<ShSwitch bind:checked={settings.processRegexScript}/>{/snippet}</SettingLayout>
-                <SettingLayout variant="row" title={language.hypaV3Settings.doNotSummarizeUserMessageLabel} description={help("hypaV3DoNotSummarizeUserMessage")}>{#snippet control()}<ShSwitch bind:checked={settings.doNotSummarizeUserMessage}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.preserveOrphanedMemoryLabel} description={help("hypaV3PreserveOrphanedMemory")}>{#snippet control()}<Switch bind:checked={settings.preserveOrphanedMemory}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.applyRegexScriptWhenRerollingLabel} description={help("hypaV3ProcessRegexScript")}>{#snippet control()}<Switch bind:checked={settings.processRegexScript}/>{/snippet}</SettingLayout>
+                <SettingLayout variant="row" title={language.hypaV3Settings.doNotSummarizeUserMessageLabel} description={help("hypaV3DoNotSummarizeUserMessage")}>{#snippet control()}<Switch bind:checked={settings.doNotSummarizeUserMessage}/>{/snippet}</SettingLayout>
                 </div>
 
-                <Accordion name={language.hypaV3Settings.advancedSettingsLabel} styled>
+                <Accordion class="mt-2" name={language.hypaV3Settings.advancedSettingsLabel}>
                     <div class="[&>*:first-child]:border-t-0">
-                    <SettingLayout variant="row" title={language.hypaV3Settings.useExperimentalImplLabel} description={help("hypaV3UseExperimentalImpl")}>{#snippet control()}<ShSwitch bind:checked={settings.useExperimentalImpl}/>{/snippet}</SettingLayout>
-                    <SettingLayout variant="row" title={language.hypaV3Settings.alwaysToggleOnLabel} description={help("hypaV3AlwaysToggleOn")}>{#snippet control()}<ShSwitch bind:checked={settings.alwaysToggleOn}/>{/snippet}</SettingLayout>
+                    <SettingLayout variant="row" title={language.hypaV3Settings.useExperimentalImplLabel} description={help("hypaV3UseExperimentalImpl")}>{#snippet control()}<Switch bind:checked={settings.useExperimentalImpl}/>{/snippet}</SettingLayout>
+                    <SettingLayout variant="row" title={language.hypaV3Settings.alwaysToggleOnLabel} description={help("hypaV3AlwaysToggleOn")}>{#snippet control()}<Switch bind:checked={settings.alwaysToggleOn}/>{/snippet}</SettingLayout>
                     {#if settings.useExperimentalImpl}
-                        <SettingLayout variant="row" title={language.hypaV3Settings.summarizationRequestsPerMinuteLabel} description={help("hypaV3SummarizationRequestsPerMinute")}>{#snippet control()}<div class="w-48"><ShSlider min={1} max={100} step={1} bind:value={settings.summarizationRequestsPerMinute}/></div>{/snippet}</SettingLayout>
-                        <SettingLayout variant="row" title={language.hypaV3Settings.summarizationMaxConcurrentLabel} description={help("hypaV3SummarizationMaxConcurrent")}>{#snippet control()}<div class="w-48"><ShSlider min={1} max={12} step={1} bind:value={settings.summarizationMaxConcurrent}/></div>{/snippet}</SettingLayout>
-                        <SettingLayout variant="row" title={language.hypaV3Settings.embeddingRequestsPerMinuteLabel} description={help("hypaV3EmbeddingRequestsPerMinute")}>{#snippet control()}<div class="w-48"><ShSlider min={1} max={100} step={1} bind:value={settings.embeddingRequestsPerMinute}/></div>{/snippet}</SettingLayout>
-                        <SettingLayout variant="row" title={language.hypaV3Settings.embeddingMaxConcurrentLabel} description={help("hypaV3EmbeddingMaxConcurrent")}>{#snippet control()}<div class="w-48"><ShSlider min={1} max={12} step={1} bind:value={settings.embeddingMaxConcurrent}/></div>{/snippet}</SettingLayout>
+                        <SettingLayout variant="row" title={language.hypaV3Settings.summarizationRequestsPerMinuteLabel} description={help("hypaV3SummarizationRequestsPerMinute")}>{#snippet control()}<div class="w-48"><Slider min={1} max={100} step={1} bind:value={settings.summarizationRequestsPerMinute}/></div>{/snippet}</SettingLayout>
+                        <SettingLayout variant="row" title={language.hypaV3Settings.summarizationMaxConcurrentLabel} description={help("hypaV3SummarizationMaxConcurrent")}>{#snippet control()}<div class="w-48"><Slider min={1} max={12} step={1} bind:value={settings.summarizationMaxConcurrent}/></div>{/snippet}</SettingLayout>
+                        <SettingLayout variant="row" title={language.hypaV3Settings.embeddingRequestsPerMinuteLabel} description={help("hypaV3EmbeddingRequestsPerMinute")}>{#snippet control()}<div class="w-48"><Slider min={1} max={100} step={1} bind:value={settings.embeddingRequestsPerMinute}/></div>{/snippet}</SettingLayout>
+                        <SettingLayout variant="row" title={language.hypaV3Settings.embeddingMaxConcurrentLabel} description={help("hypaV3EmbeddingMaxConcurrent")}>{#snippet control()}<div class="w-48"><Slider min={1} max={12} step={1} bind:value={settings.embeddingMaxConcurrent}/></div>{/snippet}</SettingLayout>
                     {:else}
-                        <SettingLayout variant="row" title={language.hypaV3Settings.enableSimilarityCorrectionLabel} description={help("hypaV3EnableSimilarityCorrection")}>{#snippet control()}<ShSwitch bind:checked={settings.enableSimilarityCorrection}/>{/snippet}</SettingLayout>
+                        <SettingLayout variant="row" title={language.hypaV3Settings.enableSimilarityCorrectionLabel} description={help("hypaV3EnableSimilarityCorrection")}>{#snippet control()}<Switch bind:checked={settings.enableSimilarityCorrection}/>{/snippet}</SettingLayout>
                     {/if}
                     </div>
                 </Accordion>
@@ -228,40 +228,40 @@
     <SettingLayout variant="section" title={language.embedding}>
         <div class="[&>*:first-child]:border-t-0">
         <SettingLayout variant="row" title={language.hypaV3Settings.embeddingProviderLabel} description={help("embedding")}>
-            {#snippet control()}<SelectInput className="w-48 text-sm" size="sm" value={embeddingProvider} onchange={(e) => selectEmbeddingProvider(e.currentTarget.value)}>
-                <OptionInput value="local">CPU & GPU</OptionInput>
-                <OptionInput value="openai">OpenAI</OptionInput>
-                <OptionInput value="voyage">Voyage</OptionInput>
-                <OptionInput value="custom">Custom (OpenAI-Compatible)</OptionInput>
-            </SelectInput>{/snippet}
+            {#snippet control()}<Select className="w-48 text-sm" size="sm" value={embeddingProvider} onchange={(e) => selectEmbeddingProvider(e.currentTarget.value)}>
+                <SelectOption value="local">CPU & GPU</SelectOption>
+                <SelectOption value="openai">OpenAI</SelectOption>
+                <SelectOption value="voyage">Voyage</SelectOption>
+                <SelectOption value="custom">Custom (OpenAI-Compatible)</SelectOption>
+            </Select>{/snippet}
         </SettingLayout>
         {#if embeddingProvider !== "custom"}<SettingLayout variant="row" title={language.hypaV3Settings.embeddingModelLabel} description={language.help.hypaV3EmbeddingModel}>
-            {#snippet control()}<SelectInput className="w-48 text-sm" size="sm" bind:value={DBState.db.hypaModel}>
+            {#snippet control()}<Select className="w-48 text-sm" size="sm" bind:value={DBState.db.hypaModel}>
                 {#if embeddingProvider === "local"}
                     {#if "gpu" in navigator}
-                        <OptionInput value="MiniLMGPU">MiniLM L6 v2 (GPU)</OptionInput>
-                        <OptionInput value="nomicGPU">Nomic Embed Text v1.5 (GPU)</OptionInput>
-                        <OptionInput value="bgeSmallEnGPU">BGE Small English (GPU)</OptionInput>
-                        <OptionInput value="bgem3GPU">BGE Medium 3 (GPU)</OptionInput>
-                        <OptionInput value="multiMiniLMGPU">Multilingual MiniLM L12 v2 (GPU)</OptionInput>
-                        <OptionInput value="bgeM3KoGPU">BGE Medium 3 Korean (GPU)</OptionInput>
+                        <SelectOption value="MiniLMGPU">MiniLM L6 v2 (GPU)</SelectOption>
+                        <SelectOption value="nomicGPU">Nomic Embed Text v1.5 (GPU)</SelectOption>
+                        <SelectOption value="bgeSmallEnGPU">BGE Small English (GPU)</SelectOption>
+                        <SelectOption value="bgem3GPU">BGE Medium 3 (GPU)</SelectOption>
+                        <SelectOption value="multiMiniLMGPU">Multilingual MiniLM L12 v2 (GPU)</SelectOption>
+                        <SelectOption value="bgeM3KoGPU">BGE Medium 3 Korean (GPU)</SelectOption>
                     {/if}
-                    <OptionInput value="MiniLM">MiniLM L6 v2 (CPU)</OptionInput>
-                    <OptionInput value="nomic">Nomic Embed Text v1.5 (CPU)</OptionInput>
-                    <OptionInput value="bgeSmallEn">BGE Small English (CPU)</OptionInput>
-                    <OptionInput value="bgem3">BGE Medium 3 (CPU)</OptionInput>
-                    <OptionInput value="multiMiniLM">Multilingual MiniLM L12 v2 (CPU)</OptionInput>
-                    <OptionInput value="bgeM3Ko">BGE Medium 3 Korean (CPU)</OptionInput>
+                    <SelectOption value="MiniLM">MiniLM L6 v2 (CPU)</SelectOption>
+                    <SelectOption value="nomic">Nomic Embed Text v1.5 (CPU)</SelectOption>
+                    <SelectOption value="bgeSmallEn">BGE Small English (CPU)</SelectOption>
+                    <SelectOption value="bgem3">BGE Medium 3 (CPU)</SelectOption>
+                    <SelectOption value="multiMiniLM">Multilingual MiniLM L12 v2 (CPU)</SelectOption>
+                    <SelectOption value="bgeM3Ko">BGE Medium 3 Korean (CPU)</SelectOption>
                 {:else if embeddingProvider === "openai"}
-                    <OptionInput value="openai3small">text-embedding-3-small</OptionInput>
-                    <OptionInput value="openai3large">text-embedding-3-large</OptionInput>
-                    <OptionInput value="ada">Ada (text-embedding-ada-002)</OptionInput>
+                    <SelectOption value="openai3small">text-embedding-3-small</SelectOption>
+                    <SelectOption value="openai3large">text-embedding-3-large</SelectOption>
+                    <SelectOption value="ada">Ada (text-embedding-ada-002)</SelectOption>
                 {:else if embeddingProvider === "voyage"}
-                    <OptionInput value="voyage4large">voyage-4-large</OptionInput>
-                    <OptionInput value="voyageContext3">voyage-context-3</OptionInput>
-                    <OptionInput value="voyageContext4">voyage-context-4</OptionInput>
+                    <SelectOption value="voyage4large">voyage-4-large</SelectOption>
+                    <SelectOption value="voyageContext3">voyage-context-3</SelectOption>
+                    <SelectOption value="voyageContext4">voyage-context-4</SelectOption>
                 {/if}
-            </SelectInput>{/snippet}
+            </Select>{/snippet}
         </SettingLayout>{/if}
         {#if embeddingProvider === "openai"}
             <SettingLayout variant="row" title={language.hypaV3Settings.openAIAPIKeyLabel} description={help("embeddingOpenAIKey")}>
@@ -272,8 +272,8 @@
                 {#snippet control()}<ApiKeyModeControl bind:mode={voyageKeyMode} entries={voyageKeys} selectedId={voyageKeyRef} bind:directValue={DBState.db.voyageApiKey} onSelect={(id) => useKey(id, "voyage")} />{/snippet}
             </SettingLayout>
         {:else if embeddingProvider === "custom"}
-            <SettingLayout variant="row" title={language.hypaV3Settings.urlLabel} description={help("embeddingCustomURL")}>{#snippet control()}<TextInput commitMode="blur" className="w-48 text-sm" size="sm" bind:value={DBState.db.hypaCustomSettings.url}/>{/snippet}</SettingLayout>
-            <SettingLayout variant="row" title={language.hypaV3Settings.requestModelLabel} description={help("embeddingCustomModel")}>{#snippet control()}<TextInput commitMode="blur" className="w-48 text-sm" size="sm" bind:value={DBState.db.hypaCustomSettings.model}/>{/snippet}</SettingLayout>
+            <SettingLayout variant="row" title={language.hypaV3Settings.urlLabel} description={help("embeddingCustomURL")}>{#snippet control()}<Input commitMode="blur" className="w-48 text-sm" size="sm" bind:value={DBState.db.hypaCustomSettings.url}/>{/snippet}</SettingLayout>
+            <SettingLayout variant="row" title={language.hypaV3Settings.requestModelLabel} description={help("embeddingCustomModel")}>{#snippet control()}<Input commitMode="blur" className="w-48 text-sm" size="sm" bind:value={DBState.db.hypaCustomSettings.model}/>{/snippet}</SettingLayout>
             <SettingLayout variant="row" title={language.hypaV3Settings.keyPasswordLabel} description={help("embeddingCustomKey")}>
                 {#snippet control()}<ApiKeyModeControl bind:mode={customKeyMode} entries={allKeys} selectedId={customKeyRef} bind:directValue={DBState.db.hypaCustomSettings.key} onSelect={(id) => useKey(id, "custom")} showProvider />{/snippet}
             </SettingLayout>
@@ -315,6 +315,7 @@
                     controller={renameController}
                     bind:value={DBState.db.hypaV3Presets[index].name}
                     size="default"
+                    editorLeadingInset="row"
                     placeholder="string"
                     onActivate={() => selectPreset(index)}
                 />

@@ -8,9 +8,9 @@
     // the user can't kick off a save that the server would refuse anyway.
     import { bootBackupPromptStore } from "src/ts/stores.svelte";
     import { language } from "src/lang";
-    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
+    import Dialog from "../UI/components/Dialog.svelte";
+    import Button from "../UI/components/Button.svelte";
+    import Alert from "../UI/components/Alert.svelte";
     import { TriangleAlertIcon } from "@lucide/svelte";
 
     const data = $derived($bootBackupPromptStore);
@@ -37,7 +37,7 @@
 </script>
 
 {#if data}
-    <ShDialog
+    <Dialog
         open={true}
         onOpenChange={(v) => { if (!v) decide('skip'); }}
         closeOnEscape={false}
@@ -57,34 +57,34 @@
         </div>
 
         {#if data.insufficient}
-            <ShAlert variant="destructive" className="mt-3">
+            <Alert variant="destructive" className="mt-3">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {language.backupServerInsufficient}
-            </ShAlert>
+            </Alert>
         {:else if diskUsageLevel === 'crit' && diskUsedPct != null}
-            <ShAlert variant="destructive" className="mt-3">
+            <Alert variant="destructive" className="mt-3">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {language.storageDiskUsageHighWarning(diskUsedPct)}
-            </ShAlert>
+            </Alert>
         {:else if diskUsageLevel === 'warn' && diskUsedPct != null}
-            <ShAlert variant="warning" className="mt-3">
+            <Alert variant="warning" className="mt-3">
                 {#snippet icon()}<TriangleAlertIcon />{/snippet}
                 {language.storageDiskUsageHighWarning(diskUsedPct)}
-            </ShAlert>
+            </Alert>
         {/if}
-    </ShDialog>
+    </Dialog>
 {/if}
 
 {#snippet footerActions()}
     <div class="flex justify-end gap-2 flex-wrap">
-        <ShButton variant="outline" onclick={() => decide('skip')}>
+        <Button variant="outline" onclick={() => decide('skip')}>
             {language.backupBootPromptSkip}
-        </ShButton>
-        <ShButton variant="outline" onclick={() => decide('snapshot')}>
+        </Button>
+        <Button variant="outline" onclick={() => decide('snapshot')}>
             {language.manualSnapshotCreate}
-        </ShButton>
-        <ShButton variant="primary" disabled={data?.insufficient} onclick={() => decide('full')}>
+        </Button>
+        <Button variant="primary" disabled={data?.insufficient} onclick={() => decide('full')}>
             {language.backupServerCreate}
-        </ShButton>
+        </Button>
     </div>
 {/snippet}

@@ -1,9 +1,9 @@
 <script lang="ts">
     import { Collapsible } from 'bits-ui';
     import { ArrowDownUpIcon, ChevronDownIcon, CopyIcon, DownloadIcon, UploadIcon, LanguagesIcon, SquarePenIcon, ScrollTextIcon, SearchIcon, Trash2Icon } from '@lucide/svelte';
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import ShInput from "src/lib/UI/GUI/ShInput.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
+    import Button from "../../../UI/components/Button.svelte";
+    import Input from "../../../UI/components/Input.svelte";
+    import Textarea from "../../../UI/components/Textarea.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import Help from "src/lib/Others/Help.svelte";
     import { language } from "src/lang";
@@ -340,12 +340,12 @@
         </div>
 
         <SettingLayout variant="search">
-            <ShInput bind:value={cacheSearch} placeholder={language.translationCacheSearchPlaceholder} />
+            <Input bind:value={cacheSearch} placeholder={language.translationCacheSearchPlaceholder} />
                 {#snippet control()}
-                    <ShButton variant="destructive" size="default" onclick={clearCache} disabled={cacheLoading || cacheTotal === 0}>
+                    <Button variant="destructive" size="default" onclick={clearCache} disabled={cacheLoading || cacheTotal === 0}>
                         <Trash2Icon />
                         {language.systemLogsClearAll}
-                    </ShButton>
+                    </Button>
                 {/snippet}
             </SettingLayout>
 
@@ -372,7 +372,7 @@
                                     <pre class="overflow-auto whitespace-pre-wrap break-all bg-lightbg/50 border border-darkborderc/50 rounded px-4 py-2 text-maintext font-mono" style:height={cacheEditorHeight}>{entry.key}</pre>
                                 {/if}
                                 {#if editingCacheKey === entry.key}
-                                    <TextAreaInput
+                                    <Textarea
                                         bind:value={editingCacheValue}
                                         commitMode="input"
                                         fullwidth
@@ -387,22 +387,22 @@
                                 <div class="flex items-center justify-between gap-2">
                                     <div class="flex flex-wrap gap-2">
                                         {#if editingCacheKey === entry.key}
-                                            <ShButton variant="outline" size="sm" onclick={cancelEditTranslationCacheEntry}>
+                                            <Button variant="outline" size="sm" onclick={cancelEditTranslationCacheEntry}>
                                                 <span>{language.cancel}</span>
-                                            </ShButton>
-                                            <ShButton variant="primary" size="sm" onclick={saveEditingTranslationCacheEntry}>
+                                            </Button>
+                                            <Button variant="primary" size="sm" onclick={saveEditingTranslationCacheEntry}>
                                                 <span>{language.editTranslationSave}</span>
-                                            </ShButton>
+                                            </Button>
                                         {:else}
-                                            <ShButton variant="outline" size="sm" onclick={() => copyTranslationCacheEntry(entry)}>
+                                            <Button variant="outline" size="sm" onclick={() => copyTranslationCacheEntry(entry)}>
                                                 <CopyIcon />
                                                 <span>{language.copy}</span>
-                                            </ShButton>
-                                            <ShButton variant="outline" size="sm" onclick={() => openEditTranslationCacheEntry(entry)}>
+                                            </Button>
+                                            <Button variant="outline" size="sm" onclick={() => openEditTranslationCacheEntry(entry)}>
                                                 <SquarePenIcon />
                                                 <span>{language.edit}</span>
-                                            </ShButton>
-                                            <ShButton
+                                            </Button>
+                                            <Button
                                                 variant="outline"
                                                 size="sm"
                                                 onclick={() => {
@@ -418,14 +418,14 @@
                                                         ? language.translationCacheHideOriginal
                                                         : language.translationCacheShowOriginal}
                                                 </span>
-                                            </ShButton>
+                                            </Button>
                                         {/if}
                                     </div>
                                     <div class="flex justify-end">
-                                        <ShButton variant="destructive" size="sm" onclick={() => deleteTranslationCacheEntry(entry)}>
+                                        <Button variant="destructive" size="sm" onclick={() => deleteTranslationCacheEntry(entry)}>
                                             <Trash2Icon />
                                             <span>{language.remove}</span>
-                                        </ShButton>
+                                        </Button>
                                     </div>
                                 </div>
                             </div>
@@ -442,9 +442,9 @@
 
         {#if cacheHasMore}
             <div class="flex justify-center mt-3">
-                <ShButton variant="outline" size="sm" disabled={cacheLoadingMore} onclick={loadMoreTranslationCacheEntries}>
+                <Button variant="outline" size="sm" disabled={cacheLoadingMore} onclick={loadMoreTranslationCacheEntries}>
                     {cacheLoadingMore ? language.systemLogsLoading : language.systemLogsLoadMore}
-                </ShButton>
+                </Button>
             </div>
         {/if}
     </SettingLayout>

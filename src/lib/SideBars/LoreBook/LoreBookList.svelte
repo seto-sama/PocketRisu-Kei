@@ -8,7 +8,7 @@
     import { sleep, sortableOptions } from "src/ts/util";
     import { v4 } from "uuid";
     import { notifyError } from "src/ts/alert";
-    import ShDisclosureList from "src/lib/UI/GUI/ShDisclosureList.svelte";
+    import DisclosureList from "../../UI/components/DisclosureList.svelte";
 
     let reinitializeSortable = false;
 
@@ -418,7 +418,7 @@
 </script>
 
 {#key sorted}
-    <ShDisclosureList
+    <DisclosureList
         className={externalLoreBooks ? '' : 'mt-2'}
         background={!externalLoreBooks}
         bind:element={ele}
@@ -544,7 +544,7 @@
                 {/each}
             {/if}
         {/if}
-    </ShDisclosureList>
+    </DisclosureList>
 {/key}
 
 <style>

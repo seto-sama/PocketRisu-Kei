@@ -1,6 +1,6 @@
 <script lang="ts">
   import { PlusIcon } from '@lucide/svelte'
-  import IconButton from 'src/lib/UI/GUI/IconButton.svelte'
+  import IconButton from '../../UI/components/IconButton.svelte'
   import Sortable from 'sortablejs'
   import type { triggerscript } from 'src/ts/storage/database.svelte'
   import { sleep, sortableOptions } from 'src/ts/util'

@@ -10,9 +10,9 @@
         type OpenAIChat,
     } from 'src/ts/process/index.svelte'
     import { formatChatML } from 'src/ts/process/templates/chatTemplate'
-    import IconButton from 'src/lib/UI/GUI/IconButton.svelte'
-    import ShChoiceGroup from 'src/lib/UI/GUI/ShChoiceGroup.svelte'
-    import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
+    import IconButton from '../UI/components/IconButton.svelte'
+    import ChoiceGroup from '../UI/components/ChoiceGroup.svelte'
+    import Dialog from '../UI/components/Dialog.svelte'
 
     interface Props {
         open?: boolean
@@ -93,7 +93,7 @@
     })
 </script>
 
-<ShDialog
+<Dialog
     bind:open
     size="xl"
     closable={false}
@@ -105,7 +105,7 @@
         <h2 class="shrink-0 text-lg font-semibold text-maintext">{language.devToolPreview.request}</h2>
 
         <span class="text-xs text-subtext">{language.promptDiff.viewMode}</span>
-        <ShChoiceGroup
+        <ChoiceGroup
             variant="pill"
             name="request-preview-type"
             bind:value={previewMode}
@@ -158,4 +158,4 @@
             </div>
         {/if}
     </div>
-</ShDialog>
+</Dialog>

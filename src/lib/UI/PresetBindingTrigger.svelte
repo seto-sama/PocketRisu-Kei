@@ -1,7 +1,7 @@
 <script lang="ts">
     import { PinIcon, PinOffIcon, TriangleAlertIcon } from '@lucide/svelte'
-    import PresetHeader from './GUI/PresetHeader.svelte'
-    import ShButton from './GUI/ShButton.svelte'
+    import PresetHeader from './components/PresetHeader.svelte'
+    import Button from './components/Button.svelte'
 
     interface Props {
         label: string
@@ -41,7 +41,7 @@
         {className}
     />
 {:else}
-    <ShButton
+    <Button
         variant={state === 'warning' ? 'warning' : 'default'}
         size="default"
         className={`w-full min-w-0 justify-start${disabled ? ' opacity-50 pointer-events-none' : ''} ${className}`}
@@ -55,5 +55,5 @@
             <PinOffIcon class="shrink-0" />
         {/if}
         <span class="truncate text-sm grow text-left">{activeName}</span>
-    </ShButton>
+    </Button>
 {/if}

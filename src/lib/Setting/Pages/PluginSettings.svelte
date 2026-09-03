@@ -1,7 +1,7 @@
 <script lang="ts">
     import { DownloadIcon, PlusIcon, TrashIcon, LinkIcon, PowerIcon, PowerOffIcon, ShieldIcon, SquarePenIcon, UploadIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
     import { alertConfirm, alertMd, notifySuccess } from "src/ts/alert";
     import { TriangleAlertIcon } from '@lucide/svelte';
 
@@ -9,16 +9,16 @@
     import { checkPluginUpdate, createBlankPlugin, getBlankPluginSource, importPlugin, loadPlugins, updatePlugin, type RisuPlugin } from "src/ts/plugins/plugins.svelte";
     import { downloadFile, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { resetPluginPermission } from "src/ts/plugins/apiV3/v3.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import Input from "../../UI/components/Input.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
-    import NumberInput from "src/lib/UI/GUI/NumberInput.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import NumberInput from "../../UI/components/NumberInput.svelte";
+    import Select from "../../UI/components/Select.svelte";
+    import SelectOption from "../../UI/components/SelectOption.svelte";
+    import Checkbox from "../../UI/components/Checkbox.svelte";
+    import Textarea from "../../UI/components/Textarea.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import SortableList from "../../UI/components/SortableList.svelte";
     import { removePluginSidebarMenuItems } from "src/ts/sidebarMenuOrder";
 
     let showParams = $state<string[]>([])
@@ -81,7 +81,8 @@
             value: originalScript,
             title: pluginTitle(plugin),
             mode: 'plain',
-            onSave: (nextScript) => {
+            commitMode: 'submit',
+            onCommit: (nextScript) => {
                 if (nextScript === originalScript) return true
 
                 const foundIndex = DBState.db.plugins?.findIndex((p) => p.name === plugin.name) ?? -1
@@ -104,7 +105,8 @@
             value: getBlankPluginSource(),
             title: language.createPlugin,
             mode: 'plain',
-            onSave: async (script) => {
+            commitMode: 'submit',
+            onCommit: async (script) => {
                 const created = await createBlankPlugin(script)
                 if (created) notifySuccess(language.pluginCreated)
                 return created
@@ -120,7 +122,7 @@
 
 {#snippet content()}
 <SettingLayout variant="search" className="mt-4">
-    <TextInput className="min-w-0 grow" placeholder={language.search} bind:value={pluginSearch} />
+    <Input className="min-w-0 grow" placeholder={language.search} bind:value={pluginSearch} />
     {#snippet control()}
     <IconButtonGroup size="lg">
         <IconButton
@@ -142,7 +144,7 @@
     {/snippet}
 </SettingLayout>
 
-<ShSortableList
+<SortableList
     className="w-full max-w-full mt-4 flex flex-col gap-1 flex-1 overflow-y-auto"
     onReorder={reorderPlugins}
 >
@@ -341,20 +343,20 @@
                             <span class="mb-2 text-xs text-subtext">{plugin?.argMeta?.[arg]?.description}</span>
                         {/if}
                         {#if Array.isArray(plugin.arguments[arg])}
-                            <SelectInput
+                            <Select
                                 className="mt-2 mb-4"
                                 bind:value={
                                     DBState.db.plugins[index].realArg[arg] as string
                                 }
                             >
                                 {#each plugin.arguments[arg] as a}
-                                    <OptionInput value={a}>{a}</OptionInput>
+                                    <SelectOption value={a}>{a}</SelectOption>
                                 {/each}
-                            </SelectInput>
+                            </Select>
                         {:else if plugin.arguments[arg] === "string"}
 
                             {#if plugin?.argMeta?.[arg]?.textarea}
-                                <TextAreaInput
+                                <Textarea
                                     commitMode="debounce"
                                     className="mt-2"
                                     popupTitle={`${pluginTitle(plugin)} · ${plugin?.argMeta?.[arg]?.name || arg}`}
@@ -365,7 +367,7 @@
                                 />
                             {:else if plugin?.argMeta?.[arg]?.radio}
                                 {#each plugin?.argMeta?.[arg]?.radio?.split(",") as radioOption}
-                                    <CheckInput
+                                    <Checkbox
                                         check={DBState.db.plugins[index].realArg[arg] === (radioOption.split('|').at(-1))}
                                         onChange={(e) => {
                                             if(e){
@@ -377,7 +379,7 @@
                                     />
                                 {/each}
                             {:else}
-                                <TextInput
+                                <Input
                                     commitMode="blur"
                                     className="mt-2"
                                     bind:value={
@@ -388,7 +390,7 @@
                             {/if}
                         {:else if plugin.arguments[arg] === "int"}
                             {#if plugin?.argMeta?.[arg]?.checkbox}
-                                <CheckInput
+                                <Checkbox
                                     check={DBState.db.plugins[index].realArg[arg] === '1'}
                                     onChange={(e) => {
                                         DBState.db.plugins[index].realArg[arg] = e ? '1' : '0'
@@ -400,7 +402,7 @@
                                 />
                             {:else if plugin?.argMeta?.[arg]?.radio}
                                 {#each plugin?.argMeta?.[arg]?.radio?.split(",") as radioOption}
-                                    <CheckInput
+                                    <Checkbox
                                         check={DBState.db.plugins[index].realArg[arg] === parseInt(radioOption.split('|').at(-1))}
                                         onChange={(e) => {
                                             if(e){
@@ -426,7 +428,7 @@
             </div>
         {/if}
     {/each}
-</ShSortableList>
+</SortableList>
 
 <span class="block text-danger text-xs mt-4">{language.pluginWarn}</span>
 {/snippet}

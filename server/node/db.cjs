@@ -166,12 +166,6 @@ function kvGetUpdatedAt(key) {
     return row ? row.updated_at : null;
 }
 
-function kvCopyValue(srcKey, dstKey) {
-    // Chunked src copies only its manifest (chunks stay shared); raw src copies
-    // the value. Used for snapshots — keeps them near-free and byte-identical.
-    chunkStore.snapshotValue(srcKey, dstKey);
-}
-
 function kvDelPrefix(prefix) {
     const escaped = prefix.replace(/[\\%_]/g, '\\$&');
     stmtKvDelPrefix.run(`${escaped}%`);
@@ -280,7 +274,7 @@ function clearEntities() {
 module.exports = {
     db,
     // KV
-    kvGet, kvSet, kvSetChunked, kvDel, kvList, kvCount, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue,
+    kvGet, kvSet, kvSetChunked, kvDel, kvList, kvCount, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt,
     clearEntities,
     checkpointWal,
     estimateVacuumRequiredBytes,

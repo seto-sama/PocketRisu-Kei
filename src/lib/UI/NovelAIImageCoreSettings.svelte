@@ -8,10 +8,10 @@
         type NAIImageOrientation,
         type NAIImageSizePreset,
     } from 'src/ts/imageGeneration/presets'
-    import NumberInput from './GUI/NumberInput.svelte'
-    import OptionInput from './GUI/OptionInput.svelte'
-    import SelectInput from './GUI/SelectInput.svelte'
-    import ShButton from './GUI/ShButton.svelte'
+    import NumberInput from './components/NumberInput.svelte'
+    import SelectOption from './components/SelectOption.svelte'
+    import Select from './components/Select.svelte'
+    import Button from './components/Button.svelte'
 
     interface Props {
         settings: NAIImageCoreSettings
@@ -48,7 +48,7 @@
     {#snippet control()}
         <div class="flex shrink-0 items-center gap-2 self-end">
             {#if settings.NAIImgSizePreset !== 'custom'}
-                <ShButton
+                <Button
                     variant="outline"
                     size="icon-sm"
                     onclick={cycleOrientation}
@@ -62,19 +62,19 @@
                     {:else}
                         <SquareIcon />
                     {/if}
-                </ShButton>
+                </Button>
             {/if}
-            <SelectInput
+            <Select
                 className="w-48 text-sm"
                 size="sm"
                 value={settings.NAIImgSizePreset}
                 onchange={(event) => applySizePreset(event.currentTarget.value as NAIImageSizePreset)}
             >
-                <OptionInput value="small">{language.imageSettings.sizeSmall}</OptionInput>
-                <OptionInput value="normal">{language.imageSettings.sizeNormal}</OptionInput>
-                <OptionInput value="large">{language.imageSettings.sizeLarge}</OptionInput>
-                <OptionInput value="custom">{language.imageSettings.sizeCustom}</OptionInput>
-            </SelectInput>
+                <SelectOption value="small">{language.imageSettings.sizeSmall}</SelectOption>
+                <SelectOption value="normal">{language.imageSettings.sizeNormal}</SelectOption>
+                <SelectOption value="large">{language.imageSettings.sizeLarge}</SelectOption>
+                <SelectOption value="custom">{language.imageSettings.sizeCustom}</SelectOption>
+            </Select>
         </div>
     {/snippet}
 </SettingLayout>
@@ -84,19 +84,19 @@
 {/if}
 <SettingLayout variant="row" title={language.imageSettings.sampler} description={language.help.naiSampler}>
     {#snippet control()}
-        <SelectInput className="w-48 text-sm" size="sm" bind:value={settings.NAIImgConfig.sampler}>
+        <Select className="w-48 text-sm" size="sm" bind:value={settings.NAIImgConfig.sampler}>
             {#each samplerOptions as [value, label]}
-                <OptionInput {value}>{label}</OptionInput>
+                <SelectOption {value}>{label}</SelectOption>
             {/each}
-        </SelectInput>
+        </Select>
     {/snippet}
 </SettingLayout>
-<SettingLayout variant="row" title={language.imageSettings.noiseSchedule} description={language.help.naiNoiseSchedule}>{#snippet control()}<SelectInput className="w-48 text-sm" size="sm" bind:value={settings.NAIImgConfig.noise_schedule}>
-    <OptionInput value="native">native</OptionInput>
-    <OptionInput value="karras">karras</OptionInput>
-    <OptionInput value="exponential">exponential</OptionInput>
-    <OptionInput value="polyexponential">polyexponential</OptionInput>
-</SelectInput>{/snippet}</SettingLayout>
+<SettingLayout variant="row" title={language.imageSettings.noiseSchedule} description={language.help.naiNoiseSchedule}>{#snippet control()}<Select className="w-48 text-sm" size="sm" bind:value={settings.NAIImgConfig.noise_schedule}>
+    <SelectOption value="native">native</SelectOption>
+    <SelectOption value="karras">karras</SelectOption>
+    <SelectOption value="exponential">exponential</SelectOption>
+    <SelectOption value="polyexponential">polyexponential</SelectOption>
+</Select>{/snippet}</SettingLayout>
 <SettingLayout variant="row" title={language.imageSettings.steps} description={language.help.naiSteps}>{#snippet control()}<NumberInput className="w-48 text-sm" size="sm" min={0} max={2048} bind:value={settings.NAIImgConfig.steps}/>{/snippet}</SettingLayout>
 <SettingLayout variant="row" title={language.imageSettings.cfgScale} description={language.help.naiCFG}>{#snippet control()}<NumberInput className="w-48 text-sm" size="sm" min={0} max={2048} bind:value={settings.NAIImgConfig.scale}/>{/snippet}</SettingLayout>
 <SettingLayout variant="row" title={language.imageSettings.cfgRescale} description={language.help.naiCFGRescale}>{#snippet control()}<NumberInput className="w-48 text-sm" size="sm" min={0} max={1} bind:value={settings.NAIImgConfig.cfg_rescale}/>{/snippet}</SettingLayout>

@@ -6,12 +6,12 @@
     
     import { DBState } from 'src/ts/stores.svelte';
     import RealmLicense from "./RealmLicense.svelte";
-    import MultiLangDisplay from "../GUI/MultiLangDisplay.svelte";
+    import MultiLangDisplay from "../components/MultiLangDisplay.svelte";
     import { tooltip } from "src/ts/gui/tooltip";
-    import ShDialog from "../GUI/ShDialog.svelte";
-    import ShButton from "../GUI/ShButton.svelte";
-    import IconButton from "../GUI/IconButton.svelte";
-    import IconButtonGroup from "../GUI/IconButtonGroup.svelte";
+    import Dialog from "../components/Dialog.svelte";
+    import Button from "../components/Button.svelte";
+    import IconButton from "../components/IconButton.svelte";
+    import IconButtonGroup from "../components/IconButtonGroup.svelte";
     import RealmTagList from "./RealmTagList.svelte";
 
     interface Props {
@@ -29,7 +29,7 @@
     }
 </script>
 
-<ShDialog
+<Dialog
     bind:open
     size="lg"
     closeOnEscape
@@ -47,11 +47,11 @@
 
     <div class="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
         {#if openedData.original}
-            <ShButton variant="link" size="sm" className="w-fit px-0" onclick={() => {
+            <Button variant="link" size="sm" className="w-fit px-0" onclick={() => {
                 const original = openedData.original
                 close()
                 getRealmInfo(original)
-            }}>Forked</ShButton>
+            }}>Forked</Button>
         {/if}
         <div class="mt-4 flex min-h-36 flex-1 items-start justify-start gap-4 overflow-hidden max-sm:flex-col">
             {#if DBState.db.hideAllImages}
@@ -97,7 +97,7 @@
     </div>
 
     <div class="flex shrink-0 gap-2">
-        <ShButton disabled={downloading} variant="primary" className="grow" onclick={async () => {
+        <Button disabled={downloading} variant="primary" className="grow" onclick={async () => {
             if (downloading) return
             downloading = true
             try {
@@ -110,7 +110,7 @@
             }
         }}>
             {downloading ? language.loading : language.download}
-        </ShButton>
+        </Button>
         <IconButtonGroup size="xl">
             <IconButton aria-label="Copy Realm link" onclick={(async () => {
                     await navigator.clipboard.writeText(`${realmURL}/character/${openedData.id}`)
@@ -153,4 +153,4 @@
             </IconButton>
         </IconButtonGroup>
     </div>
-</ShDialog>
+</Dialog>

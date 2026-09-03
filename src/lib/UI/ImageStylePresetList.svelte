@@ -14,14 +14,14 @@
         type ImageStylePresetEntry,
     } from 'src/ts/imageGeneration/stylePresets'
     import { DBState } from 'src/ts/stores.svelte'
-    import IconButton from './GUI/IconButton.svelte'
+    import IconButton from './components/IconButton.svelte'
     import PresetBindingTrigger from './PresetBindingTrigger.svelte'
     import PresetPickerActions from './PresetPickerActions.svelte'
     import PresetPickerLayout from './PresetPickerLayout.svelte'
-    import ShButton from './GUI/ShButton.svelte'
-    import ShDialog from './GUI/ShDialog.svelte'
-    import TextAreaInput from './GUI/TextAreaInput.svelte'
-    import TextInput from './GUI/TextInput.svelte'
+    import Button from './components/Button.svelte'
+    import Dialog from './components/Dialog.svelte'
+    import Textarea from './components/Textarea.svelte'
+    import Input from './components/Input.svelte'
     import { v4 as uuidv4 } from 'uuid'
     import { removePresetTag, togglePresetTag } from 'src/ts/preset/tags'
 
@@ -454,24 +454,24 @@
     state={selectedPreset ? 'selected' : 'empty'}
 />
 
-<ShDialog bind:open={editorOpen} size="default" closeOnEscape closeOnOutsideClick closable>
+<Dialog bind:open={editorOpen} size="default" closeOnEscape closeOnOutsideClick closable>
     {#snippet title()}{editingPresetId ? `${language.imageStylePreset} ${language.edit}` : language.imageStylePresetNew}{/snippet}
     <div class="flex flex-col gap-3">
         <label class="flex items-center justify-between gap-3 text-sm text-maintext">
             <span>{language.imageStylePresetName}</span>
-            <TextInput bind:value={editorName} commitMode="input" className="w-48 text-sm" size="sm" />
+            <Input bind:value={editorName} commitMode="input" className="w-48 text-sm" size="sm" />
         </label>
         <label class="flex flex-col gap-1 text-sm text-maintext">
             <span>{language.imageStylePresetPositive}</span>
-            <TextAreaInput bind:value={editorPositive} commitMode="input" fullwidth />
+            <Textarea bind:value={editorPositive} commitMode="input" fullwidth />
         </label>
         <label class="flex flex-col gap-1 text-sm text-maintext">
             <span>{language.imageStylePresetNegative}</span>
-            <TextAreaInput bind:value={editorNegative} commitMode="input" fullwidth />
+            <Textarea bind:value={editorNegative} commitMode="input" fullwidth />
         </label>
     </div>
     {#snippet footer()}
-        <ShButton variant="outline" onclick={() => { editorOpen = false }}>{language.cancel}</ShButton>
-        <ShButton variant="primary" disabled={!editorName.trim()} onclick={saveEditor}>{language.confirm}</ShButton>
+        <Button variant="outline" onclick={() => { editorOpen = false }}>{language.cancel}</Button>
+        <Button variant="primary" disabled={!editorName.trim()} onclick={saveEditor}>{language.confirm}</Button>
     {/snippet}
-</ShDialog>
+</Dialog>

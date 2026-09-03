@@ -1,8 +1,9 @@
 <script lang="ts">
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
-    import ShInput from 'src/lib/UI/GUI/ShInput.svelte'
+    import Button from '../../UI/components/Button.svelte'
+    import Input from '../../UI/components/Input.svelte'
+    import Tooltip from '../../UI/components/Tooltip.svelte'
     import SettingLayout from 'src/lib/Setting/Wrappers/SettingLayout.svelte'
-    import { Collapsible, Tooltip } from 'bits-ui'
+    import { Collapsible } from 'bits-ui'
     import {
         CopyIcon,
         Trash2Icon,
@@ -229,12 +230,12 @@
 <div class="flex flex-col gap-3 mb-4">
     <p class="text-subtext text-sm m-0">{language.requestLogsDesc}</p>
     <SettingLayout variant="search">
-        <ShInput bind:value={requestSearch} placeholder={language.requestLogsSearchPlaceholder} />
+        <Input bind:value={requestSearch} placeholder={language.requestLogsSearchPlaceholder} />
         {#snippet control()}
-        <ShButton variant="destructive" size="default" onclick={handleClearRequestLogs}>
+        <Button variant="destructive" size="default" onclick={handleClearRequestLogs}>
             <Trash2Icon />
             <span class="hidden sm:inline">{language.systemLogsClearAll}</span>
-        </ShButton>
+        </Button>
         {/snippet}
     </SettingLayout>
 </div>
@@ -249,8 +250,7 @@
         <div class="text-subtext text-sm">{language.requestLogsEmptyDesc}</div>
     </div>
 {:else}
-    <Tooltip.Provider delayDuration={300}>
-        <SettingLayout variant="list">
+    <SettingLayout variant="list">
             {#each displayedRequestLogs as log (log.id)}
                 <Collapsible.Root
                     open={requestExpanded[log.id] === true}
@@ -262,21 +262,14 @@
                             <span class="inline-flex justify-self-start items-center rounded-md border px-1.5 py-0.5 text-xs font-medium font-mono {log.success ? 'bg-success/20 text-success border-success/40' : 'bg-danger/20 text-danger border-danger/40'}">
                                 {log.status ?? (log.success ? 'OK' : 'ERR')}
                             </span>
-                            <Tooltip.Root>
-                                <Tooltip.Trigger>
-                                    {#snippet child({ props })}
-                                        <span {...props} class="min-w-0 truncate whitespace-nowrap text-xs text-subtext tabular-nums cursor-help">
-                                            {log.date}
-                                        </span>
-                                    {/snippet}
-                                </Tooltip.Trigger>
-                                <Tooltip.Content
-                                    class="risu-layer-overlay bg-darkbg border border-darkborderc rounded-md px-2 py-1 text-xs text-maintext shadow-lg"
-                                    sideOffset={4}
-                                >
-                                    {formatRequestLogTime(log)}
-                                </Tooltip.Content>
-                            </Tooltip.Root>
+                            <Tooltip className="max-w-none max-h-none overflow-visible break-normal px-2 py-1 leading-normal">
+                                {#snippet trigger(props)}
+                                    <span {...props} class="min-w-0 truncate whitespace-nowrap text-xs text-subtext tabular-nums cursor-help">
+                                        {log.date}
+                                    </span>
+                                {/snippet}
+                                {formatRequestLogTime(log)}
+                            </Tooltip>
                             <span class="flex min-w-0 items-center gap-2">
                                 <span class="min-w-0 truncate text-sm text-maintext font-medium">{requestModel(log)}</span>
                                 {#if log.model && log.provider}
@@ -310,28 +303,27 @@
                         <div class="p-3 text-xs text-subtext space-y-4">
                             <RequestLogDetail log={detail} />
                             <div class="pt-1 flex gap-2">
-                                <ShButton variant="outline" size="sm" onclick={() => copyRequestLog(detail)}>
+                                <Button variant="outline" size="sm" onclick={() => copyRequestLog(detail)}>
                                     <CopyIcon />
                                     <span>{language.systemLogsCopyEntry}</span>
-                                </ShButton>
-                                <ShButton variant="destructive" size="sm" onclick={() => deleteRequestLog(log)}>
+                                </Button>
+                                <Button variant="destructive" size="sm" onclick={() => deleteRequestLog(log)}>
                                     <Trash2Icon />
                                     <span>{language.systemLogsDeleteEntry}</span>
-                                </ShButton>
+                                </Button>
                             </div>
                         </div>
                         {/if}
                     </Collapsible.Content>
                 </Collapsible.Root>
             {/each}
-        </SettingLayout>
-    </Tooltip.Provider>
+    </SettingLayout>
 {/if}
 
 {#if requestLogsHasMore}
     <div class="flex justify-center mt-3">
-        <ShButton variant="outline" size="sm" disabled={requestLogsLoadingMore} onclick={loadMoreServerRequestLogs}>
+        <Button variant="outline" size="sm" disabled={requestLogsLoadingMore} onclick={loadMoreServerRequestLogs}>
             {requestLogsLoadingMore ? language.systemLogsLoading : language.systemLogsLoadMore}
-        </ShButton>
+        </Button>
     </div>
 {/if}

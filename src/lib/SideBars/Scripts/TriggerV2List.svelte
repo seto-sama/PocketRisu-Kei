@@ -1,20 +1,20 @@
 <script lang="ts">
     import { PlusIcon, DownloadIcon, UploadIcon, TrashIcon, XIcon } from "@lucide/svelte";
     import { language } from "src/lang";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import SelectOption from "../../UI/components/SelectOption.svelte";
+    import Select from "../../UI/components/Select.svelte";
+    import Input from "../../UI/components/Input.svelte";
     import { type triggerEffectV2, type triggerEffect, type triggerscript, displayAllowList, requestAllowList } from "src/ts/process/triggers";
     import { onDestroy, onMount } from "svelte";
     import { DBState } from "src/ts/stores.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "src/lib/UI/GUI/IconButtonGroup.svelte";
-    import ShDisclosureList from "src/lib/UI/GUI/ShDisclosureList.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import DisclosureList from "../../UI/components/DisclosureList.svelte";
     import Sortable, { type Options, type SortableEvent } from "sortablejs";
     import { sleep, sortableOptions } from "src/ts/util";
     import { alertConfirm } from "src/ts/alert";
     import TriggerV2EffectData from "./TriggerV2EffectData.svelte";
-    import ShSortableList from "src/lib/UI/GUI/ShSortableList.svelte";
+    import SortableList from "../../UI/components/SortableList.svelte";
     import { createTriggerV2Effect, effectCategories } from "./triggerV2EffectRegistry";
     import {
         appendTriggerV2Effect,
@@ -393,14 +393,14 @@
 </script>
 
 {#key triggerListKey}
-    <ShDisclosureList className="mt-2" bind:element={triggerListElement}>
+    <DisclosureList className="mt-2" bind:element={triggerListElement}>
         {#if value.length <= 1}
             <div class="px-3 py-8 text-center text-sm text-subtext">No Scripts</div>
         {/if}
         {#each value as trigger, i}
             {#if i > 0}
                 {@const topLevelDividerIndexes = getTriggerV2TopLevelDividerIndexes(trigger.effect)}
-                <ShDisclosureList
+                <DisclosureList
                     variant="item"
                     open={openedTriggers.has(trigger)}
                     onToggle={() => toggleTrigger(i)}
@@ -434,7 +434,7 @@
                     <div data-disclosure-field>
                         <div data-disclosure-label>{language.name}</div>
                         <div data-disclosure-control>
-                            <TextInput
+                            <Input
                                 value={trigger.comment}
                                 oninput={(event) => renameTrigger(i, event.currentTarget.value)}
                             />
@@ -444,14 +444,14 @@
                     <div data-disclosure-field>
                         <div data-disclosure-label>{language.triggerOn}</div>
                         <div data-disclosure-control>
-                            <SelectInput bind:value={trigger.type}>
-                                <OptionInput value="start">{language.triggerStart}</OptionInput>
-                                <OptionInput value="output">{language.triggerOutput}</OptionInput>
-                                <OptionInput value="input">{language.triggerInput}</OptionInput>
-                                <OptionInput value="manual">{language.triggerManual}</OptionInput>
-                                <OptionInput value="display">{language.editDisplay}</OptionInput>
-                                <OptionInput value="request">{language.editProcess}</OptionInput>
-                            </SelectInput>
+                            <Select bind:value={trigger.type}>
+                                <SelectOption value="start">{language.triggerStart}</SelectOption>
+                                <SelectOption value="output">{language.triggerOutput}</SelectOption>
+                                <SelectOption value="input">{language.triggerInput}</SelectOption>
+                                <SelectOption value="manual">{language.triggerManual}</SelectOption>
+                                <SelectOption value="display">{language.editDisplay}</SelectOption>
+                                <SelectOption value="request">{language.editProcess}</SelectOption>
+                            </Select>
                         </div>
                     </div>
 
@@ -471,44 +471,44 @@
                         <div class="mb-2 rounded-md border border-darkborderc bg-darkbg p-2">
                             <div class="flex min-h-10 w-full items-center justify-between gap-2 px-1">
                                 <span class="min-w-0">{language.type}</span>
-                                <SelectInput
-                                    className="w-48 shrink-0"
+                                <Select
+                                    className="flex-1 min-w-0"
                                     bind:value={selectedCategory}
                                     onchange={() => selectedEffectType = ''}
                                 >
                                     {#each getAvailableCategories() as category}
-                                        <OptionInput value={category}>{language.triggerCategories[category] || category}</OptionInput>
+                                        <SelectOption value={category}>{language.triggerCategories[category] || category}</SelectOption>
                                     {/each}
-                                </SelectInput>
+                                </Select>
                             </div>
                             <div class="flex min-h-10 w-full items-center justify-between gap-2 px-1">
                                 <span class="min-w-0">{language.action}</span>
                                 {#key selectedCategory}
-                                    <SelectInput
-                                        className="w-48 shrink-0"
+                                    <Select
+                                        className="flex-1 min-w-0"
                                         bind:value={selectedEffectType}
                                         onchange={(event) => {
                                             const type = event.currentTarget.value
                                             if (type) addEffect(i, type)
                                         }}
                                     >
-                                        <OptionInput value="">{language.select}</OptionInput>
+                                        <SelectOption value="">{language.select}</SelectOption>
                                         {#each getFilteredTriggers() as type}
-                                            <OptionInput value={type}>
+                                            <SelectOption value={type}>
                                                 {language.triggerDesc[type]}{effectCategories.Deprecated.includes(type) ? ' (Deprecated)' : ''}
-                                            </OptionInput>
+                                            </SelectOption>
                                         {/each}
-                                    </SelectInput>
+                                    </Select>
                                 {/key}
                             </div>
                         </div>
                     {/if}
 
-                    <ShDisclosureList background={false} className="border-darkborderc p-2">
+                    <DisclosureList background={false} className="border-darkborderc p-2">
                         {#if trigger.effect.length === 0}
                             <div class="px-3 py-6 text-center text-sm text-subtext">{language.noEffect}</div>
                         {/if}
-                        <ShSortableList
+                        <SortableList
                             className="w-full"
                             draggable="[data-trigger-v2-sortable-item]"
                             dataAttribute="data-sortable-key"
@@ -557,12 +557,12 @@
                                 />
                             </div>
                           {/each}
-                        </ShSortableList>
-                    </ShDisclosureList>
-                </ShDisclosureList>
+                        </SortableList>
+                    </DisclosureList>
+                </DisclosureList>
             {/if}
         {/each}
-    </ShDisclosureList>
+    </DisclosureList>
 {/key}
 
 <IconButtonGroup className="mt-2">

@@ -3,14 +3,14 @@
     import { language } from "src/lang";
     import { alertConfirm } from "src/ts/alert";
     import type { triggerEffectV2 } from "src/ts/process/triggers";
-    import CheckInput from "src/lib/UI/GUI/CheckInput.svelte";
-    import IconButton from "src/lib/UI/GUI/IconButton.svelte";
-    import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
-    import SelectInput from "src/lib/UI/GUI/SelectInput.svelte";
-    import ShDisclosureList from "src/lib/UI/GUI/ShDisclosureList.svelte";
-    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
-    import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import Checkbox from "../../UI/components/Checkbox.svelte";
+    import IconButton from "../../UI/components/IconButton.svelte";
+    import SelectOption from "../../UI/components/SelectOption.svelte";
+    import Select from "../../UI/components/Select.svelte";
+    import DisclosureList from "../../UI/components/DisclosureList.svelte";
+    import Switch from "../../UI/components/Switch.svelte";
+    import Textarea from "../../UI/components/Textarea.svelte";
+    import Input from "../../UI/components/Input.svelte";
 
     interface Props {
         value: triggerEffectV2;
@@ -141,7 +141,7 @@
     }
 </script>
 
-<ShDisclosureList
+<DisclosureList
     variant="item"
     {open}
     onToggle={onToggle}
@@ -174,7 +174,7 @@
         {#if isLorebookAlwaysActiveField(field)}
             <div data-disclosure-row>
                 <span>{getLabel(field)}</span>
-                <ShSwitch
+                <Switch
                     bind:checked={effect[field]}
                     ariaLabel={getLabel(field)}
                 />
@@ -184,24 +184,24 @@
                 <div data-disclosure-label>{getLabel(field)}</div>
                 <div data-disclosure-control>
                     {#if typeof effect[field] === 'boolean'}
-                        <CheckInput
+                        <Checkbox
                             card
                             bind:check={effect[field]}
                             name={getLabel(field)}
                         />
                     {:else if options}
-                        <SelectInput bind:value={effect[field]}>
+                        <Select bind:value={effect[field]}>
                             {#each options as option}
-                                <OptionInput value={option[0]}>{option[1]}</OptionInput>
+                                <SelectOption value={option[0]}>{option[1]}</SelectOption>
                             {/each}
-                        </SelectInput>
+                        </Select>
                     {:else if multilineFields.has(field)}
-                        <TextAreaInput
+                        <Textarea
                             height="20"
                             bind:value={effect[field]}
                         />
                     {:else}
-                        <TextInput
+                        <Input
                             bind:value={effect[field]}
                         />
                     {/if}
@@ -210,4 +210,4 @@
         {/if}
     {/each}
 
-</ShDisclosureList>
+</DisclosureList>

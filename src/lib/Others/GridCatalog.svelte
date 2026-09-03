@@ -15,12 +15,12 @@
     } from "@lucide/svelte";
     import { language } from "src/lang";
     import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
-    import IconButton from "../UI/GUI/IconButton.svelte";
-    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
-    import MultiLangDisplay from "../UI/GUI/MultiLangDisplay.svelte";
+    import IconButton from "../UI/components/IconButton.svelte";
+    import IconButtonGroup from "../UI/components/IconButtonGroup.svelte";
+    import MultiLangDisplay from "../UI/components/MultiLangDisplay.svelte";
     import { makeAgoText } from "src/ts/util";
-    import SettingTabs from "../UI/GUI/SettingTabs.svelte";
-    import ShInput from "../UI/GUI/ShInput.svelte";
+    import SettingTabs from "../UI/components/SettingTabs.svelte";
+    import Input from "../UI/components/Input.svelte";
     import CharacterMasonryIcon from "../UI/CharacterMasonryIcon.svelte";
     import HorizontalMasonry from "../UI/HorizontalMasonry.svelte";
     import { readViewPreference, viewPreferenceKeys, writeViewPreference } from "src/ts/viewPreference";
@@ -187,7 +187,7 @@
                         class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtext"
                         aria-hidden="true"
                     />
-                    <ShInput
+                    <Input
                         className="h-9 min-h-9 pl-9"
                         placeholder={language.search}
                         bind:value={search}

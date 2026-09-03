@@ -4,7 +4,7 @@
     import { getFileSrc } from 'src/ts/globalApi.svelte';
     import { DBState } from 'src/ts/stores.svelte';
     import { selectSingleFile } from 'src/ts/util';
-    import ShButton from 'src/lib/UI/GUI/ShButton.svelte';
+    import Button from '../../../UI/components/Button.svelte';
     import { ImageIcon, XIcon } from '@lucide/svelte';
 
     const hasBg = $derived(!!DBState.db.customBackground && DBState.db.customBackground !== '-');
@@ -38,14 +38,14 @@
         {#if hasBg && previewUrl}
             <img src={previewUrl} alt="" class="h-8 w-12 rounded object-cover border border-darkborderc" />
         {/if}
-        <ShButton variant="outline" size="sm" onclick={pick}>
+        <Button variant="outline" size="sm" onclick={pick}>
             <ImageIcon />
             {hasBg ? language.edit : language.select}
-        </ShButton>
+        </Button>
         {#if hasBg}
-            <ShButton variant="destructive" size="icon-sm" onclick={clear} aria-label={language.remove}>
+            <Button variant="destructive" size="icon-sm" onclick={clear} aria-label={language.remove}>
                 <XIcon />
-            </ShButton>
+            </Button>
         {/if}
     </div>
 </div>

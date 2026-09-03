@@ -4,8 +4,8 @@
     import { SaveServerBackup } from "src/ts/drive/backuplocal";
     import { language } from "src/lang";
     import { ArrowUpCircleIcon, AlertTriangleIcon, DownloadIcon, LoaderIcon, CheckCircleIcon, XCircleIcon, SaveIcon } from "@lucide/svelte";
-    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import Dialog from "../UI/components/Dialog.svelte";
+    import Button from "../UI/components/Button.svelte";
 
     const info: UpdateInfo | null = $derived($updatePopupStore);
     const progress: SelfUpdateProgress | null = $derived($selfUpdateProgressStore);
@@ -35,7 +35,7 @@
         }
     }
 
-    /** ShDialog.onOpenChange close path — routes through handleDone when an
+    /** Dialog.onOpenChange close path — routes through handleDone when an
      *  update has finished (so reload fires) and through dismiss otherwise. */
     function handleClose() {
         if (isUpdating) handleDone()
@@ -51,7 +51,7 @@
     blocked per branch convention.
 -->
 {#if info}
-    <ShDialog
+    <Dialog
         open={true}
         onOpenChange={(v) => { if (!v) handleClose() }}
         closable={canClose}
@@ -126,43 +126,43 @@
                 </div>
             {/if}
         {/if}
-    </ShDialog>
+    </Dialog>
 {/if}
 
 {#snippet footerActions()}
     {#if isUpdating}
         {#if progress?.step === 'done'}
-            <ShButton variant="success" onclick={handleDone}>
+            <Button variant="success" onclick={handleDone}>
                 {language.selfUpdateReload}
-            </ShButton>
+            </Button>
         {:else if progress?.step === 'error'}
-            <ShButton variant="outline" onclick={handleDone}>
+            <Button variant="outline" onclick={handleDone}>
                 {language.close}
-            </ShButton>
+            </Button>
         {/if}
     {:else if info}
-        <ShButton variant="outline" onclick={dismissUpdatePopup}>
+        <Button variant="outline" onclick={dismissUpdatePopup}>
             {language.updatePopupLater}
-        </ShButton>
-        <ShButton variant="outline" onclick={() => SaveServerBackup()}>
+        </Button>
+        <Button variant="outline" onclick={() => SaveServerBackup()}>
             <SaveIcon />
             {language.updatePopupBackup}
-        </ShButton>
+        </Button>
         {#if info.canSelfUpdate}
-            <ShButton
+            <Button
                 variant={info.severity === 'optional' ? 'success' : 'destructive'}
                 onclick={handleSelfUpdate}
             >
                 <DownloadIcon size={12} />
                 {language.selfUpdateNow}
-            </ShButton>
+            </Button>
         {:else}
-            <ShButton
+            <Button
                 variant={info.severity === 'optional' ? 'success' : 'destructive'}
                 onclick={() => { openURL(info.releaseUrl); dismissUpdatePopup(); }}
             >
                 {language.updatePopupViewRelease}
-            </ShButton>
+            </Button>
         {/if}
     {/if}
 {/snippet}

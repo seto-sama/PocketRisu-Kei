@@ -1,8 +1,8 @@
 <script lang="ts">
     import { advancedSettingsItems } from "src/ts/setting/advancedSettingsData";
     import SettingRenderer from "../SettingRenderer.svelte";
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
+    import SettingTabs from "../../UI/components/SettingTabs.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import { language } from "src/lang";
     import { AdvancedSubmenuIndex } from "src/ts/stores.svelte";
@@ -32,28 +32,28 @@
         'adv.allowExt',
         'adv.cssErr',
     ]);
-    const developerPrimaryItemIds = [
+    const laboratoryPrimaryItemIds = [
         'adv.newImgBeta',
         'adv.allowV2Plugin',
         'adv.depTrig',
         'adv.depTrigV2',
     ];
-    const developerPrimaryItemIdSet = new Set(developerPrimaryItemIds);
-    const developerWarningItemIds = new Set(['adv.warn']);
+    const laboratoryPrimaryItemIdSet = new Set(laboratoryPrimaryItemIds);
+    const laboratoryWarningItemIds = new Set(['adv.warn']);
     const movedItemIds = new Set([...requestItemIds, ...lorebookItemIds, ...dataDisplayItemIds]);
 
     const requestSettingsItems = advancedSettingsItems.filter((item) => requestItemIds.has(item.id));
     const lorebookSettingsItems = advancedSettingsItems.filter((item) => lorebookItemIds.has(item.id));
     const dataDisplaySettingsItems = advancedSettingsItems.filter((item) => dataDisplayItemIds.has(item.id));
-    const developerPrimarySettingsItems = advancedSettingsItems
-        .filter((item) => developerPrimaryItemIdSet.has(item.id))
-        .sort((a, b) => developerPrimaryItemIds.indexOf(a.id) - developerPrimaryItemIds.indexOf(b.id));
-    const developerWarningItems = advancedSettingsItems.filter((item) => developerWarningItemIds.has(item.id));
-    const developerSettingsItems = advancedSettingsItems.filter(
+    const laboratoryPrimarySettingsItems = advancedSettingsItems
+        .filter((item) => laboratoryPrimaryItemIdSet.has(item.id))
+        .sort((a, b) => laboratoryPrimaryItemIds.indexOf(a.id) - laboratoryPrimaryItemIds.indexOf(b.id));
+    const laboratoryWarningItems = advancedSettingsItems.filter((item) => laboratoryWarningItemIds.has(item.id));
+    const laboratorySettingsItems = advancedSettingsItems.filter(
         (item) =>
             !movedItemIds.has(item.id) &&
-            !developerPrimaryItemIdSet.has(item.id) &&
-            !developerWarningItemIds.has(item.id)
+            !laboratoryPrimaryItemIdSet.has(item.id) &&
+            !laboratoryWarningItemIds.has(item.id)
     );
 </script>
 
@@ -77,10 +77,9 @@
     <SettingLayout variant="section" title={language.dataDisplay} first>
         <SettingRenderer items={dataDisplaySettingsItems} layout="row" />
     </SettingLayout>
-    <SettingLayout variant="section" title={language.developerSettings}>
-        <SettingRenderer items={developerWarningItems} />
-        <SettingRenderer items={developerPrimarySettingsItems} layout="row" />
-        <SettingRenderer items={developerSettingsItems} />
+    <SettingLayout variant="section" title={language.laboratory}>
+        <SettingRenderer items={laboratoryWarningItems} />
+        <SettingRenderer items={[...laboratoryPrimarySettingsItems, ...laboratorySettingsItems]} layout="row" />
     </SettingLayout>
 {/if}
 </SettingPage>

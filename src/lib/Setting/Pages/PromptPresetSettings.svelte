@@ -1,7 +1,7 @@
 <script lang="ts">
-    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
-    import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
-    import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
+    import SettingPage from "../../UI/components/SettingPage.svelte";
+    import SettingTabs from "../../UI/components/SettingTabs.svelte";
+    import PresetHeader from "../../UI/components/PresetHeader.svelte";
     import SettingLayout from "src/lib/Setting/Wrappers/SettingLayout.svelte";
     import SettingRenderer from "../SettingRenderer.svelte";
     import PromptSettings from "./PromptSettings.svelte";
@@ -15,7 +15,7 @@
     } from "src/ts/setting/promptPresetSettingsData.svelte";
     import type { SettingItem } from "src/ts/setting/types";
     import { selectSingleFile } from "src/ts/util";
-    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
+    import Button from "../../UI/components/Button.svelte";
     import { ImageIcon, XIcon } from "@lucide/svelte";
 
     const activeIndex = $derived(DBState.db.botPresetsId);
@@ -73,14 +73,14 @@
                             {#if DBState.db.botPresets[activeIndex]?.image}
                                 <img src={DBState.db.botPresets[activeIndex].image} alt="" class="h-8 w-8 rounded object-cover border border-darkborderc" decoding="async" />
                             {/if}
-                            <ShButton variant="outline" size="sm" onclick={uploadIcon}>
+                            <Button variant="outline" size="sm" onclick={uploadIcon}>
                                 <ImageIcon />
                                 {DBState.db.botPresets[activeIndex]?.image ? language.edit : language.select}
-                            </ShButton>
+                            </Button>
                             {#if DBState.db.botPresets[activeIndex]?.image}
-                                <ShButton variant="destructive" size="icon-sm" onclick={() => { DBState.db.botPresets[activeIndex].image = undefined; }} aria-label={language.iconRemove}>
+                                <Button variant="destructive" size="icon-sm" onclick={() => { DBState.db.botPresets[activeIndex].image = undefined; }} aria-label={language.iconRemove}>
                                     <XIcon />
-                                </ShButton>
+                                </Button>
                             {/if}
                         </div>
                     {/snippet}
