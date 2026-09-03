@@ -834,7 +834,6 @@ export function setDatabase(data:Database){
     normalizeTranslatorPresetState(data)
     data.translationDialogPromptPresetId ??=
         data.translatorPresets[data.translatorPresetId]?.id ?? ''
-    data.showDeprecatedTriggerV2 ??= false
     data.returnCSSError ??= true
     data.checkCorruption ??= false
     data.toggleConfirmRecommendedPreset ??= false
@@ -1518,8 +1517,6 @@ export interface Database{
     bulkEnabling:boolean
     showTranslationLoading: boolean
     showPreviousChatSwipeButtons: boolean
-    showDeprecatedTriggerV1:boolean
-    showDeprecatedTriggerV2:boolean
     returnCSSError:boolean
     checkCorruption?: boolean
     toggleConfirmRecommendedPreset?: boolean

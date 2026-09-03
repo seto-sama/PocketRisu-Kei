@@ -348,10 +348,6 @@ export const helpEn = {
             "Use the new experimental Google Translate path. It may be faster than the old path, but can break in some cases.",
         lightningRealmImport:
             "Use a faster import path when importing characters from RisuRealm while account sync is enabled. Experimental.",
-        unrecommendedTriggerV1:
-            "Allow adding and editing Trigger V1. Trigger V1 is deprecated; use V2 for new work. Keep this only for legacy V1 compatibility.",
-        unrecommendedTriggerV2:
-            "Show deprecated Trigger V2 effects. Improved effects provide the same functionality, so use effects from the Control and Lorebook V2 categories for new work.",
         themePresets:
             "Bundle the current Sound & Display settings (layout, color/font, sizes, sound toggles, etc.) as a preset and switch between them. The active preset auto-syncs with edits you make below; clicking opens the preset list to add, switch, rename, or delete.",
         theme: "Overall chat layout theme.",
