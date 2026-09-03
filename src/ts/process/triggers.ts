@@ -16,7 +16,7 @@ import { generateAIImageInlay } from "./stableDiff";
 import { runScripted } from "./scriptings";
 import type { TriggerV2Effect } from "./triggerV2Core";
 import { evaluateTriggerConditions, type TriggerConditionLike } from "./triggerConditionCore";
-import { migrateTriggerV1ToV2ForRuntime } from "./triggerV1Migration";
+import { migrateTriggersToCurrentV2 } from "./triggerDeprecatedV2Migration";
 import { runRevenantTriggerProgram } from "./revenant/trigger/runtime";
 
 
@@ -989,7 +989,6 @@ export type triggerV2DeclareLocalVar = {
 
 const safeSubset = [
     'v2SetVar',
-    'v2If',
     'v2IfAdvanced',
     'v2Else',
     'v2EndIndent',
@@ -1067,7 +1066,7 @@ export async function runTrigger(char:character,mode:triggerMode, arg:{
         ...trigger,
         lowLevelAccess: CharacterlowLevelAccess,
     }))
-    const triggers = migrateTriggerV1ToV2ForRuntime([
+    const triggers = migrateTriggersToCurrentV2([
         ...characterTriggers,
         ...getModuleTriggers(),
     ])

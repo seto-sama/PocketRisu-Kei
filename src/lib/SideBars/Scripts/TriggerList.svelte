@@ -6,7 +6,7 @@
     import Textarea from "../../UI/components/Textarea.svelte";
     import type { Snippet } from "svelte";
     import { getDisplayedTriggerScriptMode, getTriggerScriptMode } from "./triggerScriptMode";
-    import { migrateTriggerV1ToV2 } from "src/ts/process/triggerV1Migration";
+    import { hasDeprecatedTriggerV2, migrateTriggersToCurrentV2 } from "src/ts/process/triggerDeprecatedV2Migration";
 
     interface Props {
         value?: triggerscript[];
@@ -17,9 +17,10 @@
     let { value = $bindable([]), lowLevelAble = false, header }: Props = $props();
     let triggerMode = $derived(getTriggerScriptMode(value))
     let displayedTriggerMode = $derived(getDisplayedTriggerScriptMode(value))
-    let legacyV2Value = $state<triggerscript[]>([])
-    let legacySource = $state.raw<triggerscript[] | null>(null)
-    let legacyBaseline = $state('')
+    let needsV2Projection = $derived(triggerMode === 'v1' || hasDeprecatedTriggerV2(value))
+    let projectedV2Value = $state<triggerscript[]>([])
+    let projectionSource = $state.raw<triggerscript[] | null>(null)
+    let projectionBaseline = $state('')
     let triggerV2LoadRevision = $state(0)
     let triggerV2ListPromise: Promise<typeof import("./TriggerV2List.svelte").default> | null = null
     let retryLabel = $derived((language as unknown as Record<string, string>).retry ?? 'Retry')
@@ -39,26 +40,26 @@
         triggerV2LoadRevision += 1
     }
 
-    // Persisted V1 data is projected into a V2 editor without changing storage.
-    // The first actual editor mutation commits that projection as current V2.
+    // Legacy data is projected into the current V2 editor without changing storage.
+    // The first actual editor mutation commits that projection.
     $effect(() => {
-        if (triggerMode !== 'v1') {
-            legacySource = null
+        if (!needsV2Projection) {
+            projectionSource = null
             return
         }
-        if (legacySource === value) return
-        legacySource = value
-        legacyV2Value = migrateTriggerV1ToV2(value)
-        legacyBaseline = JSON.stringify(legacyV2Value)
+        if (projectionSource === value) return
+        projectionSource = value
+        projectedV2Value = migrateTriggersToCurrentV2(value)
+        projectionBaseline = JSON.stringify(projectedV2Value)
     })
 
     $effect(() => {
-        if (triggerMode !== 'v1' || !legacySource) return
-        const current = JSON.stringify(legacyV2Value)
-        if (current === legacyBaseline) return
-        legacyBaseline = current
-        value = safeStructuredClone(legacyV2Value)
-        legacySource = null
+        if (!needsV2Projection || !projectionSource) return
+        const current = JSON.stringify(projectedV2Value)
+        if (current === projectionBaseline) return
+        projectionBaseline = current
+        value = safeStructuredClone(projectedV2Value)
+        projectionSource = null
     })
 </script>
 
@@ -71,7 +72,7 @@
     <div class="flex items-center gap-2" class:ml-auto={!!header}>
     <button class="border bg-lightbg py-1 rounded-md text-sm px-2 text-maintext {displayedTriggerMode === 'v2' ? 'border-primary' : 'border-darkborderc'}" onclick={(async (e) => {
         e.stopPropagation()
-        if(triggerMode === 'v1') return
+        if(needsV2Projection) return
         const codeType = value?.[0]?.effect?.[0]?.type
         if(codeType !== 'v2Header'){
             const t = await alertConfirm(language.triggerSwitchWarn)
@@ -123,8 +124,8 @@
     {#await loadTriggerV2List(triggerV2LoadRevision)}
         <div class="mt-2 text-sm text-subtext">{language.loading}</div>
     {:then TriggerV2List}
-        {#if triggerMode === 'v1'}
-            <TriggerV2List bind:value={legacyV2Value} lowLevelAble={lowLevelAble}/>
+        {#if needsV2Projection}
+            <TriggerV2List bind:value={projectedV2Value} lowLevelAble={lowLevelAble}/>
         {:else}
             <TriggerV2List bind:value={value} lowLevelAble={lowLevelAble}/>
         {/if}

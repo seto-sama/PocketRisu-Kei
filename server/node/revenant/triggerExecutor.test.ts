@@ -285,6 +285,28 @@ describe('revenant output trigger executor', () => {
         expect(completed.chat.scriptstate.$legacyResult).toBe('null')
     })
 
+    it('normalizes deprecated V2 lorebook name lookups before execution', async () => {
+        const input = recipe()
+        input.character.globalLore = [
+            { comment: 'Profile', content: 'first' },
+            { comment: 'PROFILE', content: 'second' },
+        ]
+        input.character.triggerscript = [{
+            comment: 'legacy v2', type: 'output', conditions: [],
+            effect: [{
+                type: 'v2GetLorebook', target: 'profile', targetType: 'value',
+                outputVar: 'profile', indent: 0,
+            }],
+        }] as any
+
+        const result = await executeRevenantOutputTriggers({
+            recipe: input, chat: input.chat, text: 'answer',
+        })
+
+        expect(result.errors).toEqual([])
+        expect(result.chat.scriptstate.$profile).toBe('first')
+    })
+
     it('does not let prompt-stop signals truncate terminal output effects', async () => {
         const input = recipe()
         input.character.triggerscript = [{

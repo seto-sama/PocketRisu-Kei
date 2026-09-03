@@ -109,12 +109,6 @@ export const advancedSettingsItems: SettingItem[] = [
         condition: (ctx) => ctx.db.dynamicAssets, helpKey: 'dynamicAssetsEditDisplay'
     },
 
-    // Unrecommended Extra
-    {
-        id: 'adv.depTrigV2', type: 'check', labelKey: 'showDeprecatedTriggerV2', bindKey: 'showDeprecatedTriggerV2',
-        helpKey: 'unrecommendedTriggerV2', helpUnrecommended: true
-    },
-
     // Custom Components
     { type: 'custom', id: 'adv.banChar', componentId: 'BanCharacterSetSettings' },
 ];

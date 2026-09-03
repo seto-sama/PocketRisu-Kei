@@ -6,7 +6,6 @@
     import Input from "../../UI/components/Input.svelte";
     import { type triggerEffectV2, type triggerEffect, type triggerscript, displayAllowList, requestAllowList } from "src/ts/process/triggers";
     import { onDestroy, onMount } from "svelte";
-    import { DBState } from "src/ts/stores.svelte";
     import IconButton from "../../UI/components/IconButton.svelte";
     import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
     import DisclosureList from "../../UI/components/DisclosureList.svelte";
@@ -76,21 +75,13 @@
     })
 
     const getFilteredTriggers = () => {
-        const allCategories = DBState.db.showDeprecatedTriggerV2 
-            ? effectCategories
-            : Object.fromEntries(Object.entries(effectCategories).filter(([key]) => key !== 'Deprecated'))
-        
-        const categoryTriggers = allCategories[selectedCategory] || []
+        const categoryTriggers = effectCategories[selectedCategory] || []
         return categoryTriggers.filter(effect => checkSupported(effect, selectedIndex))
     }
 
     const getAvailableCategories = () => {
-        const allCategories = DBState.db.showDeprecatedTriggerV2 
-            ? effectCategories
-            : Object.fromEntries(Object.entries(effectCategories).filter(([key]) => key !== 'Deprecated'))
-        
-        return Object.keys(allCategories).filter(category => {
-            const categoryTriggers = allCategories[category] || []
+        return Object.keys(effectCategories).filter(category => {
+            const categoryTriggers = effectCategories[category] || []
             return categoryTriggers.some(effect => checkSupported(effect, selectedIndex))
         })
     }
@@ -362,9 +353,6 @@
             if(effect[p1 + 'Type'] === 'value'){
                 return `<span class="text-syntax-literal">"${d}"</span>`
             }
-            if(effect.type === 'v2If' && p1 === 'source'){
-                return `<span class="text-syntax-variable">${d || 'null'}</span>`
-            }
             if(effect.type === 'v2SetVar' && p1 === 'var'){
                 return `<span class="text-syntax-variable">${d || 'null'}</span>`
             }
@@ -494,9 +482,7 @@
                                     >
                                         <SelectOption value="">{language.select}</SelectOption>
                                         {#each getFilteredTriggers() as type}
-                                            <SelectOption value={type}>
-                                                {language.triggerDesc[type]}{effectCategories.Deprecated.includes(type) ? ' (Deprecated)' : ''}
-                                            </SelectOption>
+                                            <SelectOption value={type}>{language.triggerDesc[type]}</SelectOption>
                                         {/each}
                                     </Select>
                                 {/key}

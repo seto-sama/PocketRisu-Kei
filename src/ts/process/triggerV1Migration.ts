@@ -217,7 +217,8 @@ export function migrateTriggerV1ToV2(triggers: triggerscript[]): triggerscript[]
         }
     })
 
-    if (!migrated || normalized[0]?.effect[0]?.type === 'v2Header') {
+    if (!migrated) return triggers
+    if (normalized[0]?.effect[0]?.type === 'v2Header') {
         return normalized
     }
 
@@ -228,5 +229,3 @@ export function migrateTriggerV1ToV2(triggers: triggerscript[]): triggerscript[]
         effect: [{ type: 'v2Header', code: '', indent: 0 }],
     }, ...normalized]
 }
-
-export const migrateTriggerV1ToV2ForRuntime = migrateTriggerV1ToV2

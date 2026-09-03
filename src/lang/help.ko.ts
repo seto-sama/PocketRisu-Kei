@@ -213,7 +213,6 @@ export const helpKo = {
         "simplifiedToolUse": "도구(tool) 호출 결과를 채팅에 단순화된 형태로 표시합니다. 도구 raw output이 길거나 복잡할 때 가독성을 위해 사용합니다.",
         "unrecommendedNewGoogleTrans": "구글 번역의 새 실험적 처리 경로를 사용합니다. 기존 경로보다 빠를 수 있지만 일부 케이스에서 깨질 수 있습니다.",
         "lightningRealmImport": "동기화(account.useSync)가 켜진 상태에서, RisuRealm에서 캐릭터를 가져올 때 빠른 경로를 사용합니다. 실험적 옵션입니다.",
-        "unrecommendedTriggerV2": "비권장 Trigger V2 효과를 표시합니다. 같은 기능을 제공하는 개선된 트리거가 있으므로 새 작업에는 제어 및 로어북 카테고리의 효과를 사용하세요.",
         "themePresets": "현재 \"소리 및 디스플레이\" 설정(레이아웃, 색상/폰트, 크기, 소리 토글 등)을 묶어 프리셋으로 저장하고 전환합니다. 아래 옵션을 수정하면 현재 프리셋에 자동 반영되며, 버튼을 누르면 프리셋 목록 창이 열려 추가·전환·이름 변경·삭제를 할 수 있습니다.",
         "theme": "전체 채팅 화면 레이아웃 테마입니다.",
         "waifuWidth": "Waifulike 테마의 채팅 영역 너비입니다.",

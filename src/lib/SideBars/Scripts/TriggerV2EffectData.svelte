@@ -90,7 +90,7 @@
         if (value.type === 'v2QuickSearchChat' && field === 'condition') {
             return [['loose', 'loose'], ['strict', 'strict'], ['regex', 'regex']];
         }
-        if ((value.type === 'v2If' || value.type === 'v2IfAdvanced') && field === 'target' && effect.condition === '≡') {
+        if (value.type === 'v2IfAdvanced' && field === 'target' && effect.condition === '≡') {
             return [
                 ['true', language.triggerInputLabels.boolTrue],
                 ['false', language.triggerInputLabels.boolFalse],

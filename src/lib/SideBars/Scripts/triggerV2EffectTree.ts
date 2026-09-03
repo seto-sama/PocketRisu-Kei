@@ -1,7 +1,6 @@
 import type { triggerEffect, triggerEffectV2 } from "src/ts/process/triggers";
 
 const blockStartTypes = new Set([
-    'v2If',
     'v2IfAdvanced',
     'v2Loop',
     'v2LoopNTimes',
@@ -67,7 +66,7 @@ export function getTriggerV2TopLevelDividerIndexes(effects: triggerEffect[]): Se
 
 export function getTriggerV2ElseBlock(effects: triggerEffect[], effectIndex: number): TriggerV2ElseBlock | null {
     const effect = asV2(effects[effectIndex]);
-    if (!effect || (effect.type !== 'v2If' && effect.type !== 'v2IfAdvanced')) return null;
+    if (!effect || effect.type !== 'v2IfAdvanced') return null;
 
     const endIndentIndex = effects.findIndex((candidate, index) => {
         const candidateV2 = asV2(candidate);
@@ -109,7 +108,7 @@ export function ensureTriggerV2ElseBlocks(effects: triggerEffect[]): triggerEffe
     let next = effects;
     for (let index = effects.length - 1; index >= 0; index--) {
         const effect = asV2(next[index]);
-        if (effect?.type !== 'v2If' && effect?.type !== 'v2IfAdvanced') continue;
+        if (effect?.type !== 'v2IfAdvanced') continue;
         const block = getTriggerV2ElseBlock(next, index);
         if (!block || block.elseIndex !== -1 || block.endIndentIndex === -1) continue;
         next = toggleTriggerV2Else(next, index, true);
@@ -125,7 +124,7 @@ export function appendTriggerV2Effect(effects: triggerEffect[], effect: triggerE
             indent: effect.indent + 1,
             endOfLoop: effect.type === 'v2Loop' || effect.type === 'v2LoopNTimes',
         });
-        if (effect.type === 'v2If' || effect.type === 'v2IfAdvanced') {
+        if (effect.type === 'v2IfAdvanced') {
             next.push(
                 { type: 'v2Else', indent: effect.indent },
                 { type: 'v2EndIndent', indent: effect.indent + 1 },

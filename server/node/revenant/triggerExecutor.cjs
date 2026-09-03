@@ -12,8 +12,8 @@ const { renderRevenantTemplate } = require(path.join(
 const { evaluateTriggerConditions } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerConditionCore.ts',
 ));
-const { migrateTriggerV1ToV2ForRuntime } = require(path.join(
-    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerV1Migration.ts',
+const { migrateTriggersToCurrentV2 } = require(path.join(
+    __dirname, '..', '..', '..', 'src', 'ts', 'process', 'triggerDeprecatedV2Migration.ts',
 ));
 const { runRevenantTriggerProgram } = require(path.join(
     __dirname, '..', '..', '..', 'src', 'ts', 'process', 'revenant', 'trigger', 'runtime.ts',
@@ -73,7 +73,7 @@ async function executeRevenantOutputTriggers(options) {
         ...(recipe.moduleTriggers || []),
     ];
     const hadPersistedV2Header = persistedTriggers[0]?.effect?.[0]?.type === 'v2Header';
-    const triggers = migrateTriggerV1ToV2ForRuntime(persistedTriggers);
+    const triggers = migrateTriggersToCurrentV2(persistedTriggers);
     const syntheticHeaderOffset = !hadPersistedV2Header
         && triggers[0]?.effect?.[0]?.type === 'v2Header' ? 1 : 0;
 

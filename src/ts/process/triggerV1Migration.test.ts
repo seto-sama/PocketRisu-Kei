@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { triggerscript } from './triggers'
-import { migrateTriggerV1ToV2ForRuntime } from './triggerV1Migration'
+import { migrateTriggerV1ToV2 } from './triggerV1Migration'
 
 describe('runtime Trigger V1 migration', () => {
     test('preserves trigger metadata and nests V1 conditions as current V2 blocks', () => {
@@ -17,7 +17,7 @@ describe('runtime Trigger V1 migration', () => {
             effect: [{ type: 'stop' }],
         }]
 
-        const result = migrateTriggerV1ToV2ForRuntime(source)
+        const result = migrateTriggerV1ToV2(source)
 
         expect(result[0].effect).toEqual([{ type: 'v2Header', code: '', indent: 0 }])
         expect(result[1]).toMatchObject({
@@ -57,7 +57,7 @@ describe('runtime Trigger V1 migration', () => {
             ],
         }]
 
-        const effects = migrateTriggerV1ToV2ForRuntime(source)[1].effect
+        const effects = migrateTriggerV1ToV2(source)[1].effect
         expect(effects).toEqual([
             { type: 'v2RunLLM', value: 'main', valueType: 'value', model: 'model', streaming: false, outputVar: 'mainResult', indent: 0 },
             { type: 'v2RunLLM', value: 'aux', valueType: 'value', model: 'submodel', streaming: false, outputVar: 'auxResult', indent: 0 },
@@ -87,7 +87,7 @@ describe('runtime Trigger V1 migration', () => {
             ],
         }]
 
-        const effects = migrateTriggerV1ToV2ForRuntime(source)[1].effect
+        const effects = migrateTriggerV1ToV2(source)[1].effect
         expect(effects.map(effect => effect.type)).toEqual([
             'v2SetVar',
             'v2CutChat',
@@ -112,14 +112,14 @@ describe('runtime Trigger V1 migration', () => {
             comment: 'empty', type: 'manual', conditions: [], effect: [],
         }]
 
-        const result = migrateTriggerV1ToV2ForRuntime(source)
+        const result = migrateTriggerV1ToV2(source)
 
         expect(result[0].effect[0].type).toBe('v2Header')
         expect(result[1]).toMatchObject({ comment: 'empty', type: 'manual', conditions: [], effect: [] })
     })
 
     test('creates a V2 header for an empty trigger array', () => {
-        expect(migrateTriggerV1ToV2ForRuntime([])).toEqual([{
+        expect(migrateTriggerV1ToV2([])).toEqual([{
             comment: '',
             type: 'manual',
             conditions: [],
@@ -140,9 +140,9 @@ describe('runtime Trigger V1 migration', () => {
         }]
         const snapshot = structuredClone(source)
 
-        const result = migrateTriggerV1ToV2ForRuntime(source)
+        const result = migrateTriggerV1ToV2(source)
 
-        expect(result).toEqual(source)
+        expect(result).toBe(source)
         expect(source).toEqual(snapshot)
     })
 
@@ -155,7 +155,7 @@ describe('runtime Trigger V1 migration', () => {
             effect: [{ type: 'v2Header', code: '', indent: 0 }],
         }]
 
-        const result = migrateTriggerV1ToV2ForRuntime(source)
+        const result = migrateTriggerV1ToV2(source)
 
         expect(result[0].effect[0].type).toBe('v2Header')
         expect(result[1].effect[0].type).toBe('v2SetVar')
