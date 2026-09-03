@@ -35,6 +35,7 @@ function createRevenantPostprocessWorker(options) {
         materializeGeneration = async () => {
             throw new Error('Revenant materializer is not configured');
         },
+        executeImageAction,
     } = options;
     let timer = null;
     let running = false;
@@ -69,6 +70,45 @@ function createRevenantPostprocessWorker(options) {
         }, Math.max(0, Number(delayMs) || 0));
     }
 
+    function startServerImageAction(workflow, stepKey, metadata, action) {
+        if (action?.kind !== 'image.generate' || typeof executeImageAction !== 'function') return false;
+        updateGenerationWorkflowStep(workflow.workflowId, stepKey, {
+            status: 'running',
+            metadata: { ...metadata, schemaVersion: 1, action },
+        });
+        onWorkflowUpdated(getGenerationWorkflow(workflow.workflowId));
+        void executeImageAction({ workflow, action, projection: false })
+            .then(result => {
+                const latest = getGenerationWorkflow(workflow.workflowId)?.steps
+                    ?.find(step => step.key === stepKey);
+                if (latest?.status !== 'running') return;
+                updateGenerationWorkflowStep(workflow.workflowId, stepKey, {
+                    status: 'pending',
+                    metadata: {
+                        ...latest.metadata,
+                        schemaVersion: 1,
+                        responses: {
+                            ...(latest.metadata?.responses || {}),
+                            [action.actionId]: result.reference,
+                        },
+                    },
+                });
+                onWorkflowUpdated(getGenerationWorkflow(workflow.workflowId));
+                schedule();
+            })
+            .catch(error => {
+                const message = error instanceof Error ? error.message : String(error);
+                updateGenerationWorkflowStep(workflow.workflowId, stepKey, {
+                    status: 'failed',
+                    metadata: { ...metadata, schemaVersion: 1, error: message },
+                });
+                finishGenerationWorkflow(workflow.workflowId, 'failed');
+                logger.error(`[Revenant] Server image action failed for ${workflow.workflowId}:`, error);
+                notifyActionableWorkflowState(workflow.workflowId);
+            });
+        return true;
+    }
+
     async function pump() {
         if (running) {
             rerun = true;
@@ -92,6 +132,17 @@ function createRevenantPostprocessWorker(options) {
                             responses: outputStep.metadata?.responses,
                             transformOutput,
                         });
+                        if (result.status === 'waiting_client'
+                            && startServerImageAction(
+                                workflow,
+                                'output.transform',
+                                outputStep.metadata,
+                                result.action,
+                            )) {
+                            outputStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                                ?.find(step => step.key === 'output.transform');
+                            continue;
+                        }
                         updateGenerationWorkflowStep(workflow.workflowId, 'output.transform', {
                             status: result.status === 'waiting_client' ? 'waiting_client' : 'completed',
                             metadata: {
@@ -134,6 +185,17 @@ function createRevenantPostprocessWorker(options) {
                             chat: outputStep.metadata.chat,
                             responses: triggerStep.metadata?.responses,
                         });
+                        if (result.status === 'waiting_client'
+                            && startServerImageAction(
+                                workflow,
+                                'trigger.output',
+                                triggerStep.metadata,
+                                result.action,
+                            )) {
+                            triggerStep = getGenerationWorkflow(workflow.workflowId)?.steps
+                                ?.find(step => step.key === 'trigger.output');
+                            continue;
+                        }
                         if (result.status !== 'waiting_client' && result.errors?.length > 0) {
                             throw new Error(result.errors.join('\n'));
                         }

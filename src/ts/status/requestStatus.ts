@@ -21,7 +21,7 @@ export type RequestPhase =
 // pipeline's ModelModeExtended: model→main, translate→translate, memory→memory,
 // emotion→emotion, submodel/otherAx→sub. The renderer maps these to localized
 // chip labels (메인 / 번역 / 메모리 / 감정 / 보조).
-export type RequestKind = 'main' | 'translate' | 'memory' | 'emotion' | 'sub'
+export type RequestKind = 'main' | 'translate' | 'memory' | 'emotion' | 'sub' | 'image'
 
 // A phase is terminal when the request has finished one way or another; the
 // renderer uses this to decide dismissal/retention.
@@ -51,6 +51,7 @@ export interface RequestStatusEntry {
     retryAttempt?: number
     badges: StatusBadge[]
     error?: string
+    progress?: { value: number, max: number, node?: string }
     // Accumulated raw text per kind. The render tick tokenizes these with the
     // injected tokenizer (native, language-accurate) — NOT a char/N estimate —
     // once per tick instead of per chunk, so cost stays O(text) per tick rather
@@ -327,6 +328,23 @@ export function addBadge(id: string, badge: StatusBadge): void {
         // Replace a badge with the same key (e.g. cache hit updates its saving).
         const badges = e.badges.filter((b) => b.key !== badge.key).concat(badge)
         return { ...e, badges }
+    })
+}
+
+export function setStatusProgress(
+    id: string,
+    progress: { value: number, max: number, node?: string },
+    now = Date.now(),
+): void {
+    if (!Number.isFinite(progress.value) || !Number.isFinite(progress.max) || progress.max <= 0) return
+    update(id, (entry) => isTerminalPhase(entry.phase) ? entry : {
+        ...entry,
+        progress: {
+            value: Math.max(0, Math.min(progress.value, progress.max)),
+            max: progress.max,
+            ...(progress.node ? { node: progress.node } : {}),
+        },
+        lastChunkAt: now,
     })
 }
 

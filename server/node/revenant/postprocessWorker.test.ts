@@ -6,6 +6,63 @@ const { createRevenantPostprocessWorker } = workerPkg as {
 }
 
 describe('revenant postprocess worker', () => {
+    it('executes image actions on the server without exposing waiting_client', async () => {
+        const steps: Record<string, { status: string, metadata?: any }> = {
+            'output.transform': { status: 'pending', metadata: {} },
+        }
+        const workflow = () => ({
+            workflowId: 'workflow-image',
+            status: 'active',
+            context: { kind: 'chat-generation', postprocess: {} },
+            steps: Object.entries(steps).map(([key, step]) => ({ key, ...step })),
+        })
+        const repository = {
+            listReadyChatWorkflowJobs: () => [{
+                jobId: 'job-1', workflowId: 'workflow-image', projection: { content: 'result' },
+            }],
+            getGenerationWorkflow: workflow,
+            claimGenerationWorkflowStep: (_workflowId: string, stepKey: string) => {
+                if (steps[stepKey].status !== 'pending') return null
+                steps[stepKey].status = 'running'
+                return {}
+            },
+            updateGenerationWorkflowStep: (_workflowId: string, stepKey: string, update: any) => {
+                steps[stepKey] = { status: update.status, metadata: update.metadata }
+            },
+            finishGenerationWorkflow: vi.fn(),
+        }
+        const action = {
+            actionId: 'script.image', kind: 'image.generate',
+            payload: { prompt: 'portrait', negativePrompt: '' },
+        }
+        const runOutputStage = vi.fn(async ({ responses }: any) => {
+            if (!responses?.[action.actionId]) return { status: 'waiting_client', action }
+            return {
+                status: 'completed', text: responses[action.actionId],
+                chat: { id: 'room-1', message: [] }, foregroundEffects: [], errors: [],
+            }
+        })
+        const executeImageAction = vi.fn(async () => ({ reference: '{{inlayed::server-image}}' }))
+        const worker = createRevenantPostprocessWorker({
+            repository,
+            runOutputStage,
+            executeImageAction,
+            logger: { error: vi.fn() },
+        })
+
+        await worker.pump()
+
+        expect(executeImageAction).toHaveBeenCalledWith(expect.objectContaining({
+            workflow: expect.objectContaining({ workflowId: 'workflow-image' }),
+            action,
+            projection: false,
+        }))
+        expect(steps['output.transform'].status).not.toBe('waiting_client')
+        await vi.waitFor(() => expect(steps['output.transform'].metadata?.responses).toEqual({
+            'script.image': '{{inlayed::server-image}}',
+        }))
+    })
+
     it('claims and transforms terminal model output exactly once', async () => {
         const steps: Record<string, { status: string, metadata?: any }> = {
             'output.transform': { status: 'pending' },

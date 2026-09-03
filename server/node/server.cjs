@@ -97,6 +97,7 @@ const {
     NORMALIZED_PROJECTION_SCHEMA_VERSION,
     projectGenerationJournal,
     installRevenantGenerationRoutes,
+    installImageGenerationJobRoutes,
     createGenerationWorkers,
     createRevenantMaterializer,
     createRevenantPostprocessWorker,
@@ -1716,6 +1717,10 @@ function requireSyncClientId(req, res) {
 const syncClients = new Map();
 const syncClientDevices = new Map();
 
+function isSyncClientConnected(clientId) {
+    return Boolean(clientId && syncClients.get(clientId)?.size);
+}
+
 function broadcastSync(type, payload = {}, excludeClientId = null) {
     const message = JSON.stringify({ type, ...payload });
     for (const [clientId, clients] of syncClients) {
@@ -2072,6 +2077,226 @@ const canonicalChatService = createCanonicalChatService({
     schedulePersist: scheduleCanonicalChatPersist,
     publishChatCommitted,
 });
+const imageGenerationJobService = installImageGenerationJobRoutes(app, {
+    checkProxyAuth,
+    requireSyncClientId,
+    logger,
+});
+
+function currentServerImageGenerationSettings() {
+    const database = appDataStore.exportProjection({ includeMessages: false });
+    const preset = database.imageGenerationPresets?.[database.imageGenerationPresetId]
+        ?? database.imageGenerationPresets?.[0];
+    const settings = preset?.settings;
+    if (!settings || typeof settings !== 'object') {
+        throw new Error('Image generation preset is not configured');
+    }
+    const keyRef = settings.imageApiKeyRefs?.novelai;
+    const apiKey = String(database.apiKeyPool?.[keyRef]?.key ?? settings.NAIApiKey ?? '').trim();
+    return {
+        settings: structuredClone(settings),
+        apiKey,
+        label: typeof preset.name === 'string' ? preset.name : String(settings.sdProvider || 'Image'),
+        inlaySettings: normalizeInlayImageSettings({
+            size: database.inlayImageCompression ? database.inlayImageSize : 'original',
+            format: database.inlayImageCompression ? database.inlayImageFormat : 'png',
+            lossy: database.inlayImageLossy,
+            quality: database.inlayImageQuality,
+        }),
+    };
+}
+
+function imageGenerationSeed(provider, requestedSeed) {
+    if (Number.isFinite(requestedSeed) && requestedSeed >= 0) return requestedSeed;
+    const value = nodeCrypto.randomBytes(4).readUInt32BE(0);
+    return provider === 'comfyui' ? value % 1_000_000_000 : value;
+}
+
+function imageInlayId(jobId) {
+    return `generated-${nodeCrypto.createHash('sha256').update(jobId).digest('hex').slice(0, 32)}`;
+}
+
+async function readServerImageReference(reference) {
+    if (typeof reference !== 'string' || !reference) return null;
+    if (reference.startsWith('data:')) {
+        const comma = reference.indexOf(',');
+        return comma >= 0 ? Buffer.from(reference.slice(comma + 1), 'base64') : null;
+    }
+    const inlayMatch = reference.match(/\{\{(?:inlay|inlayed|inlayeddata)::(.+?)\}\}/);
+    if (inlayMatch) return (await readInlayFile(inlayMatch[1]))?.buffer || null;
+    const stored = kvGet(reference);
+    if (!stored) return null;
+    if (reference.startsWith('inlay/')) {
+        return resolveAssetPayload(reference, stored).binary;
+    }
+    return Buffer.from(stored);
+}
+
+async function prepareNovelAIDirectorReference(buffer) {
+    const vips = await getVips();
+    const source = vips.Image.newFromBuffer(buffer);
+    let rotated = null;
+    let resized = null;
+    let embedded = null;
+    try {
+        rotated = source.autorot();
+        const scale = Math.min(1472 / rotated.width, 1472 / rotated.height);
+        resized = scale === 1 ? rotated : rotated.resize(scale, { kernel: vips.Kernel.lanczos3 });
+        const x = Math.floor((1472 - resized.width) / 2);
+        const y = Math.floor((1472 - resized.height) / 2);
+        embedded = resized.embed(x, y, 1472, 1472, { extend: vips.Extend.black });
+        return Buffer.from(embedded.writeToBuffer('.png', { Q: 100 }));
+    } finally {
+        if (embedded) embedded.delete();
+        if (resized && resized !== rotated) resized.delete();
+        if (rotated) rotated.delete();
+        source.delete();
+    }
+}
+
+async function executeServerImageAction({ workflow, action, projection = false }) {
+    const payload = action?.payload || {};
+    const target = payload.target || (workflow.context?.kind === 'image-generation'
+        ? workflow.context.target
+        : {
+            characterId: workflow.context?.postprocess?.character?.chaId,
+            roomId: workflow.context?.postprocess?.chat?.id,
+        });
+    if (!target?.characterId || !target?.roomId) throw new Error('Image generation target is missing');
+    const config = currentServerImageGenerationSettings();
+    const provider = config.settings.sdProvider;
+    const seed = imageGenerationSeed(provider, payload.seed);
+    const jobId = `${workflow.workflowId}:${action.actionId}`;
+    let references;
+    if (provider === 'novelai') {
+        const database = appDataStore.exportProjection({ includeMessages: false });
+        const character = database.characters?.find(item => item?.chaId === target.characterId);
+        const imageConfig = config.settings.NAIImgConfig || {};
+        const fallbackImage = character?.image;
+        const initImage = config.settings.NAII2I
+            ? await readServerImageReference(imageConfig.image || fallbackImage)
+            : null;
+        const rawDirectorReference = imageConfig.reference_mode === 'reference'
+            ? await readServerImageReference(imageConfig.character_image || fallbackImage)
+            : null;
+        const directorReference = rawDirectorReference
+            ? await prepareNovelAIDirectorReference(rawDirectorReference)
+            : null;
+        references = {
+            ...(initImage ? { initImageBase64: initImage.toString('base64') } : {}),
+            ...(directorReference
+                ? { directorReferenceBase64: directorReference.toString('base64') }
+                : {}),
+        };
+    }
+    const requestPrompt = provider === 'novelai'
+        ? String(payload.prompt || '')
+            .replaceAll('\\(', '♧').replaceAll('\\)', '♤')
+            .replaceAll('(', '{').replaceAll(')', '}')
+            .replaceAll('♧', '(').replaceAll('♤', ')')
+        : String(payload.prompt || '');
+    const generated = await imageGenerationJobService.executeImageGeneration({
+        jobId,
+        settings: provider === 'comfyui' ? {
+            sdProvider: 'comfyui',
+            comfyConfig: { timeout: config.settings.comfyConfig?.timeout },
+        } : config.settings,
+        apiKey: config.apiKey,
+        prompt: requestPrompt,
+        negativePrompt: String(payload.negativePrompt || ''),
+        seed,
+        references,
+        bridgeId: payload.bridgeId || workflow.context?.comfyBridgeId,
+    });
+    let encoded;
+    try {
+        encoded = await encodeInlayImageBuffer(generated.image, config.inlaySettings);
+    } finally {
+        imageGenerationJobService.releaseResult(jobId);
+    }
+    const inlayId = imageInlayId(jobId);
+    await writeInlayFile(inlayId, encoded.ext, encoded.buffer, {
+        name: inlayId,
+        type: 'image',
+        width: encoded.width,
+        height: encoded.height,
+    });
+    const now = Date.now();
+    kvSet(`inlay_meta/${inlayId}`, Buffer.from(JSON.stringify({
+        createdAt: now,
+        updatedAt: now,
+        charId: target.characterId,
+        chatId: target.roomId,
+        imageGeneration: {
+            prompt: String(payload.prompt || ''),
+            negativePrompt: String(payload.negativePrompt || ''),
+            seed,
+        },
+    })));
+    const reference = `{{inlayed::${inlayId}}}`;
+    if (projection) {
+        await canonicalChatService.commitServerMutation({
+            characterId: target.characterId,
+            chatId: target.roomId,
+            reason: 'image-generation-result',
+            mutate: chat => {
+                const messageId = String(payload.messageId || '');
+                if (payload.projection === 'reroll') {
+                    const message = chat.message.find(item => item?.chatId === messageId);
+                    if (!message || message.kind !== 'imageGeneration') {
+                        throw new Error('Image reroll target no longer exists');
+                    }
+                    const swipes = message.swipes ?? [message.data];
+                    message.swipes = swipes.includes(reference) ? swipes : [...swipes, reference];
+                    message.swipeId = message.swipes.indexOf(reference);
+                    message.data = reference;
+                    message.time = now;
+                }
+                else if (!chat.message.some(item => item?.chatId === messageId)) {
+                    chat.message.push({
+                        role: 'char',
+                        data: reference,
+                        kind: 'imageGeneration',
+                        saying: target.characterId,
+                        chatId: messageId,
+                        time: now,
+                    });
+                }
+                return chat;
+            },
+        });
+    }
+    return { reference, jobId, seed, label: config.label };
+}
+
+function scheduleImageGenerationWorkflow(workflowId) {
+    void (async () => {
+        const workflow = getGenerationWorkflow(workflowId);
+        const step = workflow?.steps?.find(item => item.key === 'image.generate');
+        const action = step?.metadata?.action;
+        if (!workflow || !step || !action) return;
+        try {
+            const result = await executeServerImageAction({ workflow, action, projection: true });
+            generationDb.updateGenerationWorkflowStep(workflowId, step.key, {
+                status: 'completed',
+                metadata: { ...step.metadata, schemaVersion: 1, result },
+            });
+            finishGenerationWorkflow(workflowId, 'completed');
+        }
+        catch (error) {
+            generationDb.updateGenerationWorkflowStep(workflowId, step.key, {
+                status: 'failed',
+                metadata: {
+                    ...step.metadata,
+                    schemaVersion: 1,
+                    error: error instanceof Error ? error.message : String(error),
+                },
+            });
+            finishGenerationWorkflow(workflowId, 'failed');
+        }
+        broadcastRevenantWorkflowUpdated(getGenerationWorkflow(workflowId));
+    })();
+}
 const revenantMaterializer = createRevenantMaterializer({
     repository: generationDb,
     canonicalChatService,
@@ -2083,6 +2308,7 @@ const generationWorkflowService = createGenerationWorkflowService({
     generationRuntimeJobs,
     markGenerationJobDone,
     abortHypaWorkflowExecution,
+    abortWorkflowWork: imageGenerationJobService.abortWorkflow,
     commitWorkflowInput: commitRevenantWorkflowInput,
     updateGenerationWorkflowStep: generationDb.updateGenerationWorkflowStep,
     getGenerationWorkflow,
@@ -2102,6 +2328,7 @@ const revenantPostprocessWorker = createRevenantPostprocessWorker({
     logger,
     materializeGeneration: revenantMaterializer.materialize,
     onWorkflowUpdated: broadcastRevenantWorkflowUpdated,
+    executeImageAction: executeServerImageAction,
 });
 const scheduleRevenantPostprocess = revenantPostprocessWorker.schedule;
 
@@ -3099,6 +3326,7 @@ async function commitRevenantWorkflowInput({ characterId, roomId, input }) {
 installRevenantGenerationRoutes(app, {
     checkProxyAuth,
     requireSyncClientId,
+    isSyncClientConnected,
     sanitizeGenerationTargetUrl,
     normalizeForwardHeaders,
     createGenerationRuntimeJob,
@@ -3106,6 +3334,7 @@ installRevenantGenerationRoutes(app, {
     scheduleGenerationDispatch,
     scheduleHypaWorkflowExecution,
     scheduleRevenantPostprocess,
+    scheduleImageGenerationWorkflow,
     notifyRevenantWorkflowUpdated: broadcastRevenantWorkflowUpdated,
     terminateGenerationWorkflow: generationWorkflowService.terminateWorkflow,
     commitWorkflowInput: generationWorkflowService.commitInput,
@@ -3118,7 +3347,6 @@ installRevenantGenerationRoutes(app, {
     addRequestLog,
     materializeGeneration: revenantMaterializer.materialize,
 });
-
 // app.get('/api/password', async(req, res)=> {
 //     if(password === ''){
 //         res.send({status: 'unset'})
@@ -7285,7 +7513,12 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
             job.abortController.abort();
             if (job.runPromise) generationRuns.push(job.runPromise);
         }
+        imageGenerationJobService.abortAll();
+        const imageGenerationRuns = [...imageGenerationJobService.jobs.values()]
+            .map(job => job.runPromise)
+            .filter(Boolean);
         if (generationRuns.length > 0) await Promise.allSettled(generationRuns);
+        if (imageGenerationRuns.length > 0) await Promise.allSettled(imageGenerationRuns);
         try { await flushPendingDb(); } catch (e) { logger.error('[Server] Flush error:', e); }
         try { checkpointWal('TRUNCATE'); } catch { /* non-fatal */ }
         try { checkpointGenerationDb('TRUNCATE'); } catch { /* non-fatal */ }

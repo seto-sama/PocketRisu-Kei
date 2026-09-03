@@ -48,11 +48,13 @@ import { isMobile } from 'src/ts/platform'
     import { loadChatDraft, scheduleSaveChatDraft, flushChatDraft, removeChatDraft } from 'src/ts/storage/chatDraft';
     import {
         activeRevenantWorkflows,
+        beginImageGenerationWorkflow,
         cancelRevenantWorkflow,
         getActiveRevenantWorkflow,
         subscribeRevenantWorkflowSyncReady,
         subscribeRevenantWorkflowUpdates,
     } from 'src/ts/process/revenant/workflow';
+    import { observeRevenantImageGenerationWorkflow } from 'src/ts/process/revenant/workflow/imageWorkflow';
     import {
         beginGenerationMessageProjection,
         updateRevenantAuxiliaryRecoveryStatus,
@@ -65,8 +67,8 @@ import { isMobile } from 'src/ts/platform'
     import Portal from '../UI/GUI/Portal.svelte';
     import ImageGenerationDialog from './ImageGenerationDialog.svelte';
     import TranslationDialog from './TranslationDialog.svelte';
-    import { generateAIImageInlay } from 'src/ts/process/stableDiff';
     import { getCurrentImageGenerationPreset } from 'src/ts/imageGeneration/presets';
+    import { navigateToRequestStatusChat } from 'src/ts/status/requestStatusNavigation';
     import { canonicalizeInlayTokens, INLAY_VIEWER_ID_ATTRIBUTE } from 'src/ts/util/inlayTokens';
     import { isChatImagePreloadingEnabled, preloadInlayAssets } from 'src/ts/parser/parser.svelte';
     import AssetViewerActions from 'src/lib/UI/GUI/AssetViewerActions.svelte';
@@ -393,27 +395,6 @@ import { isMobile } from 'src/ts/platform'
         }
     }
 
-    async function insertGeneratedImage(
-        reference: string,
-        target: { characterId: string, chatId: string },
-    ) {
-        const character = DBState.db.characters.find(item => item?.chaId === target.characterId)
-        if(character?.type !== 'character') return
-        const chat = character.chats.find(item => item?.id === target.chatId)
-        if(!chat || !Array.isArray(chat.message)) return
-        chat.message = [...chat.message, {
-            role: 'char',
-            data: reference,
-            kind: 'imageGeneration',
-            saying: character.chaId,
-            chatId: v4(),
-            time: Date.now(),
-        }]
-        character.reloadKeys += 1
-        await tick()
-        if(currentChatSlot?.id === chat.id) scrollToBottom()
-    }
-
     function getLastActiveMessage() {
         return currentChat.findLast(message => !message.isComment && !message.disabled)
     }
@@ -442,23 +423,18 @@ import { isMobile } from 'src/ts/platform'
                 notifyError(language.imageGenerationPromptNotFound)
                 return
             }
-            const reference = await generateAIImageInlay(
-                prompt.prompt,
-                character,
-                prompt.negativePrompt,
-                { characterId: character.chaId, chatId: chat.id },
-            )
-            if(!reference) return
-
-            const target = chat.message.find(item => item.chatId === messageId)
-            if(!target || target.kind !== 'imageGeneration') return
-            target.swipes = [...(target.swipes ?? [target.data]), reference]
-            target.swipeId = target.swipes.length - 1
-            target.data = reference
-            target.time = Date.now()
-            character.reloadKeys += 1
-            const targetIndex = chat.message.indexOf(target)
-            if (targetIndex >= 0) invalidateChatMessageRender(targetIndex)
+            const workflow = await beginImageGenerationWorkflow({
+                characterId: character.chaId,
+                roomId: chat.id,
+                prompt: prompt.prompt,
+                negativePrompt: prompt.negativePrompt,
+                label: getCurrentImageGenerationPreset(DBState.db).name,
+                projection: 'reroll',
+                messageId,
+            })
+            await observeRevenantImageGenerationWorkflow(workflow, () => {
+                if (!navigateToRequestStatusChat(messageId)) navigateToRequestStatusChat(chat.id)
+            })
             await tick()
             const isLastActiveMessage = chat.message.findLast(
                 item => !item.isComment && !item.disabled,
@@ -1602,7 +1578,6 @@ import { isMobile } from 'src/ts/platform'
         <ImageGenerationDialog
             bind:open={imageGenerationOpen}
             character={currentCharacter as character}
-            onGenerated={insertGeneratedImage}
         />
     {/if}
     <TranslationDialog

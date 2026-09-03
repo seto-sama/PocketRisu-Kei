@@ -23,12 +23,14 @@
         compact?: boolean
         open?: boolean
         showConfigure?: boolean
+        onConfigure?: () => void
     }
 
     let {
         compact = false,
         open = $bindable(false),
         showConfigure = false,
+        onConfigure = () => {},
     }: Props = $props()
 
     let selectedFolder = $state('all')
@@ -51,6 +53,7 @@
 
     function configure() {
         open = false
+        onConfigure()
         OtherBotsSubmenuIndex.set(2)
         openSettings(SettingsRoute.OtherBots)
     }

@@ -17,6 +17,7 @@ import type {
     RecoverableGenerationJob,
     RevenantGenerationRequest,
     RevenantGenerationTerminal,
+    RevenantJobCreatedHandler,
 } from '../types'
 
 type RecoverableJournalJob = RecoverableGenerationJob | RecoverableAuxiliaryJob
@@ -191,7 +192,7 @@ export async function fetchViaGenerationJob(url: string, arg: {
     body?: Uint8Array
     signal?: AbortSignal
     requestTimeoutMs?: number
-    onJobCreated?: (jobId: string) => void
+    onJobCreated?: RevenantJobCreatedHandler
     onProviderStarted?: (startedAt: number) => void
     onTerminal?: (terminal: RevenantGenerationTerminal) => void
     generationRequest: RevenantGenerationRequest
@@ -230,8 +231,18 @@ export async function fetchViaGenerationJob(url: string, arg: {
         throw new GenerationJobRegistrationError(jobRes.status, await jobRes.text())
     }
 
-    const { jobId } = await jobRes.json() as { jobId: string }
-    arg.onJobCreated?.(jobId)
+    const { jobId, createdAt } = await jobRes.json() as {
+        jobId?: unknown
+        createdAt?: unknown
+    }
+    if (
+        typeof jobId !== 'string'
+        || typeof createdAt !== 'number'
+        || !Number.isFinite(createdAt)
+    ) {
+        throw new Error('Invalid generation job registration response')
+    }
+    arg.onJobCreated?.(jobId, createdAt)
     setRevenantGenerationLocallyObserved(jobId, true)
     trackRevenantGenerationWorkflow(jobId, arg.generationRequest.workflow?.workflowId)
     if (arg.generationRequest.job.jobType === 'model' && arg.generationRequest.job.chatId) {

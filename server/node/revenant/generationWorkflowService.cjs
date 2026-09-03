@@ -8,6 +8,7 @@ function createGenerationWorkflowService(options) {
         generationRuntimeJobs,
         markGenerationJobDone,
         abortHypaWorkflowExecution = () => {},
+        abortWorkflowWork = () => {},
         commitWorkflowInput = async () => {
             throw new Error('Workflow input commit service unavailable');
         },
@@ -58,6 +59,7 @@ function createGenerationWorkflowService(options) {
         }
 
         const hypaAbort = abortHypaWorkflowExecution(workflowId);
+        const workflowAbort = abortWorkflowWork(workflowId);
         await Promise.allSettled([
             abortJobs(result.jobs, status === 'cancelled'
                 ? {
@@ -72,6 +74,7 @@ function createGenerationWorkflowService(options) {
                     message: 'Generation workflow failed',
                 }),
             ...(hypaAbort && typeof hypaAbort.then === 'function' ? [hypaAbort] : []),
+            ...(workflowAbort && typeof workflowAbort.then === 'function' ? [workflowAbort] : []),
         ]);
         if (status === 'cancelled') {
             await materializeCancelledWorkflow(workflowId);

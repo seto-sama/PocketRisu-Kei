@@ -26,6 +26,7 @@ import { hasLuaEditRequestListener, runLuaEditTrigger } from "./scriptings";
 import { applyPromptPresetParams, resolveChatModelBinding, resolvePresetMaxOutputTokens } from "./request/modelPresetBinding";
 import { hasMessagePayload } from "./request/shared";
 import { type RevenantChatWorkflowContext, type RevenantWorkflow, type RevenantWorkflowDependency, type RevenantWorkflowStepStatus, type RevenantRerollSnapshot } from "./revenant";
+import { getComfyBridgeId } from './revenant/workflow/comfyBridgeId';
 import {
     cancelRevenantGeneration,
     checkpointRevenantGeneration,
@@ -50,6 +51,7 @@ import {
     type RevenantWorkflowResumeContext,
     waitForRevenantHypaExecution,
 } from "./revenant/workflow";
+import { observeRevenantServerImageActions } from './revenant/workflow/imageWorkflow';
 import {
     createChatGenerationSession,
     type ChatGenerationSession,
@@ -310,6 +312,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             }
             try{
                 const workflow = await getRevenantWorkflow(workflowId)
+                observeRevenantServerImageActions(workflow)
                 if(workflow.status === 'completed'){
                     updateWaiter.cancel()
                     // Workflow step metadata is a pre-merge projection. Install
@@ -1891,6 +1894,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             const workflowContext:RevenantChatWorkflowContext = {
                 schemaVersion: 1,
                 kind: 'chat-generation',
+                comfyBridgeId: getComfyBridgeId(),
                 inputCommit: {
                     schemaVersion: 1,
                     chat: safeStructuredClone(durableInputChat),
@@ -2026,7 +2030,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             revenantWorkflowDependency: revenantMainDependency,
             revenantRoomId: outgoingChat.id,
             revenantContinuationPrefix: continuationFallback,
-            onRevenantJobCreated: jobId => {
+            onRevenantJobCreated: (jobId, createdAt) => {
                 revenantMainJobCreated = true
                 revenantMainJobId = jobId
                 registerRevenantRequestStatus({
@@ -2036,9 +2040,9 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     roomId: outgoingChat.id,
                     kind: 'main',
                     label: generationInfo?.model,
-                    startedAt: Date.now(),
+                    startedAt: createdAt,
                 })
-                lifecycle.onJobCreated?.(jobId)
+                lifecycle.onJobCreated?.(jobId, createdAt)
             },
             onRevenantJobRegistrationUnavailable: error => {
                 revenantMainRegistrationError = error

@@ -12,7 +12,6 @@ import { getInlayAsset, writeInlayImage } from '../../files/inlays'
 import { requestModelPresetData } from '../../request/request'
 import { collectStreamingText } from '../../request/shared'
 import { extractLuaLlmInlays, normalizeLuaLlmPrompt } from '../../luaLlmCore'
-import { generateAIImageInlay } from '../../stableDiff'
 import { sayTTS } from '../../tts'
 import { runInlayScreen } from '../../inlayScreen'
 import { loadLoreBookV3Prompt } from '../../lorebook.svelte'
@@ -315,14 +314,6 @@ async function executeClientAction(
             const response = await fetchNative(url, { method: 'GET' })
             return JSON.stringify({ status: response.status, data: await response.text() })
         }
-        case 'image.generate': {
-            const inlay = await generateAIImageInlay(
-                String(payload.prompt ?? ''),
-                character,
-                String(payload.negativePrompt ?? ''),
-            )
-            return inlay || 'Error: Image generation failed'
-        }
         case 'asset.character-image': return assetToInlay(character.image)
         case 'asset.persona-image': return assetToInlay(getUserIcon())
         case 'utility.tokenize': return await tokenize(String(payload.text ?? ''))
@@ -388,7 +379,6 @@ function canExecuteClientAction(action: RevenantClientAction): boolean {
     if (action.kind.startsWith('provider.')) return true
     return action.kind.startsWith('ui.')
         || action.kind === 'network.request'
-        || action.kind === 'image.generate'
         || action.kind.startsWith('utility.')
         || action.kind.startsWith('asset.')
 }

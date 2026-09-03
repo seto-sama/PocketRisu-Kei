@@ -5,10 +5,9 @@
     import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
     import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte'
     import type { character as Character } from 'src/ts/storage/database.svelte'
-    import { generateAIImageInlay } from 'src/ts/process/stableDiff'
     import { notifyError } from 'src/ts/alert'
     import { DBState } from 'src/ts/stores.svelte'
-    import { onDestroy, onMount } from 'svelte'
+    import { onDestroy, onMount, untrack } from 'svelte'
     import { createBrowserDraftStore } from 'src/ts/storage/draftPersistence'
     import ImageGenerationPresetList from 'src/lib/UI/ImageGenerationPresetList.svelte'
     import { getCurrentImageGenerationPreset } from 'src/ts/imageGeneration/presets'
@@ -16,6 +15,13 @@
     import { applyImageStylePreset, listImageStylePresets } from 'src/ts/imageGeneration/stylePresets'
     import NumberInput from 'src/lib/UI/GUI/NumberInput.svelte'
     import Help from 'src/lib/Others/Help.svelte'
+    import {
+        beginImageGenerationWorkflow,
+        getActiveImageGenerationWorkflow,
+    } from 'src/ts/process/revenant/workflow'
+    import { observeRevenantImageGenerationWorkflow } from 'src/ts/process/revenant/workflow/imageWorkflow'
+    import { navigateToRequestStatusChat } from 'src/ts/status/requestStatusNavigation'
+    import type { RevenantWorkflow } from 'src/ts/process/revenant'
 
     const DRAFT_STORAGE_KEY = 'risu-image-generation-cache'
     interface ImageGenerationDraft { prompt: string; negativePrompt: string; seed?: number }
@@ -24,19 +30,16 @@
     interface Props {
         open?: boolean
         character: Character
-        onGenerated: (
-            reference: string,
-            target: { characterId: string, chatId: string },
-        ) => void | Promise<void>
     }
 
-    let { open = $bindable(false), character, onGenerated }: Props = $props()
+    let { open = $bindable(false), character }: Props = $props()
     let prompt = $state('')
     let negativePrompt = $state('')
     let seed = $state<number | undefined>(undefined)
     let generating = $state(false)
     let presetPickerOpen = $state(false)
     let stylePresetPickerOpen = $state(false)
+    let recovering = false
 
     onMount(() => {
         const cached = draftStore.load() as (Omit<ImageGenerationDraft, 'seed'> & {
@@ -61,6 +64,50 @@
         draftStore.schedule({ prompt, negativePrompt, seed })
     }
 
+    function activationFor(workflow: RevenantWorkflow): () => void {
+        return () => {
+            if (workflow.context?.kind !== 'image-generation') return
+            const target = workflow.context.target
+            if (!navigateToRequestStatusChat(workflow.context.messageId)) {
+                navigateToRequestStatusChat(target.roomId)
+            }
+        }
+    }
+
+    async function executeWorkflow(workflow: RevenantWorkflow) {
+        const context = workflow.context
+        if (context?.kind !== 'image-generation') return
+        await observeRevenantImageGenerationWorkflow(workflow, activationFor(workflow))
+    }
+
+    async function recoverActiveWorkflow() {
+        const roomId = character.chats?.[character.chatPage]?.id
+        if (!character.chaId || !roomId || generating || recovering) return
+        recovering = true
+        try {
+            const workflow = await getActiveImageGenerationWorkflow(character.chaId, roomId)
+            if (!workflow) return
+            generating = true
+            await executeWorkflow(workflow)
+        }
+        catch(error) {
+            notifyError(`${error}`)
+        }
+        finally {
+            generating = false
+            recovering = false
+        }
+    }
+
+    $effect(() => {
+        character.chaId
+        character.chats?.[character.chatPage]?.id
+        // Recovery changes `generating`/`recovering` itself. Keep those state
+        // writes out of this effect's dependency graph so a failed/busy claim
+        // cannot create a self-sustaining recovery loop.
+        untrack(() => void recoverActiveWorkflow())
+    })
+
     async function generate() {
         const trimmedPrompt = prompt.trim()
         if(!trimmedPrompt || generating) return
@@ -81,16 +128,16 @@
                 ? applyImageStylePreset(stylePreset.content, trimmedPrompt, trimmedNegativePrompt)
                 : { prompt: trimmedPrompt, negativePrompt: trimmedNegativePrompt }
             void draftStore.flush({ prompt, negativePrompt, seed })
-            const reference = await generateAIImageInlay(
-                requestPrompt.prompt,
-                character,
-                requestPrompt.negativePrompt,
-                target,
-                Number.isFinite(seed) ? seed : undefined,
-            )
-            if(!reference) return
-
-            await onGenerated(reference, target)
+            const currentPreset = getCurrentImageGenerationPreset(DBState.db)
+            const workflow = await beginImageGenerationWorkflow({
+                characterId: target.characterId,
+                roomId: target.chatId,
+                prompt: requestPrompt.prompt,
+                negativePrompt: requestPrompt.negativePrompt,
+                seed: Number.isFinite(seed) ? seed : undefined,
+                label: currentPreset.name,
+            })
+            await executeWorkflow(workflow)
             open = false
         }
         catch(error) {
@@ -102,14 +149,14 @@
     }
 </script>
 
-<ShDialog bind:open size="default" closeOnEscape={!generating && !presetPickerOpen && !stylePresetPickerOpen} closeOnOutsideClick={!generating && !presetPickerOpen && !stylePresetPickerOpen} closable={!generating}>
+<ShDialog bind:open size="default" closeOnEscape={!presetPickerOpen && !stylePresetPickerOpen} closeOnOutsideClick={!presetPickerOpen && !stylePresetPickerOpen} closable>
     {#snippet title()}{language.imageGeneration}{/snippet}
 
     <div>
         <div class="flex flex-col gap-2">
             <div class="flex min-h-8 items-center justify-between gap-3">
                 <span class="text-sm text-maintext">{language.imageGenerationPreset}</span>
-                <ImageGenerationPresetList compact bind:open={presetPickerOpen} showConfigure />
+                <ImageGenerationPresetList compact bind:open={presetPickerOpen} showConfigure onConfigure={() => { open = false }} />
             </div>
             <div class="flex min-h-8 items-center justify-between gap-3">
                 <span class="text-sm text-maintext">{language.imageStylePreset}</span>
@@ -144,8 +191,8 @@
     </div>
 
     {#snippet footer()}
-        <ShButton variant="outline" disabled={generating} onclick={() => { open = false }}>
-            {language.cancel}
+        <ShButton variant="outline" onclick={() => { open = false }}>
+            {generating ? language.close : language.cancel}
         </ShButton>
         <ShButton variant="primary" disabled={generating || !prompt.trim()} onclick={generate}>
             <ImageIcon />

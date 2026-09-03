@@ -44,6 +44,7 @@
         memory:    rs?.kindMemory ?? 'Memory',
         emotion:   rs?.kindEmotion ?? 'Emotion',
         sub:       rs?.kindSub ?? 'Sub',
+        image:     rs?.kindImage ?? 'Image',
     }
 
     // Accent bar / phase text color by phase.
@@ -76,6 +77,10 @@
     const right = $derived.by(() => {
         const e = entry
         if (!e) return null
+        if (e.progress) return {
+            label: rs?.step ?? 'step',
+            value: `${Math.round(e.progress.value)}/${Math.round(e.progress.max)}`,
+        }
         if (e.responseTokens > 0) return { label: rs?.outputTokens ?? 'out', value: fmt(e.responseTokens) }
         if (e.thinkingTokens > 0) return { label: rs?.thinkingTokensLabel ?? 'think', value: fmt(e.thinkingTokens) }
         return null

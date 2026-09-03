@@ -3,6 +3,7 @@ import { get } from 'svelte/store'
 import type { RevenantWorkflow } from '../types'
 import {
     activeRevenantWorkflows,
+    beginImageGenerationWorkflow,
     beginRevenantWorkflow,
     cancelRevenantWorkflow,
     completeChatGenerationPreModelPlan,
@@ -141,6 +142,56 @@ describe('revenant workflow resume checkpoint', () => {
             chatProcessIndex: -1,
             continue: false,
         }))).toBeUndefined()
+    })
+})
+
+describe('manual image workflow', () => {
+    it('uses a separate workflow room and durable target/message identifiers', async () => {
+        let submitted: any
+        vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+            submitted = JSON.parse(String(init?.body))
+            return new Response(JSON.stringify({
+                workflow: {
+                    workflowId: 'image-workflow-1',
+                    characterId: submitted.characterId,
+                    roomId: submitted.roomId,
+                    planVersion: 1,
+                    context: submitted.context,
+                    status: 'active',
+                    steps: [],
+                    createdAt: 1,
+                    updatedAt: 1,
+                },
+            }), { status: 200, headers: { 'content-type': 'application/json' } })
+        }))
+
+        await beginImageGenerationWorkflow({
+            characterId: 'character-1',
+            roomId: 'room-1',
+            prompt: 'portrait',
+            negativePrompt: 'blur',
+            seed: 42,
+            label: 'NovelAI',
+            projection: 'append',
+        })
+
+        expect(submitted.roomId).toBe('image-generation:room-1')
+        expect(submitted.plan).toEqual([expect.objectContaining({ key: 'image.generate' })])
+        expect(submitted.context).toMatchObject({
+            kind: 'image-generation',
+            target: { characterId: 'character-1', roomId: 'room-1' },
+            prompt: 'portrait',
+            negativePrompt: 'blur',
+            seed: 42,
+            label: 'NovelAI',
+        })
+        expect(submitted.context.operationId).toEqual(expect.any(String))
+        expect(submitted.context.messageId).toEqual(expect.any(String))
+
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ workflow: null }), { status: 200 }),
+        ))
+        await getActiveRevenantWorkflow('character-1', 'image-generation:room-1')
     })
 })
 

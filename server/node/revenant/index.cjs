@@ -12,6 +12,7 @@ module.exports = {
     ...require('./generationStream.cjs'),
     ...require('./generationWorkers.cjs'),
     ...require('./generationWorkflowService.cjs'),
+    ...require('./imageGenerationJobService.cjs'),
     ...require('./materializer.cjs'),
     ...require('./postprocessWorker.cjs'),
 };

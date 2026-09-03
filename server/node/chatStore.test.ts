@@ -147,6 +147,33 @@ describe('chat content compare-and-swap', () => {
 })
 
 describe('canonical chat service', () => {
+    it('commits a server-owned image projection and publishes the canonical chat', async () => {
+        const initial = { id: 'room-1', message: [{ chatId: 'image-1', data: 'old' }] }
+        const harness = createServiceHarness(initial)
+
+        const result = await harness.service.commitServerMutation({
+            characterId: 'character-1',
+            chatId: 'room-1',
+            reason: 'image-generation-result',
+            mutate: (chat: any) => {
+                chat.message[0].data = '{{inlayed::generated-1}}'
+            },
+        })
+
+        expect(result.chat.message[0].data).toBe('{{inlayed::generated-1}}')
+        expect(harness.persistNow).toHaveBeenCalledWith(expect.objectContaining({
+            characterId: 'character-1',
+            chatId: 'room-1',
+            chat: expect.objectContaining({
+                message: [expect.objectContaining({ data: '{{inlayed::generated-1}}' })],
+            }),
+        }))
+        expect(harness.publishChatCommitted).toHaveBeenCalledWith(
+            expect.objectContaining({ reason: 'image-generation-result' }),
+            undefined,
+        )
+    })
+
     it('commits generation input through the immediate durable boundary', async () => {
         const initial = { id: 'room-1', message: [] }
         const next = { id: 'room-1', message: [{ role: 'user', data: 'hello' }] }

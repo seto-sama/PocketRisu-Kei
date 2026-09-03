@@ -88,8 +88,8 @@ describe('LLM translation failure lifecycle', () => {
         let requestArg: Record<string, any> | undefined
         mocks.requestChatData.mockImplementationOnce(async (arg) => {
             requestArg = arg
-            arg.onRevenantJobCreated?.('failed-attempt-1')
-            arg.onRevenantJobCreated?.('failed-attempt-2')
+            arg.onRevenantJobCreated?.('failed-attempt-1', 1000)
+            arg.onRevenantJobCreated?.('failed-attempt-2', 2000)
             return {
                 type: 'fail',
                 noRetry: true,

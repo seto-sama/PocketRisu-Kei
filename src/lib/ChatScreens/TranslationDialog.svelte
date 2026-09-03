@@ -104,6 +104,7 @@
                         bind:value={DBState.db.translationDialogPromptPresetId}
                         bind:open={promptPickerOpen}
                         showConfigure
+                        onConfigure={() => { open = false }}
                     />
                 </div>
                 <div class="flex min-h-8 items-center justify-between gap-3">
@@ -113,6 +114,7 @@
                         bind:value={DBState.db.translationDialogModelPresetId}
                         bind:open={modelPickerOpen}
                         showConfigure
+                        onConfigure={() => { open = false }}
                         blankable
                     />
                 </div>

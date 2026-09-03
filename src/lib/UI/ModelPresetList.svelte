@@ -21,6 +21,7 @@
         showConfigure?: boolean;
         open?: boolean;
         pickerOnly?: boolean;
+        onConfigure?: () => void;
     }
 
     let {
@@ -34,6 +35,7 @@
         showConfigure = false,
         open = $bindable(false),
         pickerOnly = false,
+        onConfigure = () => {},
     }: Props = $props();
 
     let selectedFolder = $state('all');
@@ -66,6 +68,7 @@
 
     function goToPresetSettings() {
         open = false;
+        onConfigure();
         openSettings(SettingsRoute.ModelPreset, undefined, undefined, ModelPresetTab.Options);
     }
 
