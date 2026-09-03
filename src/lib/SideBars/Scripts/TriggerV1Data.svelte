@@ -134,7 +134,7 @@
                             <OptionInput value="regex">{language.triggerMatchRegex}</OptionInput>
                         </SelectInput>
                         <span  class="text-textcolor2 text-sm">{language.value}</span>
-                        <TextAreaInput highlight bind:value={cond.value} />
+                        <TextAreaInput bind:value={cond.value} />
 
                         <span  class="text-textcolor2 text-sm">{language.searchDepth}</span>
                         <NumberInput size="sm" bind:value={cond.depth} />
@@ -145,7 +145,7 @@
                             <TextInput size="sm" bind:value={cond.var} />
                         {/if}
                         {#if cond.type === 'value'}
-                            <TextAreaInput highlight size="sm" bind:value={cond.var} />
+                            <TextAreaInput size="sm" bind:value={cond.var} />
                         {/if}
                         <span  class="text-textcolor2 text-sm">{language.value}</span>
                         <SelectInput bind:value={cond.operator} size="sm">
@@ -160,7 +160,7 @@
 
                         </SelectInput>
                         {#if cond.operator !== 'null' && cond.operator !== 'true'}
-                            <TextAreaInput highlight size="sm" bind:value={cond.value} />
+                            <TextAreaInput size="sm" bind:value={cond.value} />
                         {/if}
                     {/if}
                 {/each}
@@ -357,7 +357,7 @@
                             <OptionInput value="promptend">{language.promptend}</OptionInput>
                         </SelectInput>
                         <span class="text-textcolor2 text-sm">{language.value}</span>
-                        <TextAreaInput highlight bind:value={effect.value} />
+                        <TextAreaInput bind:value={effect.value} />
                     {/if}
                     {#if effect.type === 'setvar'}
                         <span class="text-textcolor2 text-sm">{language.varableName}</span>
@@ -371,7 +371,7 @@
                             <OptionInput value="/=">{language.TriggerDivToVar}</OptionInput>
                         </SelectInput>
                         <span class="text-textcolor2 text-sm">{language.value}</span>
-                        <TextAreaInput highlight bind:value={effect.value} />
+                        <TextAreaInput bind:value={effect.value} />
                     {/if}
 
                     {#if effect.type === 'runtrigger'}
@@ -380,21 +380,21 @@
                     {/if}
                     {#if effect.type === 'command'}
                         <span class="text-textcolor2 text-sm">{language.value}</span>
-                        <TextAreaInput highlight bind:value={effect.value} />
+                        <TextAreaInput bind:value={effect.value} />
                     {/if}
                     {#if effect.type === 'runLLM'}
                         <span class="text-textcolor2 text-sm">{language.prompt}<Help key="triggerLLMPrompt" /></span>
-                        <TextAreaInput highlight bind:value={effect.value} />
+                        <TextAreaInput bind:value={effect.value} />
 
                         <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
                         <TextInput bind:value={effect.inputVar} />
                     {/if}
                     {#if effect.type === 'checkSimilarity'}
                         <span class="text-textcolor2 text-sm">{language.prompt}</span>
-                        <TextAreaInput highlight bind:value={effect.source} />
+                        <TextAreaInput bind:value={effect.source} />
 
                         <span class="text-textcolor2 text-sm">{language.value}</span>
-                        <TextAreaInput highlight bind:value={effect.value} />
+                        <TextAreaInput bind:value={effect.value} />
 
                         <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
                         <TextInput bind:value={effect.inputVar} />
@@ -409,7 +409,7 @@
                         </SelectInput>
 
                         <span class="text-textcolor2 text-sm">{language.value}</span>
-                        <TextAreaInput highlight bind:value={effect.value} />
+                        <TextAreaInput bind:value={effect.value} />
 
                         <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
                         <TextInput bind:value={effect.inputVar} />
@@ -421,12 +421,12 @@
                             <OptionInput value="char">{language.character}</OptionInput>
                         </SelectInput>
                         <span class="text-textcolor2 text-sm">{language.value}</span>
-                        <TextAreaInput highlight bind:value={effect.value} />
+                        <TextAreaInput bind:value={effect.value} />
                     {/if}
 
                     {#if effect.type === 'extractRegex'}
                         <span class="text-textcolor2 text-sm">{language.value}</span>
-                        <TextAreaInput highlight bind:value={effect.value} />
+                        <TextAreaInput bind:value={effect.value} />
 
                         <span class="text-textcolor2 text-sm">{language.regex}</span>
                         <TextInput bind:value={effect.regex} />
@@ -443,10 +443,10 @@
 
                     {#if effect.type === 'runImgGen'}
                         <span class="text-textcolor2 text-sm">{language.prompt}</span>
-                        <TextAreaInput highlight bind:value={effect.value} />
+                        <TextAreaInput bind:value={effect.value} />
 
                         <span class="text-textcolor2 text-sm">{language.negPrompt}</span>
-                        <TextAreaInput highlight bind:value={effect.negValue} />
+                        <TextAreaInput bind:value={effect.negValue} />
 
                         <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
                         <TextInput bind:value={effect.inputVar} />
@@ -465,13 +465,13 @@
                         <TextInput bind:value={effect.index} />
 
                         <span class="text-textcolor2 text-sm">{language.value}</span>
-                        <TextAreaInput highlight bind:value={effect.value} />
+                        <TextAreaInput bind:value={effect.value} />
                     
                     {/if}
 
                     {#if effect.type === 'runAxLLM'}
                     <span class="text-textcolor2 text-sm">{language.prompt}<Help key="triggerLLMPrompt" /></span>
-                    <TextAreaInput highlight bind:value={effect.value} />
+                    <TextAreaInput bind:value={effect.value} />
 
                     <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
                     <TextInput bind:value={effect.inputVar} />

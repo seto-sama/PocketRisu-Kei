@@ -404,8 +404,7 @@ export const languageSpanish = {
         "helpSlot": "Usa {{slot}} para mantener sin cambios",
         "expression": "Expresión"
     },
-    "playground": {
-        "playground": "Playground",
+    "inlayGallery": {
         "inlayDeleteConfirm": "¿Estás seguro de que deseas eliminar \"{name}\"?",
         "inlayDeleteMultipleConfirm": "¿Estás seguro de que deseas eliminar los {count} recursos seleccionados?",
         "inlayDeleteSelected": "Eliminar seleccionados",
@@ -733,7 +732,6 @@ export const languageSpanish = {
     "rangeStart": "Inicio del Rango",
     "rangeEnd": "Fin del Rango",
     "untilChatEnd": "Hasta el Fin del Chat",
-    "usePromptTemplate": "Usar Plantilla de Prompt",
     "specialType": "Tipo Especial",
     "noSpecialType": "Sin Tipo Especial",
     "promptTemplate": "Plantilla de Prompt",
@@ -837,6 +835,7 @@ export const languageSpanish = {
     "enable": "Habilitar",
     "postFile": "Publicar Archivo",
     "requestInfoInsideChat": "Mostrar Información de la Solicitud Dentro del Chat",
+    "stickyChatToolbar": "Mantener visibles la barra de herramientas y la información de la solicitud al desplazarse",
     "inputTokens": "Tokens de Entrada",
     "outputTokens": "Tokens de Salida",
     "tokenWarning": "El cálculo de tokens puede ser inexacto. se recomienda usarlo como referencia.",
@@ -945,8 +944,6 @@ export const languageSpanish = {
     "moduleIntergration": "Integración de Módulos",
     "previewInfo": "Esta vista previa muestra el prompt antes del procesamiento específico del modelo.",
     "miscTools": "Herramientas Varias",
-    "promptConvertion": "Conversión de Prompt",
-    "convertionStep1": "Selecciona todos los archivos relacionados con el prompt (Contexto, Instrucción y Sampler JSON compatibles)",
     "customCSS": "CSS Personalizado",
     "betaMobileGUI": "GUI Móvil Beta",
     "menu": "Menú",
@@ -1097,7 +1094,6 @@ export const languageSpanish = {
     "alwaysActiveInChat": "Siempre Activo (Chat Actual)",
     "childLoreDesc": "Esta es una copia del lore del Personaje que permanece 'Siempre Activo' hasta que se elimine o desactive manualmente en el original.",
     "thinkingTokens": "Tokens de Pensamiento",
-    "antiServerOverload": "Anti-Sobrecarga del Servidor",
     "localActivationInGlobalLorebook": "Activación por chat del libro de lore del personaje",
     "cachePoint": "Punto de Caché",
     "all": "Todos",

@@ -3,6 +3,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, tick, unmount } from 'svelte'
 import ShDialog from './ShDialog.svelte'
+import { overlayLayerMinimum } from 'src/ts/gui/overlayStack'
+import OverlayStackHarness from './OverlayStackHarness.test.svelte'
 
 const mounted: unknown[] = []
 
@@ -12,6 +14,45 @@ afterEach(async () => {
 })
 
 describe('ShDialog close requests', () => {
+    it('closes with Escape by default when outside click closing is enabled', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const onOpenChange = vi.fn()
+        const component = mount(ShDialog, {
+            target,
+            props: { open: true, onOpenChange },
+        })
+        mounted.push(component)
+        await tick()
+
+        document.querySelector<HTMLElement>('[role="dialog"]')!.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Escape',
+                code: 'Escape',
+                bubbles: true,
+                cancelable: true,
+            }),
+        )
+        await tick()
+
+        expect(onOpenChange).toHaveBeenLastCalledWith(false)
+    })
+
+    it('uses the shared dynamic overlay layer', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(ShDialog, {
+            target,
+            props: { open: true },
+        })
+        mounted.push(component)
+        await tick()
+
+        const layer = Number(document.querySelector<HTMLElement>('[role="dialog"]')
+            ?.style.getPropertyValue('--risu-overlay-z'))
+        expect(layer).toBeGreaterThanOrEqual(overlayLayerMinimum)
+    })
+
     it('intercepts Escape and the close button without closing the dialog', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
@@ -44,5 +85,62 @@ describe('ShDialog close requests', () => {
 
         expect(onRequestClose).toHaveBeenCalledTimes(2)
         expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    })
+
+    it('places a select opened from a dialog above its parent dialog', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(OverlayStackHarness, { target })
+        mounted.push(component)
+        await tick()
+
+        document.querySelector<HTMLElement>('[role="combobox"]')!.click()
+        await tick()
+
+        const dialogLayer = Number(document.querySelector<HTMLElement>('[role="dialog"]')
+            ?.dataset.risuOverlayLayer)
+        const selectLayer = Number(document.querySelector<HTMLElement>('[role="listbox"]')
+            ?.parentElement?.dataset.risuOverlayLayer)
+        const selectLayerRoot = document.querySelector<HTMLElement>('[role="listbox"]')?.parentElement
+        expect(selectLayer).toBeGreaterThan(dialogLayer)
+        expect(selectLayerRoot?.style.position).toBe('fixed')
+        expect(selectLayerRoot?.style.width).toBe('0px')
+        expect(selectLayerRoot?.style.height).toBe('0px')
+        expect(Number(selectLayerRoot?.style.zIndex)).toBe(selectLayer)
+    })
+
+    it('does not register a plain portal as an overlay', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(OverlayStackHarness, { target })
+        mounted.push(component)
+        await tick()
+
+        const plainPortal = document.querySelector<HTMLElement>('[data-testid="plain-portal"]')!
+        expect(plainPortal.parentElement).toBe(document.body)
+        expect(plainPortal.closest('[data-risu-overlay-layer]')).toBeNull()
+    })
+
+    it('places a dropdown menu above its parent dialog', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(OverlayStackHarness, { target })
+        mounted.push(component)
+        await tick()
+
+        document.querySelector<HTMLButtonElement>('[data-testid="menu-trigger"]')!.click()
+        await tick()
+
+        const dialogLayer = Number(document.querySelector<HTMLElement>('[role="dialog"]')
+            ?.dataset.risuOverlayLayer)
+        const menu = document.querySelector<HTMLElement>('[data-slot="dropdown-menu-content"]')!
+        const menuLayerRoot = menu.closest<HTMLElement>('[data-risu-overlay-layer]')!
+        const menuLayer = Number(menuLayerRoot.dataset.risuOverlayLayer)
+        expect(menuLayer).toBeGreaterThan(dialogLayer)
+        expect(menuLayerRoot.hasAttribute('data-risu-dialog-interactive')).toBe(true)
+
+        document.querySelector<HTMLElement>('[data-slot="dropdown-menu-item"]')!.click()
+        await tick()
+        expect(document.querySelector('[data-testid="menu-selections"]')?.textContent).toBe('1')
     })
 })

@@ -6,7 +6,7 @@ import { nodeOnlyVer, type MessageGenerationInfo } from "./storage/database.svel
 import { alertStore as alertStoreImported, togglePresetsOpenStore } from "./stores.svelte"
 import { addLog } from "./log"
 import { nativeConsoleError } from "./log-capture"
-import type { ShButtonVariant } from "../lib/UI/GUI/ShButton.svelte"
+import type { ShButtonVariant } from "../lib/UI/GUI/ShButton.types"
 
 /**
  * Action descriptor for dialog buttons. Reusable across any alert type
@@ -27,7 +27,7 @@ export interface alertData{
     type: 'error'|'normal'|'none'|'ask'|'wait'|'selectChar'
             |'input'|'wait2'|'markdown'|'select'|'login'
             |'tos'|'cardexport'|'requestdata'|'addchar'|'selectModule'
-            |'pukmakkurit'|'branches'|'progress'|'pluginconfirm'
+            |'pukmakkurit'|'progress'|'pluginconfirm'
             |'confirmMulti',
     msg: string,
     submsg?: string

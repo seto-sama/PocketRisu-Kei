@@ -466,15 +466,25 @@ export async function getElevenTTSVoices() {
 
 export async function getVOICEVOXVoices() {
     const db = getDatabase();
-    const speakerData = await fetch(`${db.voicevoxUrl}/speakers`)
+    const baseUrl = db.voicevoxUrl.trim().replace(/\/+$/, '')
+    if (!baseUrl) throw new Error('VOICEVOX URL is not configured')
+
+    const speakerData = await fetch(`${baseUrl}/speakers`)
+    if (!speakerData.ok) {
+        throw new Error(`VOICEVOX speakers request failed: ${speakerData.status}`)
+    }
+
     const speakerList = await speakerData.json()
+    if (!Array.isArray(speakerList)) {
+        throw new Error('VOICEVOX speakers response is not an array')
+    }
     const speakersInfo = speakerList.map((speaker) => {
       const styles = speaker.styles.map((style) => {
         return {name: style.name, id: `${style.id}`}
       })
       return {name: speaker.name, list: JSON.stringify(styles)}
     })
-    speakersInfo.unshift({ name: "None", list: null})
+    speakersInfo.unshift({ name: language.none, list: ''})
     return speakersInfo;
 }
 

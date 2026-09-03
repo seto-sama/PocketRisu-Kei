@@ -21,6 +21,14 @@ describe('revenant translation targets', () => {
         expect(prepareRevenantTranslationRequest('other', false).operationContext.target).toBeNull()
     })
 
+    it('keeps an isolated cache key without changing the text sent for translation', () => {
+        const request = prepareRevenantTranslationRequest('hello', false, null, 'dialog-cache-key')
+
+        expect(request.cacheKey).toBe('dialog-cache-key')
+        expect(request.requestText).toBe('hello')
+        expect(request.operationContext.cacheKey).toBe('dialog-cache-key')
+    })
+
     it('follows a message id when its index moves', () => {
         expect(revenantTranslationTargetsMatch(target, {
             ...target,

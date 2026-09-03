@@ -11,6 +11,9 @@ export interface AdapterRequestContext {
     credential?: AdapterCredential
     abortSignal?: AbortSignal
     stream?: boolean
+    // Adapter-derived defaults that participate in the normal body precedence:
+    // schema/user values < generated defaults < customBody < additional params.
+    generatedBodyDefaults?: Record<string, unknown>
     // Raw Service Account JSON string as it stood BEFORE `resolveAdapterCredential`
     // swapped it for an OAuth access token. Threaded through by
     // `prepareAdapterRequest` so the Vertex endpoint builder can recover the GCP
@@ -44,6 +47,7 @@ export interface AdapterError {
     kind: AdapterErrorKind
     message: string
     status?: number
+    retryAfterMs?: number
     retryable: boolean
     fallbackEligible: boolean
     cause?: unknown
@@ -193,6 +197,10 @@ export interface AdapterCacheContext {
 
 export interface AdapterChatOptions {
     messages: AdapterChatMessage[]
+    // Automatically derived GPT-5.6 prompt-cache routing key. The Responses
+    // adapter applies it only when the preset did not explicitly configure
+    // prompt_cache_key through custom body / additional parameters.
+    promptCacheKey?: string
     tools?: AdapterToolDef[]             // when present, enables tool use on the request
     // Prompt → Advanced JSON Schema, resolved once by request.ts and translated
     // to each provider's structured-output wire by the adapter.

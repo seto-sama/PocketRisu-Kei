@@ -7,14 +7,13 @@
     import type { Snippet } from 'svelte';
     import { LoaderCircleIcon } from '@lucide/svelte';
     import { cn } from 'src/lib/utils';
-    import ShDialog, { type ShDialogTier } from './ShDialog.svelte';
+    import ShDialog from './ShDialog.svelte';
 
     interface Props {
         open?: boolean;
         message?: string;
         submessage?: string;
         progress?: number | null;
-        tier?: ShDialogTier;
         contentClass?: string;
         extra?: Snippet;
     }
@@ -24,7 +23,6 @@
         message = '',
         submessage = '',
         progress = null,
-        tier = 'alert',
         contentClass = '',
         extra,
     }: Props = $props();
@@ -37,7 +35,6 @@
 
 <ShDialog
     bind:open
-    {tier}
     closable={false}
     closeOnEscape={false}
     closeOnOutsideClick={false}

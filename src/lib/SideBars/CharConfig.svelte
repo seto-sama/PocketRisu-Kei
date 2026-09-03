@@ -6,7 +6,6 @@
     import { DBState } from 'src/ts/stores.svelte';
     import { CharConfigSubMenu, MobileGUI, selectedCharID } from "../../ts/stores.svelte";
     import { PlusIcon, TrashIcon, DownloadIcon, HardDriveUploadIcon, ArrowUp, ArrowDown, TriangleAlertIcon } from '@lucide/svelte'
-    import Check from "../UI/GUI/CheckInput.svelte";
     import { getCharImage, selectCharImg, removeChar, changeCharImage } from "../../ts/characters";
     import LoreBook from "./LoreBook/LoreBookSetting.svelte";
     import { getAuthorNoteDefaultText, selectSingleFile } from "../../ts/util";
@@ -28,10 +27,12 @@
     import MultiLangInput from "../UI/GUI/MultiLangInput.svelte";
     import { exportCharacterPackage, importPackageToCharacter } from "src/ts/characterPackage";
     import { exportRegex, importRegex } from "src/ts/process/scripts";
-    import SliderInput from "../UI/GUI/SliderInput.svelte";
     import Accordion from "../UI/Accordion.svelte";
     import ShSettings from "../UI/GUI/ShSettings.svelte";
     import ShSwitch from "../UI/GUI/ShSwitch.svelte";
+    import ShSelect from "../UI/GUI/ShSelect.svelte";
+    import ShSlider from "../UI/GUI/ShSlider.svelte";
+    import SettingLayout from "../Setting/Wrappers/SettingLayout.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import AdditionalAssetsEditor from "../UI/AdditionalAssetsEditor.svelte";
@@ -43,6 +44,46 @@
     let pkgIncludeInlays = $state(false)
     let addingCreatorNotesLang = $state(false)
     let viewSubMenu = $state(0)
+    const gptSoVitsLanguageOptions = [
+        ['auto', 'Multi-language Mixed'],
+        ['auto_yue', 'Multi-language Mixed (Cantonese)'],
+        ['en', 'English'],
+        ['zh', 'Chinese-English Mixed'],
+        ['ja', 'Japanese-English Mixed'],
+        ['yue', 'Cantonese-English Mixed'],
+        ['ko', 'Korean-English Mixed'],
+        ['all_zh', 'Chinese'],
+        ['all_ja', 'Japanese'],
+        ['all_yue', 'Cantonese'],
+        ['all_ko', 'Korean'],
+    ] as const
+    const gptSoVitsTextSplitOptions = [
+        ['cut0', 'Cut 0 (No splitting)'],
+        ['cut1', 'Cut 1 (Split every 4 sentences)'],
+        ['cut2', 'Cut 2 (Split every 50 characters)'],
+        ['cut3', 'Cut 3 (Split by Chinese periods)'],
+        ['cut4', 'Cut 4 (Split by English periods)'],
+        ['cut5', 'Cut 5 (Split by various punctuation marks)'],
+    ] as const
+
+    function parseVoicevoxStyles(value?: string) {
+        if (!value) return [] as { name: string; id: string }[]
+        try {
+            const styles = JSON.parse(value)
+            if (!Array.isArray(styles)) return []
+            return styles.filter((style): style is { name: string; id: string } => (
+                typeof style?.name === 'string' && typeof style?.id === 'string'
+            ))
+        } catch {
+            return []
+        }
+    }
+
+    let voicevoxUrl = $derived(DBState.db.voicevoxUrl.trim())
+    let voicevoxStyles = $derived(parseVoicevoxStyles(
+        DBState.db.characters[$selectedCharID].voicevoxConfig.speaker
+    ))
+
     let licensed = $state((DBState.db.characters[$selectedCharID].type === 'character') ? (DBState.db.characters[$selectedCharID] as character).license : '')
 
 
@@ -196,7 +237,7 @@
         <span class="text-textcolor">{language.nickname}<Help key="nickname" /></span>
         <ShInput className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].nickname}/>
         <span class="text-textcolor">{language.description}<Help key="charDesc"/></span>
-        <TextAreaInput highlight margin="both" autocomplete="off" bind:value={(DBState.db.characters[$selectedCharID] as character).desc}></TextAreaInput>
+        <TextAreaInput margin="both" autocomplete="off" bind:value={(DBState.db.characters[$selectedCharID] as character).desc}></TextAreaInput>
         <TokenCount value={(DBState.db.characters[$selectedCharID] as character).desc} className="mb-4" />
     {/if}
     <span class="text-textcolor">{language.authorNote}<Help key="chatNote"/></span>
@@ -204,13 +245,12 @@
         margin="both"
         autocomplete="off"
         bind:value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note}
-        highlight
         placeholder={getAuthorNoteDefaultText()}
     />
     <TokenCount value={DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].note} className="mb-4" />
     {#if licensed !== 'private'}
         <span class="text-textcolor">{language.firstMessage}<Help key="charFirstMessage"/></span>
-        <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></TextAreaInput>
+        <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].firstMessage}></TextAreaInput>
         <TokenCount value={DBState.db.characters[$selectedCharID].firstMessage} className="mb-4" />
 
         <div class="flex w-full items-center justify-between text-textcolor">
@@ -232,7 +272,7 @@
             <div class="mt-2">
                 <div class="flex items-center gap-1">
                     <div class="min-w-0 flex-1">
-                        <TextAreaInput highlight bind:value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} placeholder="..." fullwidth />
+                        <TextAreaInput bind:value={DBState.db.characters[$selectedCharID].alternateGreetings[i]} placeholder="..." fullwidth />
                     </div>
                     <div class="flex flex-col items-center text-textcolor2">
                         <button class="p-1 risu-interactive-accent disabled:opacity-30" onclick={() => moveAlternateGreetingUp(i)} disabled={i === 0}>
@@ -367,7 +407,7 @@
             </div>
 
         {#if DBState.db.characters[$selectedCharID].image !== ''}
-            <ShSettings spacing="divided" className="mt-4">
+            <ShSettings spacing="spaced" className="mt-4">
                 <ShSettings variant="row">
                     <span class="min-w-0 text-textcolor">{language.largePortrait}</span>
                     <ShSwitch bind:checked={(DBState.db.characters[$selectedCharID] as character).largePortrait}/>
@@ -377,7 +417,7 @@
 
 
     {:else if viewSubMenu === 1}
-        <ShSettings spacing="divided" className="mb-3">
+        <ShSettings spacing="spaced" className="mb-3">
             <ShSettings variant="row">
                 <span class="min-w-0 text-textcolor">{language.enableEmotionImages}</span>
                 <ShSwitch
@@ -406,13 +446,13 @@
 
             {#if (DBState.db.characters[$selectedCharID] as character).inlayViewScreen}
                 <span class="mt-3 block text-textcolor">{language.emotionInstructions}</span>
-                <TextAreaInput highlight bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.emotionInstructions} />
+                <TextAreaInput bind:value={(DBState.db.characters[$selectedCharID] as character).newGenData.emotionInstructions} />
             {/if}
         {/if}
     {:else if viewSubMenu === 2}
 
             {#if DBState.db.newImageHandlingBeta}
-            <CheckInput bind:check={DBState.db.characters[$selectedCharID].prebuiltAssetCommand} name={language.insertAssetPrompt}/>
+            <CheckInput card bind:check={DBState.db.characters[$selectedCharID].prebuiltAssetCommand} name={language.insertAssetPrompt}/>
 
             {#if DBState.db.characters[$selectedCharID].prebuiltAssetCommand}
 
@@ -451,7 +491,7 @@
         {/if}
 
         <span class="block text-textcolor">{language.backgroundHTML}<Help key="backgroundHTML" /></span>
-        <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].backgroundHTML}></TextAreaInput>
+        <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].backgroundHTML}></TextAreaInput>
 
         <span class="mt-2 text-textcolor">{language.regexScript}<Help key="regexScript"/></span>
         <RegexList bind:value={DBState.db.characters[$selectedCharID].customscript} actionIconSize="default" />
@@ -574,7 +614,7 @@
             <h2 class="mb-2 text-2xl font-bold mt-2">TTS</h2>
         {/if}
         <span class="text-textcolor">{language.provider}</span>
-        <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].ttsMode} onchange={(e) => {
+        <ShSelect className="mb-4 mt-2 w-full" bind:value={DBState.db.characters[$selectedCharID].ttsMode} onchange={() => {
             if(DBState.db.characters[$selectedCharID].type === 'character'){
                 (DBState.db.characters[$selectedCharID] as character).ttsSpeech = ''
             }
@@ -589,7 +629,7 @@
             <OptionInput value="vits">VITS</OptionInput>
             <OptionInput value="gptsovits">GPT-SoVITS</OptionInput>
             <OptionInput value="fishspeech">fish-speech</OptionInput>
-        </SelectInput>
+        </ShSelect>
         
 
         {#if DBState.db.characters[$selectedCharID].ttsMode === 'webspeech'}
@@ -619,18 +659,25 @@
                 </SelectInput>
             {/await}
          {:else if DBState.db.characters[$selectedCharID].ttsMode === 'VOICEVOX'}
+            {#if !voicevoxUrl}
+                <p class="rounded-md border border-darkborderc/50 bg-darkbg/30 px-3 py-2 text-sm text-textcolor2">
+                    {language.ttsVoicevoxUrlRequired}
+                </p>
+            {:else}
                 <span class="text-textcolor">Speaker</span>
                 <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].voicevoxConfig.speaker}>
                     {#await getVOICEVOXVoices() then voices}
                         {#each voices as voice}
                             <OptionInput value={voice.list}  selected={DBState.db.characters[$selectedCharID].voicevoxConfig.speaker === voice.list}>{voice.name}</OptionInput>
                         {/each}
+                    {:catch}
+                        <OptionInput value="">{language.ttsVoicevoxLoadError}</OptionInput>
                     {/await}
                 </SelectInput>
-                {#if DBState.db.characters[$selectedCharID].voicevoxConfig.speaker}
+                {#if voicevoxStyles.length > 0}
                 <span class="text=neutral-200">Style</span>
                 <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].ttsSpeech}>
-                {#each JSON.parse(DBState.db.characters[$selectedCharID].voicevoxConfig.speaker) as styles}
+                {#each voicevoxStyles as styles}
                         <OptionInput value={styles.id} selected={DBState.db.characters[$selectedCharID].ttsSpeech === styles.id}>{styles.name}</OptionInput>
                 {/each}
                 </SelectInput>
@@ -646,10 +693,12 @@
 
                 <span class="text-textcolor">Intonation scale</span>
                 <NumberInput marginBottom bind:value={DBState.db.characters[$selectedCharID].voicevoxConfig.INTONATION_SCALE}/>
-                <span class="text-sm mb-2 text-textcolor2">To use VOICEVOX, you need to run a colab and put the localtunnel URL in "Settings → Other Bots". https://colab.research.google.com/drive/1tyeXJSklNfjW-aZJAib1JfgOMFarAwze</span>
+            {/if}
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'novelai'}
-            <span class="text-textcolor">Custom Voice Seed</span>
-            <Check bind:check={DBState.db.characters[$selectedCharID].naittsConfig.customvoice}/>
+            <ShSettings variant="row">
+                <span class="min-w-0 text-textcolor">Custom Voice Seed</span>
+                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].naittsConfig.customvoice}/>
+            </ShSettings>
             {#if !DBState.db.characters[$selectedCharID].naittsConfig.customvoice}
                 <span class="text-textcolor">Voice</span>
                 <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].naittsConfig.voice}>
@@ -687,8 +736,10 @@
                     placeholder={DBState.db.characters[$selectedCharID].oaiVoice || 'alloy'} />
             {/if}
 
-            <span class="text-textcolor">Advanced (OpenAI-compatible endpoint)</span>
-            <Check bind:check={DBState.db.characters[$selectedCharID].oaiTTSConfig.enabled} />
+            <ShSettings variant="row">
+                <span class="min-w-0 text-textcolor">Advanced (OpenAI-compatible endpoint)</span>
+                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].oaiTTSConfig.enabled} />
+            </ShSettings>
 
             {#if DBState.db.characters[$selectedCharID].oaiTTSConfig?.enabled}
                 <span class="text-textcolor">Base URL</span>
@@ -736,108 +787,106 @@
                 }
             }}>{language.selectModel}</ShButton>
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'gptsovits'}
-            <span class="text-textcolor">Volume</span>
-            <SliderInput min={0.0} max={1.0} step={0.01} fixed={2} bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.volume}/>
-            <span class="text-textcolor">URL</span>
-            <ShInput className="mb-4 mt-2" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.url}/>
-
-            <span class="text-textcolor">Use Auto Path</span>
-            <Check bind:check={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_auto_path}/>
+            <SettingLayout variant="row" title="Volume">
+                {#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.01} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.volume}/></div>{/snippet}
+            </SettingLayout>
+            <SettingLayout variant="row" title="URL">
+                {#snippet control()}<ShInput className="w-48" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.url}/>{/snippet}
+            </SettingLayout>
+            <SettingLayout variant="row" title="Use Auto Path">
+                {#snippet control()}<ShSwitch bind:checked={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_auto_path}/>{/snippet}
+            </SettingLayout>
 
             {#if !DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_auto_path}
-                <span class="text-textcolor">Reference Audio Path (e.g. C:/Users/user/Downloads/GPT-SoVITS-v2-240821)</span>
-                <ShInput className="mb-4 mt-2" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_path}/>
+                <SettingLayout
+                    variant="row"
+                    title="Reference Audio Path"
+                    description="e.g. C:/Users/user/Downloads/GPT-SoVITS-v2-240821"
+                >
+                    {#snippet control()}<ShInput className="w-48" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_path}/>{/snippet}
+                </SettingLayout>
             {/if}
 
-            <span class="text-textcolor">Use Long Audio</span>
-            <Check bind:check={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}/>
-
-            <span class="text-textcolor">Reference Audio Data (3~10s audio file)</span>
-            <ShButton onclick={async () => {
-                const audio = await selectSingleFile([
-                    'wav',
-                    'ogg',
-                    'aac',
-                    'mp3'
-                ])
-                if(!audio){
-                    return null
-                }
-                const saveId = await saveAsset(audio.data)
-                DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_data = {
-                    fileName: audio.name,
-                    assetId: saveId
-                }
-
-            }}
-            className="h-10">
-                
-                {#if DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_data.assetId === '' || DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_data.assetId === undefined}
-                    {language.selectFile}
-                {:else}
-                    {DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_data.fileName}
-                {/if}
-            </ShButton>
-            <span class="text-textcolor">Text Language</span>
-            <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_lang}>
-                <OptionInput value="auto">Multi-language Mixed</OptionInput>
-                <OptionInput value="auto_yue">Multi-language Mixed (Cantonese)</OptionInput>
-                <OptionInput value="en">English</OptionInput>
-                <OptionInput value="zh">Chinese-English Mixed</OptionInput>
-                <OptionInput value="ja">Japanese-English Mixed</OptionInput>
-                <OptionInput value="yue">Cantonese-English Mixed</OptionInput>
-                <OptionInput value="ko">Korean-English Mixed</OptionInput>
-                <OptionInput value="all_zh">Chinese</OptionInput>
-                <OptionInput value="all_ja">Japanese</OptionInput>
-                <OptionInput value="all_yue">Cantonese</OptionInput>
-                <OptionInput value="all_ko">Korean</OptionInput>
-            </SelectInput>
+            <SettingLayout variant="row" title="Use Long Audio">
+                {#snippet control()}<ShSwitch bind:checked={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}/>{/snippet}
+            </SettingLayout>
+            <SettingLayout variant="row" title="Reference Audio Data" description="3–10s audio file">
+                {#snippet control()}
+                    <ShButton
+                        variant="outline"
+                        className="w-48 min-w-0"
+                        onclick={async () => {
+                            const audio = await selectSingleFile(['wav', 'ogg', 'aac', 'mp3'])
+                            if(!audio){
+                                return
+                            }
+                            const saveId = await saveAsset(audio.data)
+                            DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_data = {
+                                fileName: audio.name,
+                                assetId: saveId
+                            }
+                        }}
+                    >
+                        <span class="truncate">
+                            {DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_data.assetId
+                                ? DBState.db.characters[$selectedCharID].gptSoVitsConfig.ref_audio_data.fileName
+                                : language.selectFile}
+                        </span>
+                    </ShButton>
+                {/snippet}
+            </SettingLayout>
+            <SettingLayout variant="row" title="Text Language">
+                {#snippet control()}
+                    <ShSelect className="w-48" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_lang}>
+                        {#each gptSoVitsLanguageOptions as [value, label]}
+                            <OptionInput {value}>{label}</OptionInput>
+                        {/each}
+                    </ShSelect>
+                {/snippet}
+            </SettingLayout>
 
             {#if !DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}
-                <span class="text-textcolor">Use Reference Audio Script</span>
-                <Check bind:check={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_prompt}/>
+                <SettingLayout variant="row" title="Use Reference Audio Script">
+                    {#snippet control()}<ShSwitch bind:checked={DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_prompt}/>{/snippet}
+                </SettingLayout>
             {/if}
 
             {#if DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_prompt && !DBState.db.characters[$selectedCharID].gptSoVitsConfig.use_long_audio}
-                <span class="text-textcolor">Reference Audio Script</span>
-                <TextAreaInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.prompt}/>
+                <SettingLayout variant="row" title="Reference Audio Script" stacked>
+                    <TextAreaInput height="20" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.prompt}/>
+                </SettingLayout>
             {/if}
 
-            <span class="text-textcolor">Reference Audio Language</span>
-            <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.prompt_lang}>
-                <OptionInput value="auto">Multi-language Mixed</OptionInput>
-                <OptionInput value="auto_yue">Multi-language Mixed (Cantonese)</OptionInput>
-                <OptionInput value="en">English</OptionInput>
-                <OptionInput value="zh">Chinese-English Mixed</OptionInput>
-                <OptionInput value="ja">Japanese-English Mixed</OptionInput>
-                <OptionInput value="yue">Cantonese-English Mixed</OptionInput>
-                <OptionInput value="ko">Korean-English Mixed</OptionInput>
-                <OptionInput value="all_zh">Chinese</OptionInput>
-                <OptionInput value="all_ja">Japanese</OptionInput>
-                <OptionInput value="all_yue">Cantonese</OptionInput>
-                <OptionInput value="all_ko">Korean</OptionInput>
-            </SelectInput>
-            <span class="text-textcolor">Top P</span>
-            <SliderInput min={0.0} max={1.0} step={0.05} fixed={2} bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.top_p}/>
-
-            <span class="text-textcolor">Temperature</span>
-            <SliderInput min={0.0} max={1.0} step={0.05} fixed={2} bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.temperature}/>
-
-            <span class="text-textcolor">Speed</span>
-            <SliderInput min={0.6} max={1.65} step={0.05} fixed={2} bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.speed}/>
-
-            <span class="text-textcolor">Top K</span>
-            <SliderInput min={1} max={100} step={1} bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.top_k}/>
-
-            <span class="text-textcolor">Text Split Method</span>
-            <SelectInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_split_method}>
-                <OptionInput value="cut0">Cut 0 (No splitting)</OptionInput>
-                <OptionInput value="cut1">Cut 1 (Split every 4 sentences)</OptionInput>
-                <OptionInput value="cut2">Cut 2 (Split every 50 characters)</OptionInput>
-                <OptionInput value="cut3">Cut 3 (Split by Chinese periods)</OptionInput>
-                <OptionInput value="cut4">Cut 4 (Split by English periods)</OptionInput>
-                <OptionInput value="cut5">Cut 5 (Split by various punctuation marks)</OptionInput>
-            </SelectInput>        
+            <SettingLayout variant="row" title="Reference Audio Language">
+                {#snippet control()}
+                    <ShSelect className="w-48" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.prompt_lang}>
+                        {#each gptSoVitsLanguageOptions as [value, label]}
+                            <OptionInput {value}>{label}</OptionInput>
+                        {/each}
+                    </ShSelect>
+                {/snippet}
+            </SettingLayout>
+            <SettingLayout variant="row" title="Top P">
+                {#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.05} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.top_p}/></div>{/snippet}
+            </SettingLayout>
+            <SettingLayout variant="row" title="Temperature">
+                {#snippet control()}<div class="w-48"><ShSlider min={0} max={1} step={0.05} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.temperature}/></div>{/snippet}
+            </SettingLayout>
+            <SettingLayout variant="row" title="Speed">
+                {#snippet control()}<div class="w-48"><ShSlider min={0.6} max={1.65} step={0.05} fixed={2} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.speed}/></div>{/snippet}
+            </SettingLayout>
+            <SettingLayout variant="row" title="Top K">
+                {#snippet control()}<div class="w-48"><ShSlider min={1} max={100} step={1} inputWidth="w-16" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.top_k}/></div>{/snippet}
+            </SettingLayout>
+            <SettingLayout variant="row" title="Text Split Method">
+                {#snippet control()}
+                    <ShSelect className="w-48" bind:value={DBState.db.characters[$selectedCharID].gptSoVitsConfig.text_split_method}>
+                        {#each gptSoVitsTextSplitOptions as [value, label]}
+                            <OptionInput {value}>{label}</OptionInput>
+                        {/each}
+                    </ShSelect>
+                {/snippet}
+            </SettingLayout>
         {:else if DBState.db.characters[$selectedCharID].ttsMode === 'fishspeech'}
             {#await getFishSpeechModels()}
                 <span class="text-textcolor">Loading...</span>
@@ -861,13 +910,16 @@
             <span class="text-textcolor">Chunk Length</span>
             <NumberInput className="mb-4 mt-2" bind:value={DBState.db.characters[$selectedCharID].fishSpeechConfig.chunk_length}/>
 
-            <span class="mt-2 text-textcolor">Normalize</span>
-            <Check className="mb-4 mt-2" bind:check={DBState.db.characters[$selectedCharID].fishSpeechConfig.normalize}/>
+            <ShSettings variant="row" className="mb-4 mt-2">
+                <span class="min-w-0 text-textcolor">Normalize</span>
+                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].fishSpeechConfig.normalize}/>
+            </ShSettings>
         {/if}
         {#if DBState.db.characters[$selectedCharID].ttsMode}
-            <div class="flex items-center mt-2">
-                <Check bind:check={DBState.db.characters[$selectedCharID].ttsReadOnlyQuoted} name={language.ttsReadOnlyQuoted}/>
-            </div>
+            <ShSettings variant="row" className="mt-2">
+                <span class="min-w-0 text-textcolor">{language.ttsReadOnlyQuoted}</span>
+                <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].ttsReadOnlyQuoted}/>
+            </ShSettings>
         {/if}
     {/if}
 {:else if $CharConfigSubMenu === 2}
@@ -875,7 +927,7 @@
         <h2 class="mb-2 text-2xl font-bold mt-2">{language.advancedSettings}</h2>
     {/if}
         <span class="text-textcolor">{language.replaceGlobalNote}<Help key="replaceGlobalNote"/></span>
-        <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></TextAreaInput>
+        <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].replaceGlobalNote}></TextAreaInput>
 
         <span class="text-textcolor mt-2">{language.translatorNote}<Help key="translatorNote" /></span>
         <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].translatorNote}></TextAreaInput>
@@ -886,7 +938,7 @@
         <span class="text-textcolor mt-2">{language.defaultVariables}<Help key="defaultVariables" /></span>
         <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].defaultVariables}></TextAreaInput>
 
-        <ShSettings spacing="divided" className="mt-4">
+        <ShSettings spacing="none" className="mt-4">
             <ShSettings variant="row">
                 <span class="min-w-0 text-textcolor">{language.utilityBot}<Help key="utilityBot" name={language.utilityBot}/></span>
                 <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].utilityBot}/>
@@ -908,19 +960,19 @@
         <div class="w-full mt-6">
         <Accordion name={language.legacySettings} styled>
             <span class="text-textcolor">{language.systemPrompt}<Help key="systemPrompt"/></span>
-            <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].systemPrompt}></TextAreaInput>
+            <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].systemPrompt}></TextAreaInput>
 
             <span class="text-textcolor mt-2">{language.additionalText}<Help key="additionalText" /></span>
-            <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalText}></TextAreaInput>
+            <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].additionalText}></TextAreaInput>
 
             <span class="text-textcolor">{language.personality}<Help key="personality" unrecommended/></span>
-            <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].personality}></TextAreaInput>
+            <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].personality}></TextAreaInput>
 
             <span class="text-textcolor">{language.scenario}<Help key="scenario" unrecommended/></span>
-            <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].scenario}></TextAreaInput>
+            <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].scenario}></TextAreaInput>
 
             <span class="text-textcolor">{language.exampleMessage}<Help key="exampleMessage"/></span>
-            <TextAreaInput highlight margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].exampleMessage}></TextAreaInput>
+            <TextAreaInput margin="both" autocomplete="off" bind:value={DBState.db.characters[$selectedCharID].exampleMessage}></TextAreaInput>
 
             <span class="text-textcolor">{language.depthPrompt}</span>
             <div class="flex justify-center items-center mb-4">

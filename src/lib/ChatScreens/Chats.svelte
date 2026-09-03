@@ -117,7 +117,7 @@
                 generationTargetIndex: lastRealCharIdx,
                 roomIsResponding,
             });
-            const showHistoricalSwipes = showPreviousChatSwipeButtons && message.role === 'char' && !message.isComment && !message.disabled && !isRerollTarget && (message.swipes?.length ?? 0) > 1;
+            const showHistoricalSwipes = showPreviousChatSwipeButtons && message.role === 'char' && !message.isComment && !isRerollTarget && (message.swipes?.length ?? 0) > 1;
             const showSwipeControls = isRerollTarget || showHistoricalSwipes;
             const isStreamingMessage = message.role === 'char'
                 && (

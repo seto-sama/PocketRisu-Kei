@@ -83,7 +83,6 @@ export const advancedSettingsItems: SettingItem[] = [
 
     // Dynamic Assets & Others
     { id: 'adv.cssErr', type: 'check', labelKey: 'returnCSSError', bindKey: 'returnCSSError', helpKey: 'returnCSSError' },
-    { id: 'adv.antiOverload', type: 'check', labelKey: 'antiServerOverload', bindKey: 'antiServerOverloads', helpKey: 'antiServerOverload' },
     { id: 'adv.toolUsage', type: 'check', labelKey: 'rememberToolUsage', bindKey: 'rememberToolUsage', helpKey: 'rememberToolUsage' },
     { id: 'adv.simpleTool', type: 'check', labelKey: 'simplifiedToolUse', bindKey: 'simplifiedToolUse', helpKey: 'simplifiedToolUse' },
 
@@ -103,6 +102,10 @@ export const advancedSettingsItems: SettingItem[] = [
     {
         id: 'adv.depTrig', type: 'check', labelKey: 'showDeprecatedTriggerV1', bindKey: 'showDeprecatedTriggerV1',
         helpKey: 'unrecommendedTriggerV1', helpUnrecommended: true
+    },
+    {
+        id: 'adv.depTrigV2', type: 'check', labelKey: 'showDeprecatedTriggerV2', bindKey: 'showDeprecatedTriggerV2',
+        helpKey: 'unrecommendedTriggerV2', helpUnrecommended: true
     },
 
     // Custom Components

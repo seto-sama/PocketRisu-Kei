@@ -38,9 +38,9 @@
 
 <!-- Bulk Resummarize Result Section -->
 {#if bulkResummaryState}
-  <div class="{fillHeight ? 'flex-1 min-h-0' : 'shrink-0'} border-t border-darkborderc pt-4">
+  <div class="{fillHeight ? 'flex-1 min-h-0 overflow-hidden' : 'shrink-0'} border-t border-darkborderc pt-4">
     <div class="flex flex-col gap-3 {fillHeight ? 'h-full min-h-0' : ''}">
-      <div class="flex justify-between items-center">
+      <div class="flex shrink-0 justify-between items-center">
         <h3 class="text-sm font-medium text-textcolor">{title}</h3>
         <IconButtonGroup size="xl" style="--icon-size:16px">
           <!-- Translate Button -->
@@ -96,31 +96,41 @@
           {processingTitle}
         </div>
       {:else if bulkResummaryState.result}
-        <TextAreaInput
-          fullwidth
-          actionBar
-          className="bg-darkbg"
-          height={fillHeight ? "full" : "32"}
-          readonly
-          bind:value={bulkResummaryState.result}
-        />
-        
-        <!-- Translation Result -->
-        {#if bulkResummaryState.translation}
-          <div class="{fillHeight ? 'flex flex-col min-h-0 flex-1' : 'mt-3'}">
-            <div class="mb-2 text-sm text-textcolor2">
-              {language.hypaV3Modal.translationLabel}
-            </div>
+        <div
+          class={fillHeight
+            ? `grid min-h-0 flex-1 gap-3 ${bulkResummaryState.translation ? "grid-rows-2" : "grid-rows-1"}`
+            : ""}
+        >
+          <div class={fillHeight ? "min-h-0" : ""}>
             <TextAreaInput
               fullwidth
               actionBar
               className="bg-darkbg"
               height={fillHeight ? "full" : "32"}
               readonly
-              bind:value={bulkResummaryState.translation}
+              bind:value={bulkResummaryState.result}
             />
           </div>
-        {/if}
+
+          <!-- Translation Result -->
+          {#if bulkResummaryState.translation}
+            <div class="{fillHeight ? 'flex min-h-0 flex-col' : 'mt-3'}">
+              <div class="mb-2 shrink-0 text-sm text-textcolor2">
+                {language.hypaV3Modal.translationLabel}
+              </div>
+              <div class={fillHeight ? "min-h-0 flex-1" : ""}>
+                <TextAreaInput
+                  fullwidth
+                  actionBar
+                  className="bg-darkbg"
+                  height={fillHeight ? "full" : "32"}
+                  readonly
+                  bind:value={bulkResummaryState.translation}
+                />
+              </div>
+            </div>
+          {/if}
+        </div>
       {/if}
     </div>
   </div>

@@ -3,6 +3,7 @@ import {
     ModelPresetAdapterError,
     normalizeFetchError,
     normalizeHttpStatus,
+    parseRetryAfterMs,
 } from '../error'
 import { DEFAULT_SCOPE, type ParsedServiceAccount } from './serviceAccount'
 
@@ -78,6 +79,7 @@ export async function exchangeServiceAccountForAccessToken(
     const httpError = normalizeHttpStatus(
         response.status,
         extractErrorMessage(bodyText) ?? `HTTP ${response.status}`,
+        { retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')) },
     )
     if (httpError) {
         throw httpError

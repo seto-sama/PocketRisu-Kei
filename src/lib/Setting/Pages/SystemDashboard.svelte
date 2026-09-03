@@ -789,6 +789,6 @@
 
 {/if}
 
-<ShLoadingDialog open={optimizeOpen} message={optimizeMessage} tier="top" />
-<ShLoadingDialog open={walCleanupOpen} message={language.storageWalCleanuping} tier="top" />
-<ShLoadingDialog open={hypaCleanupOpen} message={language.storageHypaCleanuping} tier="top" />
+<ShLoadingDialog open={optimizeOpen} message={optimizeMessage} />
+<ShLoadingDialog open={walCleanupOpen} message={language.storageWalCleanuping} />
+<ShLoadingDialog open={hypaCleanupOpen} message={language.storageHypaCleanuping} />

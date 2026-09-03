@@ -154,25 +154,29 @@ async function prepareOpenAiBody(
     credential: AdapterCredential | undefined,
     stream: boolean,
 ): Promise<AdapterPreparedRequest> {
+    const modelId = resolveWireModelId(preset, { vendorName: 'OpenAI-compatible' })
+    const directImageGeneration = isDirectImageGenerationPreset(preset)
+    const supportsPromptCacheBreakpoints = !directImageGeneration && modelId.startsWith('gpt-5.6')
     const prepared = await prepareAdapterRequest({
         preset,
         credential,
         abortSignal: options.abortSignal,
+        generatedBodyDefaults: supportsPromptCacheBreakpoints && options.promptCacheKey
+            ? { prompt_cache_key: options.promptCacheKey }
+            : undefined,
     })
     applyOpenAiApiModeEndpoint(preset, prepared)
     // messages, model, and stream are wire invariants per plan §4-5 and must
     // not be overridden by customBody. Resolve modelId from the preset's user
     // values / schema (not the customBody-merged body), then overwrite the
     // body fields after the shared merge so customBody collisions lose.
-    const modelId = resolveWireModelId(preset, { vendorName: 'OpenAI-compatible' })
-    if (isDirectImageGenerationPreset(preset)) {
+    if (directImageGeneration) {
         prepared.body = {
             model: modelId,
             prompt: imageGenerationPrompt(options.messages),
         }
         return prepared
     }
-    const supportsPromptCacheBreakpoints = modelId.startsWith('gpt-5.6')
     const imageDetail = resolveImageDetail(preset)
     const lastMessageIndex = options.messages.length - 1
     const assistantPrefillMode = options.messages[lastMessageIndex]?.role === 'assistant'

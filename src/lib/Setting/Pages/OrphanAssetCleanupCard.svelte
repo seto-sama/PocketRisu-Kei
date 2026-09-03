@@ -86,4 +86,4 @@
     </div>
 </SettingLayout>
 
-<ShLoadingDialog open={cleaning} message={language.storageOrphanPurging} tier="top" />
+<ShLoadingDialog open={cleaning} message={language.storageOrphanPurging} />

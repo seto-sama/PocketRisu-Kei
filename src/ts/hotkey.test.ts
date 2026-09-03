@@ -27,7 +27,6 @@ vi.mock('./stores.svelte', async () => {
         openThemePresetList: writable(false),
         OpenRealmStore: writable(false),
         personaSelectCallback: writable(null),
-        PlaygroundStore: writable(0),
         QuickSettings: writable(false),
         SafeModeStore: writable(false),
         selectedCharID: writable(-1),

@@ -568,7 +568,7 @@ export function getCharacterChatIndex(): CharacterChatIndexItem[] {
 }
 
 /**
- * Lightweight explorer list for Playground.
+ * Lightweight explorer list for the inlay gallery.
  * Use `getInlayAssetBlob(id)` on demand when the user opens or downloads the original file.
  */
 // Gallery metadata cache — avoids re-fetching on gallery re-entry

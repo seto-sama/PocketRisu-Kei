@@ -52,6 +52,7 @@ import { serviceRevenantClientActions } from '../workflow/clientActions.svelte'
 import {
     clientActionRecoveryMode,
     recoveryStatusAction,
+    shouldDiscardTerminalWorkflowJob,
     shouldWaitForMainJobRegistration,
 } from './chatRecoveryPolicy'
 
@@ -534,6 +535,23 @@ export async function recoverRevenantGenerationsForChat(
             const ownershipWorkflow = activeWorkflow?.workflowId === job.workflowId
                 ? activeWorkflow
                 : await getRevenantWorkflow(job.workflowId).catch(() => undefined)
+            if (shouldDiscardTerminalWorkflowJob(
+                ownershipWorkflow?.status,
+                isActiveGeneration,
+            )) {
+                // Cancellation/failure may have won after a concurrent swipe
+                // deletion. The terminal workflow cannot retry materialization,
+                // so keep the newer canonical chat and acknowledge the orphaned
+                // job instead of applying isRecovering forever on every reload.
+                clearRevenantRecoveryForChat(character, chat, {
+                    cancelled: ownershipWorkflow?.status === 'cancelled',
+                    failed: ownershipWorkflow?.status === 'failed',
+                })
+                await consumeRevenantGenerationJob(job.jobId)
+                setRevenantGenerationLocallyObserved(job.jobId, false)
+                recovered++
+                continue
+            }
             const workflowBaseChat = ownershipWorkflow?.context?.inputCommit?.chat
             if (
                 workflowBaseChat?.id === chat.id

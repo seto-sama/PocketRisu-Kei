@@ -390,7 +390,7 @@
                 <div class="flex flex-col gap-1 text-xs text-textcolor2">
                     <span>{language.systemLogsFilterLevel}</span>
                     <ShSelect bind:value={levelFilter} size="sm">
-                        <OptionInput value="">{language.playground.inlayFilterAll}</OptionInput>
+                        <OptionInput value="">{language.inlayGallery.inlayFilterAll}</OptionInput>
                         <OptionInput value="error">{language.systemLogsLevelError}</OptionInput>
                         <OptionInput value="warning">{language.systemLogsLevelWarning}</OptionInput>
                         <OptionInput value="info">{language.systemLogsLevelInfo}</OptionInput>
@@ -399,7 +399,7 @@
                 <div class="flex flex-col gap-1 text-xs text-textcolor2">
                     <span>{language.systemLogsFilterOrigin}</span>
                     <ShSelect bind:value={originFilter} size="sm">
-                        <OptionInput value="">{language.playground.inlayFilterAll}</OptionInput>
+                        <OptionInput value="">{language.inlayGallery.inlayFilterAll}</OptionInput>
                         <OptionInput value="client">{language.systemLogsOriginClient}</OptionInput>
                         <OptionInput value="server">{language.systemLogsOriginServer}</OptionInput>
                     </ShSelect>
@@ -407,14 +407,14 @@
                 <div class="flex flex-col gap-1 text-xs text-textcolor2">
                     <span>{language.systemLogsFilterSource}</span>
                     <ShSelect bind:value={sourceFilter} size="sm">
-                        <OptionInput value="">{language.playground.inlayFilterAll}</OptionInput>
+                        <OptionInput value="">{language.inlayGallery.inlayFilterAll}</OptionInput>
                         {#each availableSources as src (src)}<OptionInput value={src}>{src}</OptionInput>{/each}
                     </ShSelect>
                 </div>
                 <div class="flex flex-col gap-1 text-xs text-textcolor2">
                     <span>{language.systemLogsFilterDevice}</span>
                     <ShSelect bind:value={deviceFilter} size="sm">
-                        <OptionInput value="">{language.playground.inlayFilterAll}</OptionInput>
+                        <OptionInput value="">{language.inlayGallery.inlayFilterAll}</OptionInput>
                         {#each availableDevices as dev (dev.key)}<OptionInput value={dev.key}>{deviceLabel(dev.entry)}</OptionInput>{/each}
                     </ShSelect>
                 </div>
@@ -486,7 +486,7 @@
                                     {/snippet}
                                 </Tooltip.Trigger>
                                 <Tooltip.Content
-                                    class="bg-darkbg border border-darkborderc rounded-md px-2 py-1 text-xs text-textcolor shadow-lg z-50"
+                                    class="risu-layer-overlay bg-darkbg border border-darkborderc rounded-md px-2 py-1 text-xs text-textcolor shadow-lg"
                                     sideOffset={4}
                                 >
                                     {formatAbsolute(entry.timestamp)}

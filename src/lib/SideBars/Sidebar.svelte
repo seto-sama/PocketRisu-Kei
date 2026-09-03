@@ -9,7 +9,6 @@
     sideBarClosing,
     sideBarStore,
     OpenRealmStore,
-    PlaygroundStore,
 
     QuickSettings,
 
@@ -23,7 +22,6 @@
     import { DBState } from 'src/ts/stores.svelte';
     import BarIcon from "./BarIcon.svelte";
     import {
-    ShellIcon,
     Settings,
     ListIcon,
     LayoutGridIcon,
@@ -282,7 +280,7 @@
 >
 {#if DBState.db.menuSideBar}
 <div
-  class="h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative z-30 rs-sidebar"
+  class="risu-layer-chrome h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative rs-sidebar"
   class:editMode
   class:flex={!hidden}
 >
@@ -291,13 +289,11 @@
   class="flex items-center justify-center py-2 flex-col gap-1 w-full"
   class:text-textcolor2={!(
     $selectedCharID < 0 &&
-    $PlaygroundStore === 0 &&
     !$settingsOpen
   )}
   onclick={() => {
     reseter();
     selectedCharID.set(-1)
-    PlaygroundStore.set(0)
     OpenRealmStore.set(false)
   }}
 >
@@ -334,26 +330,11 @@
   <User2Icon />
   <span class="text-xs">{language.character}</span>
 </button>
-<button
-  class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-textcolor2={!(
-    $selectedCharID < 0 &&
-    $PlaygroundStore !== 0
-  )}
-  onclick={() => {
-    reseter();
-    selectedCharID.set(-1)
-    PlaygroundStore.set(1)
-  }}
->
-  <ShellIcon />
-  <span class="text-xs">{language.playground.playground}</span>
-</button>
 </IconButtonGroup>
 </div>
 {:else}
 <div
-  class="h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative z-30 rs-sidebar"
+  class="risu-layer-chrome h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative rs-sidebar"
   class:sidebar-menu-bottom={DBState.db.hamburgerButtonBottom}
   class:max-xs:hidden={$leftBarCollapsed}
   class:editMode
@@ -402,24 +383,10 @@
             onClick={() => {
               reseter();
               selectedCharID.set(-1)
-              PlaygroundStore.set(0)
               OpenRealmStore.set(false)
             }}
           >
             <HomeIcon />
-          </BarIcon>
-          <BarIcon
-            onClick={() => {
-              reseter()
-              if($selectedCharID === -1 && $PlaygroundStore !== 0){
-                PlaygroundStore.set(0)
-                return
-              }
-              selectedCharID.set(-1)
-              PlaygroundStore.set(1)
-            }}
-          >
-            <ShellIcon />
           </BarIcon>
           <BarIcon
             onClick={() => {
@@ -695,7 +662,7 @@
 {/if}
 
 <div
-  class="setting-area z-30 h-full max-xs:relative flex-col overflow-y-auto overflow-x-hidden bg-darkbg py-6 text-textcolor max-h-full"
+  class="setting-area risu-layer-chrome h-full max-xs:relative flex-col overflow-y-auto overflow-x-hidden bg-darkbg py-6 text-textcolor max-h-full"
   class:w-96={$sideBarSize === 0}
   class:w-110={$sideBarSize === 1}
   class:w-124={$sideBarSize === 2}

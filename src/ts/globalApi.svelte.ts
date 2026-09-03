@@ -19,11 +19,11 @@ import {
     discardAllChatWorkingCopies,
     discardAllChatGenerationProjections,
     consumeChatSyncApplied,
-    isChatWorkingCopyDirty,
     listDirtyChatWorkingCopies,
     markChatWorkingCopyDirty,
     markChatSyncApplied,
     observeChatGenerationProjection,
+    shouldPersistTrackedChat,
 } from './storage/chatWorkingCopy';
 import { preparePatchConflictRebase } from "./storage/patchRebase";
 import {
@@ -983,6 +983,11 @@ export async function saveDb() {
             const chat = char.chats[chatIndex]
             // Skip placeholders — they have no real data to save
             if (!chat || chat._placeholder) continue
+            // A debounced edit save can wake after reroll has replaced the
+            // edited body with its temporary placeholder. Once that edit has
+            // already been acknowledged, never persist the clean projection
+            // as an ordinary whole-chat write.
+            if (!shouldPersistTrackedChat(chaId, chat)) continue
             try {
                 await saveChatToServer(chaId, chatIndex, chatId, chat)
             } catch (e) {

@@ -4,6 +4,7 @@ import { tick } from "svelte"
 import {
     acknowledgeChatCommit,
     createChatCommitSnapshot as createWorkingCopyCommitSnapshot,
+    isChatWorkingCopyDirty,
     type ChatCommitSnapshot,
 } from './chatWorkingCopy'
 
@@ -135,6 +136,20 @@ export async function saveChatToServer(chaId: string, chatIndex: number, chatId:
     } finally {
         if (chatSaveQueues.get(key) === queued) chatSaveQueues.delete(key)
     }
+}
+
+/**
+ * Settle a pending user edit before generation replaces the live chat with a
+ * temporary reroll projection. This is a no-op for an already-clean chat.
+ */
+export async function flushDirtyChatToServer(
+    chaId: string,
+    chatIndex: number,
+    chat: Chat,
+): Promise<boolean> {
+    if (!isChatWorkingCopyDirty(chaId, chat.id)) return false
+    await saveChatToServer(chaId, chatIndex, chat.id, chat)
+    return true
 }
 
 export function createChatCommitSnapshot(chaId: string, chat: Chat): ChatCommitSnapshot {

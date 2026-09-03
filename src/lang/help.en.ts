@@ -17,10 +17,6 @@ export const helpEn = {
         model: "Model option is a main model used in chat.",
         submodel: "Auxiliary Model is used for tasks such as emotion analysis, translation, and summarization. A smaller model is recommended.",
         oaiapikey: "API key for OpenAI. you can get it in https://platform.openai.com/account/api-keys",
-        mainprompt: "The main prompt option sets the default model behavior.",
-        jailbreak: "The jailbreak prompt option activates when jailbreak toggle is on in character.",
-        globalNote: "A note that strongly affects model behavior, also known as UJB. Works in all characters.",
-        formatOrder: "formating order of prompt. lower blocks does more effect to the model.",
         forceUrl: "if it is not blank, the request will go to the url that you had inputed.",
         tempature:
             "lower values make character follow prompts closely, but it will more likely to response like a machine.\nHigher values will result in creative behavior, but the character's response can break down more easily.",
@@ -74,7 +70,7 @@ export const helpEn = {
             "\n\n```\n<START>\n{{user}}: hi\n{{char}}: hello\n<START>\n{{user}}: hi\nHaruhi: hello\n```" +
             "\n\n```<START>``` Marks the beginning of a new conversation.",
         creatorQuotes: "Note that appearances on top of first message. Used to inform users about this character. It doesn't go into prompt.",
-        systemPrompt: "A prompt that replaces main prompt in settings if its not blank.",
+        systemPrompt: "This prompt is no longer used and is not included in requests.",
         chatNote: "A note that strongly affects model behavior. Embbedded to current chat, also known as memory or UJB.",
         personality: "A brief description about character's personality. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
         scenario: "A brief description about character's scenario. \n\n**It is not recommended to use this option. Describe it in character description instead.**",
@@ -117,7 +113,7 @@ export const helpEn = {
         gptVisionQuality: "Controls the detail or media resolution used for image inputs. Higher quality can recognize finer details but uses more input tokens and may increase latency.",
         genTimes:
             "This option is used to set the number of responses to generate on support models. other then first response will be act as cached reroll. this can reduce the cost of the model, but it can also increase the cost if you use it without reroll.",
-        requestretrys: "This option is used to set the number of request retrys when request fails.",
+        requestretrys: "Sets how many times a failed request is retried. Overload retries automatically wait about 1 second for attempts 1-3, 5 seconds for attempts 4-5, and 10 seconds thereafter, with a small random delay. A server-provided Retry-After value takes priority.",
         chatLoadInitialPages: "Number of recent chat messages to render when a chat screen opens. Higher values show more history immediately but can make long chats heavier to open.",
         chatLoadAdditionalPages: "Number of older chat messages to render each time you scroll to the top. Higher values reduce repeated loading but can make each load heavier.",
         emotionPrompt: "This option is used to set the prompt that is used to detect emotion. if it is blank, it will use the default prompt.",
@@ -305,6 +301,7 @@ export const helpEn = {
         localActivationInGlobalLorebook:
             "Show an \"Always active in this chat\" option on character lorebook entries. Enabled entries stay active in the current chat regardless of keyword matches.",
         requestInfoInsideChat: "Allow LLM request information such as sent prompts and token counts to be displayed inside the chat area.",
+        stickyChatToolbar: "Keep the toolbar and request information visible while scrolling through the chat.",
         inlayErrorResponse: "When a model request fails, show the error as an inlaid chat response.",
         bulkEnabling: "Show buttons in the lorebook editor for enabling or disabling multiple entries at once.",
         showTranslationLoading: "Show a loading indicator while message translation is in progress.",
@@ -333,8 +330,6 @@ export const helpEn = {
             "When prompt info inside chat is enabled, also store and display the actual prompt text sent to the model. This can make chats heavier, so use it mainly for debugging.",
         returnCSSError:
             "When custom CSS contains an error, display the error details at the corresponding style location.",
-        antiServerOverload:
-            "Automatically increase retry intervals when an API server responds as overloaded (for example 429 or 503). Helps reduce pressure on unstable providers.",
         claude1HourCaching:
             "Use Claude's 1-hour prompt cache TTL instead of the default 5-minute cache. This can save more cost for repeated contexts, but 1-hour cache pricing differs.",
         claudeBatching:
@@ -350,7 +345,9 @@ export const helpEn = {
         lightningRealmImport:
             "Use a faster import path when importing characters from RisuRealm while account sync is enabled. Experimental.",
         unrecommendedTriggerV1:
-            "Allow adding and editing Trigger V1. Trigger V1 is deprecated; use V2/V3 for new work. Keep this only for legacy V1 compatibility.",
+            "Allow adding and editing Trigger V1. Trigger V1 is deprecated; use V2 for new work. Keep this only for legacy V1 compatibility.",
+        unrecommendedTriggerV2:
+            "Show deprecated Trigger V2 effects. Improved effects provide the same functionality, so use effects from the Control and Lorebook V2 categories for new work.",
         themePresets:
             "Bundle the current Sound & Display settings (layout, color/font, sizes, sound toggles, etc.) as a preset and switch between them. The active preset auto-syncs with edits you make below; clicking opens the preset list to add, switch, rename, or delete.",
         theme: "Overall chat layout theme.",
@@ -607,8 +604,6 @@ export const helpEn = {
             "For OpenAI o-series reasoning models. Controls how much effort goes into reasoning.\n\n- **-1**: model default\n- **0–2**: low / medium / high (deeper reasoning is slower and more expensive)",
         verbosity:
             "Response-length control on some OpenAI models. `0` is concise, `2` is long-form. Only meaningful on models that support it.",
-        usePromptTemplate:
-            "Use a custom prompt template (Settings → Prompt Template) instead of the four prompt fields above (main / jailbreak / note / order). Templates allow more sophisticated prompt composition but have a steeper learning curve.",
         customFlags:
             "Force capability flags on the current model. For example, even if the model doesn't natively report image input support, turning on `hasImageInput` makes the system assume it does. Useful for compatibility shims and workarounds — set the wrong flag and requests will break.",
         enableCustomFlags:
@@ -621,8 +616,6 @@ export const helpEn = {
             "Regex scripts that apply only to this bot configuration, in addition to global regex scripts. See the global regex script help for syntax details.",
         botIcon:
             "Default icon for this bot configuration. Independent of the character card's icon — used as the assistant message icon.",
-        botPromptTemplate:
-            "Pick a prompt template. Templates allow more elaborate prompt construction than the main / jailbreak / note fields. Only active when \"Use Prompt Template\" is enabled.",
         personaName:
             "Name of the current persona. This fills the `{{user}}` variable in chats and is the name the character uses to address you.",
         personaNote:

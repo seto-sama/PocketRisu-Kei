@@ -1,9 +1,9 @@
 // Catalog display-level filter.
 //
-// Hides deprecated profiles from the profile browser and the
-// "new/updated" notice. This is display-only — profiles are still downloaded
-// and stored (the bandwidth/storage cost is negligible at catalog scale; see
-// model-preset-settings worklog). The setting buys catalog tidiness, not perf.
+// Hides deprecated profiles from the profile browser. This is display-only —
+// profiles are still downloaded and stored (the bandwidth/storage cost is
+// negligible at catalog scale; see model-preset-settings worklog). The setting
+// buys catalog tidiness, not perf.
 
 import type { RegistryProfileStatus } from '../types'
 

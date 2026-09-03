@@ -14,6 +14,7 @@
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
+    import InlineNameInput from "src/lib/UI/GUI/InlineNameInput.svelte";
     import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { listApiKeys } from "src/ts/preset/apiKeyPool";
@@ -308,7 +309,7 @@
         {#snippet itemContent(index)}
                 {@const item = DBState.db.hypaV3Presets[index]}
                 {#if editMode}
-                    <div class="grow min-w-0"><TextInput bind:value={DBState.db.hypaV3Presets[index].name} placeholder="string" padding={false} fullwidth className="h-8 min-w-0 px-2"/></div>
+                    <div class="grow min-w-0"><InlineNameInput bind:value={DBState.db.hypaV3Presets[index].name} size="default" placeholder="string"/></div>
                 {:else}
                     <span class="grow min-w-0 truncate">{item.name}</span>
                 {/if}

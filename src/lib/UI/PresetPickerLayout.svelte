@@ -9,7 +9,7 @@
     import ShSortableList from "./GUI/ShSortableList.svelte";
     import IconButton from "./GUI/IconButton.svelte";
     import IconButtonGroup from "./GUI/IconButtonGroup.svelte";
-    import Portal from "./GUI/Portal.svelte";
+    import OverlayPortal from "./GUI/OverlayPortal.svelte";
 
     interface PresetFolder {
         id: string;
@@ -44,6 +44,7 @@
         onExportItem?: (index: number) => void;
         onDeleteItem?: (index: number) => void;
         itemContent?: Snippet<[number]>;
+        itemActions?: Snippet<[number]>;
         listFooter?: Snippet;
         children?: Snippet;
     }
@@ -76,6 +77,7 @@
         onExportItem,
         onDeleteItem,
         itemContent,
+        itemActions,
         listFooter,
         children,
     }: Props = $props();
@@ -161,8 +163,8 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<Portal>
-<div class="risu-modal-backdrop z-50 flex justify-center items-center" role="button" tabindex="0" onclick={close}>
+<OverlayPortal onEscape={close}>
+<div class="risu-modal-backdrop risu-layer-overlay pointer-events-auto flex justify-center items-center" role="button" tabindex="0" onclick={close}>
 <div
     class="bg-darkbg break-any rounded-md flex flex-col w-[min(56rem,calc(100%-1rem))] h-[min(44rem,calc(100%-1rem))] overflow-hidden border border-darkborderc"
     role="button"
@@ -274,7 +276,7 @@
         </aside>
         <section class="min-w-0 min-h-0 grow flex flex-col p-3">
             <SettingLayout variant="search" className="mb-2">
-                <div class="risu-field-border flex items-center gap-2 rounded-md px-3">
+                <div class="risu-field-border flex items-center gap-2 rounded-md px-2.5">
                     <SearchIcon size={18} class="text-textcolor2 shrink-0"/>
                     <input bind:value={searchQuery} placeholder={searchPlaceholder}
                         class="w-full py-2 bg-transparent text-textcolor outline-none"/>
@@ -299,11 +301,14 @@
                             onclick={() => { if (!itemEditMode) onSelectItem(index) }}
                             onkeydown={(e) => { if (!itemEditMode && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelectItem(index) } }}>
                             {@render itemContent(index)}
-                            {#if !readOnly && (onDuplicateItem || onExportItem || onDeleteItem)}
-                                <IconButtonGroup className="no-sort ml-3 shrink-0">
-                                    {#if onDuplicateItem}<IconButton onclick={(e) => { e.stopPropagation(); onDuplicateItem(index) }}><CopyIcon /></IconButton>{/if}
-                                    {#if onExportItem}<IconButton onclick={(e) => { e.stopPropagation(); onExportItem(index) }}><DownloadIcon /></IconButton>{/if}
-                                    {#if onDeleteItem}<IconButton tone="destructive" onclick={(e) => { e.stopPropagation(); onDeleteItem(index) }}><TrashIcon /></IconButton>{/if}
+                            {#if itemActions || (!readOnly && (onDuplicateItem || onExportItem || onDeleteItem))}
+                                <IconButtonGroup className="-my-2 -ml-2 -mr-2 shrink-0 py-2 pl-5 pr-2" onclick={(e) => e.stopPropagation()}>
+                                    {@render itemActions?.(index)}
+                                    {#if !readOnly}
+                                        {#if onDuplicateItem}<IconButton onclick={() => onDuplicateItem(index)}><CopyIcon /></IconButton>{/if}
+                                        {#if onExportItem}<IconButton onclick={() => onExportItem(index)}><DownloadIcon /></IconButton>{/if}
+                                        {#if onDeleteItem}<IconButton tone="destructive" onclick={() => onDeleteItem(index)}><TrashIcon /></IconButton>{/if}
+                                    {/if}
                                 </IconButtonGroup>
                             {/if}
                         </div>
@@ -318,7 +323,7 @@
     </div>
 </div>
 </div>
-</Portal>
+</OverlayPortal>
 
 <style>
     /* CSS draws text-overflow ellipses using the truncating element's own

@@ -10,10 +10,6 @@ export const helpVi = {
         "model": "Tùy chọn mô hình là mô hình chính được sử dụng trong trò chuyện.",
         "submodel": "Mô hình phụ trợ được dùng cho các tác vụ như phân tích cảm xúc, dịch thuật và tóm tắt. Nên chọn một mô hình nhỏ hơn.",
         "oaiapikey": "Khóa Api cho OpenAI. bạn có thể lấy nó ở https://platform.openai.com/account/api-keys",
-        "mainprompt": "Tùy chọn lời nhắc chính đặt hành vi mô hình mặc định.",
-        "jailbreak": "Tùy chọn lời nhắc jailbreak kích hoạt khi nút chuyển đổi jailbreak được bật.",
-        "globalNote": "một lưu ý có tác động mạnh mẽ đến hành vi của mô hình, còn được gọi là UJB. hoạt động ở tất cả các ký tự.",
-        "formatOrder": "thứ tự hình thành của lời nhắc. các khối thấp hơn sẽ có hiệu quả hơn đối với mô hình.",
         "forceUrl": "nếu nó không trống, yêu cầu sẽ chuyển đến url mà bạn đã nhập.",
         "tempature": "giá trị thấp hơn làm cho nhân vật tuân theo lời nhắc một cách chặt chẽ, nhưng nó sẽ có nhiều khả năng phản hồi giống như một cái máy hơn.\nGiá trị cao hơn sẽ dẫn đến hành vi sáng tạo, nhưng phản ứng của nhân vật có thể dễ dàng bị phá vỡ hơn.",
         "frequencyPenalty": "Giá trị cao hơn ngăn chặn việc sử dụng các từ trùng lặp trong phản hồi, nhưng phản hồi của nhân vật có thể dễ dàng bị hỏng hơn.",
@@ -35,7 +31,7 @@ export const helpVi = {
         "oogaboogaURL": "Nếu WebUI của bạn hỗ trợ phiên bản api cũ hơn thì url của bạn sẽ trông *như https:.../run/textgen*\n\nNếu WebUI của bạn hỗ trợ Phiên bản mới của api thì url của bạn sẽ trông giống như *https://.../api/v1/generate* và sử dụng máy chủ api làm máy chủ lưu trữ, đồng thời thêm --api vào đối số.",
         "exampleMessage": "Các cuộc hội thoại ví dụ ảnh hưởng đến đầu ra của nhân vật. nó không sử dụng mã thông báo vĩnh viễn.\n\nĐịnh dạng ví dụ của cuộc hội thoại:\n\n```\n<BẮT ĐẦU>\n{{user}}: xin chào\n{{char}}: xin chào\n<BẮT ĐẦU>\n{{user}}: xin chào\nHaruhi: xin chào\n```\n\n```<START>``` Đánh dấu sự bắt đầu của một cuộc trò chuyện mới.",
         "creatorQuotes": "Lưu ý rằng xuất hiện trên đầu tin nhắn đầu tiên. Được sử dụng để thông báo cho người dùng về nhân vật này. Nó không đi vào dấu nhắc.",
-        "systemPrompt": "Lời nhắc thay thế lời nhắc chính trong cài đặt nếu nó không trống.",
+        "systemPrompt": "Lời nhắc này không còn được sử dụng và không được đưa vào yêu cầu.",
         "chatNote": "một lưu ý có ảnh hưởng mạnh mẽ đến hành vi của mô hình. được nhúng vào cuộc trò chuyện hiện tại. còn được gọi là bộ nhớ hoặc ujb.",
         "personality": "Mô tả ngắn gọn về tính cách nhân vật.\n\n**Không nên sử dụng tùy chọn này. Thay vào đó hãy mô tả nó bằng phần mô tả nhân vật.**",
         "scenario": "Một mô tả ngắn gọn về kịch bản của nhân vật.\n\n**Không nên sử dụng tùy chọn này. Thay vào đó hãy mô tả nó bằng phần mô tả nhân vật.**",
@@ -115,6 +111,6 @@ export const helpVi = {
         "openRouterProviderOnly": "Chỉ sử dụng các nhà cung cấp trong danh sách này, nếu tất cả các nhà cung cấp không có sẵn, yêu cầu sẽ thất bại. Xem chi tiết tại https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
         "openRouterProviderIgnore": "Bỏ qua các nhà cung cấp trong danh sách này, nếu tất cả các nhà cung cấp bị bỏ qua, yêu cầu sẽ thất bại. Xem chi tiết tại https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",
         "hideAllImagesDesc": "Ẩn biểu tượng bot, tài nguyên hình ảnh bot và ảnh bìa RisuRealm.",
-        "embedding": "Mô hình nhúng được sử dụng cho tìm kiếm tương đồng trên nhiều tính năng:\n\n- **Bộ nhớ dài hạn**: HypaV2, HypaV3, Bộ nhớ Hanurai và SupaMemory (khi bật HypaMemory)\n- **Văn bản bổ sung**: Khớp thông tin bổ sung của nhân vật dựa trên ngữ cảnh\n- **Tài sản động**: Tìm tên tài sản tương tự khi không tìm thấy kết quả khớp chính xác\n- **Hình ảnh cảm xúc**: Khi phương pháp Cảm xúc được đặt thành 'embedding'\n- **Tập lệnh kích hoạt**: Các điều kiện tương đồng trong tập lệnh kích hoạt\n- **Tệp đính kèm**: Tìm kiếm trong các tệp đính kèm PDF/TXT/XML\n- **Playground**: Thử nghiệm nhúng trong Playground",
+        "embedding": "Mô hình nhúng được sử dụng cho tìm kiếm tương đồng trên nhiều tính năng:\n\n- **Bộ nhớ dài hạn**: HypaV2, HypaV3, Bộ nhớ Hanurai và SupaMemory (khi bật HypaMemory)\n- **Văn bản bổ sung**: Khớp thông tin bổ sung của nhân vật dựa trên ngữ cảnh\n- **Tài sản động**: Tìm tên tài sản tương tự khi không tìm thấy kết quả khớp chính xác\n- **Hình ảnh cảm xúc**: Khi phương pháp Cảm xúc được đặt thành 'embedding'\n- **Tập lệnh kích hoạt**: Các điều kiện tương đồng trong tập lệnh kích hoạt\n- **Tệp đính kèm**: Tìm kiếm trong các tệp đính kèm PDF/TXT/XML",
         "enableScrollToActiveChar": "Nếu được bật, nhấn phím tắt hoặc giữ phím Ctrl khi kéo một nhân vật sẽ cuộn đến nhân vật hiện đang hoạt động. Các thư mục sẽ tự động được mở nếu đang đóng."
     }

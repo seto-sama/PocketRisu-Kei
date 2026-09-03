@@ -10,10 +10,6 @@ export const helpDe = {
         "model": "Das Hauptmodell, das im Chat verwendet wird",
         "submodel": "Ein Hilfsmodell wird für Aufgaben wie Emotionsanalyse, Übersetzung und Zusammenfassung verwendet. Ein kleineres Modell wird empfohlen.",
         "oaiapikey": "API-Schlüssel für OpenAI. Sie können sich unter platform.openai.com unter -> account -> api-keys einen API-Schlüssel erstellen",
-        "mainprompt": "Die Option für den Hauptanstoß legt das Standardverhalten des Modells fest",
-        "jailbreak": "Die Option für die Jailbreak Anweisung wird aktiviert, wenn der Jailbreak-Umschalter im Charakter eingeschaltet ist",
-        "globalNote": "Eine Notiz, die das Modellverhalten stark beeinflusst, auch bekannt als UJB. Funktioniert bei allen Charakteren",
-        "formatOrder": "Formatierungsreihenfolge der Anweisungen. Weiter unten vorkommende Blöcke wirken sich stärker auf das Modell aus",
         "forceUrl": "Wenn es nicht leer ist, wird die Anfrage an die eingegebene URL gesendet",
         "tempature": "Niedrigere Werte führen dazu, dass der Charakter den Anweisungen eng folgt, aber eher maschinenähnlicher reagiert.\nHöhere Werte führen zu kreativem Verhalten, aber die Antwort des Charakters kann leichter inkohärent werden.",
         "frequencyPenalty": "Höhere Werte verhindern die Verwendung von Wiederholungen vor allem in der Antwort, aber die Antwort des Charakters kann leichter inkohärent werden",
@@ -35,7 +31,7 @@ export const helpDe = {
         "oogaboogaURL": "Wenn Ihre WebUI nur eine ältere Version der API unterstützt, sollte Ihre URL in etwa so aussehen *https:.../run/textgen*\n\nWenn Ihre WebUI die neue Version der API unterstützt, sollte Ihre URL in etwa so aussehen *https://.../api/v1/generate* – und den API-Server als Host verwenden sowie --api als Argument hinzufügen",
         "exampleMessage": "Beispielgespräche, die die Ausgabe des Charakters beeinflussen. Es werden keine Tokens dauerhaft verwendet.\n\nBeispielformat von Gesprächen:\n\n```\n<START>\n{{user}}: hi\n{{char}}: hallo\n<START>\n{{user}}: hi\nHaruhi: hallo\n```\n\n```<START>``` markiert den Beginn eines neuen Gesprächs",
         "creatorQuotes": "Beachten Sie, dass diese Anmkerung oberhalb der ersten Nachricht angezeigt wird. Sie wird verwendet, um den Benutzer über diesen Charakter zu informieren. Diese Anmerkung wird nicht in die Anweisungen eingespielt und hat deshalb keine Auswirkung auf die Antwort der KI.",
-        "systemPrompt": "Eine Anweisung, mit der die Haupt-Anweisung aus den Einstellungen ersetzt wird, sofern das Feld nicht leer ist",
+        "systemPrompt": "Diese Anweisung wird nicht mehr verwendet und nicht in Anfragen einbezogen.",
         "chatNote": "Eine Notiz, die das Verhalten der KI stark beeinflusst. Diese Notiz wird in den aktuellen Chat eingebettet. Auch bekannt als Memory oder UJB.",
         "personality": "Eine kurze Beschreibung der Persönlichkeit des Charakters. \n\n**Es wird nicht empfohlen, diese Option dafür zu nutzen. Beschreiben Sie die Persönlichkeit stattdessen in der Charakterbeschreibung.**",
         "scenario": "Eine kurze Beschreibung des Szenarios des Charakters. \n\n**Es wird nicht empfohlen, diese Option zu nutzen. Beschreiben Sie das Szenario stattdessen in der Charakterbeschreibung.**",
@@ -115,6 +111,6 @@ export const helpDe = {
         "openRouterProviderOnly": "Verwenden Sie nur die Anbieter in dieser Liste. Wenn alle Anbieter nicht verfügbar sind, schlägt die Anfrage fehl. Siehe Details unter https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
         "openRouterProviderIgnore": "Ignorieren Sie die Anbieter in dieser Liste. Wenn alle Anbieter ignoriert werden, schlägt die Anfrage fehl. Siehe Details unter https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",
         "hideAllImagesDesc": "Blendet Bot-Symbole, Bot-Bild-Assets und RisuRealm-Coverbilder aus.",
-        "embedding": "Das Embedding-Modell wird für die Ähnlichkeitssuche in mehreren Funktionen verwendet:\n\n- **Langzeitgedächtnis**: HypaV2, HypaV3, Hanurai Memory und SupaMemory (bei aktiviertem HypaMemory)\n- **Zusätzlicher Text**: Abgleich zusätzlicher Charakterinformationen basierend auf dem Kontext\n- **Dynamische Assets**: Finden ähnlicher Asset-Namen, wenn keine exakte Übereinstimmung gefunden wird\n- **Emotionsbilder**: Wenn die Emotionsmethode auf 'Embedding' gesetzt ist\n- **Trigger-Skripte**: Ähnlichkeitsbedingungen in Trigger-Skripten\n- **Dateianhänge**: Suche in PDF/TXT/XML-Anhängen\n- **Playground**: Embedding-Tests im Playground",
+        "embedding": "Das Embedding-Modell wird für die Ähnlichkeitssuche in mehreren Funktionen verwendet:\n\n- **Langzeitgedächtnis**: HypaV2, HypaV3, Hanurai Memory und SupaMemory (bei aktiviertem HypaMemory)\n- **Zusätzlicher Text**: Abgleich zusätzlicher Charakterinformationen basierend auf dem Kontext\n- **Dynamische Assets**: Finden ähnlicher Asset-Namen, wenn keine exakte Übereinstimmung gefunden wird\n- **Emotionsbilder**: Wenn die Emotionsmethode auf 'Embedding' gesetzt ist\n- **Trigger-Skripte**: Ähnlichkeitsbedingungen in Trigger-Skripten\n- **Dateianhänge**: Suche in PDF/TXT/XML-Anhängen",
         "enableScrollToActiveChar": "Wenn aktiviert, wird durch Drücken des Hotkeys oder Halten der Strg-Taste beim Ziehen eines Charakters zum aktuell aktiven Charakter gescrollt. Geschlossene Ordner werden automatisch geöffnet."
     }

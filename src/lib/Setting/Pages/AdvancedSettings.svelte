@@ -12,7 +12,6 @@
         'adv.genTime',
         'adv.sayNothing',
         'adv.autoFill',
-        'adv.antiOverload',
         'adv.exp.cachePoint',
         'adv.toolUsage',
         'adv.simpleTool',
@@ -36,6 +35,7 @@
         'adv.newImgBeta',
         'adv.allowV2Plugin',
         'adv.depTrig',
+        'adv.depTrigV2',
     ];
     const developerPrimaryItemIdSet = new Set(developerPrimaryItemIds);
     const developerWarningItemIds = new Set(['adv.warn']);

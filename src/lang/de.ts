@@ -404,8 +404,7 @@ export const languageGerman = {
         "helpSlot": "Verwenden Sie {{slot}}, um es unverändert zu lassen",
         "expression": "Ausdruck"
     },
-    "playground": {
-        "playground": "Spielwiese",
+    "inlayGallery": {
         "inlayDeleteConfirm": "Möchten Sie \"{name}\" wirklich löschen?",
         "inlayDeleteMultipleConfirm": "Möchten Sie die ausgewählten {count} Ressourcen wirklich löschen?",
         "inlayDeleteSelected": "Ausgewählte löschen",
@@ -733,7 +732,6 @@ export const languageGerman = {
     "rangeStart": "Bereichsstart",
     "rangeEnd": "Bereichsende",
     "untilChatEnd": "Bis zum Chat-Ende",
-    "usePromptTemplate": "Verwenden einer Anweisungs-Vorlage",
     "specialType": "Spezialtyp",
     "noSpecialType": "Kein Spezialtyp",
     "promptTemplate": "Anweisungs-Vorlage",
@@ -837,6 +835,7 @@ export const languageGerman = {
     "enable": "Aktivieren",
     "postFile": "Datei senden",
     "requestInfoInsideChat": "Anfrageinfo im Chat anzeigen",
+    "stickyChatToolbar": "Chat-Werkzeugleiste und Anfrageinfo beim Scrollen fixieren",
     "inputTokens": "Eingabe-Tokens",
     "outputTokens": "Ausgabe-Tokens",
     "tokenWarning": "Die Token-Berechnung kann ungenau sein. Es wird empfohlen, sie als Referenz zu verwenden.",
@@ -945,8 +944,6 @@ export const languageGerman = {
     "moduleIntergration": "Modul-Integration",
     "previewInfo": "Diese Vorschau zeigt die Anweisung vor der modellspezifischen Verarbeitung.",
     "miscTools": "Verschiedene Tools",
-    "promptConvertion": "Anweisungskonvertierung",
-    "convertionStep1": "Wählen Sie alle Dateien aus, die sich auf die Anweisung beziehen (Kontext, Anweisung und Sampler-JSON werden unterstützt)",
     "customCSS": "Benutzerdefiniertes CSS",
     "betaMobileGUI": "Beta-Mobil-GUI",
     "menu": "Menü",
@@ -1097,7 +1094,6 @@ export const languageGerman = {
     "alwaysActiveInChat": "Immer aktiv (Aktueller Chat)",
     "childLoreDesc": "Dies ist eine Kopie des Charakter-Lores, das 'Immer aktiv' bleibt, bis es entfernt oder im Original manuell deaktiviert wird.",
     "thinkingTokens": "Denk-Tokens",
-    "antiServerOverload": "Anti-Server-Überlastung",
     "localActivationInGlobalLorebook": "Chat-spezifische Aktivierung im Charakter-Lorebook",
     "cachePoint": "Cache-Punkt",
     "all": "Alle",

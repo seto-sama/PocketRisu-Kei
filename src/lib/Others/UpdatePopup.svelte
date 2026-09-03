@@ -44,8 +44,8 @@
 </script>
 
 <!--
-    tier="base" so any alertError / alertConfirm fired during the update
-    surfaces above this popup. closeOnOutsideClick stays false because
+    Nested alerts are placed above this popup by the shared overlay stack.
+    closeOnOutsideClick stays false because
     showUpdatePopupOnce() persists the dismiss before render — accidental
     backdrop clicks would silently drop the version forever. ESC stays
     blocked per branch convention.
@@ -57,7 +57,6 @@
         closable={canClose}
         closeOnEscape={false}
         closeOnOutsideClick={false}
-        tier="base"
         size="sm"
         footer={canClose ? footerActions : undefined}
     >

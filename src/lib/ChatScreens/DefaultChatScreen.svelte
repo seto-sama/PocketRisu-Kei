@@ -6,7 +6,7 @@
     import ShDropdownMenuContent from 'src/lib/UI/GUI/ShDropdownMenuContent.svelte';
     import ShDropdownMenuItem from 'src/lib/UI/GUI/ShDropdownMenuItem.svelte';
     import IconButtonGroup from 'src/lib/UI/GUI/IconButtonGroup.svelte';
-    import { selectedCharID, PlaygroundStore, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
+    import { selectedCharID, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, chatDeselected, chatPanelStore } from "../../ts/stores.svelte";
     import { onDestroy, tick, untrack } from 'svelte';
     import Chat from "./Chat.svelte";
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
@@ -15,7 +15,7 @@
     import { DBState, invalidateChatMessageRender } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
     import { chatProcessStage, doingChat, recoverRevenantGenerationsForChat, sendChat } from "../../ts/process/index.svelte";
-    import { ensureCurrentChatReady } from "../../ts/storage/chatStorage";
+    import { ensureCurrentChatReady, flushDirtyChatToServer } from "../../ts/storage/chatStorage";
     import { sleep } from "../../ts/util";
     import { language } from "../../lang";
     import { isExpTranslator, recoverAuxiliaryTranslationJobs, translate } from "../../ts/translator/translator";
@@ -63,10 +63,11 @@ import { isMobile } from 'src/ts/platform'
     import ShButton from '../UI/GUI/ShButton.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
     import Portal from '../UI/GUI/Portal.svelte';
+    import OverlayPortal from '../UI/GUI/OverlayPortal.svelte';
     import ImageGenerationDialog from './ImageGenerationDialog.svelte';
+    import TranslationDialog from './TranslationDialog.svelte';
     import { generateAIImageInlay } from 'src/ts/process/stableDiff';
-
-    const loadPlaygroundMenu = () => import('../Playground/PlaygroundMenu.svelte').then(m => m.default);
+    import { floorCssLengthToPhysicalPixel } from 'src/ts/gui/physicalPixel';
 
     // Whether an Enter keydown should send (vs insert a newline), based on the
     // per-platform send-key mode. Mobile uses sendKeyMobile, desktop sendKeyPC.
@@ -92,6 +93,7 @@ import { isMobile } from 'src/ts/platform'
     let messageInputTranslate:string = $state('')
     let openMenu = $state(false)
     let imageGenerationOpen = $state(false)
+    let translationOpen = $state(false)
     let imageRerollingTarget = $state.raw<{ roomId: string, messageId: string } | null>(null)
     let loadPages = $state(getInitialChatLoadPages(DBState.db))
     let doingChatInputTranslate = false
@@ -102,6 +104,8 @@ import { isMobile } from 'src/ts/platform'
     let scrollNavTimer: ReturnType<typeof setTimeout> | null = null
     let chatsInstance: any = $state()
     let chatScreenRoot: HTMLDivElement | null = $state(null)
+    let composerHeight = $state(0)
+    let composerToolbarOffset = $state(0)
     let chatScrollController: ChatScrollController | null = null
     let isScrollingToMessage = $state(false)
     let historyLoadInFlight = false
@@ -114,6 +118,29 @@ import { isMobile } from 'src/ts/platform'
     let loadPagesRoomKey = $state('')
     let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter?.chatPage ?? -1}:${currentChatSlot?.id ?? ''}`)
     let currentRoomHasImageReroll = $derived(imageRerollingTarget?.roomId === currentChatSlot?.id)
+
+    function trackComposerMetrics(node: HTMLElement) {
+        const update = () => {
+            composerHeight = node.offsetHeight
+            composerToolbarOffset = floorCssLengthToPhysicalPixel(
+                node.getBoundingClientRect().height,
+                globalThis.devicePixelRatio,
+            )
+        }
+        const resizeObserver = typeof ResizeObserver === 'undefined'
+            ? null
+            : new ResizeObserver(update)
+        resizeObserver?.observe(node)
+        window.addEventListener('resize', update)
+        update()
+
+        return {
+            destroy() {
+                resizeObserver?.disconnect()
+                window.removeEventListener('resize', update)
+            },
+        }
+    }
 
     async function insertGeneratedImage(
         reference: string,
@@ -746,7 +773,7 @@ import { isMobile } from 'src/ts/platform'
         if (idx === undefined) return getLastCharMsg()
         if (!DBState.db.showPreviousChatSwipeButtons || !msgs?.[idx]) return null
         const msg = msgs[idx]
-        if (msg.role !== 'char' || msg.isComment || msg.disabled) return null
+        if (msg.role !== 'char' || msg.isComment) return null
         return msg
     }
 
@@ -766,6 +793,21 @@ import { isMobile } from 'src/ts/platform'
         const rerollCharacter = DBState.db.characters[selectedChar]
         const rerollChat = rerollCharacter?.chats?.[rerollCharacter.chatPage]
         if (!rerollCharacter?.chaId || !rerollChat?.id) return
+        // Let the edit effect pin its canonical base, then settle that edit
+        // before the reroll swaps the live body for a temporary placeholder.
+        // Otherwise the pending autosave can persist the projection and make
+        // input.commit reject the original body with a misleading 409.
+        await tick()
+        try {
+            await flushDirtyChatToServer(
+                rerollCharacter.chaId,
+                rerollCharacter.chatPage,
+                rerollChat,
+            )
+        } catch (error) {
+            alertError(error)
+            return
+        }
         const generationTarget = {
             characterId: rerollCharacter.chaId,
             roomId: rerollChat.id,
@@ -1189,7 +1231,11 @@ import { isMobile } from 'src/ts/platform'
 
 
 
-<div class="w-full h-full relative" style={customStyle}>
+<div
+    class="w-full h-full relative"
+    class:nodeonly-standard-root={DBState.db.theme === ''}
+    style={customStyle}
+>
     {#if currentCharacter?.type === 'character'}
         <ImageGenerationDialog
             bind:open={imageGenerationOpen}
@@ -1197,11 +1243,12 @@ import { isMobile } from 'src/ts/platform'
             onGenerated={insertGeneratedImage}
         />
     {/if}
+    <TranslationDialog bind:open={translationOpen} />
     
     {#if DBState.db.nodeOnlyScrollButtonType !== 'off' && currentChat.length > 0}
         <Portal>
         <div
-            class="chat-side-navigation fixed right-3 z-40 flex flex-col rounded-lg bg-bgcolor/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
+            class="chat-side-navigation risu-layer-sticky fixed right-3 flex flex-col rounded-lg bg-bgcolor/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
             class:opacity-0={!showScrollNav}
             class:pointer-events-none={!showScrollNav}
         >
@@ -1242,59 +1289,53 @@ import { isMobile } from 'src/ts/platform'
 
     {#if showNewMessageButton && DBState.db.newMessageButtonStyle !== 'off'}
         {#if (DBState.db.newMessageButtonStyle === 'bottom-center' || !DBState.db.newMessageButtonStyle)}
-            <button class="absolute bottom-16 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
+            <button class="risu-layer-chrome absolute bottom-16 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-right'}
-            <button class="absolute bottom-20 right-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
+            <button class="risu-layer-chrome absolute bottom-20 right-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-left'}
-            <button class="absolute bottom-20 left-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
+            <button class="risu-layer-chrome absolute bottom-20 left-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'floating-circle'}
-            <button class="absolute bottom-36 right-4 bg-primary text-white w-12 h-12 rounded-full shadow-lg z-50 flex items-center justify-center risu-interactive-primary transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
+            <button class="risu-layer-chrome absolute bottom-36 right-4 bg-primary text-white w-12 h-12 rounded-full shadow-lg flex items-center justify-center risu-interactive-primary transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
                 <ArrowDown size={20} />
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'right-center'}
-            <button class="absolute top-1/2 right-2 -translate-y-1/2 bg-primary text-white px-2 py-3 rounded-l-lg shadow-lg z-50 flex flex-col items-center gap-1 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
+            <button class="risu-layer-chrome absolute top-1/2 right-2 -translate-y-1/2 bg-primary text-white px-2 py-3 rounded-l-lg shadow-lg flex flex-col items-center gap-1 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={12} />
                 <span class="text-xs writing-mode-vertical">{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'top-bar'}
-            <button class="absolute top-2 left-1/2 -translate-x-1/2 bg-primary text-white px-6 py-1.5 rounded-full shadow-lg z-50 flex items-center gap-2 risu-interactive-primary transition-colors text-sm" onclick={scrollToBottom}>
+            <button class="risu-layer-chrome absolute top-2 left-1/2 -translate-x-1/2 bg-primary text-white px-6 py-1.5 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors text-sm" onclick={scrollToBottom}>
                 <ArrowDown size={12} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
     {/if}
     {#if isScrollingToMessage}
-        <div class="absolute inset-0 z-50 flex items-center justify-center bg-black/50 text-white text-xl font-bold backdrop-blur-sm">
+        <div class="risu-layer-chrome absolute inset-0 flex items-center justify-center bg-black/50 text-white text-xl font-bold backdrop-blur-sm">
             Loading...
         </div>
     {/if}
     {#if $selectedCharID < 0}
-        {#if $PlaygroundStore === 0}
-            <MainMenu />
-        {:else}
-            {#await loadPlaygroundMenu() then PlaygroundMenu}
-                <PlaygroundMenu />
-            {/await}
-        {/if}
+        <MainMenu />
     {:else if $chatDeselected}
         <div class="h-full w-full flex items-center justify-center text-textcolor2">
             <span>{language.selectChatToView}</span>
@@ -1302,8 +1343,8 @@ import { isMobile } from 'src/ts/platform'
     {:else}
         {#snippet composerCluster()}
             <div
-                    class="{DBState.db.fixedChatTextarea ? 'sticky pt-2 pb-2 right-0 bottom-0 bg-bgcolor' : 'mt-2 mb-2'} w-full"
-                    style="{DBState.db.fixedChatTextarea ? 'z-index:29;' : ''}"
+                    class="{DBState.db.fixedChatTextarea ? 'chat-composer-fixed-layer absolute risu-layer-composer pt-2 pb-2 right-0 bottom-0 bg-bgcolor' : 'mt-2 mb-2'} w-full"
+                    use:trackComposerMetrics
             >
               <div class="mx-auto w-full {composerWidthClass} px-2">
                 <!-- "plugin-compat-items-stretch" is a compat hook (not a Tailwind class):
@@ -1363,6 +1404,9 @@ import { isMobile } from 'src/ts/platform'
                                         <WandSparklesIcon /><span>{language.imageGeneration}</span>
                                     </ShDropdownMenuItem>
                                 {/if}
+                                <ShDropdownMenuItem onSelect={() => { translationOpen = true }}>
+                                    <LanguagesIcon /><span>{language.translate}</span>
+                                </ShDropdownMenuItem>
                                 <ShDropdownMenuItem onSelect={() => {
                                     DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules ??= []
                                     openModuleList = true
@@ -1565,6 +1609,7 @@ import { isMobile } from 'src/ts/platform'
 
         <div class="h-full w-full flex flex-col overflow-y-auto overscroll-y-contain relative default-chat-screen"
             bind:this={chatScreenRoot}
+            style:--chat-composer-sticky-height={DBState.db.fixedChatTextarea ? `${composerToolbarOffset}px` : '0px'}
             class:nodeonly-standard={DBState.db.theme === ''}
             class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
             class:no-chat-width-full={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'full'}
@@ -1699,18 +1744,30 @@ import { isMobile } from 'src/ts/platform'
                 </div>
             {/if}
 
-            {@render composerCluster()}
+            {#if DBState.db.fixedChatTextarea}
+                <div
+                    class="w-full shrink-0"
+                    style:height={`${composerHeight}px`}
+                    aria-hidden="true"
+                ></div>
+            {:else}
+                {@render composerCluster()}
+            {/if}
 
             <div class="chat-scroll-anchor" data-chat-scroll-anchor aria-hidden="true"></div>
 
         </div>
+
+        {#if DBState.db.fixedChatTextarea}
+            {@render composerCluster()}
+        {/if}
 
     {/if}
 </div>
 
 {#if additionalFloatingActionButtons.length > 0}
     <Portal>
-    <div class="fixed top-4 right-4 flex flex-col gap-3 z-50">
+    <div class="risu-layer-chrome fixed top-4 right-4 flex flex-col gap-3">
         {#each additionalFloatingActionButtons as button}
             <button class="bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={() => {
                 button.callback()
@@ -1723,8 +1780,8 @@ import { isMobile } from 'src/ts/platform'
 {/if}
 
 {#if composerFullscreen}
-    <Portal>
-    <div class="fixed inset-0 z-50 bg-bgcolor flex flex-col p-4">
+    <OverlayPortal>
+    <div class="risu-layer-overlay fixed inset-0 bg-bgcolor flex flex-col p-4">
         <div class="mx-auto w-full max-w-3xl flex flex-col flex-1 min-h-0">
             <div class="flex items-center justify-between mb-2">
                 <span class="text-textcolor text-sm">{language.chatInputExpandTitle}</span>
@@ -1749,7 +1806,7 @@ import { isMobile } from 'src/ts/platform'
             </div>
         </div>
     </div>
-    </Portal>
+    </OverlayPortal>
 {/if}
 
 <style>

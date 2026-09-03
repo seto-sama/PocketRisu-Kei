@@ -918,7 +918,7 @@ async function importCharacterCardSpec<T extends boolean = false>(card:Character
         inlayViewScreen: data?.extensions?.risuai?.inlayViewScreen ?? false,
         newGenData: data?.extensions?.risuai?.newGenData ?? undefined,
         vits: vits,
-        ttsMode: vits ? 'vits' : 'normal',
+        ttsMode: vits ? 'vits' : '',
         imported: true,
         source: card?.data?.extensions?.risuai?.source ?? [],
         ccAssets: ccAssets,

@@ -7,13 +7,15 @@ const componentSources = import.meta.glob('/src/lib/**/*.svelte', {
 }) as Record<string, string>
 
 const viewportUiPattern = /risu-modal-backdrop|position:\s*fixed\s*;|class(?::[\w-]+)?=["'][^"']*\bfixed\b/
-const portalPattern = /<Portal\b|<[A-Za-z]+\.Portal\b/
+const portalPattern = /<(?:Portal|OverlayPortal)\b|<[A-Za-z]+\.Portal\b/
 
 const intentionalLayoutScopedFiles = [
     // App-level alert host: legacy overlays are already mounted directly under App.
     '/Others/AlertComp.svelte',
     // This is the sidebar's own dismiss surface, not an overlay rendered by sidebar content.
     '/SideBars/Sidebar.svelte',
+    // Internal stacking root; callers render it only inside a portal.
+    '/UI/GUI/OverlayLayerRoot.svelte',
 ]
 
 describe('viewport UI portal coverage', () => {

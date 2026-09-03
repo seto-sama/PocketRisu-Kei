@@ -355,7 +355,7 @@
             <div class="flex flex-col gap-1 text-xs text-textcolor2 min-w-32 flex-1">
                 <span>{language.pluginStorageOwner}</span>
                 <ShSelect bind:value={ownerFilter} size="sm">
-                    <OptionInput value="">{language.playground.inlayFilterAll}</OptionInput>
+                    <OptionInput value="">{language.inlayGallery.inlayFilterAll}</OptionInput>
                     {#each ownerOptions as p (p)}<OptionInput value={p}>{p}</OptionInput>{/each}
                     {#if hasUnknown}<OptionInput value={UNKNOWN}>{language.pluginStorageOwnerUnknown}</OptionInput>{/if}
                 </ShSelect>

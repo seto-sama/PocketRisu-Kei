@@ -24,7 +24,7 @@
 
 <div class="relative" class:w-full={fullwidth}>
     <input
-        class={"risu-field-border peer rounded-md shadow-xs text-textcolor bg-transparent px-4 py-2 pr-10 w-full" + (className ? (' ' + className) : '')}
+        class={"risu-field-border peer rounded-md shadow-xs text-textcolor bg-transparent px-2.5 py-2 pr-10 w-full" + (className ? (' ' + className) : '')}
         class:text-textcolor2={disabled}
         autocomplete="new-password"
         {placeholder}

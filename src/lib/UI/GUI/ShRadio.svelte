@@ -9,6 +9,7 @@
         options?: { value: string; label: string; description?: string }[];
         name?: string;
         disabled?: boolean;
+        variant?: 'default' | 'pill';
         className?: string;
     }
 
@@ -17,6 +18,7 @@
         options = [],
         name,
         disabled = false,
+        variant = 'default',
         className = '',
     }: Props = $props();
 </script>
@@ -25,33 +27,52 @@
     bind:value
     {name}
     {disabled}
-    orientation="vertical"
-    class={cn('flex flex-col gap-0.5', className)}
+    orientation={variant === 'pill' ? 'horizontal' : 'vertical'}
+    class={cn(
+        variant === 'pill'
+            ? 'inline-flex rounded-md border border-darkborderc overflow-hidden'
+            : 'flex flex-col gap-0.5',
+        className,
+    )}
 >
     {#each options as opt (opt.value)}
-        <RadioGroup.Item
-            value={opt.value}
-            class={
-                'group flex gap-2.5 w-full text-left text-sm text-textcolor ' +
-                (opt.description ? 'items-start ' : 'items-center ') +
-                'py-1.5 px-1 rounded-md border border-transparent transition-colors ' +
-                'risu-interactive-surface ' +
-                'disabled:opacity-50 disabled:cursor-not-allowed'
-            }
-        >
-            <span
-                class={'relative shrink-0 size-4 rounded-full border border-darkborderc transition-colors group-data-[state=checked]:border-primary' + (opt.description ? ' mt-0.5' : '')}
+        {#if variant === 'pill'}
+            <RadioGroup.Item
+                value={opt.value}
+                class={
+                    'px-2 py-1 text-xs cursor-pointer select-none transition-colors ' +
+                    'text-textcolor2 bg-transparent risu-interactive-surface ' +
+                    'data-[state=checked]:text-textcolor data-[state=checked]:bg-primary ' +
+                    'disabled:opacity-50 disabled:cursor-not-allowed'
+                }
+            >
+                {opt.label}
+            </RadioGroup.Item>
+        {:else}
+            <RadioGroup.Item
+                value={opt.value}
+                class={
+                    'group flex gap-2.5 w-full text-left text-sm text-textcolor ' +
+                    (opt.description ? 'items-start ' : 'items-center ') +
+                    'py-1.5 px-1 rounded-md border border-transparent transition-colors ' +
+                    'risu-interactive-surface ' +
+                    'disabled:opacity-50 disabled:cursor-not-allowed'
+                }
             >
                 <span
-                    class="absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary opacity-0 transition-opacity group-data-[state=checked]:opacity-100"
-                ></span>
-            </span>
-            <span class="min-w-0">
-                <span>{opt.label}</span>
-                {#if opt.description}
-                    <span class="block text-xs text-textcolor2">{opt.description}</span>
-                {/if}
-            </span>
-        </RadioGroup.Item>
+                    class={'relative shrink-0 size-4 rounded-full border border-darkborderc transition-colors group-data-[state=checked]:border-primary' + (opt.description ? ' mt-0.5' : '')}
+                >
+                    <span
+                        class="absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary opacity-0 transition-opacity group-data-[state=checked]:opacity-100"
+                    ></span>
+                </span>
+                <span class="min-w-0">
+                    <span>{opt.label}</span>
+                    {#if opt.description}
+                        <span class="block text-xs text-textcolor2">{opt.description}</span>
+                    {/if}
+                </span>
+            </RadioGroup.Item>
+        {/if}
     {/each}
 </RadioGroup.Root>

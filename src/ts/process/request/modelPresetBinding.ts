@@ -39,8 +39,15 @@ export function resolveChatModelBinding(
     chat: Chat | null | undefined,
     mode: ModelModeExtended,
     moduleId?: string,
+    presetOverrideId?: string,
 ): ResolvedBinding {
     const db = getDatabase()
+    if (presetOverrideId) {
+        const overridePreset = findPreset(presetOverrideId, db.modelPresets ?? [])
+        return overridePreset
+            ? { kind: 'modelPreset', preset: overridePreset }
+            : { kind: 'block', reason: mode === 'model' ? 'main-unset' : 'sub-unset' }
+    }
     if (moduleId) {
         const modulePreset = findPreset(db.moduleModelBindings?.[moduleId], db.modelPresets ?? [])
         if (modulePreset) return { kind: 'modelPreset', preset: modulePreset }

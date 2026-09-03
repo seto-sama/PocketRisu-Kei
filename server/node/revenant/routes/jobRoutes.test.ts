@@ -21,6 +21,42 @@ vi.mock('../generationDb.cjs', () => repository)
 
 const { installRevenantJobRoutes } = await import('./jobRoutes.cjs') as any
 
+describe('generation journal snapshot route', () => {
+    beforeEach(() => vi.clearAllMocks())
+
+    it('returns one immutable journal snapshot with its live-tail offset', async () => {
+        const routes = new Map<string, Function>()
+        const app = {
+            get: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            post: vi.fn(), put: vi.fn(), delete: vi.fn(),
+        }
+        const bytes = Buffer.from('already received')
+        repository.getGenerationJob.mockReturnValue({
+            jobId: 'job-1', workflowId: 'workflow-1', status: 'generating',
+        })
+        const readAll = vi.fn(() => bytes)
+        installRevenantJobRoutes(app, {
+            checkProxyAuth: vi.fn().mockResolvedValue(true),
+            requireSyncClientId: vi.fn(() => true),
+            generationRuntimeJobs: new Map(),
+            terminateGenerationWorkflow: vi.fn(),
+            getGenerationJob: repository.getGenerationJob,
+            generationJournalStore: { readAll },
+        })
+        const set = vi.fn()
+        const send = vi.fn()
+
+        await routes.get('/api/generation/jobs/:jobId/journal/snapshot')?.(
+            { params: { jobId: 'job-1' } },
+            { set, send, status: vi.fn() },
+        )
+
+        expect(readAll).toHaveBeenCalledWith('workflow-1', 'job-1')
+        expect(set).toHaveBeenCalledWith('x-risu-journal-offset', String(bytes.length))
+        expect(send).toHaveBeenCalledWith(bytes)
+    })
+})
+
 describe('generation job cancellation route', () => {
     beforeEach(() => vi.clearAllMocks())
 
@@ -176,6 +212,10 @@ describe('generation job cancellation route', () => {
             workflowId: 'workflow-1',
             status: 'generated',
         })
+        repository.getGenerationWorkflow.mockReturnValue({
+            workflowId: 'workflow-1',
+            status: 'active',
+        })
 
         installRevenantJobRoutes(app, {
             checkProxyAuth: vi.fn().mockResolvedValue(true),
@@ -195,5 +235,45 @@ describe('generation job cancellation route', () => {
 
         expect(status).toHaveBeenCalledWith(400)
         expect(repository.markGenerationMaterialized).not.toHaveBeenCalled()
+    })
+
+    it('allows an abandoned job from a terminal failed workflow to be acknowledged', async () => {
+        const routes = new Map<string, Function>()
+        const app = {
+            get: vi.fn(),
+            post: vi.fn((path: string, handler: Function) => routes.set(path, handler)),
+            put: vi.fn(),
+            delete: vi.fn(),
+        }
+        repository.getGenerationJob.mockReturnValue({
+            jobId: 'job-1',
+            jobType: 'model',
+            workflowId: 'workflow-1',
+            status: 'generated',
+        })
+        repository.getGenerationWorkflow.mockReturnValue({
+            workflowId: 'workflow-1',
+            status: 'cancelled',
+        })
+        repository.markGenerationMaterialized.mockReturnValue(true)
+
+        installRevenantJobRoutes(app, {
+            checkProxyAuth: vi.fn().mockResolvedValue(true),
+            requireSyncClientId: vi.fn(() => true),
+            generationRuntimeJobs: new Map(),
+            terminateGenerationWorkflow: vi.fn(),
+            getGenerationJob: repository.getGenerationJob,
+            getGenerationWorkflow: repository.getGenerationWorkflow,
+            markGenerationMaterialized: repository.markGenerationMaterialized,
+        })
+
+        const send = vi.fn()
+        await routes.get('/api/generation/jobs/:jobId/consume')?.(
+            { params: { jobId: 'job-1' } },
+            { send, status: vi.fn() },
+        )
+
+        expect(repository.markGenerationMaterialized).toHaveBeenCalledWith('job-1')
+        expect(send).toHaveBeenCalledWith({ success: true })
     })
 })

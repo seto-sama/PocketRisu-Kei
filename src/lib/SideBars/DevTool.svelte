@@ -17,7 +17,7 @@
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte";
     import { ArrowDown, ArrowUp, BookOpenIcon, ChevronRightIcon, HardDriveUploadIcon, PlusIcon, SearchIcon, TrashIcon } from "@lucide/svelte";
     import { selectSingleFile } from "src/ts/util";
-    import { doingChat, previewFormated, previewBody, sendChat } from "src/ts/process/index.svelte";
+    import { doingChat, previewFormated, previewBody, sendChat, type OpenAIChat } from "src/ts/process/index.svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
     import { applyChatTemplate, chatTemplates } from "src/ts/process/templates/chatTemplate";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
@@ -59,12 +59,24 @@
         let formated = safeStructuredClone(previewFormated)
 
         if(previewJoin === 'yes'){
-            let newFormated = []
+            const newFormated: OpenAIChat[] = []
             let latestRole = ''
 
             for(let i=0;i<formated.length;i++){
                 if(formated[i].role === latestRole){
-                    newFormated[newFormated.length - 1].content += '\n' + formated[i].content
+                    const merged = newFormated[newFormated.length - 1]
+                    merged.content += '\n' + formated[i].content
+                    if(formated[i].multimodals){
+                        merged.multimodals ??= []
+                        merged.multimodals.push(...formated[i].multimodals)
+                    }
+                    if(formated[i].thoughts){
+                        merged.thoughts ??= []
+                        merged.thoughts.push(...formated[i].thoughts)
+                    }
+                    if(formated[i].cachePoint){
+                        merged.cachePoint = true
+                    }
                 }else{
                     newFormated.push(formated[i])
                     latestRole = formated[i].role
@@ -100,11 +112,11 @@
                 md += `> ${formated[i].thoughts.length} thought(s) included\n`
             }
 
+            md += '```\n' + formated[i].content.replaceAll('```', '\\`\\`\\`') + '\n```\n'
+
             if(formated[i].cachePoint){
                 md += `> Cache point\n`
             }
-
-            md += '```\n' + formated[i].content.replaceAll('```', '\\`\\`\\`') + '\n```\n'
         }
         $doingChat = false
         alertMd(md)
@@ -191,14 +203,14 @@
 </script>
 
 {#snippet tokenRow(label: string, value: string)}
-    <ShSettings variant="row">
-        <span class="min-w-0 flex-1 truncate">{label}</span>
-        <span class="shrink-0 text-textcolor2 tabular-nums">{value}</span>
+    <ShSettings variant="row" size="compact">
+        <span class="min-w-0 flex-1 truncate text-base">{label}</span>
+        <span class="shrink-0 text-sm leading-5 text-textcolor2 tabular-nums">{value}</span>
     </ShSettings>
 {/snippet}
 
 <Accordion styled name={language.chatVariables}>
-    <ShSettings spacing="divided">
+    <ShSettings spacing="spaced">
         {#if DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate &&  Object.keys(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate).length > 0}
             {#each Object.keys(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].scriptstate) as key}
                 <ShSettings
@@ -238,7 +250,7 @@
 </Accordion>
 
 <Accordion styled name={language.tokens}>
-    <ShSettings spacing="divided">
+    <ShSettings spacing="none">
         {#await getCharacterDescriptionToken()}
             {@render tokenRow(language.devToolTokens.characterProfile, language.devToolTokens.loading)}
         {:then token}
@@ -262,7 +274,7 @@
             {/await}
         {/if}
     </ShSettings>
-    <span class="mt-2 block text-sm text-textcolor2">{language.devToolTokens.estimateNotice}</span>
+    <span class="mt-2 block text-xs leading-4 text-textcolor2">{language.devToolTokens.estimateNotice}</span>
 </Accordion>
 
 <Accordion styled name={language.autopilot}>
@@ -272,7 +284,7 @@
     {#each $devToolAutopilotStore as _, i}
         <div class="mt-2 flex items-center gap-1">
             <div class="min-w-0 flex-1">
-                <TextAreaInput highlight bind:value={$devToolAutopilotStore[i]} placeholder="..." fullwidth />
+                <TextAreaInput bind:value={$devToolAutopilotStore[i]} placeholder="..." fullwidth />
             </div>
             <IconButtonGroup size="sm" direction="vertical">
                 <IconButton
@@ -329,8 +341,8 @@
 
 
 <Accordion styled name={language.devToolPromptPreview.title}>
-    <ShSettings spacing="divided">
-        <ShSettings variant="row" className="px-0">
+    <ShSettings spacing="spaced">
+        <ShSettings variant="row">
             <span class="min-w-0 pr-2">{language.devToolPromptPreview.type}</span>
             <SelectInput className="min-w-0 flex-1" bind:value={previewMode}>
                 <OptionInput value="chat">{language.devToolPromptPreview.chat}</OptionInput>
@@ -338,7 +350,7 @@
             </SelectInput>
         </ShSettings>
         {#if previewMode === 'instruct'}
-            <ShSettings variant="row" className="px-0">
+            <ShSettings variant="row">
                 <span class="min-w-0 pr-2">{language.devToolPromptPreview.instructionType}</span>
                 <SelectInput className="min-w-0 flex-1" bind:value={instructType}>
                     {#each Object.keys(chatTemplates) as template}
@@ -354,7 +366,7 @@
                 </div>
             {/if}
         {/if}
-        <ShSettings variant="row" className="px-0">
+        <ShSettings variant="row">
             <span class="min-w-0 pr-2">{language.devToolPromptPreview.merge}</span>
             <SelectInput className="min-w-0 flex-1" bind:value={previewJoin}>
                 <OptionInput value="yes">{language.devToolPromptPreview.withMerge}</OptionInput>
@@ -376,7 +388,7 @@
 </Accordion>
 
 <Accordion styled name={language.devToolLorebookPreview.title}>
-    <ShSettings spacing="divided">
+    <ShSettings spacing="spaced">
         <ShSettings variant="row" className="px-0">
             <ShButton
                 variant="ghost"

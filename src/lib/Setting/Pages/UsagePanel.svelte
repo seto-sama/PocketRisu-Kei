@@ -5,7 +5,7 @@
     import ShSelect from 'src/lib/UI/GUI/ShSelect.svelte'
     import OptionInput from 'src/lib/UI/GUI/OptionInput.svelte'
     import Help from 'src/lib/Others/Help.svelte'
-    import { Tooltip } from 'bits-ui'
+    import ShTooltip from 'src/lib/UI/GUI/ShTooltip.svelte'
     import { Trash2Icon, ChartNoAxesColumnIcon, SearchIcon } from '@lucide/svelte'
     import { alertConfirm, alertMd, notifyError } from 'src/ts/alert'
     import { forageStorage } from 'src/ts/globalApi.svelte'
@@ -452,7 +452,6 @@
     {:else if loadError}
         <div class="text-draculared text-sm">{language.systemLogsFailedLoad}: {loadError}</div>
     {:else}
-        <Tooltip.Provider delayDuration={200}>
         <div class="border border-darkborderc rounded-md bg-darkbg/30 p-3">
             <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <div class="text-sm font-medium text-textcolor">{language.usageChartTitle}</div>
@@ -499,9 +498,8 @@
                                 {@const visibleCompletionTokens = Math.max(0, bucket.completionTokens - effectiveReasoningTokens)}
                                 {@const bucketTotal = bucket.promptTokens + bucket.completionTokens}
                                 <div class="h-full flex-1 min-w-0 flex items-end justify-center">
-                                    <Tooltip.Root>
-                                    <Tooltip.Trigger>
-                                        {#snippet child({ props })}
+                                    <ShTooltip delayDuration={200} className="tabular-nums">
+                                        {#snippet trigger(props)}
                                             <div
                                                 {...props}
                                                 class="w-full h-full flex items-end justify-center cursor-help"
@@ -531,20 +529,11 @@
                                                 </div>
                                             </div>
                                         {/snippet}
-                                    </Tooltip.Trigger>
-                                    <Tooltip.Portal>
-                                        <Tooltip.Content
-                                            class="break-keep bg-darkbg border border-darkborderc rounded-md px-3 py-2 text-xs text-textcolor shadow-lg z-50 leading-relaxed tabular-nums"
-                                            sideOffset={4}
-                                            collisionPadding={8}
-                                        >
-                                            <div class="font-medium">{bucket.title}</div>
-                                            <div>{language.usageInputTokens}: {number(bucket.promptTokens)} <span class="text-textcolor2">({number(effectiveCachedTokens)})</span></div>
-                                            <div>{language.usageOutputTokens}: {number(bucket.completionTokens)} <span class="text-textcolor2">({number(effectiveReasoningTokens)})</span></div>
-                                            <div>{language.usageEstimatedCost}: {formatCost(bucket.estimatedCostUsd)}</div>
-                                        </Tooltip.Content>
-                                    </Tooltip.Portal>
-                                    </Tooltip.Root>
+                                        <div class="font-medium">{bucket.title}</div>
+                                        <div>{language.usageInputTokens}: {number(bucket.promptTokens)} <span class="text-textcolor2">({number(effectiveCachedTokens)})</span></div>
+                                        <div>{language.usageOutputTokens}: {number(bucket.completionTokens)} <span class="text-textcolor2">({number(effectiveReasoningTokens)})</span></div>
+                                        <div>{language.usageEstimatedCost}: {formatCost(bucket.estimatedCostUsd)}</div>
+                                    </ShTooltip>
                                 </div>
                             {/each}
                         </div>
@@ -557,7 +546,6 @@
                 </div>
             </div>
         </div>
-        </Tooltip.Provider>
 
         <SettingLayout variant="panel" className="!mb-0">
             <div class="flex items-center gap-2 mb-3">

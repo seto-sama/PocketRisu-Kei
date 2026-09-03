@@ -157,7 +157,7 @@
             </IconButton>
           {/snippet}
         </ShDropdownMenuTrigger>
-        <ShDropdownMenuContent align="end" class="z-[45] min-w-44">
+        <ShDropdownMenuContent align="end" class="min-w-44">
         <ShDropdownMenuItem class="dropdown-bulk-action" onSelect={onToggleBulkEditMode}>
           <SquarePenIcon />
           {language.edit}

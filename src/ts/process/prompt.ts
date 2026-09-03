@@ -1,8 +1,7 @@
 import { tokenizeAccurate } from "../tokenizer";
-import { getDatabase, presetTemplate, setDatabase } from "../storage/database.svelte";
-import { v4 as uuidv4 } from "uuid";
-import { alertError, notifySuccess } from "../alert";
+import type { botPreset } from "../storage/database.svelte";
 import type { OobaChatCompletionRequestParams } from "../model/ooba";
+import { safeStructuredClone } from "../polyfill";
 
 export type PromptItem = PromptItemPlain|PromptItemTyped|PromptItemChat|PromptItemAuthorNote|PromptItemChatML|PromptItemCache
 export type PromptType = PromptItem['type'];
@@ -288,9 +287,14 @@ export const OobaParams = [
     "grammar_string"
 ]
 
-export function promptConvertion(files:{ name: string, content: string, type:string }[]){
+export type PromptConversionFile = {
+    name: string
+    content: string
+    type: string
+}
+
+export function convertPromptFiles(files:PromptConversionFile[], presetTemplate:botPreset):botPreset{
     let preset = safeStructuredClone(presetTemplate)
-    preset.id = uuidv4()
     let instData = {
         "system_prompt": "",
         "input_sequence": "",
@@ -321,14 +325,17 @@ export function promptConvertion(files:{ name: string, content: string, type:str
         return typePriority.indexOf(a.type) - typePriority.indexOf(b.type)
     })
 
+    if(files.length === 0){
+        throw new Error('Unsupported prompt preset format.')
+    }
+
 
     if(files.findIndex(x=>x.type === 'STINST') !== -1){
         type = 'STINST'
     }
     if(files.findIndex(x=>x.type === 'STCHAT') !== -1){
         if(type !== ''){
-            alertError(`Both ${type} and STCHAT are not supported together.`)
-            return
+            throw new Error(`Both ${type} and STCHAT are not supported together.`)
         }
         type = 'STCHAT'
     }
@@ -365,10 +372,9 @@ export function promptConvertion(files:{ name: string, content: string, type:str
             }
         }
 
-        preset.name ||= instData.name ?? ''
         switch(file.type){
             case 'STINST':{
-                instData = data as InstData
+                instData = {...instData, ...data} as InstData
                 if(data.system_same_as_user){
                     instData.system_sequence = ''
                     instData.system_sequence_prefix = instData.input_sequence
@@ -377,7 +383,7 @@ export function promptConvertion(files:{ name: string, content: string, type:str
                 break
             }
             case 'PARAMETERS':{
-                samplers = data.samplers
+                samplers = Array.isArray(data.samplers) ? data.samplers : []
                 getParam('temperature', 'temp', {multiplier: 100})
                 getParam('top_p')
                 getParam('top_k')
@@ -399,7 +405,7 @@ export function promptConvertion(files:{ name: string, content: string, type:str
                 break
             }
             case 'STCHAT':{
-                samplers = []
+                samplers = Object.keys(data)
                 getParam('temperature', 'temperature', {multiplier: 100})
                 getParam('top_p')
                 getParam('top_k')
@@ -410,16 +416,13 @@ export function promptConvertion(files:{ name: string, content: string, type:str
                 getParam('PresensePenalty', 'presence_penalty', {multiplier: 100})
                 const prompts = stChatConvert(data)
                 preset.promptTemplate = prompts
+                preset.name ||= data.name || 'Imported ST Preset'
             }
         }
     }
 
     if(type === 'STCHAT'){
-        const db = getDatabase()
-        db.botPresets.push(preset)
-    
-        notifySuccess('Preset converted successfully. You can find it in bot setting presets')
-        return
+        return preset
     }
 
     preset.reverseProxyOobaArgs = oobaData
@@ -488,11 +491,6 @@ export function promptConvertion(files:{ name: string, content: string, type:str
     preset.JinjaTemplate = jinja
     preset.useInstructPrompt = true
 
-    preset.name ||= 'Converted from JSON'
-
-
-    const db = getDatabase()
-    db.botPresets.push(preset)
-
-    notifySuccess('Preset converted successfully. You can find it in bot setting presets')
+    preset.name ||= instData.name || 'Converted from JSON'
+    return preset
 }

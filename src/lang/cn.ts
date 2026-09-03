@@ -404,8 +404,7 @@ export const languageChinese = {
         "helpSlot": "使用 {{slot}} 保持不变",
         "expression": "表达式"
     },
-    "playground": {
-        "playground": "Playground",
+    "inlayGallery": {
         "inlayDeleteConfirm": "确定要删除\"{name}\"吗？",
         "inlayDeleteMultipleConfirm": "确定要删除选中的{count}个资源吗？",
         "inlayDeleteSelected": "删除选中项",
@@ -733,7 +732,6 @@ export const languageChinese = {
     "rangeStart": "范围开始",
     "rangeEnd": "范围结束",
     "untilChatEnd": "直到聊天结束",
-    "usePromptTemplate": "使用提示词模板",
     "specialType": "特殊类型",
     "noSpecialType": "无特殊类型",
     "promptTemplate": "提示词模板",
@@ -837,6 +835,7 @@ export const languageChinese = {
     "enable": "激活",
     "postFile": "上传文件",
     "requestInfoInsideChat": "在聊天中显示请求数据",
+    "stickyChatToolbar": "滚动时固定聊天工具栏和请求信息",
     "inputTokens": "输入 Tokens",
     "outputTokens": "输出 Tokens",
     "tokenWarning": "Token 计算可能不精确，仅作参考。",
@@ -945,8 +944,6 @@ export const languageChinese = {
     "moduleIntergration": "模块集成",
     "previewInfo": "此预览显示模型处理前的提示词。",
     "miscTools": "其他工具",
-    "promptConvertion": "提示词转换",
-    "convertionStep1": "选择与提示词相关的文件（支持 Context、Instruct 及 Sampler JSON）",
     "customCSS": "自定义 CSS",
     "betaMobileGUI": "测试版行动接口",
     "menu": "菜单",
@@ -1097,7 +1094,6 @@ export const languageChinese = {
     "alwaysActiveInChat": "始终激活（当前聊天）",
     "childLoreDesc": "这是角色世界书的副本，保持“始终激活”，直到在原始版本中删除或手动停用。",
     "thinkingTokens": "思考 Tokens",
-    "antiServerOverload": "反服务器过载",
     "localActivationInGlobalLorebook": "角色世界书的按聊天激活",
     "cachePoint": "缓存点",
     "all": "全部",

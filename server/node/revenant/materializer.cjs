@@ -8,10 +8,11 @@ const {
 } = require('./generationProjection.cjs');
 
 class RevenantMaterializationError extends Error {
-    constructor(status, message) {
+    constructor(status, message, options = {}) {
         super(message);
         this.name = 'RevenantMaterializationError';
         this.status = status;
+        this.conflicts = options.conflicts;
     }
 }
 
@@ -94,10 +95,30 @@ function createRevenantMaterializer(options) {
             return await canonicalChatService.commitGenerationResult(args);
         } catch (error) {
             if (Number.isInteger(error?.httpStatus)) {
-                throw new RevenantMaterializationError(error.httpStatus, error.message);
+                throw new RevenantMaterializationError(error.httpStatus, error.message, {
+                    conflicts: error.conflicts,
+                });
             }
             throw error;
         }
+    }
+
+    function cancellationOwnsEveryConflict(workflow, job, error) {
+        if (error?.status !== 409 || !Array.isArray(error.conflicts) || error.conflicts.length === 0) {
+            return false;
+        }
+        const recipe = workflow.context?.postprocess;
+        const inputMessages = workflow.context?.inputCommit?.chat?.message || [];
+        const continuationTarget = recipe?.isContinuation
+            ? [...inputMessages].reverse().find(message => message?.role === 'char')?.chatId
+            : undefined;
+        const ownedIds = new Set([
+            job.chatId,
+            recipe?.rerollSnapshot?.targetMessage?.chatId,
+            continuationTarget,
+        ].filter(Boolean));
+        return error.conflicts.every(path =>
+            [...ownedIds].some(id => path === `/message/${id}`));
     }
 
     async function drainEarlierCancelledGenerations(job) {
@@ -229,17 +250,35 @@ function createRevenantMaterializer(options) {
             : structuredClone(inputChat);
         chat.isStreaming = false;
 
-        const commit = await commitGenerationResult({
-            job,
-            workflow,
-            chat,
-            isAlreadyCommitted: () => !!getGenerationJob(job.jobId, false)?.materializedAt,
-            finalize: () => {
-                if (!markGenerationMaterialized(job.jobId)) {
-                    throw new Error('Failed to mark cancelled generation materialized');
-                }
-            },
-        });
+        let commit;
+        try {
+            commit = await commitGenerationResult({
+                job,
+                workflow,
+                chat,
+                isAlreadyCommitted: () => !!getGenerationJob(job.jobId, false)?.materializedAt,
+                finalize: () => {
+                    if (!markGenerationMaterialized(job.jobId)) {
+                        throw new Error('Failed to mark cancelled generation materialized');
+                    }
+                },
+            });
+        } catch (error) {
+            if (!cancellationOwnsEveryConflict(workflow, job, error)) throw error;
+            // A user edited or deleted the exact continuation/reroll target
+            // while cancellation was settling. Their newer canonical choice
+            // wins; acknowledge the partial so a later generation never drains
+            // and resurrects it over that edit.
+            if (!markGenerationMaterialized(job.jobId)) {
+                throw new Error('Failed to discard superseded cancelled generation');
+            }
+            await canonicalChatService.publishCurrent(
+                job.characterId,
+                job.roomId,
+                'generation-cancelled-discarded',
+            );
+            return { success: true, discarded: true };
+        }
         if (commit.alreadyCommitted) return { success: true, alreadyMaterialized: true };
         return {
             success: true,

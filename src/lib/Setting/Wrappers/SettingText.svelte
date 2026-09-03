@@ -5,7 +5,7 @@
     import TextInput from 'src/lib/UI/GUI/TextInput.svelte';
     import ShCombobox from 'src/lib/UI/GUI/ShCombobox.svelte';
     import Help from 'src/lib/Others/Help.svelte';
-    import SettingRowLayout from './SettingRowLayout.svelte';
+    import SettingItemRow from './SettingItemRow.svelte';
 
     interface Props {
         item: SettingItem;
@@ -35,7 +35,7 @@
 </script>
 
 {#if ctx.layout === 'row'}
-    <SettingRowLayout {item}>
+    <SettingItemRow {item}>
         {#snippet control()}
             {#if suggestions.length > 0 && !item.options?.hideText}
                 <ShCombobox
@@ -56,7 +56,7 @@
                 />
             {/if}
         {/snippet}
-    </SettingRowLayout>
+    </SettingItemRow>
 {:else}
     <span class="text-textcolor {item.classes ?? ''}" data-setting-id={item.id}>
         {getLabel(item)}

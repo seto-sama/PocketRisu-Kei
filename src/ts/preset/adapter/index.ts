@@ -59,8 +59,10 @@ export {
     defaultFallbackEligible,
     defaultRetryable,
     extractErrorMessage,
+    isTransientOverloadMessage,
     normalizeFetchError,
     normalizeHttpStatus,
+    parseRetryAfterMs,
 } from './error'
 export { parseSseEventBlock, parseSseStream } from './sse'
 export { sendChatRequest, streamChatRequest, previewChatRequest } from './openaiCompatible'

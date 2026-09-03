@@ -8,3 +8,8 @@ export function snapCssLengthToPhysicalPixel(length: number, devicePixelRatio: n
     const quantum = getPhysicalPixelQuantum(devicePixelRatio)
     return Math.round(length / quantum) * quantum
 }
+
+export function floorCssLengthToPhysicalPixel(length: number, devicePixelRatio: number) {
+    const quantum = getPhysicalPixelQuantum(devicePixelRatio)
+    return Math.floor(length / quantum) * quantum
+}

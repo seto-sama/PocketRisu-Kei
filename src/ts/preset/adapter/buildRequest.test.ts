@@ -240,6 +240,33 @@ describe('buildPreparedRequest', () => {
         })
     })
 
+    test('applies generated body defaults before user-owned body overrides', () => {
+        const automatic = buildPreparedRequest({
+            preset: makePreset(),
+            credential: { apiKey: 'sk-test' },
+            generatedBodyDefaults: { prompt_cache_key: 'automatic-key' },
+        })
+        expect(automatic.body.prompt_cache_key).toBe('automatic-key')
+
+        const customPreset = makePreset({
+            customBody: { prompt_cache_key: 'custom-key' },
+        })
+        const custom = buildPreparedRequest({
+            preset: customPreset,
+            credential: { apiKey: 'sk-test' },
+            generatedBodyDefaults: { prompt_cache_key: 'automatic-key' },
+        })
+        expect(custom.body.prompt_cache_key).toBe('custom-key')
+
+        customPreset.additionalParamsText = 'prompt_cache_key={{none}}'
+        const disabled = buildPreparedRequest({
+            preset: customPreset,
+            credential: { apiKey: 'sk-test' },
+            generatedBodyDefaults: { prompt_cache_key: 'automatic-key' },
+        })
+        expect(disabled.body).not.toHaveProperty('prompt_cache_key')
+    })
+
     test('builds the Vertex OpenAI endpoint URL from custom-mapped project + location', () => {
         const preset = makePreset({
             profileSnapshot: makeSnapshot({

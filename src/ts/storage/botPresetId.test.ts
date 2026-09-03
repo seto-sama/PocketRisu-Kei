@@ -76,7 +76,7 @@ describe('empty database initialization', () => {
         expect(db.pluginCustomStorage).toEqual({})
     })
 
-    test('preserves retired fields that are no longer part of the typed database', () => {
+    test('preserves legacy fields except the retired model-registry notice snapshot', () => {
         const db: any = {
             additionalPrompt: { role: 'system', content: 'legacy prompt' },
             descriptionPrefix: 'legacy prefix',
@@ -103,7 +103,7 @@ describe('empty database initialization', () => {
         expect(db.promptPreprocess).toEqual({ mode: 'legacy' })
         expect(db.customModels).toEqual([{ id: 'xcustom:::legacy', opaque: true }])
         expect(db.modelPresetLocalRegistryOnly).toBe(true)
-        expect(db.modelRegistrySeen).toEqual({ legacy: 1 })
+        expect(db.modelRegistrySeen).toBeUndefined()
         expect(db.useCustomModelRegistry).toBe(true)
         expect(db.modelProfileRegistryBaseUrl).toBe('https://legacy.example')
         expect(db.aiModel).toBe('legacy-main')

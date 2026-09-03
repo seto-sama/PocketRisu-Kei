@@ -14,6 +14,7 @@
     import { language } from 'src/lang'
     import { RotateCwIcon } from '@lucide/svelte'
     import { navigateToRequestStatusChat } from 'src/ts/status/requestStatusNavigation'
+    import { activateRequestStatus, hasRequestStatusAction } from 'src/ts/status/requestStatusActions'
 
     let { id }: { id: string } = $props()
 
@@ -91,11 +92,12 @@
     })
 
     const spinning = $derived(entry ? !isTerminalPhase(entry.phase) && entry.phase !== 'stalled' : false)
-    const actionable = $derived(!!entry?.chatId)
+    const actionable = $derived(hasRequestStatusAction(id) || !!entry?.chatId)
 
     function openResponse(event: MouseEvent) {
         event.stopPropagation()
-        if (actionable && entry?.chatId) navigateToRequestStatusChat(entry.chatId)
+        if(activateRequestStatus(id)) return
+        if(entry?.chatId) navigateToRequestStatusChat(entry.chatId)
     }
 </script>
 

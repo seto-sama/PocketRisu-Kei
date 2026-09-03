@@ -1,6 +1,6 @@
 <script lang="ts">
     import { v4 } from "uuid";
-    import { DownloadIcon, PencilIcon, HardDriveUploadIcon, MenuIcon, TrashIcon, SplitIcon, FolderPlusIcon, BookmarkCheckIcon, PackageIcon, CopyIcon } from "@lucide/svelte";
+    import { DownloadIcon, PencilIcon, HardDriveUploadIcon, MenuIcon, TrashIcon, FolderPlusIcon, BookmarkCheckIcon, PackageIcon, CopyIcon } from "@lucide/svelte";
 
     import type { Chat, ChatFolder, character } from "src/ts/storage/database.svelte";
     import { newChatModelDefaults } from "src/ts/storage/database.svelte";
@@ -10,12 +10,12 @@
 
     import ShButton from "../UI/GUI/ShButton.svelte";
     import ShSortableList from "../UI/GUI/ShSortableList.svelte";
-    import TextInput from "../UI/GUI/TextInput.svelte";
+    import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
 
     import { exportChat, importChat, exportAllChats } from "src/ts/characters";
-    import { alertConfirm, alertError, alertSelect, alertStore, notifySuccess, notifyError } from "src/ts/alert";
+    import { alertConfirm, alertError, alertSelect, notifySuccess, notifyError } from "src/ts/alert";
 
     import { bookmarkListOpen, openModuleListStore } from "src/ts/stores.svelte";
     import { language } from "src/lang";
@@ -73,9 +73,8 @@
             .filter((folder): folder is ChatFolder => !!folder)
         syncChatOrderFromDom()
     }
-</script>
-<div class="flex flex-col w-full">
-    <ShButton className="relative bottom-2 h-10 min-h-10 w-full" onclick={async () => {
+
+    async function createNewChat() {
         const len = chara.chats.length
         const newChat = {
             message:[] as any[], note:'', name:`New Chat ${len + 1}`, localLore:[] as any[], fmIndex: -1, id: v4(),
@@ -87,7 +86,35 @@
         } catch (error) {
             alertError(error)
         }
-    }}>{language.newChat}</ShButton>
+    }
+
+    function createNewFolder() {
+        chara.chatFolders ??= []
+        const folders = chara.chatFolders
+        folders.unshift({
+            id: v4(),
+            name: `New Folder ${folders.length + 1}`,
+            folded: false,
+        })
+        chara.chatFolders = folders
+        $ReloadGUIPointer += 1
+    }
+</script>
+<div class="flex flex-col w-full">
+    <div class="relative bottom-2 flex items-stretch gap-1">
+        <ShButton className="min-w-0 flex-1" onclick={createNewChat}>
+            {language.newChat}
+        </ShButton>
+        <ShButton
+            size="icon"
+            className="shrink-0"
+            title={language.presetNewFolder}
+            aria-label={language.presetNewFolder}
+            onclick={createNewFolder}
+        >
+            <FolderPlusIcon />
+        </ShButton>
+    </div>
 
     <div class="flex flex-col mt-2 overflow-y-auto max-h-100" bind:this={listEle}>
         <!-- folder div -->
@@ -114,7 +141,7 @@
                 >
                     {#if editMode}
                         <div class="min-w-0 grow">
-                            <TextInput bind:value={chara.chatFolders[i].name} className="h-6 min-w-0 px-2" padding={false} fullwidth/>
+                            <InlineNameInput bind:value={chara.chatFolders[i].name} />
                         </div>
                     {:else}
                         <span class="truncate grow text-left">{folder.name}</span>
@@ -192,7 +219,7 @@
                     }} class="risu-chats flex min-w-0 items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"class:bg-selected={chatIdx === chara.chatPage && !$chatDeselected}>
                         {#if editMode}
                             <div class="min-w-0 grow">
-                                <TextInput bind:value={chat.name} className="h-6 min-w-0 px-2" padding={false} fullwidth/>
+                                <InlineNameInput bind:value={chat.name} />
                             </div>
                         {:else}
                             <span class="truncate grow text-left">{chat.name}</span>
@@ -283,7 +310,7 @@
             class:bg-selected={i === chara.chatPage && !$chatDeselected}>
                 {#if editMode}
                     <div class="min-w-0 grow">
-                        <TextInput bind:value={chara.chats[i].name} className="h-6 min-w-0 px-2" padding={false} fullwidth/>
+                        <InlineNameInput bind:value={chara.chats[i].name} />
                     </div>
                 {:else}
                     <span class="truncate grow text-left">{chat.name}</span>
@@ -353,7 +380,7 @@
     </div>
 
     <div class="border-t border-selected mt-2">
-        <IconButtonGroup className="mt-2 ml-2">
+        <IconButtonGroup className="mt-2">
             <IconButton onclick={() => {
                 exportAllChats()
             }}>
@@ -369,34 +396,10 @@
             }}>
                 <PencilIcon />
             </IconButton>
-            <IconButton onclick={() => {
-                alertStore.set({
-                  type: "branches",
-                  msg: ""
-                })
-            }}>
-                <SplitIcon />
-            </IconButton>
-            <IconButton onclick={() => {
+            <IconButton className="ml-auto" onclick={() => {
                 $bookmarkListOpen = true;
             }}>
                 <BookmarkCheckIcon />
-            </IconButton>
-            <IconButton className="ml-auto mr-2" onclick={() => {
-                if (!chara.chatFolders) {
-                    chara.chatFolders = []
-                }
-                const folders = chara.chatFolders
-                const length = chara.chatFolders.length
-                folders.unshift({
-                    id: v4(),
-                    name: `New Folder ${length + 1}`,
-                    folded: false,
-                })
-                chara.chatFolders = folders
-                $ReloadGUIPointer += 1
-            }}>
-                <FolderPlusIcon />
             </IconButton>
         </IconButtonGroup>
 

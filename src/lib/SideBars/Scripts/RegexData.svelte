@@ -163,7 +163,7 @@
     <div data-disclosure-field>
         <div data-disclosure-label>{language.regexOutput}</div>
         <div data-disclosure-control>
-            <TextAreaInput highlight autocomplete="off" bind:value={value.out} onInput={(e) => {
+            <TextAreaInput autocomplete="off" bind:value={value.out} onInput={(e) => {
                 onSharedChange()
                 $ReloadGUIPointer += 1
             }} />

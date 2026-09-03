@@ -5,7 +5,7 @@
  */
 
 import type { SettingItem } from './types';
-import { getCurrentChat, getDatabase, loadTogglesFromChat } from '../storage/database.svelte';
+import { getCurrentChat, getDatabase, getStickyChatToolbarVariant, loadTogglesFromChat } from '../storage/database.svelte';
 import { syncMobileBackNavigationGuard } from '../mobileBackNavigation';
 
 export const accessibilitySettingsItems: SettingItem[] = [
@@ -181,6 +181,15 @@ export const accessibilitySettingsItems: SettingItem[] = [
         }
     },
     {
+        id: 'acc.stickyChatToolbar',
+        type: 'check',
+        labelKey: 'stickyChatToolbar',
+        bindKey: 'stickyChatToolbar',
+        helpKey: 'stickyChatToolbar',
+        condition: (ctx) => getStickyChatToolbarVariant(ctx.db.theme) !== null,
+        keywords: ['sticky', 'chat', 'toolbar', 'request', 'info', 'scroll']
+    },
+    {
         id: 'acc.chatLoadInitialPages',
         type: 'slider',
         labelKey: 'chatLoadInitialPages',
@@ -341,6 +350,7 @@ export const accessibilityScrollItems = pick([
     'acc.autoScrollToNewMessage',
     'acc.newMessageButtonStyle',
     'acc.nodeOnlyScrollButtonType',
+    'acc.stickyChatToolbar',
     'acc.chatLoadInitialPages',
     'acc.chatLoadAdditionalPages',
 ]);

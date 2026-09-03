@@ -7,7 +7,7 @@
     import ShSlider from 'src/lib/UI/GUI/ShSlider.svelte';
     import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte';
     import Help from 'src/lib/Others/Help.svelte';
-    import SettingRowLayout from './SettingRowLayout.svelte';
+    import SettingItemRow from './SettingItemRow.svelte';
 
     interface Props {
         item: SettingItem;
@@ -101,7 +101,7 @@
 </script>
 
 {#if ctx.layout === 'row'}
-    <SettingRowLayout {item}>
+    <SettingItemRow {item}>
         {#snippet control()}
             {#if !item.options?.disableable || sliderEnabled}
                 <div class="w-48">
@@ -120,11 +120,11 @@
                 <ShSwitch checked={false} onCheckedChange={setSliderEnabled} />
             {/if}
         {/snippet}
-    </SettingRowLayout>
+    </SettingItemRow>
 {:else if ctx.layout === 'block'}
-    <!-- SettingRowLayout grammar (label + inline help stacked left, affordance
+    <!-- SettingRow grammar (label + inline help stacked left, affordance
          vertically centered right), plus a full-width slider third line. Markup
-         is replicated rather than nesting SettingRowLayout because the divider
+         is replicated rather than nesting SettingRow because the divider
          (border-t/py-3) must wrap the slider line too. -->
     <div class="py-3 border-t border-darkborderc">
         <div class="flex items-center justify-between gap-3">
@@ -162,7 +162,6 @@
         step={item.options?.step}
         fixed={item.options?.fixed}
         multiple={item.options?.multiple}
-        disableable={item.options?.disableable}
         {customText}
         bind:value={localValue}
     />

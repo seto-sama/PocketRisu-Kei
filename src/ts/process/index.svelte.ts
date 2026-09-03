@@ -78,6 +78,7 @@ import {
     type ChatCommitSnapshot,
 } from '../storage/chatWorkingCopy';
 import { compileModelPreset, type CompiledModelPreset } from "../preset/runtime/compilePreset";
+import { createOpenAiPromptCacheKey } from '../preset/cache/openaiPromptCacheKey';
 import {
     applyCancelledGenerationProjection,
     ensureGenerationMessageTarget,
@@ -741,23 +742,15 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     }
 
     let promptTemplate = safeStructuredClone(DBState.db.promptTemplate)
-    const usingPromptTemplate = !!promptTemplate
-    if(promptTemplate){
-        let hasPostEverything = false
-        for(const card of promptTemplate){
-            if(card.type === 'postEverything'){
-                hasPostEverything = true
-                break
-            }
-        }
+    const promptCacheKey = await createOpenAiPromptCacheKey(outgoingChat.id, promptTemplate)
+    const hasPostEverything = promptTemplate.some(card => card.type === 'postEverything')
 
-        if(!hasPostEverything){
-            promptTemplate.push({
-                type: 'postEverything'
-            })
-        }
+    if(!hasPostEverything){
+        promptTemplate.push({
+            type: 'postEverything'
+        })
     }
-    if(currentChar.utilityBot && (!(usingPromptTemplate && DBState.db.promptSettings.utilOverride))){
+    if(currentChar.utilityBot && !DBState.db.promptSettings.utilOverride){
         promptTemplate = [
             {
               "type": "plain",
@@ -788,38 +781,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         ]
     }
 
-    if((!currentChar.utilityBot) && (!promptTemplate)){
-        const mainp = currentChar.systemPrompt?.replaceAll('{{original}}', DBState.db.mainPrompt) || DBState.db.mainPrompt
-
-
-        function formatPrompt(data:string){
-            if(!data.startsWith('@@')){
-                data = "@@system\n" + data
-            }
-            const parts = data.split(/@@@?(user|assistant|system)\n/);
-  
-            // Initialize empty array for the chat objects
-            const chatObjects: OpenAIChat[] = [];
-            
-            // Loop through the parts array two elements at a time
-            for (let i = 1; i < parts.length; i += 2) {
-              const role = parts[i] as 'user' | 'assistant' | 'system';
-              const content = parts[i + 1]?.trim() || '';
-              chatObjects.push({ role, content });
-            }
-
-            return chatObjects;
-        }
-
-        unformated.main.push(...formatPrompt(risuChatParser(mainp, {chara: currentChar})))
-    
-        if(DBState.db.jailbreakToggle){
-            unformated.jailbreak.push(...formatPrompt(risuChatParser(DBState.db.jailbreak, {chara: currentChar})))
-        }
-    
-        unformated.globalNote.push(...formatPrompt(risuChatParser(currentChar.replaceGlobalNote?.replaceAll('{{original}}', DBState.db.globalNote) || DBState.db.globalNote, {chara:currentChar})))
-    }
-
     if(currentChat.note){
         unformated.authorNote.push({
             role: 'system',
@@ -837,7 +798,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     let beforeDescriptionPrompts:OpenAIChat[] = []
     let afterDescriptionPrompts:OpenAIChat[] = []
 
-    if(DBState.db.chainOfThought && (!(usingPromptTemplate && DBState.db.promptSettings.customChainOfThought))){
+    if(DBState.db.chainOfThought && !DBState.db.promptSettings.customChainOfThought){
         unformated.postEverything.push({
             role: 'system',
             content: `<instruction> - before respond everything, Think step by step as a ai assistant how would you respond inside <Thoughts> xml tag. this must be less than 5 paragraphs.</instruction>`
@@ -1067,15 +1028,14 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         return pmt
     }
 
-    if(promptTemplate){
-        const template = promptTemplate
+    const template = promptTemplate
 
-        async function tokenizeChatArray(chats:OpenAIChat[]){
-            for(const chat of chats){
-                const tokens = await tokenizer.tokenizeChat(chat)
-                currentTokens += tokens
-            }
+    async function tokenizeChatArray(chats:OpenAIChat[]){
+        for(const chat of chats){
+            const tokens = await tokenizer.tokenizeChat(chat)
+            currentTokens += tokens
         }
+    }
 
         for(const card of template){
             switch(card.type){
@@ -1126,7 +1086,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 }
                 case 'postEverything':{
                     await tokenizeChatArray(unformated.postEverything)
-                    if(usingPromptTemplate && DBState.db.promptSettings.postEndInnerFormat){
+                    if(DBState.db.promptSettings.postEndInnerFormat){
                         await tokenizeChatArray([{
                             role: 'system',
                             content: DBState.db.promptSettings.postEndInnerFormat
@@ -1202,7 +1162,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     }
                     let chats = unformated.chats.slice(start, end)
 
-                    if(usingPromptTemplate && DBState.db.promptSettings.sendChatAsSystem && (!card.chatAsOriginalOnSystem)){
+                    if(DBState.db.promptSettings.sendChatAsSystem && (!card.chatAsOriginalOnSystem)){
                         chats = systemizeChat(chats)
                     }
                     await tokenizeChatArray(chats)
@@ -1217,15 +1177,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
             }
-        }
-    }
-    else{
-        for(const key in unformated){
-            const chats = unformated[key] as OpenAIChat[]
-            for(const chat of chats){
-                currentTokens += await tokenizer.tokenizeChat(chat)
-            }
-        }
     }
     
     const examples = exampleMessage(currentChar, getUserName())
@@ -1281,7 +1232,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
             'editprocess'))
         }
 
-        if(usingPromptTemplate && DBState.db.promptSettings.sendName){
+        if(DBState.db.promptSettings.sendName){
             chat.content = `${currentChar.name}: ${chat.content}`
             chat.attr = ['nameAdded']
         }
@@ -1420,7 +1371,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         let attr:string[] = []
         let role:'user'|'assistant'|'system' = msg.role === 'user' ? 'user' : 'assistant'
 
-        if(usingPromptTemplate && DBState.db.promptSettings.sendName){
+        if(DBState.db.promptSettings.sendName){
             const form = DBState.db.groupTemplate || `<{{char}}\'s Message>\n{{slot}}\n</{{char}}\'s Message>`
             formatedChat = risuChatParser(form, {chara: currentChar.name}).replace('{{slot}}', formatedChat)
         }
@@ -1615,11 +1566,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
 
 
-    if(!promptTemplate){
-        unformated.lastChat.push(chats[chats.length - 1])
-        chats.splice(chats.length - 1, 1)
-    }
-
     unformated.chats = chats.map((v) => {
         if(v.memo !== 'supaMemory' && v.memo !== 'hypaMemory'){
             v.removable = true
@@ -1671,10 +1617,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     //make into one
 
     let formated:OpenAIChat[] = []
-    const formatOrder = safeStructuredClone(DBState.db.formatingOrder)
-    if(formatOrder){
-        formatOrder.push('postEverything')
-    }
 
     //continue chat model
     if(isContinuation && mergesAdjacentSystemPrompts){
@@ -1723,10 +1665,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         })
     }
 
-    if(promptTemplate){
-        const template = promptTemplate
-
-        for(const card of template){
+    for(const card of template){
             switch(card.type){
                 case 'persona':{
                     let pmt = safeStructuredClone(unformated.personaPrompt)
@@ -1787,7 +1726,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                 }
                 case 'postEverything':{
                     pushPrompts(unformated.postEverything)
-                    if(usingPromptTemplate && DBState.db.promptSettings.postEndInnerFormat){
+                    if(DBState.db.promptSettings.postEndInnerFormat){
                         pushPrompts([{
                             role: 'system',
                             content: DBState.db.promptSettings.postEndInnerFormat
@@ -1866,7 +1805,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     }
 
                     let chats = unformated.chats.slice(start, end)
-                    if(usingPromptTemplate && DBState.db.promptSettings.sendChatAsSystem && (!card.chatAsOriginalOnSystem)){
+                    if(DBState.db.promptSettings.sendChatAsSystem && (!card.chatAsOriginalOnSystem)){
                         chats = systemizeChat(chats)
                     }
                     pushPrompts(chats)
@@ -1919,13 +1858,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
                     break
                 }
             }
-        }
-    }
-    else{
-        for(let i=0;i<formatOrder.length;i++){
-            const cha = unformated[formatOrder[i]]
-            pushPrompts(cha)
-        }
     }
 
 
@@ -2165,6 +2097,7 @@ export async function sendChat(chatProcessIndex = -1,arg:{
     const requestMainGeneration = (lifecycle: RevenantGenerationLifecycle = {}) =>
         requestChatData({
             formated: formated,
+            promptCacheKey,
             biasString: biases,
             currentChar: currentChar,
             useStreaming: true,

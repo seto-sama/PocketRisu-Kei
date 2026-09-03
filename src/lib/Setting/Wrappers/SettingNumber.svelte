@@ -4,7 +4,7 @@
     import { untrack } from 'svelte';
     import NumberInput from 'src/lib/UI/GUI/NumberInput.svelte';
     import Help from 'src/lib/Others/Help.svelte';
-    import SettingRowLayout from './SettingRowLayout.svelte';
+    import SettingItemRow from './SettingItemRow.svelte';
 
     interface Props {
         item: SettingItem;
@@ -36,8 +36,8 @@
 {#if ctx.layout === 'row' || ctx.layout === 'block'}
     <!-- A number field needs no full-width control, so the block layout is
          identical to the row layout: label + inline help stacked on the left,
-         compact input vertically centered on the right (SettingRowLayout). -->
-    <SettingRowLayout {item}>
+         compact input vertically centered on the right (SettingItemRow). -->
+    <SettingItemRow {item}>
         {#snippet control()}
             <div class="flex items-center gap-2">
                 <NumberInput
@@ -54,7 +54,7 @@
                 {#if item.options?.suffix}<span class="text-textcolor2 text-xs shrink-0">{item.options.suffix}</span>{/if}
             </div>
         {/snippet}
-    </SettingRowLayout>
+    </SettingItemRow>
 {:else}
     <span class="text-textcolor {item.classes ?? ''}" data-setting-id={item.id}>
         {getLabel(item)}

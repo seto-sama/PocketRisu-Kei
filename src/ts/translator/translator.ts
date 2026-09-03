@@ -34,6 +34,25 @@ let cache={
     trans: ['']
 }
 
+const DEFAULT_TRANSLATOR_LANGUAGE = 'en'
+
+function configuredTranslationLanguages(db = getDatabase()) {
+    return {
+        to: db.translator || DEFAULT_TRANSLATOR_LANGUAGE,
+        from: db.translatorInputLanguage,
+    }
+}
+
+function applyTranslatorContextSlots(
+    prompt: string,
+    context: { from: string; to: string; translatorNote: string },
+): string {
+    return prompt
+        .replaceAll('{{slot::from}}', context.from)
+        .replaceAll('{{slot}}', context.to)
+        .replaceAll('{{slot::tnote}}', context.translatorNote)
+}
+
 let bergamotTranslate: (text: string, from: string, to: string, html?: boolean) => Promise<string>|null = null
 
 const llmTranslateCache = new Map<string, string>()
@@ -186,6 +205,32 @@ export function getCurrentTranslatorPreset(): TranslatorPreset {
     return getCurrentTranslatorPresetFromState(getDatabase())
 }
 
+export interface PromptTranslatorOptions {
+    preset: TranslatorPreset
+    modelPresetId: string
+    regenerate?: boolean
+    onRequestStatusActivate?: () => void
+}
+
+/** Translate with prompt/model choices that apply only to this request. */
+export async function runPromptTranslator(
+    text: string,
+    options: PromptTranslatorOptions,
+    signal?: AbortSignal,
+): Promise<string> {
+    const languages = configuredTranslationLanguages()
+    return translateLLM(text, {
+        to: languages.to,
+        from: languages.from,
+        signal,
+        preset: options.preset,
+        modelPresetId: options.modelPresetId,
+        cacheKey: text,
+        regenerate: options.regenerate,
+        onRequestStatusActivate: options.onRequestStatusActivate,
+    })
+}
+
 export async function translate(text:string, reverse:boolean, signal?:AbortSignal) {
     let db = getDatabase()
     if(!reverse){
@@ -273,7 +318,7 @@ export async function runTranslator(text:string, reverse:boolean, from:string,ta
 async function translateMain(text:string, arg:{from:string, to:string, host:string, translatorNote?:string}, signal?:AbortSignal){
     let db = getDatabase()
     if(db.translatorType === 'llm'){
-        const tr = arg.to || 'en'
+        const tr = arg.to || DEFAULT_TRANSLATOR_LANGUAGE
         return translateLLM(text, {to: tr, from: arg.from, translatorNote: arg.translatorNote, signal})
     }
     if(db.translatorType === 'deepl'){
@@ -440,8 +485,7 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     }
     let db = getDatabase()
     if(db.translatorType === 'llm'){
-        const tr = db.translator || 'en'
-        const from = db.translatorInputLanguage
+        const { to: tr, from } = configuredTranslationLanguages(db)
         let translated = false
         const r = await translateLLM(html, {
             to: tr,
@@ -460,7 +504,7 @@ export async function translateHTML(html: string, reverse:boolean, charArg:simpl
     }
     if(db.translatorType == "bergamot" && db.htmlTranslation) {
         const from = 'en'
-        const to = db.translator || 'en'
+        const to = db.translator || DEFAULT_TRANSLATOR_LANGUAGE
 
         if(!bergamotTranslate){
             const bergamotTranslator = await import('./bergamotTranslator')
@@ -667,10 +711,11 @@ function needSuperChunkedTranslate(){
     return getDatabase().translatorType === 'deeplX'
 }
 
-async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string, signal?:AbortSignal, target?:RevenantChatMessageTranslationTarget|null, onCacheState?:(cached:boolean) => void}):Promise<string>{
+async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string, signal?:AbortSignal, target?:RevenantChatMessageTranslationTarget|null, onCacheState?:(cached:boolean) => void, preset?:TranslatorPreset, modelPresetId?:string, cacheKey?:string, onRequestStatusActivate?:() => void}):Promise<string>{
+    const cacheKey = arg.cacheKey ?? text
     arg.signal?.throwIfAborted()
     if(!arg.regenerate){
-        const cacheMatch = await getLLMCache(text)
+        const cacheMatch = await getLLMCache(cacheKey)
         if(cacheMatch !== null){
             arg.onCacheState?.(true)
             return cacheMatch
@@ -681,11 +726,11 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
     // before creating another model request.
     await recoverRevenantTranslationJobs(revenantTranslationCache, {
         force: true,
-        cacheKey: text,
+        cacheKey,
     })
     arg.signal?.throwIfAborted()
     if(!arg.regenerate){
-        const recoveredCacheMatch = await getLLMCache(text)
+        const recoveredCacheMatch = await getLLMCache(cacheKey)
         if(recoveredCacheMatch !== null){
             arg.onCacheState?.(true)
             return recoveredCacheMatch
@@ -695,6 +740,7 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
         text,
         arg.regenerate === true,
         arg.target ?? null,
+        cacheKey,
     )
     text = revenantRequest.requestText
     const revenantJob = { id: null as string | null }
@@ -703,7 +749,6 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
     const charIndex = get(selectedCharID)
     const currentChar = db.characters[charIndex]
     let translatorNote = ""
-    console.log(arg.translatorNote)
     if(arg.translatorNote){
         translatorNote = arg.translatorNote
     }
@@ -712,17 +757,21 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
     } else {
         translatorNote = ""
     }
-    console.log(translatorNote)
-
     let formated:OpenAIChat[] = []
-    const preset = getCurrentTranslatorPreset()
+    const preset = arg.preset ?? getCurrentTranslatorPreset()
     let prompt = preset.prompt || defaultTranslatorPrompt
-    let parsedPrompt = parseChatML(prompt.replaceAll('{{slot::from}}', arg.from).replaceAll('{{slot}}', arg.to).replaceAll('{{solt::content}}', text).replaceAll('{{slot::content}}', text).replaceAll('{{slot::tnote}}', translatorNote))
+    prompt = applyTranslatorContextSlots(prompt, {
+        from: arg.from,
+        to: arg.to,
+        translatorNote,
+    })
+    const parsedPrompt = parseChatML(prompt
+        .replaceAll('{{solt::content}}', text)
+        .replaceAll('{{slot::content}}', text))
     if(parsedPrompt){
         formated = parsedPrompt
     }
     else{
-        prompt = prompt.replaceAll('{{slot}}', arg.to).replaceAll('{{slot::tnote}}', translatorNote).replaceAll('{{slot::from}}', arg.from)
         formated = [
             {
                 'role': 'system',
@@ -741,6 +790,8 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
         useStreaming: false,
         noMultiGen: true,
         maxTokens: preset.maxResponse,
+        modelPresetOverrideId: arg.modelPresetId,
+        onRequestStatusActivate: arg.onRequestStatusActivate,
         revenantOperationContext: revenantRequest.operationContext,
         // The shared request pipeline discards failed/superseded attempts but
         // leaves the final success until completeRevenantTranslation has

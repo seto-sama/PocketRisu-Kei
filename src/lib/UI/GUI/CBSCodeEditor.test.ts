@@ -14,6 +14,24 @@ afterEach(async () => {
 })
 
 describe('CBSCodeEditor', () => {
+    it('reports document changes immediately to its owner', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const onValueChange = vi.fn()
+        const component = mount(CBSCodeEditor, {
+            target,
+            props: { value: 'before', wordWrap: true, onValueChange },
+        })
+        mounted.push(component)
+        await tick()
+
+        const content = target.querySelector<HTMLElement>('[role="textbox"]')!
+        const editor = EditorView.findFromDOM(content)!
+        editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: 'after' } })
+
+        expect(onValueChange).toHaveBeenLastCalledWith('after')
+    })
+
     it('offers a complete CBS insertion after opening braces', async () => {
         const target = document.createElement('div')
         document.body.appendChild(target)
@@ -107,5 +125,38 @@ describe('CBSCodeEditor', () => {
         await tick()
 
         expect(target.querySelector('input[name="search"]')).toBeNull()
+    })
+
+    it('reports search state so the parent dialog can reserve Escape for search', async () => {
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const onSearchOpenChange = vi.fn()
+        const component = mount(CBSCodeEditor, {
+            target,
+            props: { value: '{{char}}', wordWrap: true, onSearchOpenChange },
+        })
+        mounted.push(component)
+        await tick()
+
+        const content = target.querySelector<HTMLElement>('[role="textbox"]')!
+        content.focus()
+        content.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'h',
+            code: 'KeyH',
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true,
+        }))
+        await tick()
+        expect(onSearchOpenChange).toHaveBeenLastCalledWith(true)
+
+        content.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Escape',
+            code: 'Escape',
+            bubbles: true,
+            cancelable: true,
+        }))
+        await tick()
+        expect(onSearchOpenChange).toHaveBeenLastCalledWith(false)
     })
 })

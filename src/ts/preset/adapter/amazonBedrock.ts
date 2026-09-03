@@ -11,6 +11,7 @@ import {
     extractErrorMessage,
     normalizeFetchError,
     normalizeHttpStatus,
+    parseRetryAfterMs,
 } from './error'
 import { prepareAdapterRequest } from './resolveCredential'
 import type {
@@ -570,12 +571,14 @@ async function deriveHttpError(response: Response): Promise<ModelPresetAdapterEr
     } catch {
         payload = bodyText
     }
-    const normalized = normalizeHttpStatus(response.status)
+    const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'))
+    const normalized = normalizeHttpStatus(response.status, undefined, { retryAfterMs })
     return new ModelPresetAdapterError(
         normalized.kind,
         messageFromPayload(payload, `Amazon Bedrock request failed (${response.status})`),
         {
             status: response.status,
+            retryAfterMs,
             retryable: normalized.retryable,
             fallbackEligible: normalized.fallbackEligible,
         },

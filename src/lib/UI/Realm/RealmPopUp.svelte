@@ -32,8 +32,7 @@
     size="lg"
     closeOnEscape
     onRequestClose={close}
-    contentClass="overflow-hidden"
-    bodyClass="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
+    bodyClass="flex min-h-0 flex-1 flex-col gap-4"
 >
     {#snippet title()}
         <span class="flex min-w-0 flex-col gap-0.5">

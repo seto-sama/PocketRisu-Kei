@@ -5,7 +5,8 @@
     import type { HTMLInputAttributes } from 'svelte/elements';
     import { cn } from 'src/lib/utils';
 
-    interface Props extends Omit<HTMLInputAttributes, 'class' | 'value'> {
+    interface Props extends Omit<HTMLInputAttributes, 'class' | 'value' | 'ref'> {
+        ref?: HTMLInputElement | null;
         value?: string;
         className?: string;
     }
@@ -15,6 +16,7 @@
     // DB schema fields are optional (e.g. character.nickname?: string), so the
     // bind target may legitimately be undefined; the fallback would reject it.
     let {
+        ref = $bindable(null),
         value = $bindable(),
         className = '',
         type = 'text',
@@ -35,6 +37,7 @@
 </script>
 
 <input
+    bind:this={ref}
     {type}
     bind:value
     class={cn(base, className)}

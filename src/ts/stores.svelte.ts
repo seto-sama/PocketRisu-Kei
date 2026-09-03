@@ -40,7 +40,6 @@ export const moduleBackgroundEmbedding = writable('')
 export const openPresetList = writable(false)
 export const presetSelectCallback = writable<((index: number) => void) | null>(null)
 export const openModelPresetList = writable(false)
-export const modelPresetSelectCallback = writable<((id: string) => void) | null>(null)
 export const openModelProfileBrowser = writable(false)
 // When set to a preset id, the profile browser replaces that preset's profile
 // (migrating matching userValues) instead of creating a new preset. null = create.
@@ -100,7 +99,6 @@ export function invalidateChatMessageRender(messageIndex: number) {
 }
 export const ScrollToMessageStore = $state({ value: -1, exact: false })
 export const OpenRealmStore = writable(false)
-export const PlaygroundStore = writable(0)
 export const HideIconStore = writable(false)
 export const CustomCSSStore = writable('')
 export const SafeModeStore = writable(false)
@@ -188,8 +186,6 @@ export const pluginAlertModalStore = $state({
     open: false,
     errors: [] as PluginSafetyErrors[]
 })
-
-export const disableHighlight = writable(true)
 
 export type MenuDef = {
     name: string,

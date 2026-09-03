@@ -150,7 +150,7 @@
 
     <div class="flex items-center mb-6">
         <IconButton size="lg" onclick={() => {
-            let value = DBState.db.promptTemplate ?? []
+            let value = DBState.db.promptTemplate
             value.push({
                 type: "plain",
                 text: "",

@@ -42,7 +42,6 @@
         onOpenChange={(v) => { if (!v) decide('skip'); }}
         closeOnEscape={false}
         closeOnOutsideClick={false}
-        tier="alert"
         size="default"
         footer={footerActions}
     >

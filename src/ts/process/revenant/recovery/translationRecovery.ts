@@ -50,8 +50,8 @@ export function prepareRevenantTranslationRequest(
     text: string,
     replaceExisting: boolean,
     target: RevenantChatMessageTranslationTarget | null = null,
+    cacheKey = text,
 ): RevenantTranslationRequest {
-    const cacheKey = text
     const styleDecodes: string[] = []
     const requestText = text.replace(
         /<risu-style>(.+?)<\/risu-style>/gms,

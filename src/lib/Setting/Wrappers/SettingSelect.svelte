@@ -5,7 +5,7 @@
     import SelectInput from 'src/lib/UI/GUI/SelectInput.svelte';
     import OptionInput from 'src/lib/UI/GUI/OptionInput.svelte';
     import Help from 'src/lib/Others/Help.svelte';
-    import SettingRowLayout from './SettingRowLayout.svelte';
+    import SettingItemRow from './SettingItemRow.svelte';
     import { language } from 'src/lang';
 
     interface Props {
@@ -47,7 +47,7 @@
 </script>
 
 {#if ctx.layout === 'row'}
-    <SettingRowLayout {item}>
+    <SettingItemRow {item}>
         {#snippet control()}
             <SelectInput className="w-48" size="sm" bind:value={localValue}>
                 {#each processedOptions as opt}
@@ -57,7 +57,7 @@
                 {/each}
             </SelectInput>
         {/snippet}
-    </SettingRowLayout>
+    </SettingItemRow>
 {:else}
     <span class="text-textcolor {item.classes ?? 'mt-4'}" data-setting-id={item.id}>
         {getLabel(item)}

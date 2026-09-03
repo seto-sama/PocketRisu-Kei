@@ -132,6 +132,8 @@ vi.mock('../../ts/translator/translator', () => ({
 vi.mock('../../ts/storage/database.svelte', () => ({
     getCurrentCharacter: () => storeMocks.DBState.db.characters[0],
     getCurrentChat: () => storeMocks.DBState.db.characters[0].chats[0],
+    getStickyChatToolbarVariant: (theme: string) =>
+        theme === '' ? 'footer' : theme === 'standardRisu' || theme === 'waifu' ? 'floating' : null,
     normalizeChat: (chat: unknown) => chat,
     setCurrentChat: vi.fn(),
 }))
@@ -222,6 +224,7 @@ beforeEach(() => {
 afterEach(async () => {
     await Promise.all(mountedComponents.splice(0).map(component => unmount(component as never)))
     document.body.replaceChildren()
+    vi.unstubAllGlobals()
     vi.clearAllMocks()
 })
 
@@ -248,6 +251,39 @@ async function waitForTranslationButtonState(target: HTMLElement, active: boolea
     }
     return target.querySelector<HTMLButtonElement>('.button-icon-translate')
 }
+
+describe('branched chat comment layout', () => {
+    it.each(['standardRisu', ''])(
+        'keeps the compact branch label and delete action on one row for the %s theme',
+        async theme => {
+            DBState.db.theme = theme
+            const target = document.createElement('div')
+            document.body.appendChild(target)
+            const component = mount(Chat, {
+                target,
+                props: {
+                    message: '{{specialcomment::branchedfrom::source-chat::Source chat::source-message::}}',
+                    isComment: true,
+                    idx: 0,
+                    totalLength: 1,
+                },
+            })
+            mountedComponents.push(component)
+            await tick()
+
+            const row = target.querySelector('.branched-from-comment-row')
+            const label = row?.querySelector('.branched-from-comment-text')
+            const removeButton = row?.querySelector<HTMLButtonElement>('.button-icon-remove')
+
+            expect(row).not.toBeNull()
+            expect(row?.classList.contains('grid')).toBe(true)
+            expect(row?.classList.contains('grid-cols-[2.5rem_minmax(0,1fr)_2.5rem]')).toBe(true)
+            expect(label?.classList.contains('text-sm')).toBe(true)
+            expect(label?.classList.contains('mb-12')).toBe(false)
+            expect(removeButton?.dataset.iconSize).toBe('default')
+        },
+    )
+})
 
 describe('Chat editing', () => {
     it('keeps user translation toggles while retaining cached room restores', async () => {
@@ -378,7 +414,11 @@ describe('Chat editing', () => {
         const editor = target.querySelector<HTMLTextAreaElement>('.message-edit-area')
         expect(editor).not.toBeNull()
         expect(editor?.value).toBe('User message')
-
+        const editorField = editor?.closest('.risu-field-border')
+        expect(editorField?.classList.contains('risu-local-stack')).toBe(true)
+        expect(editorField?.classList.contains('risu-local-stack-focus')).toBe(true)
+        expect(editorField?.classList.contains('z-20')).toBe(false)
+        expect(editorField?.classList.contains('focus-within:z-40')).toBe(false)
         editor!.value = 'Edited user message'
         editor!.dispatchEvent(new Event('input', { bubbles: true }))
         await tick()
@@ -1005,6 +1045,62 @@ describe('Chat editing', () => {
         expect(firstMessage.querySelector('.message-edit-area')).not.toBeNull()
     })
 
+    it('allows navigating swipes on a context-disabled message', async () => {
+        DBState.db.showPreviousChatSwipeButtons = true
+        const messages: Message[] = [{
+            role: 'char',
+            data: 'Disabled first swipe',
+            chatId: 'disabled-message',
+            swipes: ['Disabled first swipe', 'Disabled second swipe'],
+            swipeId: 0,
+            disabled: true,
+        }, {
+            role: 'char',
+            data: 'Current message',
+            chatId: 'current-message',
+        }]
+        const currentCharacter = {
+            ...DBState.db.characters[0],
+            chaId: 'character-1',
+            image: 'character.png',
+            chats: [{ id: 'chat-1', message: messages }],
+        } as unknown as character
+        DBState.db.characters[0] = currentCharacter
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chats, {
+            target,
+            props: {
+                messages,
+                currentCharacter,
+                chatRoomId: 'chat-1',
+                onReroll: () => {},
+                onNextSwipe: (idx?: number) => {
+                    const message = messages[idx ?? messages.length - 1]
+                    message.swipeId = 1
+                    message.data = message.swipes![1]
+                    storeMocks.invalidateChatMessageRender(idx ?? messages.length - 1)
+                },
+                unReroll: () => {},
+                currentUsername: 'User',
+                userIcon: 'user.png',
+                loadPages: 2,
+            },
+        })
+        mountedComponents.push(component)
+        await waitForParserCalls(2)
+
+        const disabledMessage = target.querySelectorAll<HTMLElement>('.chat-message-container')[0]
+        expect(disabledMessage.querySelectorAll('.button-icon-reroll')).toHaveLength(1)
+        disabledMessage.querySelector<HTMLButtonElement>('.button-icon-reroll')!.click()
+
+        await tick()
+        expect(messages[0].data).toBe('Disabled second swipe')
+        expect(messages[0].disabled).toBe(true)
+        expect(disabledMessage.textContent).toContain('2/2')
+    })
+
     it('restores a cached translation after deleting the selected swipe', async () => {
         DBState.db.translator = 'en'
         DBState.db.translatorType = 'llm'
@@ -1256,6 +1352,172 @@ describe('Chat editing', () => {
         const generationInfo = target.querySelector('.chat-generation-info')
         expect(generationInfo?.getAttribute('data-icon-size')).toBe('lg')
         expect((generationInfo as HTMLElement | null)?.style.minHeight).toBe('var(--icon-cell-size)')
+    })
+
+    it.each(['standardRisu', 'waifu'])('groups sticky controls into a floating toolbar for the %s theme', async (theme) => {
+        DBState.db.theme = theme
+        DBState.db.stickyChatToolbar = true
+        DBState.db.requestInfoInsideChat = true
+        DBState.db.textScreenColor = '#345678'
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'Long response',
+                name: 'Character',
+                role: 'char',
+                idx: -1,
+                firstMessage: true,
+                messageGenerationInfo: { model: 'test-model' },
+                totalLength: 1,
+            },
+        })
+        mountedComponents.push(component)
+        await tick()
+
+        const floatingToolbar = target.querySelector('.chat-toolbar-sticky-layer')
+        const floatingCard = floatingToolbar?.querySelector('.chat-toolbar-floating-card')
+        expect(floatingToolbar).not.toBeNull()
+        expect(floatingToolbar?.querySelector('.chat-generation-info')).not.toBeNull()
+        expect(floatingToolbar?.querySelector('.chat-message-actions')).not.toBeNull()
+        expect(floatingCard?.firstElementChild?.classList.contains('chat-toolbar-actions')).toBe(true)
+        expect(floatingCard?.lastElementChild?.classList.contains('chat-toolbar-generation-info')).toBe(true)
+        if (theme === 'waifu') {
+            expect(floatingCard?.getAttribute('style')).toContain('#34567880')
+        } else {
+            expect(floatingCard?.getAttribute('style')).toContain('var(--risu-theme-bgcolor)')
+        }
+    })
+
+    it('keeps the floating toolbar to one row when model and translation details are absent', async () => {
+        DBState.db.theme = 'waifu'
+        DBState.db.stickyChatToolbar = true
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'Response without details',
+                name: 'Character',
+                role: 'char',
+                idx: -1,
+                firstMessage: true,
+                totalLength: 1,
+            },
+        })
+        mountedComponents.push(component)
+        await tick()
+
+        const floatingCard = target.querySelector('.chat-toolbar-floating-card')
+        expect(floatingCard?.children).toHaveLength(1)
+        expect(floatingCard?.querySelector('.chat-toolbar-generation-info')).toBeNull()
+    })
+
+    it('shares one intersection observer and updates sticky state in both directions', async () => {
+        let observerCallback: IntersectionObserverCallback | undefined
+        const observe = vi.fn()
+        const unobserve = vi.fn()
+        const disconnect = vi.fn()
+        const IntersectionObserverMock = vi.fn(function (callback: IntersectionObserverCallback) {
+            observerCallback = callback
+            return { observe, unobserve, disconnect }
+        })
+        vi.stubGlobal('IntersectionObserver', IntersectionObserverMock)
+
+        DBState.db.theme = 'standardRisu'
+        DBState.db.stickyChatToolbar = true
+        const scrollRoot = document.createElement('div')
+        scrollRoot.className = 'default-chat-screen'
+        const firstTarget = document.createElement('div')
+        const secondTarget = document.createElement('div')
+        scrollRoot.append(firstTarget, secondTarget)
+        document.body.appendChild(scrollRoot)
+
+        const props = {
+            message: 'Observed response',
+            name: 'Character',
+            role: 'char',
+            idx: -1,
+            firstMessage: true,
+            totalLength: 1,
+        }
+        const firstComponent = mount(Chat, { target: firstTarget, props })
+        const secondComponent = mount(Chat, { target: secondTarget, props })
+        await tick()
+
+        expect(IntersectionObserverMock).toHaveBeenCalledTimes(1)
+        expect(observe).toHaveBeenCalledTimes(2)
+
+        const firstAnchor = firstTarget.querySelector('.chat-toolbar-stick-anchor') as HTMLElement
+        observerCallback?.([{
+            target: firstAnchor,
+            isIntersecting: true,
+            boundingClientRect: { top: 10 },
+        } as unknown as IntersectionObserverEntry], {} as IntersectionObserver)
+        await tick()
+        expect(firstTarget.querySelector('.chat-toolbar-sticky-layer')?.classList.contains('chat-toolbar-is-stuck')).toBe(false)
+
+        observerCallback?.([{
+            target: firstAnchor,
+            isIntersecting: false,
+            boundingClientRect: { top: -1 },
+        } as unknown as IntersectionObserverEntry], {} as IntersectionObserver)
+        await tick()
+        expect(firstTarget.querySelector('.chat-toolbar-sticky-layer')?.classList.contains('chat-toolbar-is-stuck')).toBe(true)
+
+        observerCallback?.([{
+            target: firstAnchor,
+            isIntersecting: true,
+            boundingClientRect: { top: 10 },
+        } as unknown as IntersectionObserverEntry], {} as IntersectionObserver)
+        await tick()
+        expect(firstTarget.querySelector('.chat-toolbar-sticky-layer')?.classList.contains('chat-toolbar-is-stuck')).toBe(false)
+
+        await unmount(firstComponent)
+        expect(unobserve).toHaveBeenCalledTimes(1)
+        expect(disconnect).not.toHaveBeenCalled()
+        await unmount(secondComponent)
+        expect(unobserve).toHaveBeenCalledTimes(2)
+        expect(disconnect).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the complete PocketRisu Standard footer sticky at the bottom', async () => {
+        DBState.db.theme = ''
+        DBState.db.stickyChatToolbar = true
+        DBState.db.fixedChatTextarea = true
+        DBState.db.requestInfoInsideChat = true
+
+        const target = document.createElement('div')
+        document.body.appendChild(target)
+        const component = mount(Chat, {
+            target,
+            props: {
+                message: 'PocketRisu Standard response',
+                name: 'Character',
+                role: 'char',
+                idx: -1,
+                firstMessage: true,
+                totalLength: 1,
+                isStreamingDisplay: true,
+            },
+        })
+        mountedComponents.push(component)
+        await tick()
+
+        const stickyFooter = target.querySelector('.chat-toolbar-sticky-footer')
+        const stickyShell = target.querySelector('.chat-message-shell-sticky')
+        expect(stickyShell).not.toBeNull()
+        expect(stickyFooter).not.toBeNull()
+        expect(stickyFooter?.querySelector('.chat-generation-info')).not.toBeNull()
+        expect(stickyFooter?.querySelector('.chat-message-actions')).not.toBeNull()
+        expect(stickyFooter?.classList.contains('chat-toolbar-floating-card')).toBe(false)
+        const stickyFooterLayer = target.querySelector('.chat-message-body')?.nextElementSibling
+        expect(stickyFooterLayer?.classList.contains('chat-toolbar-sticky-footer-layer')).toBe(true)
+        expect(stickyFooterLayer?.classList.contains('chat-toolbar-above-fixed-composer')).toBe(true)
+        expect(stickyFooterLayer?.classList.contains('chat-toolbar-streaming-layer')).toBe(true)
     })
 
     it('hides the model label on mobile while retaining its icon', async () => {

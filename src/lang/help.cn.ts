@@ -10,10 +10,6 @@ export const helpCn = {
         "model": "此模型是指聊天中使用的主控模型。",
         "submodel": "辅助模型用于情感分析、翻译和摘要等任务，建议选择较小的模型。",
         "oaiapikey": "OpenAI 的 API 密钥（Key），可在 https://platform.openai.com/account/api-keys 获取。",
-        "mainprompt": "主提示词设置用于决定模型的默认行为。",
-        "jailbreak": "当角色中的越狱开关被激活后，越狱提示词将被使用。",
-        "globalNote": "一个对模型行为有强烈影响的备注（也称为 UJB），适用于所有角色。",
-        "formatOrder": "提示词的排列顺序：越靠下的区块对模型的影响越大。",
         "forceUrl": "此字段不为空时，请求将被发送到你所输入的网址。",
         "tempature": "较低的数值会使角色更紧密地遵循提示词，但会使回应更制式与机械化。\n较高的数值则会增强角色的创意表现，但回应可能会变得不稳定。",
         "frequencyPenalty": "较高的数值可以避免角色在个别回应中重复使用相同的词汇，但回应也更容易出现语义混乱。",
@@ -35,7 +31,7 @@ export const helpCn = {
         "oogaboogaURL": "如果你的 WebUI 支持旧版 API，你的 URL 应类似于 *https://.../run/textgen*。\n\n如果你的 WebUI 支持新版 API，你的 URL 应类似于 *https://.../api/v1/generate*，且将使用 API 服务器作为主机，并在参数中添加 —api。",
         "exampleMessage": "示范对话会影响角色的回应，但不会永久占用 Token。\n\n对话格式示例：\n\n```\n<START>\n{{user}}: hi\n{{char}}: hello\n<START>\n{{user}}: hi\nHaruhi: hello\n```\n\n```<START>``` 标记了一段新对话的开始。",
         "creatorQuotes": "说明将显示在初始消息之上，用于向用户提供角色说明。此内容不会进入提示词中。",
-        "systemPrompt": "此字段不为空时，将替换设置中的主提示词为此内容。",
+        "systemPrompt": "此提示词已不再使用，也不会包含在请求中。",
         "chatNote": "这是一个强烈影响模型行为的备注，嵌入于当前聊天中，也称为记忆或 UJB。",
         "personality": "对角色性格的简要描述。\n\n**不建议使用此字段，请填写在角色描述中。**",
         "scenario": "对角色情境的简要描述。\n\n**不建议使用此字段，请填写在角色描述中。**",
@@ -115,6 +111,6 @@ export const helpCn = {
         "openRouterProviderOnly": "仅使用此列表中的提供商，若所有提供商都不可用，请求将会失败。详见 https://openrouter.ai/docs/guides/routing/provider-selection#allowing-only-specific-providers",
         "openRouterProviderIgnore": "忽略此列表中的提供商，若所有提供商都被忽略，请求将会失败。详见 https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",
         "hideAllImagesDesc": "隐藏机器人图标、机器人图片资源和RisuRealm封面图片。",
-        "embedding": "嵌入模型用于多个功能中的相似度搜索：\n\n- **长期记忆**: HypaV2, HypaV3, Hanurai Memory 和 SupaMemory (启用 HypaMemory 时)\n- **附加文本**: 基于上下文匹配角色附加信息\n- **动态资产**: 当未找到精确匹配时查找相似的资产名称\n- **情感图片**: 当情感方式设置为 'embedding' 时\n- **触发脚本**: 触发脚本中的相似度条件\n- **文件附件**: 在 PDF/TXT/XML 附件中搜索\n- **Playground**: Playground 中的嵌入测试",
+        "embedding": "嵌入模型用于多个功能中的相似度搜索：\n\n- **长期记忆**: HypaV2, HypaV3, Hanurai Memory 和 SupaMemory (启用 HypaMemory 时)\n- **附加文本**: 基于上下文匹配角色附加信息\n- **动态资产**: 当未找到精确匹配时查找相似的资产名称\n- **情感图片**: 当情感方式设置为 'embedding' 时\n- **触发脚本**: 触发脚本中的相似度条件\n- **文件附件**: 在 PDF/TXT/XML 附件中搜索",
         "enableScrollToActiveChar": "如果启用，在拖动角色时按下热键或按住 Ctrl 键将滚动到当前活跃的角色。如果文件夹已关闭，将自动打开。"
     }

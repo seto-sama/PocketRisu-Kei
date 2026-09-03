@@ -419,6 +419,17 @@ function createGenerationStatements(db) {
     const stmtListWorkflowJobs = db.prepare(`
         SELECT * FROM generation_jobs WHERE workflow_id = ? ORDER BY created_at ASC
     `);
+    const stmtAcknowledgeTerminalRoomJobs = db.prepare(`
+        UPDATE generation_jobs
+        SET materialized_at = COALESCE(materialized_at, ?), updated_at = ?
+        WHERE character_id = ? AND room_id = ?
+          AND job_type = 'model' AND materialized_at IS NULL
+          AND workflow_id IN (
+              SELECT workflow_id FROM generation_workflows
+              WHERE character_id = ? AND room_id = ?
+                AND status IN ('cancelled', 'failed')
+          )
+    `);
     const stmtDeleteCompletedWorkflowExecutions = db.prepare(`
         DELETE FROM generation_workflow_executions
         WHERE status IN ('completed', 'failed') AND completed_at < ?
@@ -486,6 +497,7 @@ function createGenerationStatements(db) {
         stmtClaimWorkflowExecution,
         stmtFinishWorkflowExecution,
         stmtListWorkflowJobs,
+        stmtAcknowledgeTerminalRoomJobs,
         stmtDeleteCompletedWorkflowExecutions,
     };
 }

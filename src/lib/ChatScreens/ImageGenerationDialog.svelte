@@ -9,8 +9,11 @@
     import { notifyError } from 'src/ts/alert'
     import { DBState } from 'src/ts/stores.svelte'
     import { onDestroy, onMount } from 'svelte'
+    import { createBrowserDraftStore } from 'src/ts/storage/draftPersistence'
 
     const DRAFT_STORAGE_KEY = 'risu-image-generation-cache'
+    interface ImageGenerationDraft { prompt: string; negativePrompt: string }
+    const draftStore = createBrowserDraftStore<ImageGenerationDraft>(DRAFT_STORAGE_KEY)
 
     interface Props {
         open?: boolean
@@ -25,42 +28,17 @@
     let prompt = $state('')
     let negativePrompt = $state('')
     let generating = $state(false)
-    let draftSaveTimer: ReturnType<typeof setTimeout> | null = null
 
     onMount(() => {
-        try {
-            const raw = globalThis.localStorage?.getItem(DRAFT_STORAGE_KEY)
-            if(!raw) return
-            const parsed = JSON.parse(raw)
-            const draft = parsed?.draft ?? parsed
-            if(typeof draft?.prompt === 'string') prompt = draft.prompt
-            if(typeof draft?.negativePrompt === 'string') negativePrompt = draft.negativePrompt
-        }
-        catch {
-            // An unavailable or corrupt browser cache should not block image generation.
-        }
+        const cached = draftStore.load()
+        // `draft` supports the short-lived wrapper shape used by an earlier build.
+        const draft = (cached as ImageGenerationDraft & { draft?: ImageGenerationDraft } | null)?.draft ?? cached
+        if(typeof draft?.prompt === 'string') prompt = draft.prompt
+        if(typeof draft?.negativePrompt === 'string') negativePrompt = draft.negativePrompt
     })
 
-    function persistDraft() {
-        try {
-            globalThis.localStorage?.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ prompt, negativePrompt }))
-        }
-        catch {
-            // Keep the current in-memory draft when browser storage is unavailable.
-        }
-    }
-
-    function scheduleDraftSave() {
-        if(draftSaveTimer) clearTimeout(draftSaveTimer)
-        draftSaveTimer = setTimeout(() => {
-            draftSaveTimer = null
-            persistDraft()
-        }, 250)
-    }
-
     onDestroy(() => {
-        if(draftSaveTimer) clearTimeout(draftSaveTimer)
-        persistDraft()
+        void draftStore.flush({ prompt, negativePrompt })
     })
 
     async function generate() {
@@ -77,7 +55,7 @@
         generating = true
         try {
             const trimmedNegativePrompt = negativePrompt.trim()
-            persistDraft()
+            void draftStore.flush({ prompt, negativePrompt })
             const reference = await generateAIImageInlay(trimmedPrompt, character, trimmedNegativePrompt, target)
             if(!reference) return
 
@@ -99,11 +77,11 @@
     <div class="flex flex-col gap-3">
         <label class="flex flex-col gap-1 text-sm text-textcolor">
             <span>{language.prompt}</span>
-            <TextAreaInput bind:value={prompt} fullwidth optimaizedInput={false} onInput={scheduleDraftSave} />
+            <TextAreaInput bind:value={prompt} fullwidth optimaizedInput={false} onInput={() => draftStore.schedule({ prompt, negativePrompt })} />
         </label>
         <label class="flex flex-col gap-1 text-sm text-textcolor">
             <span>{language.negativePrompt}</span>
-            <TextAreaInput bind:value={negativePrompt} fullwidth optimaizedInput={false} onInput={scheduleDraftSave} />
+            <TextAreaInput bind:value={negativePrompt} fullwidth optimaizedInput={false} onInput={() => draftStore.schedule({ prompt, negativePrompt })} />
         </label>
     </div>
 

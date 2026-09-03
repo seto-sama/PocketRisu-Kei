@@ -26,9 +26,20 @@ function findReusableActiveMainJob(jobs, request) {
         && ['queued', 'generating'].includes(job.status));
 }
 
+function shouldSupersedeFailedActiveWorkflow(workflow, jobs) {
+    const mainJobs = jobs.filter(job => job?.jobType === 'model');
+    if (mainJobs.length === 0) return false;
+    if (mainJobs.some(job => ['queued', 'generating'].includes(job.status))) return false;
+    const failedStep = workflow?.steps?.some(step =>
+        (step.key === 'model.main' || step.key === 'message.materialize')
+        && step.status === 'failed');
+    return failedStep === true;
+}
+
 module.exports = {
     UNREGISTERED_WORKFLOW_TIMEOUT_MS,
     findReusableActiveMainJob,
     hasRegisteredMainJob,
     isUnregisteredWorkflowExpired,
+    shouldSupersedeFailedActiveWorkflow,
 };

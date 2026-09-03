@@ -73,6 +73,15 @@ const indentedBody = `
 
 `
 
+test('temporary variable overrides apply to direct CBS reads', () => {
+  expect(risuChatParser('{{getvar::mood}}/{{getglobalvar::tone}}', {
+    variableOverrides: {
+      chat: { mood: 'happy' },
+      global: { tone: 'warm' },
+    },
+  })).toBe('happy/warm')
+})
+
 afterEach(() => {
   vi.resetAllMocks()
 })
@@ -311,6 +320,14 @@ describe('#when', () => {
         }),
       )
     })
+  })
+
+  test('uses temporary variable overrides without changing stored values', () => {
+    expect(risuChatParser(template('#when::keep::Zag_Setting::tis::0', 'CBS'), {
+      variableOverrides: {
+        global: { toggle_Zag_Setting: '0' },
+      },
+    })).toBe('0 CBS 9')
   })
 
   describe('else', () => {

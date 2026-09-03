@@ -35,11 +35,12 @@ describe("normalizeTranslatorPresetState", () => {
         normalizeTranslatorPresetState(state);
 
         expect(state.translatorPresets).toEqual([
-            {
+            expect.objectContaining({
+                id: expect.any(String),
                 name: "Default",
                 prompt: "Translate to {{slot}}.",
                 maxResponse: 321,
-            },
+            }),
         ]);
         expect(state.translatorPresetId).toBe(0);
         expect(state.translatorPrompt).toBe("Translate to {{slot}}.");
@@ -64,6 +65,39 @@ describe("normalizeTranslatorPresetState", () => {
         expect(state.translatorPresetId).toBe(0);
         expect(state.translatorPrompt).toBe("Fast preset");
         expect(state.translatorMaxResponse).toBe(128);
+    });
+
+    it("keeps stable preset ids when presets are edited or reordered", () => {
+        const first = createTranslatorPreset("First");
+        const second = createTranslatorPreset("Second");
+        first.prompt = "Edited prompt";
+        const state: TranslatorPresetStateLike = {
+            translatorPresets: [second, first],
+            translatorPresetId: 1,
+        };
+
+        normalizeTranslatorPresetState(state);
+
+        expect(state.translatorPresets?.map(preset => (preset as { id: string }).id))
+            .toEqual([second.id, first.id]);
+    });
+
+    it("adds an id while normalizing a legacy preset that has none", () => {
+        const state: TranslatorPresetStateLike = {
+            translatorPresets: [{
+                name: "Legacy",
+                prompt: "Translate this",
+                maxResponse: 256,
+            }],
+            translatorPresetId: 0,
+        };
+
+        normalizeTranslatorPresetState(state);
+
+        expect(state.translatorPresets?.[0]).toEqual(expect.objectContaining({
+            id: expect.any(String),
+            name: "Legacy",
+        }));
     });
 });
 

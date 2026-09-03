@@ -8,7 +8,7 @@
     import { openSettings, SettingsRoute } from "src/ts/routing";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
-    import TextInput from "../UI/GUI/TextInput.svelte";
+    import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
     import { v4 as uuidv4 } from "uuid";
 
     interface Props {
@@ -159,11 +159,9 @@
         </div>
         {#if editMode}
             <div class="min-w-0 grow">
-                <TextInput
+                <InlineNameInput
                     bind:value={DBState.db.personas[index].name}
-                    padding={false}
-                    fullwidth
-                    className="h-8 min-w-0 px-2"
+                    size="default"
                     oninput={(event) => {
                         if (index === DBState.db.selectedPersona) DBState.db.username = event.currentTarget.value;
                     }}

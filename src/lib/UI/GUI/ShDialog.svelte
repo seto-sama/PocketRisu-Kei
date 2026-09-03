@@ -1,12 +1,7 @@
 <script lang="ts" module>
-    // shadcn-svelte Dialog — ported to RisuAI theme tokens.
+    // shadcn-svelte Dialog — ported to RisuAI theme and layer tokens.
     // See _reference/shadcn-components/dialog/* for source patterns.
     export type ShDialogSize = 'sm' | 'default' | 'lg' | 'xl';
-    // Stacking tier — see .agent/guide/ui.md "Dialog z-index 컨벤션".
-    // base (z-40): 베이스 리스트/관리 다이얼로그 (위에 alert 떠야 함)
-    // alert (z-50): 기본. confirm/input/error/일반 팝업
-    // top (z-[60]): 모든 것 위에 떠야 하는 로딩 등 특수 케이스
-    export type ShDialogTier = 'base' | 'alert' | 'top';
 </script>
 
 <script lang="ts">
@@ -14,12 +9,12 @@
     import { Dialog } from 'bits-ui';
     import { XIcon } from '@lucide/svelte';
     import { cn } from 'src/lib/utils';
+    import { provideOverlayLayer } from 'src/ts/gui/overlayLayer.svelte';
 
     interface Props {
         open?: boolean;
         onOpenChange?: (open: boolean) => void;
         size?: ShDialogSize;
-        tier?: ShDialogTier;
         closable?: boolean;
         closeOnEscape?: boolean;
         closeOnOutsideClick?: boolean;
@@ -46,9 +41,8 @@
         open = $bindable(false),
         onOpenChange,
         size = 'default',
-        tier = 'alert',
         closable = true,
-        closeOnEscape = false,
+        closeOnEscape,
         closeOnOutsideClick = true,
         onRequestClose,
         contentClass = '',
@@ -62,17 +56,15 @@
         ariaLabel,
     }: Props = $props();
 
+    const overlayLayer = provideOverlayLayer(() => open);
+    const overlayStyle = $derived(`--risu-overlay-z: ${overlayLayer.zIndex};`);
+    const escapeEnabled = $derived(closeOnEscape ?? closeOnOutsideClick);
+
     const sizeClasses: Record<ShDialogSize, string> = {
         sm: 'max-w-sm',
         default: 'max-w-md',
         lg: 'max-w-2xl',
         xl: 'max-w-4xl',
-    };
-
-    const tierClasses: Record<ShDialogTier, string> = {
-        base: 'z-40',
-        alert: 'z-50',
-        top: 'z-[60]',
     };
 
     // w-[calc(100vw-2rem)] guarantees a 1rem gutter on each side at any
@@ -93,6 +85,10 @@
             event.preventDefault()
             return
         }
+        if (target instanceof Element && target.closest('[data-risu-dialog-interactive]')) {
+            event.preventDefault()
+            return
+        }
         if (onRequestClose && closeOnOutsideClick) {
             event.preventDefault()
             onRequestClose()
@@ -100,7 +96,7 @@
     }
 
     function handleEscapeKeydown(event: KeyboardEvent) {
-        if (!onRequestClose || !closeOnEscape) return
+        if (!onRequestClose || !escapeEnabled) return
         event.preventDefault()
         onRequestClose()
     }
@@ -109,11 +105,14 @@
 <Dialog.Root bind:open {onOpenChange}>
     <Dialog.Portal>
         <Dialog.Overlay
-            class={cn('risu-modal-backdrop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0', tierClasses[tier], overlayClass)}
+            class={cn('risu-modal-backdrop risu-layer-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0', overlayClass)}
+            style={overlayStyle}
         />
         <Dialog.Content
-            class={cn(contentBase, tierClasses[tier], sizeClasses[size], contentClass)}
-            escapeKeydownBehavior={closeOnEscape ? 'close' : 'ignore'}
+            data-risu-overlay-layer={overlayLayer.allocatedZIndex}
+            class={cn(contentBase, 'risu-layer-overlay', sizeClasses[size], contentClass)}
+            style={overlayStyle}
+            escapeKeydownBehavior={escapeEnabled ? 'close' : 'ignore'}
             interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
             onEscapeKeydown={handleEscapeKeydown}
             onInteractOutside={handleInteractOutside}

@@ -72,6 +72,15 @@ export function isChatWorkingCopyDirty(characterId: string, chatId: string) {
     return dirtyChats.has(chatWorkingCopyKey(characterId, chatId))
 }
 
+/**
+ * A clean streaming body is a server-owned display projection, not a user
+ * edit. A dirty streaming body may still contain edits outside the generated
+ * message range and must continue through the canonical merge boundary.
+ */
+export function shouldPersistTrackedChat(characterId: string, chat: Chat) {
+    return chat.isStreaming !== true || isChatWorkingCopyDirty(characterId, chat.id)
+}
+
 export function listDirtyChatWorkingCopies(): ChatWorkingCopyTarget[] {
     return [...dirtyChats.values()].map(({ characterId, chatId }) => ({
         characterId,
