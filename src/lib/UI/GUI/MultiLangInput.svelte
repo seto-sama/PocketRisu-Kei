@@ -41,7 +41,7 @@
 <div class="flex flex-wrap max-w-fit p-1 gap-2">
     {#each Object.keys(valueObject) as lang}
         {#if lang !== 'xx'}
-            <ShButton size="sm" variant={selectedLang === lang ? 'primary' : 'outline'} className={selectedLang === lang ? '' : 'text-textcolor2'} aria-pressed={selectedLang === lang} onclick={() => {
+            <ShButton size="sm" variant={selectedLang === lang ? 'primary' : 'outline'} className={selectedLang === lang ? '' : 'text-subtext'} aria-pressed={selectedLang === lang} onclick={() => {
                 selectedLang = lang
                 updateValue()
             }}>{toLangName(lang)}</ShButton>
@@ -49,10 +49,10 @@
     {/each}
 </div>
 {#if addingLang}
-    <div class="m-1 p-1 g-2 flex max-w-fit rounded-md border-t-bgcolor flex-wrap gap-1">
+    <div class="m-1 p-1 g-2 flex max-w-fit rounded-md border-t-lightbg flex-wrap gap-1">
         {#each languageCodes as lang}
             {#if toLangName(lang) !== lang}
-                <ShButton size="sm" variant="outline" className="text-textcolor2" onclick={() => {
+                <ShButton size="sm" variant="outline" className="text-subtext" onclick={() => {
                     valueObject[lang] = ""
                     selectedLang = lang
                     addingLang = false
@@ -61,7 +61,7 @@
         {/each}
     </div>
 {/if}
-<TextAreaInput autocomplete="off" bind:value={valueObject[selectedLang]} onInput={() => {
+<TextAreaInput autocomplete="off" commitMode="input" bind:value={valueObject[selectedLang]} onInput={() => {
     updateValue()
     onInput()
 }} className={className} />

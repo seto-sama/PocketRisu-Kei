@@ -26,11 +26,11 @@
     data-variant={variant}
     class={cn(
         'relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none transition-colors ' +
-        'data-highlighted:bg-selected data-highlighted:text-textcolor ' +
+        'data-highlighted:bg-selected data-highlighted:text-maintext ' +
         'data-disabled:pointer-events-none data-disabled:opacity-50 ' +
-        'data-[variant=destructive]:text-draculared ' +
-        'data-[variant=destructive]:data-highlighted:bg-draculared/15 ' +
-        'data-[variant=destructive]:data-highlighted:text-draculared ' +
+        'data-[variant=destructive]:text-danger ' +
+        'data-[variant=destructive]:data-highlighted:bg-danger/15 ' +
+        'data-[variant=destructive]:data-highlighted:text-danger ' +
         '[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
         className
     )}

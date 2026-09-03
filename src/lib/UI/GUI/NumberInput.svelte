@@ -3,8 +3,8 @@
     class:text-sm={size === 'sm'}
     class:text-md={size === 'md'}
     class:text-lg={size === 'lg'}
-    class:text-textcolor={!disabled}
-    class:text-textcolor2={disabled}
+    class:text-maintext={!disabled}
+    class:text-subtext={disabled}
     class:px-4={size === 'md' && padding}
     class:py-2={size === 'md' && padding}
     class:px-2={size === 'sm' && padding}
@@ -25,6 +25,7 @@
     onblur={handleBlur}
     onkeydown={handleKeydown}
     placeholder={placeholder}
+    aria-label={ariaLabel}
 />
 
 <script lang="ts">
@@ -36,7 +37,8 @@
         min?: number;
         max?: number;
         size?: 'sm'|'md'|'lg';
-        value: number;
+        value?: number;
+        allowEmpty?: boolean;
         id?: string;
         padding?: boolean;
         marginBottom?: boolean;
@@ -45,12 +47,13 @@
         onChange?: (event: Event & {
             currentTarget: EventTarget & HTMLInputElement;
         }) => any;
-        onCommit?: (value: number) => void;
+        onCommit?: (value: number | undefined) => void;
         commitMode?: InputCommitMode;
         debounceMs?: number;
         className?: string;
         disabled?: boolean;
         placeholder?: string;
+        ariaLabel?: string;
     }
 
     let {
@@ -58,6 +61,7 @@
         max = undefined,
         size = 'md',
         value = $bindable(),
+        allowEmpty = false,
         id = undefined,
         padding = true,
         marginBottom = false,
@@ -69,7 +73,8 @@
         debounceMs = INPUT_COMMIT_DEBOUNCE_MS,
         className = '',
         disabled = false,
-        placeholder
+        placeholder,
+        ariaLabel = undefined,
     }: Props = $props();
 
     let draftValue = $state(untrack(() => String(value ?? '')));
@@ -92,6 +97,14 @@
         writer.cancel();
         const nextValue = normalizedDraft();
         if (nextValue === null) {
+            if (allowEmpty) {
+                draftValue = '';
+                dirty = false;
+                if (value === undefined) return;
+                value = undefined;
+                onCommit(undefined);
+                return;
+            }
             revert();
             return;
         }

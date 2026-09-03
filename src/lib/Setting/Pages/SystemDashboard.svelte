@@ -445,7 +445,7 @@
     $effect(() => { loadStats() })
 </script>
 
-<p class="text-textcolor2 text-sm mb-4">{language.storageDashboardDesc}</p>
+<p class="text-subtext text-sm mb-4">{language.storageDashboardDesc}</p>
 
 {#if loadError}
     <ShAlert variant="destructive" className="mb-4">
@@ -458,11 +458,11 @@
     <!-- ① Storage (macOS-style) ──────────────────────────────────────────── -->
     <SettingLayout variant="panel">
         <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
-            <div class="flex items-center gap-2 text-textcolor">
+            <div class="flex items-center gap-2 text-maintext">
                 <HardDriveIcon size={16} />
                 <span class="font-medium">{language.storageDiskUsage}</span>
             </div>
-            <span class="text-textcolor2 text-sm tabular-nums">
+            <span class="text-subtext text-sm tabular-nums">
                 {#if !showFullDisk}
                     {language.storageDiskRisuTotal(risuFootprint)}
                 {:else if diskTotal != null && diskUsed != null}
@@ -486,23 +486,23 @@
         {/if}
 
         <!-- Stacked bar — each slice is a Tooltip trigger so hover shows label + size. -->
-        <div class="flex h-7 bg-bgcolor border border-darkborderc rounded-md overflow-hidden mb-3">
+        <div class="flex h-7 bg-lightbg border border-darkborderc rounded-md overflow-hidden mb-3">
             {#each diskRows as row (row.id)}
                 <ShTooltip>
                     {#snippet trigger(props)}
                         <div {...props} class={row.color + ' cursor-help'} style:width={slicePct(row.size).toFixed(3) + '%'}></div>
                     {/snippet}
                     <div class="font-medium">{row.label}</div>
-                    <div class="text-textcolor2 tabular-nums">{fmtBytes(row.size)}</div>
+                    <div class="text-subtext tabular-nums">{fmtBytes(row.size)}</div>
                 </ShTooltip>
             {/each}
             {#if showFullDisk && otherUsed != null && otherUsed > 0}
                 <ShTooltip>
                     {#snippet trigger(props)}
-                        <div {...props} class="bg-textcolor2/40 cursor-help" style:width={slicePct(otherUsed).toFixed(3) + '%'}></div>
+                        <div {...props} class="bg-subtext/40 cursor-help" style:width={slicePct(otherUsed).toFixed(3) + '%'}></div>
                     {/snippet}
                     <div class="font-medium">{language.storageDiskOther}</div>
-                    <div class="text-textcolor2 tabular-nums">{fmtBytes(otherUsed)}</div>
+                    <div class="text-subtext tabular-nums">{fmtBytes(otherUsed)}</div>
                 </ShTooltip>
             {/if}
         </div>
@@ -512,13 +512,13 @@
             {#each diskRows as row (row.id)}
                 <div class="flex items-center gap-2 py-1.5 border-b border-darkborderc/30 last:border-b-0">
                     <span class={'inline-block size-3 rounded-sm shrink-0 ' + row.color}></span>
-                    <span class="text-textcolor text-sm flex-1 min-w-0 truncate">{row.label}</span>
+                    <span class="text-maintext text-sm flex-1 min-w-0 truncate">{row.label}</span>
                     <ShTooltip className="max-w-70">
                         {#snippet trigger(props)}
                             <button
                                 {...props}
                                 type="button"
-                                class="text-textcolor2 risu-interactive-accent cursor-pointer shrink-0 leading-none"
+                                class="text-subtext risu-interactive-accent cursor-pointer shrink-0 leading-none"
                                 aria-label={row.label}
                                 onclick={() => openRowDetails(row.label, row.desc, row.size)}
                             >
@@ -527,23 +527,23 @@
                         {/snippet}
                         {row.desc}
                     </ShTooltip>
-                    <span class="text-textcolor text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(row.size)}</span>
+                    <span class="text-maintext text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(row.size)}</span>
                 </div>
             {/each}
             {#if showFullDisk && otherUsed != null && otherUsed > 0}
                 <div class="flex items-center gap-2 py-1.5 border-b border-darkborderc/30 last:border-b-0">
-                    <span class="inline-block size-3 rounded-sm shrink-0 bg-textcolor2/40"></span>
-                    <span class="text-textcolor text-sm flex-1 min-w-0 truncate">{language.storageDiskOther}</span>
+                    <span class="inline-block size-3 rounded-sm shrink-0 bg-subtext/40"></span>
+                    <span class="text-maintext text-sm flex-1 min-w-0 truncate">{language.storageDiskOther}</span>
                     <span class="size-3.5 shrink-0"></span>
-                    <span class="text-textcolor text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(otherUsed)}</span>
+                    <span class="text-maintext text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(otherUsed)}</span>
                 </div>
             {/if}
             {#if showFullDisk && diskFree != null}
                 <div class="flex items-center gap-2 py-1.5 border-b border-darkborderc/30 last:border-b-0">
-                    <span class="inline-block size-3 rounded-sm shrink-0 border border-darkborderc bg-bgcolor"></span>
-                    <span class="text-textcolor text-sm flex-1 min-w-0 truncate">{language.storageDiskFree}</span>
+                    <span class="inline-block size-3 rounded-sm shrink-0 border border-darkborderc bg-lightbg"></span>
+                    <span class="text-maintext text-sm flex-1 min-w-0 truncate">{language.storageDiskFree}</span>
                     <span class="size-3.5 shrink-0"></span>
-                    <span class="text-textcolor text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(diskFree)}</span>
+                    <span class="text-maintext text-sm tabular-nums shrink-0 w-20 text-right">{fmtBytes(diskFree)}</span>
                 </div>
             {/if}
         </div>
@@ -552,48 +552,48 @@
         <div class="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-darkborderc/50">
             <label class="flex items-center gap-2 cursor-pointer select-none">
                 <ShSwitch bind:checked={showFullDisk} />
-                <span class="text-textcolor text-sm">{language.storageInternalOnly}</span>
+                <span class="text-maintext text-sm">{language.storageInternalOnly}</span>
             </label>
-            <span class="text-textcolor2 text-xs hidden sm:inline">{language.storageInternalOnlyHint}</span>
+            <span class="text-subtext text-xs hidden sm:inline">{language.storageInternalOnlyHint}</span>
         </div>
     </SettingLayout>
 
     <!-- ② Database cleanup -->
     <SettingLayout variant="panel">
         <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
-            <div class="flex items-center gap-2 text-textcolor">
+            <div class="flex items-center gap-2 text-maintext">
                 <SparklesIcon size={16} />
                 <span class="font-medium">{language.storageCleanup}</span>
             </div>
-            <span class="text-textcolor2 text-sm tabular-nums">
+            <span class="text-subtext text-sm tabular-nums">
                 {language.storageOptimizeHeader(stats.files.db, totalReclaimable)}
             </span>
         </div>
 
         <!-- Used vs reclaimable inside risuai.db -->
-        <div class="flex h-7 bg-bgcolor border border-darkborderc rounded-md overflow-hidden mb-3">
+        <div class="flex h-7 bg-lightbg border border-darkborderc rounded-md overflow-hidden mb-3">
             <ShTooltip>
                 {#snippet trigger(props)}
                     <div {...props} class="bg-primary cursor-help" style:width={pctOf(overheadUsed, stats.files.db).toFixed(3) + '%'}></div>
                 {/snippet}
                 <div class="font-medium">{language.storageOptimizeBarUsed}</div>
-                <div class="text-textcolor2 tabular-nums">{fmtBytes(overheadUsed)}</div>
+                <div class="text-subtext tabular-nums">{fmtBytes(overheadUsed)}</div>
             </ShTooltip>
             <ShTooltip>
                 {#snippet trigger(props)}
                     <div {...props} class="bg-warning cursor-help" style:width={pctOf(totalReclaimable, stats.files.db).toFixed(3) + '%'}></div>
                 {/snippet}
                 <div class="font-medium">{language.storageOptimizeBarReclaimable}</div>
-                <div class="text-textcolor2 tabular-nums">{fmtBytes(totalReclaimable)}</div>
+                <div class="text-subtext tabular-nums">{fmtBytes(totalReclaimable)}</div>
             </ShTooltip>
         </div>
-        <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-textcolor2 text-xs mb-3 tabular-nums">
+        <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-subtext text-xs mb-3 tabular-nums">
             <span><span class="inline-block size-2 bg-primary rounded-sm align-middle mr-1"></span>{language.storageOptimizeBarUsed} {fmtBytes(overheadUsed)}</span>
             <span><span class="inline-block size-2 bg-warning rounded-sm align-middle mr-1"></span>{language.storageOptimizeBarReclaimable} {fmtBytes(totalReclaimable)}</span>
         </div>
 
-        <p class="text-textcolor2 text-sm leading-relaxed mb-2">{language.storageOptimizeWhat}</p>
-        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageWalCleanupWhat}</p>
+        <p class="text-subtext text-sm leading-relaxed mb-2">{language.storageOptimizeWhat}</p>
+        <p class="text-subtext text-sm leading-relaxed mb-3">{language.storageWalCleanupWhat}</p>
         <div class="flex justify-end gap-2">
             <ShButton variant="outline" onclick={runWalCleanup} disabled={walCleanupOpen}>
                 <HardDriveIcon />
@@ -612,18 +612,18 @@
     <!-- ④ HypaMemory vector cache cleanup -->
     <SettingLayout variant="panel">
         <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
-            <div class="flex items-center gap-2 text-textcolor">
+            <div class="flex items-center gap-2 text-maintext">
                 <SparklesIcon size={16} />
                 <span class="font-medium">{language.storageHypaCleanup}</span>
             </div>
-            <span class="text-textcolor2 text-sm tabular-nums">
+            <span class="text-subtext text-sm tabular-nums">
                 {language.storageHypaCleanupHeader(
                     stats.prefixes['cache/hypa-vector/']?.totalSize ?? 0,
                     stats.prefixes['cache/hypa-vector/']?.count ?? 0,
                 )}
             </span>
         </div>
-        <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageHypaCleanupWhat}</p>
+        <p class="text-subtext text-sm leading-relaxed mb-3">{language.storageHypaCleanupWhat}</p>
         <div class="flex justify-end">
             <ShButton
                 variant="outline"
@@ -639,7 +639,7 @@
     <!-- ⑤ Per-character -->
     <SettingLayout variant="panel">
         <div class="flex items-center justify-between gap-2 mb-3">
-            <div class="flex items-center gap-2 text-textcolor">
+            <div class="flex items-center gap-2 text-maintext">
                 <UsersIcon size={16} />
                 <span class="font-medium">{language.storageCharacters}</span>
             </div>
@@ -648,7 +648,7 @@
             </ShButton>
         </div>
         {#if !characters && !charError && !charLoading}
-            <div class="text-textcolor2 text-sm">{language.storageCharactersDesc}</div>
+            <div class="text-subtext text-sm">{language.storageCharactersDesc}</div>
         {/if}
         {#if charError}
             <ShAlert variant="destructive">
@@ -657,14 +657,14 @@
             </ShAlert>
         {/if}
         {#if characters}
-            <div class="text-textcolor2 text-xs mb-3 flex items-baseline justify-between gap-2 flex-wrap">
+            <div class="text-subtext text-xs mb-3 flex items-baseline justify-between gap-2 flex-wrap">
                 <span>{language.storageCharactersDone(charElapsed ?? 0, characters.characters.length)}</span>
                 {#if characters.characters.length > 0}
                     <span class="tabular-nums">{language.storageShowingOf(Math.min(charShown, characters.characters.length), characters.characters.length)}</span>
                 {/if}
             </div>
             {#if characters.characters.length === 0}
-                <div class="text-textcolor2 text-sm">{language.storageCharactersEmpty}</div>
+                <div class="text-subtext text-sm">{language.storageCharactersEmpty}</div>
             {:else}
                 <div class="flex flex-col gap-2 mb-3">
                     {#each charSlice as c (c.chaId || c.name)}
@@ -673,23 +673,23 @@
                             disabled={c.trashed}
                             onclick={() => jumpToCharacter(c)}
                             aria-label={c.trashed ? undefined : language.storageCharactersGoTo}
-                            class="block w-full text-left border border-darkborderc/50 rounded-md p-2 transition-colors enabled:cursor-pointer enabled:hover:border-borderc enabled:hover:bg-selected/10 disabled:cursor-default"
+                            class="block w-full text-left border border-darkborderc/50 rounded-md p-2 transition-colors enabled:cursor-pointer enabled:hover:border-lightborderc enabled:hover:bg-selected/10 disabled:cursor-default"
                         >
                             <div class="flex items-baseline justify-between gap-2 mb-1">
                                 <div class="flex items-center gap-2 min-w-0">
                                     {#if c.trashed}
                                         <ShBadge variant="secondary">{language.storageCharactersTrashed}</ShBadge>
                                     {/if}
-                                    <span class="text-textcolor text-sm truncate">{c.name || '(unnamed)'}</span>
+                                    <span class="text-maintext text-sm truncate">{c.name || '(unnamed)'}</span>
                                 </div>
-                                <span class="text-textcolor text-sm tabular-nums shrink-0">{fmtBytes(c.totalBytes)}</span>
+                                <span class="text-maintext text-sm tabular-nums shrink-0">{fmtBytes(c.totalBytes)}</span>
                             </div>
-                            <div class="flex h-1.5 bg-bgcolor border border-darkborderc rounded-md overflow-hidden">
+                            <div class="flex h-1.5 bg-lightbg border border-darkborderc rounded-md overflow-hidden">
                                 <div class="bg-rose-500" style:width={pctOf(c.cardBytes, c.totalBytes).toFixed(2) + '%'}></div>
                                 <div class="bg-amber-500" style:width={pctOf(c.imgBytes, c.totalBytes).toFixed(2) + '%'}></div>
                                 <div class="bg-cyan-500" style:width={pctOf(c.chatBytes, c.totalBytes).toFixed(2) + '%'}></div>
                             </div>
-                            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-textcolor2 text-xs mt-1 tabular-nums">
+                            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-subtext text-xs mt-1 tabular-nums">
                                 <span><span class="inline-block size-2 bg-rose-500 rounded-sm align-middle mr-1"></span>{language.storageCharactersCard} {fmtBytes(c.cardBytes)}</span>
                                 <span><span class="inline-block size-2 bg-amber-500 rounded-sm align-middle mr-1"></span>{language.storageCharactersImage} {fmtBytes(c.imgBytes)}</span>
                                 <span><span class="inline-block size-2 bg-cyan-500 rounded-sm align-middle mr-1"></span>{language.storageCharactersChat} {fmtBytes(c.chatBytes)}</span>
@@ -717,7 +717,7 @@
     <!-- ⑥ Per-module -->
     <SettingLayout variant="panel">
         <div class="flex items-center justify-between gap-2 mb-3">
-            <div class="flex items-center gap-2 text-textcolor">
+            <div class="flex items-center gap-2 text-maintext">
                 <BlocksIcon size={16} />
                 <span class="font-medium">{language.storageModules}</span>
             </div>
@@ -726,7 +726,7 @@
             </ShButton>
         </div>
         {#if !modules && !modError && !modLoading}
-            <div class="text-textcolor2 text-sm">{language.storageModulesDesc}</div>
+            <div class="text-subtext text-sm">{language.storageModulesDesc}</div>
         {/if}
         {#if modError}
             <ShAlert variant="destructive">
@@ -735,27 +735,27 @@
             </ShAlert>
         {/if}
         {#if modules}
-            <div class="text-textcolor2 text-xs mb-3 flex items-baseline justify-between gap-2 flex-wrap">
+            <div class="text-subtext text-xs mb-3 flex items-baseline justify-between gap-2 flex-wrap">
                 <span>{language.storageModulesDone(modElapsed ?? 0, modules.modules.length)}</span>
                 {#if modules.modules.length > 0}
                     <span class="tabular-nums">{language.storageShowingOf(Math.min(modShown, modules.modules.length), modules.modules.length)}</span>
                 {/if}
             </div>
             {#if modules.modules.length === 0}
-                <div class="text-textcolor2 text-sm">{language.storageModulesEmpty}</div>
+                <div class="text-subtext text-sm">{language.storageModulesEmpty}</div>
             {:else}
                 <div class="flex flex-col gap-2 mb-3">
                     {#each modSlice as m (m.id || m.name)}
                         <div class="border border-darkborderc/50 rounded-md p-2">
                             <div class="flex items-baseline justify-between gap-2 mb-1">
-                                <span class="text-textcolor text-sm truncate min-w-0">{m.name || '(unnamed)'}</span>
-                                <span class="text-textcolor text-sm tabular-nums shrink-0">{fmtBytes(m.totalBytes)}</span>
+                                <span class="text-maintext text-sm truncate min-w-0">{m.name || '(unnamed)'}</span>
+                                <span class="text-maintext text-sm tabular-nums shrink-0">{fmtBytes(m.totalBytes)}</span>
                             </div>
-                            <div class="flex h-1.5 bg-bgcolor border border-darkborderc rounded-md overflow-hidden">
+                            <div class="flex h-1.5 bg-lightbg border border-darkborderc rounded-md overflow-hidden">
                                 <div class="bg-violet-500" style:width={pctOf(m.bodyBytes, m.totalBytes).toFixed(2) + '%'}></div>
                                 <div class="bg-amber-500" style:width={pctOf(m.assetBytes, m.totalBytes).toFixed(2) + '%'}></div>
                             </div>
-                            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-textcolor2 text-xs mt-1 tabular-nums">
+                            <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-subtext text-xs mt-1 tabular-nums">
                                 <span><span class="inline-block size-2 bg-violet-500 rounded-sm align-middle mr-1"></span>{language.storageModulesBody} {fmtBytes(m.bodyBytes)}</span>
                                 <span><span class="inline-block size-2 bg-amber-500 rounded-sm align-middle mr-1"></span>{language.storageModulesAssets} {fmtBytes(m.assetBytes)}</span>
                             </div>
@@ -775,15 +775,15 @@
 
     <!-- ⑦ Debug -->
     <ShAccordion name={language.storageDebug} variant="card">
-        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-textcolor2 text-sm font-mono">
-            <div>journal_mode</div><div class="text-textcolor">{stats.sqlite.journalMode}</div>
-            <div>page_size</div><div class="text-textcolor tabular-nums">{stats.sqlite.pageSize}</div>
-            <div>page_count</div><div class="text-textcolor tabular-nums">{stats.sqlite.pageCount.toLocaleString()}</div>
-            <div>freelist_count</div><div class="text-textcolor tabular-nums">{stats.sqlite.freelistCount.toLocaleString()}</div>
-            <div>auto_vacuum</div><div class="text-textcolor">{stats.sqlite.autoVacuum}</div>
-            <div>kv rows</div><div class="text-textcolor tabular-nums">{stats.kvRows.toLocaleString()}</div>
-            <div>kv total bytes</div><div class="text-textcolor tabular-nums">{fmtBytes(stats.kvTotalBytes)}</div>
-            <div>etag</div><div class="text-textcolor truncate">{stats.etag ?? '—'}</div>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-subtext text-sm font-mono">
+            <div>journal_mode</div><div class="text-maintext">{stats.sqlite.journalMode}</div>
+            <div>page_size</div><div class="text-maintext tabular-nums">{stats.sqlite.pageSize}</div>
+            <div>page_count</div><div class="text-maintext tabular-nums">{stats.sqlite.pageCount.toLocaleString()}</div>
+            <div>freelist_count</div><div class="text-maintext tabular-nums">{stats.sqlite.freelistCount.toLocaleString()}</div>
+            <div>auto_vacuum</div><div class="text-maintext">{stats.sqlite.autoVacuum}</div>
+            <div>kv rows</div><div class="text-maintext tabular-nums">{stats.kvRows.toLocaleString()}</div>
+            <div>kv total bytes</div><div class="text-maintext tabular-nums">{fmtBytes(stats.kvTotalBytes)}</div>
+            <div>etag</div><div class="text-maintext truncate">{stats.etag ?? '—'}</div>
         </div>
     </ShAccordion>
 

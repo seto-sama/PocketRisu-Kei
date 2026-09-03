@@ -128,7 +128,6 @@ const presetTemplate = {
         mode: 'instruct'
     },
     top_p: 1,
-    useInstructPrompt: false,
     verbosity: 1
 };
 

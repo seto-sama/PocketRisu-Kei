@@ -104,8 +104,8 @@ function installLayoutObservers() {
     })
 
     return {
-        notifyResize() {
-            resizeCallback?.([], {} as ResizeObserver)
+        notifyResize(entries: ResizeObserverEntry[] = []) {
+            resizeCallback?.(entries, {} as ResizeObserver)
         },
         notifyMutation() {
             mutationCallback?.([], {} as MutationObserver)
@@ -219,6 +219,28 @@ describe('forward chat scroll metrics', () => {
 })
 
 describe('forward chat scroll controller', () => {
+    it('defers bottom alignment when an observed width changes', () => {
+        const observers = installLayoutObservers()
+        const container = document.createElement('div')
+        const nativeAnchor = document.createElement('div')
+        nativeAnchor.setAttribute('data-chat-scroll-anchor', '')
+        container.appendChild(nativeAnchor)
+        setScrollMetrics(container, { scrollHeight: 1000, clientHeight: 200 })
+        const controller = createController(container)
+        observers.flushFrames()
+
+        observers.notifyResize([{
+            target: container,
+            borderBoxSize: [],
+            contentBoxSize: [],
+            devicePixelContentBoxSize: [],
+            contentRect: new DOMRectReadOnly(0, 0, 120, 200),
+        }])
+
+        expect(observers.pendingFrameCount).toBe(1)
+        controller.destroy()
+    })
+
     it('leaves streamed bottom layout to the native scroll anchor', () => {
         const observers = installLayoutObservers()
         const container = document.createElement('div')
@@ -714,7 +736,7 @@ describe('forward chat scroll controller', () => {
         container.scrollTop = 100
         container.dispatchEvent(new Event('scroll'))
 
-        const release = controller.preserveViewportPosition()
+        const release = controller.preserveViewportPosition({ followLayout: true })
         messageLayoutTop += 300
         metrics.scrollHeight += 300
         observers.notifyResize()
@@ -723,6 +745,21 @@ describe('forward chat scroll controller', () => {
         expect(container.scrollTop).toBe(400)
         expect(visibleMessage.getBoundingClientRect().top).toBe(20)
         release()
+
+        messageLayoutTop += 200
+        metrics.scrollHeight += 200
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(container.scrollTop).toBe(600)
+        expect(visibleMessage.getBoundingClientRect().top).toBe(20)
+
+        container.dispatchEvent(new Event('pointerdown'))
+        window.dispatchEvent(new Event('pointerup'))
+        messageLayoutTop += 100
+        metrics.scrollHeight += 100
+        observers.notifyResize()
+        observers.flushFrames()
+        expect(container.scrollTop).toBe(600)
         controller.destroy()
     })
 

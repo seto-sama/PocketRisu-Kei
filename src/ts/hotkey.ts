@@ -1,9 +1,9 @@
 import { get } from "svelte/store"
-import { alertMd, alertSelect, alertWait, doingAlert } from "./alert"
-import { getDatabase  } from "./storage/database.svelte"
+import { alertRequestData, alertSelect, doingAlert, requestDiagnosticsTabs } from "./alert"
+import { getCurrentChat, getDatabase  } from "./storage/database.svelte"
 import {
-    AdminStatsSubmenuIndex,
     alertStore,
+    botMakerMode,
     MobileGUIStack,
     MobileSideBar,
     openHypaV3PresetList,
@@ -13,15 +13,20 @@ import {
     openThemePresetList,
     OpenRealmStore,
     personaSelectCallback,
+    presetSelectCallback,
     QuickSettings,
+    requestPreviewOpen,
     SafeModeStore,
     selectedCharID,
+    sidebarDevTool,
+    sideBarStore,
     settingsOpen,
 } from "./stores.svelte"
 import { language } from "src/lang"
 import { updateTextThemeAndCSS } from "./gui/colorscheme"
-import { defaultHotkeys, hotkeyMatches } from "./defaulthotkeys"
-import { openSettings, SettingsRoute } from "./routing"
+import { defaultHotkeys, hotkeyMatches, isSupportedHotkey } from "./defaulthotkeys"
+import { bindPersonaToCurrentChat, bindPromptPresetToCurrentChat } from "./chatBindings"
+import { resolveRequestDiagnosticContext } from "./requestDiagnostics"
 
 let hotkeyInitialized = false
 
@@ -47,37 +52,34 @@ export function initHotkey() {
         const hotkeys = database?.hotkeys ?? defaultHotkeys
         let handled = false
 
-        if (database.enableHotkeys !== false) {
-            for (const hotkey of hotkeys) {
-                if (!hotkeyMatches(hotkey, event)) continue
+        for (const hotkey of hotkeys) {
+            if (!isSupportedHotkey(hotkey)) continue
+            if (!hotkeyMatches(hotkey, event)) continue
 
                 switch (hotkey.action) {
                 case 'reroll':
-                    handled = clickQuery('.button-icon-reroll')
+                    handled = clickVisibleMessageAction('.button-icon-reroll')
                     break
                 case 'unreroll':
-                    handled = clickQuery('.button-icon-unreroll')
+                    handled = clickVisibleMessageAction('.button-icon-unreroll')
                     break
                 case 'translate':
-                    handled = clickQuery('.button-icon-translate')
+                    handled = clickVisibleMessageAction('.button-icon-translate')
                     break
                 case 'remove':
-                    handled = clickQuery('.button-icon-remove')
+                    handled = clickVisibleMessageAction('.button-icon-remove')
                     break
                 case 'edit':
-                    handled = clickQuery('.button-icon-edit')
+                    handled = clickVisibleMessageAction('.button-icon-edit')
                     if (handled) {
                         setTimeout(() => focusQuery('.message-edit-area'), 100)
                     }
                     break
                 case 'copy':
-                    handled = clickQuery('.button-icon-copy')
+                    handled = clickVisibleMessageAction('.button-icon-copy')
                     break
                 case 'focusInput':
                     handled = focusQuery('.text-input-area')
-                    break
-                case 'send':
-                    handled = clickQuery('.button-icon-send')
                     break
                 case 'settings':
                     settingsOpen.set(!get(settingsOpen))
@@ -88,15 +90,19 @@ export function initHotkey() {
                     handled = true
                     break
                 case 'presets':
+                    if (!getCurrentChat()) break
+                    presetSelectCallback.set(bindPromptPresetToCurrentChat)
                     openPresetList.set(!get(openPresetList))
                     handled = true
                     break
                 case 'persona':
+                    if (!getCurrentChat()) break
+                    personaSelectCallback.set(bindPersonaToCurrentChat)
                     openPersonaList.set(!get(openPersonaList))
-                    personaSelectCallback.set(null)
                     handled = true
                     break
                 case 'modelSelect':
+                    if (!getCurrentChat()) break
                     openModelPresetList.set(!get(openModelPresetList))
                     handled = true
                     break
@@ -116,43 +122,45 @@ export function initHotkey() {
                     handled = true
                     break
                 case 'previewRequest':
-                    const chatProcess = await import('./process/index.svelte')
-                    if (get(chatProcess.doingChat) && get(selectedCharID) !== -1) break
-                    alertWait('Loading...')
-                    event.preventDefault()
-                    event.stopPropagation()
-                    try {
-                        await chatProcess.sendChat(-1, { previewPrompt: true })
-                        const body = JSON.stringify(JSON.parse(chatProcess.previewBody), null, 2).replaceAll('```', '\\`\\`\\`')
-                        alertMd(`### Prompt\n\`\`\`json\n${body}\n\`\`\`\n`)
-                    } finally {
-                        chatProcess.doingChat.set(false)
-                    }
-                    return
-                case 'toggleLog':
-                    openSettings(SettingsRoute.AdminAndStats)
-                    AdminStatsSubmenuIndex.set(1)
+                    requestPreviewOpen.set(true)
                     handled = true
                     break
+                case 'toggleLog':
+                    handled = openVisibleMessageRequestLog()
+                    break
                 case 'quickSettings':
-                    QuickSettings.open = !QuickSettings.open
-                    QuickSettings.index = 0
+                    if (!isSelectedCharacterSidebarAvailable()) break
+                    if (get(botMakerMode)) {
+                        QuickSettings.open = !QuickSettings.open
+                        QuickSettings.index = 0
+                    }
+                    // Keep the application shortcut from falling through to a
+                    // browser/desktop-host Ctrl+Q action while the chat tab is active.
+                    handled = true
+                    break
+                case 'toggleSidebarView':
+                    if (!isSelectedCharacterSidebarAvailable()) break
+
+                    if (get(botMakerMode)) {
+                        botMakerMode.set(false)
+                        QuickSettings.open = false
+                    } else {
+                        botMakerMode.set(true)
+                    }
+                    sidebarDevTool.set(false)
                     handled = true
                     break
                 case 'scrollToActiveChar':
-                    if (database.enableScrollToActiveChar !== false) {
-                        window.dispatchEvent(new CustomEvent('scrollToActiveCharacter'))
-                        handled = true
-                    }
+                    window.dispatchEvent(new CustomEvent('scrollToActiveCharacter'))
+                    handled = true
                     break
                 case 'popupEditor':
                     // TextAreaInput owns this action so it can bind the edited
                     // value back to the field that opened the popup.
                     break
-                }
-
-                if (handled) break
             }
+
+            if (handled) break
         }
 
         if (handled) {
@@ -180,7 +188,8 @@ export function initHotkey() {
     let touchCount = 0
     let touchStartTime = 0
     document.addEventListener('touchstart', () => {
-        if (getDatabase().enableHotkeys === false) return
+        const quickMenuHotkey = getDatabase().hotkeys?.find((hotkey) => hotkey.action === 'quickMenu')
+        if (quickMenuHotkey?.disabled) return
         touchCount++
         if (touchCount > 2) {
             if (Date.now() - touchStartTime > 300) return
@@ -193,24 +202,86 @@ export function initHotkey() {
         touchCount = 0
     })
 
-    let lastScrollTime = 0
-    const scrollCooldown = 500
-    document.addEventListener('dragover', (event) => {
-        if (getDatabase().enableHotkeys === false) return
-        if (!event.ctrlKey || event.shiftKey || event.altKey) return
-        if (!event.dataTransfer?.types.includes('application/x-risu-internal')) return
-        if (getDatabase().enableScrollToActiveChar === false) return
-        const now = Date.now()
-        if (now - lastScrollTime <= scrollCooldown) return
-        lastScrollTime = now
-        window.dispatchEvent(new CustomEvent('scrollToActiveCharacter'))
-    }, true)
 }
 
-function clickQuery(selector: string): boolean {
-    const element = document.querySelector<HTMLElement>(selector)
+function isSelectedCharacterSidebarAvailable(): boolean {
+    return get(sideBarStore) && get(selectedCharID) >= 0 && !get(settingsOpen)
+}
+
+export function findMostVisibleMessageAction(root: HTMLElement, selector: string): HTMLElement | null {
+    const message = findMostVisibleMessage(root, (candidate) => !!candidate.querySelector(selector))
+    return message?.querySelector<HTMLElement>(selector) ?? null
+}
+
+export function findMostVisibleMessage(
+    root: HTMLElement,
+    isEligible: (message: HTMLElement) => boolean = () => true,
+): HTMLElement | null {
+    const viewport = root.getBoundingClientRect()
+    let fullyVisibleMessage: HTMLElement | null = null
+    let fullyVisibleBottom = Number.NEGATIVE_INFINITY
+    let bestMessage: HTMLElement | null = null
+    let bestArea = 0
+    let bestTop = Number.NEGATIVE_INFINITY
+
+    for (const message of root.querySelectorAll<HTMLElement>('[data-chat-index]')) {
+        if (!isEligible(message)) continue
+
+        const rect = message.getBoundingClientRect()
+        const visibleWidth = Math.max(0, Math.min(rect.right, viewport.right) - Math.max(rect.left, viewport.left))
+        const visibleHeight = Math.max(0, Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top))
+        const visibleArea = visibleWidth * visibleHeight
+        const fullyVisible = visibleArea > 0
+            && rect.top >= viewport.top
+            && rect.right <= viewport.right
+            && rect.bottom <= viewport.bottom
+            && rect.left >= viewport.left
+
+        if (fullyVisible) {
+            if (rect.bottom > fullyVisibleBottom) {
+                fullyVisibleMessage = message
+                fullyVisibleBottom = rect.bottom
+            }
+            continue
+        }
+
+        if (visibleArea > bestArea || (visibleArea === bestArea && visibleArea > 0 && rect.top > bestTop)) {
+            bestMessage = message
+            bestArea = visibleArea
+            bestTop = rect.top
+        }
+    }
+
+    return fullyVisibleMessage ?? bestMessage
+}
+
+function clickVisibleMessageAction(selector: string): boolean {
+    const root = document.querySelector<HTMLElement>('[data-chat-scroll-root]')
+    const element = root ? findMostVisibleMessageAction(root, selector) : null
     if (!element) return false
     element.click()
+    return true
+}
+
+function openVisibleMessageRequestLog(): boolean {
+    const root = document.querySelector<HTMLElement>('[data-chat-scroll-root]')
+    const chat = getCurrentChat()
+    if (!root || !chat) return false
+
+    const target = findMostVisibleMessage(root, (element) => {
+        const index = Number(element.dataset.chatIndex)
+        if (!Number.isInteger(index)) return false
+        const message = chat.message[index]
+        if (!message) return false
+        const context = resolveRequestDiagnosticContext(message, message.generationInfo)
+        return Object.keys(context.generationInfo).length > 0
+    })
+    if (!target) return false
+
+    const index = Number(target.dataset.chatIndex)
+    const message = chat.message[index]
+    const context = resolveRequestDiagnosticContext(message, message.generationInfo)
+    alertRequestData({ genInfo: context.generationInfo, idx: index, initialTab: requestDiagnosticsTabs.requestLog })
     return true
 }
 
@@ -221,15 +292,27 @@ function focusQuery(selector: string): boolean {
     return true
 }
 
+export function getSidebarCharacterOrder(database: {
+    characters: { chaId: string }[]
+    characterOrder: (string | { data: string[] })[]
+}): number[] {
+    const indexById = new Map(database.characters.map((character, index) => [character.chaId, index]))
+    const orderedIds = (database.characterOrder ?? []).flatMap((entry) =>
+        typeof entry === 'string' ? [entry] : (entry?.data ?? [])
+    )
+
+    return orderedIds
+        .map((id) => indexById.get(id))
+        .filter((index): index is number => index !== undefined)
+}
+
 function selectAdjacentCharacter(direction: -1 | 1): boolean {
     const database = getDatabase()
-    const sorted = database.characters
-        .map((character, index) => ({ name: character.name, index }))
-        .sort((a, b) => a.name.localeCompare(b.name))
-    const currentIndex = sorted.findIndex(({ index }) => index === get(selectedCharID))
+    const sidebarOrder = getSidebarCharacterOrder(database)
+    const currentIndex = sidebarOrder.indexOf(get(selectedCharID))
     const nextIndex = currentIndex + direction
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sorted.length) return false
-    selectedCharID.set(sorted[nextIndex].index)
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sidebarOrder.length) return false
+    selectedCharID.set(sidebarOrder[nextIndex])
     OpenRealmStore.set(false)
     return true
 }
@@ -239,9 +322,10 @@ export async function quickMenu(){
     const showHypaV3 = db.hypaV3 && db.hypaV3Presets?.length > 1
 
     const options = [
-        language.presets,
-        language.themePresets,
+        language.modelPresetMenu,
+        `${language.promptPresetMenu} ${language.presets}`,
         language.persona,
+        language.themePresets,
         ...(showHypaV3 ? [language.longTermMemory + ' ' + language.presets] : []),
         language.cancel
     ]
@@ -249,14 +333,17 @@ export async function quickMenu(){
     const sel = parseInt(await alertSelect(options))
     let idx = 0
     if(sel === idx++){
-        openPresetList.set(!get(openPresetList))
+        openModelPresetList.set(!get(openModelPresetList))
     }
     else if(sel === idx++){
-        openThemePresetList.set(!get(openThemePresetList))
+        openPresetList.set(!get(openPresetList))
     }
     else if(sel === idx++){
         openPersonaList.set(!get(openPersonaList))
         personaSelectCallback.set(null)
+    }
+    else if(sel === idx++){
+        openThemePresetList.set(!get(openThemePresetList))
     }
     else if(showHypaV3 && sel === idx++){
         openHypaV3PresetList.set(true)

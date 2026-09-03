@@ -28,6 +28,7 @@ export const sideBarStore = writable(window.innerWidth > 1024)
 export const leftBarCollapsed = writable(false)
 export const selectedCharID = writable(-1)
 export const chatDeselected = writable(false)
+export const sidebarDevTool = writable(false)
 // Session-only DevTool state. Keeping this outside the component preserves the
 // autopilot draft while its sidebar tab is unmounted and mounted again.
 export const devToolAutopilotStore = writable<string[]>([])
@@ -40,6 +41,7 @@ export const moduleBackgroundEmbedding = writable('')
 export const openPresetList = writable(false)
 export const presetSelectCallback = writable<((index: number) => void) | null>(null)
 export const openModelPresetList = writable(false)
+export const requestPreviewOpen = writable(false)
 export const openModelProfileBrowser = writable(false)
 // When set to a preset id, the profile browser replaces that preset's profile
 // (migrating matching userValues) instead of creating a new preset. null = create.
@@ -77,6 +79,7 @@ export const AdminStatsSubmenuIndex = writable(0)
 // mode gear button can deep-link to the Sidebar tab — see src/ts/routing
 // (AccessibilityTab) and Setting/Pages/AccessibilitySettings.svelte.
 export const AccessibilitySubmenuIndex = writable(0)
+export const HotkeySubmenuIndex = writable(0)
 // Shared tab state lets settings search deep-link into pages that previously
 // kept their selected tab as component-local state.
 export const DisplaySubmenuIndex = writable(0)
@@ -154,15 +157,14 @@ export const selIdState = $state({
 
 
 CustomCSSStore.subscribe((css) => {
-    console.log(css)
     const q = document.querySelector('#customcss')
     if(q){
-        q.innerHTML = css
+        q.textContent = css
     }
     else{
         const s = document.createElement('style')
         s.id = 'customcss'
-        s.innerHTML = css
+        s.textContent = css
         document.body.appendChild(s)
     }
 })

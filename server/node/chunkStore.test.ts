@@ -13,11 +13,13 @@ const { cdcSplit, createChunkStore } = pkg as {
         getValue: (key: string) => Buffer | null
         sizeValue: (key: string) => number | null
         snapshotCost: (key: string, baseKey: string) => number
+        keySetPhysicalCost: (keys: string[]) => number
         snapshotValue: (srcKey: string, dstKey: string) => void
         dropValue: (key: string) => void
         gc: () => number
         isChunkedKey: (key: string) => boolean
         reclaimableBytes: () => number
+        stats: () => { count: number; bytes: number }
     }
 }
 
@@ -248,6 +250,71 @@ describe('snapshotValue — 조각 공유 스냅샷 (kvCopyValue 청크 인식)'
         expect(store.snapshotCost('rawsnap', 'live')).toBe(500)
         expect(store.snapshotCost('missing', 'live')).toBe(0)
     })
+
+    it('C6: keySetPhysicalCost — 공유 청크는 한 번, 각 marker/raw 행은 한 번 합산', () => {
+        const db = freshDb()
+        const store = createChunkStore(db, T)
+        const shared = seededBytes(200_000, 41)
+        store.putValue('snapA', shared)
+        store.snapshotValue('snapA', 'snapB')
+        store.putValue('raw', seededBytes(500, 43))
+
+        const uniqueChunkBytes = db.prepare(
+            `SELECT COALESCE(SUM(LENGTH(data)), 0) AS n FROM chunks
+             WHERE hash IN (
+                 SELECT hash FROM manifest_chunks WHERE manifest_key IN ('snapA', 'snapB')
+             )`,
+        ).get().n as number
+        const markerBytes = db.prepare(
+            `SELECT SUM(LENGTH(value)) AS n FROM kv WHERE key IN ('snapA', 'snapB')`,
+        ).get().n as number
+
+        expect(store.keySetPhysicalCost(['snapA', 'snapB', 'raw']))
+            .toBe(uniqueChunkBytes + markerBytes + 500)
+        // 스냅샷별 snapshotCost 합은 공유 관계에 따라 달라지지만 집합 비용은
+        // 입력 순서 및 같은 키의 중복에 영향받지 않는다.
+        expect(store.keySetPhysicalCost(['raw', 'snapB', 'snapA', 'snapA', 'missing']))
+            .toBe(uniqueChunkBytes + markerBytes + 500)
+    })
+
+    it('C7: keySetPhysicalCost — 부분 공유 청크를 고유 hash 기준으로 정확히 합산', () => {
+        const db = freshDb()
+        const store = createChunkStore(db, T)
+        const before = seededBytes(300_000, 47)
+        const after = Buffer.concat([
+            before.subarray(0, 150_000),
+            seededBytes(120, 53),
+            before.subarray(150_000),
+        ])
+        store.putValue('snapA', before)
+        store.putValue('snapB', after)
+
+        const expected = db.prepare(
+            `SELECT
+                (SELECT SUM(LENGTH(value)) FROM kv WHERE key IN ('snapA', 'snapB')) +
+                (SELECT SUM(LENGTH(data)) FROM chunks WHERE hash IN (
+                    SELECT hash FROM manifest_chunks WHERE manifest_key IN ('snapA', 'snapB')
+                )) AS n`,
+        ).get().n as number
+        expect(store.keySetPhysicalCost(['snapA', 'snapB'])).toBe(expected)
+
+        // raw 덮어쓰기로 marker-backed가 아니게 된 manifest는 비용에 포함하지 않는다.
+        db.prepare("UPDATE kv SET value = ? WHERE key = 'snapA'").run(Buffer.from('raw'))
+        const snapBOnlyChunks = db.prepare(
+            `SELECT SUM(LENGTH(c.data)) AS n
+             FROM chunks c
+             WHERE c.hash IN (SELECT hash FROM manifest_chunks WHERE manifest_key = 'snapB')`,
+        ).get().n as number
+        expect(store.keySetPhysicalCost(['snapA', 'snapB']))
+            .toBe(3 + (pkg as { CHUNK_MARKER: Buffer }).CHUNK_MARKER.length + snapBOnlyChunks)
+    })
+
+    it('C8: keySetPhysicalCost — 빈 집합은 0, 비배열 입력은 거부', () => {
+        const db = freshDb()
+        const store = createChunkStore(db, T)
+        expect(store.keySetPhysicalCost([])).toBe(0)
+        expect(() => store.keySetPhysicalCost(new Set(['snap']) as unknown as string[])).toThrow(TypeError)
+    })
 })
 
 describe('gc — mark-sweep (참조 없는 조각만 삭제)', () => {
@@ -365,5 +432,27 @@ describe('gc — mark-sweep (참조 없는 조각만 삭제)', () => {
         expect(countManifest(db, 'snap')).toBe(0)
         expect(countChunks(db)).toBeLessThan(before)
         expect((store.getValue('live') as Buffer).length).toBeGreaterThan(0)
+    })
+
+    it('D9: 물리 크기와 논리 크기 파생값을 변경 시점에 유지한다', () => {
+        const db = freshDb()
+        const store = createChunkStore(db, T)
+        const value = randomBytes(200_000)
+        store.putValue('live', value)
+
+        expect(store.stats()).toEqual({
+            count: countChunks(db),
+            bytes: countChunkBytes(db),
+        })
+        expect(store.sizeValue('live')).toBe(value.length)
+        expect(db.prepare(`
+          SELECT logical_bytes FROM chunk_value_sizes WHERE manifest_key = 'live'
+        `).get()).toEqual({ logical_bytes: value.length })
+
+        store.dropValue('live')
+        expect(store.reclaimableBytes()).toBe(store.stats().bytes)
+        store.gc()
+        expect(store.stats()).toEqual({ count: 0, bytes: 0 })
+        expect(store.reclaimableBytes()).toBe(0)
     })
 })

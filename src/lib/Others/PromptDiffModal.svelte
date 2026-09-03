@@ -269,19 +269,19 @@
     const diffLineBase = 'whitespace-pre-wrap'
     const diffLineCommon = 'border-l-4 rounded-sm pl-2'
 
-    const diffSameClass = 'text-textcolor'
+    const diffSameClass = 'text-maintext'
     const diffAddClass = `${diffLineCommon} bg-success/10 border-success text-success`
-    const diffRemoveClass = `${diffLineCommon} bg-draculared/10 border-draculared text-draculared`
+    const diffRemoveClass = `${diffLineCommon} bg-danger/10 border-danger text-danger`
 
     const tokenAddClass = 'text-success bg-success/15 rounded-sm px-0.5'
-    const tokenRemoveClass = 'text-draculared bg-draculared/15 rounded-sm px-0.5'
-    const tokenSameClass = 'text-textcolor'
+    const tokenRemoveClass = 'text-danger bg-danger/15 rounded-sm px-0.5'
+    const tokenSameClass = 'text-maintext'
 
-    const lineRemoveClass = 'pl-2 border-l-4 border-draculared bg-draculared/10 text-draculared rounded-sm'
+    const lineRemoveClass = 'pl-2 border-l-4 border-danger bg-danger/10 text-danger rounded-sm'
     const lineAddClass    = 'pl-2 border-l-4 border-success bg-success/10 text-success rounded-sm'
     const lineModifyClass = 'pl-2 border-l-4 border-accent bg-accent/10 rounded-sm'
 
-    const nameHeaderTagClass = 'ml-2 shrink-0 text-[10px] px-1.5 py-0.5 rounded-sm border border-darkborderc text-textcolor2 bg-darkbg'
+    const nameHeaderTagClass = 'ml-2 shrink-0 text-[10px] px-1.5 py-0.5 rounded-sm border border-darkborderc text-subtext bg-darkbg'
 
     const splitEmptyLineClass = `${diffLineBase} ${diffLineCommon} ` +
         'diff-empty-pattern border-darkborderc/50 text-transparent select-none'
@@ -294,8 +294,8 @@
 
     const tokenPackLineRemove: TokenClassPack = {
       add: '',
-      remove: 'bg-draculared/20 rounded-sm px-0.5',
-      same: 'text-draculared',
+      remove: 'bg-danger/20 rounded-sm px-0.5',
+      same: 'text-danger',
     }
 
     const tokenPackIntraline: TokenClassPack = {
@@ -1176,7 +1176,7 @@
 </script>
 
 {#snippet renderCounts(counts: DiffCounts)}
-  <div class="flex flex-wrap gap-3 text-xs text-textcolor2 mb-3">
+  <div class="flex flex-wrap gap-3 text-xs text-subtext mb-3">
     <span class="inline-flex items-center gap-2">
       <span class="inline-block w-1 h-4 rounded-sm bg-accent"></span>
       {counts.modifiedCount}
@@ -1186,7 +1186,7 @@
       {counts.addedCount}
     </span>
     <span class="inline-flex items-center gap-2">
-      <span class="inline-block w-1 h-4 rounded-sm bg-draculared"></span>
+      <span class="inline-block w-1 h-4 rounded-sm bg-danger"></span>
       {counts.removedCount}
     </span>
   </div>
@@ -1236,7 +1236,7 @@
       class:mb-5={isLineby(part) && part.right.lineRole === 'header'}
     >
       {#if part.src === 'linebyline' && part.right.text === ''}
-        <span class="text-textcolor2/60 italic">{language.promptDiff.emptyLine}</span>
+        <span class="text-subtext/60 italic">{language.promptDiff.emptyLine}</span>
       {:else}
         {@render renderTokens(part.tokens, 'remove', tokenPackLineAdd)}{#if tag}<span class={nameHeaderTagClass}>{tag}</span>{/if}
       {/if}
@@ -1269,7 +1269,7 @@
     <div class={`whitespace-pre-wrap ${lineAddClass}`}>
     {#each parts as part, i (i)}
       {#if part.src === 'linebyline' && part.right.text === ''}
-        <span class="text-textcolor2/60 italic">{language.promptDiff.emptyLine}</span>
+        <span class="text-subtext/60 italic">{language.promptDiff.emptyLine}</span>
       {:else}
         {@render renderTokens(part.tokens, 'remove', tokenPackLineAdd)}{#if tagText(part)}<span class={nameHeaderTagClass}>{tagText(part)}</span>{/if}
       {/if}
@@ -1284,7 +1284,7 @@
 
 {#snippet renderCardMeta(part: DiffPart | null | undefined, type: string, side: Side | null)}
   <div class="flex min-w-0 items-start gap-2">
-    <span class="text-[10px] uppercase tracking-wide text-textcolor2">{type}</span>
+    <span class="text-[10px] uppercase tracking-wide text-subtext">{type}</span>
 
     <div class="min-w-0">
     {#if part && part.src === 'linebyline'}
@@ -1293,14 +1293,14 @@
           <!-- line diff -->
           {#if side === null}
             <!-- unified -->
-            <div class="whitespace-pre-wrap text-draculared">
+            <div class="whitespace-pre-wrap text-danger">
               {@render renderTokens(part.tokens, 'add', tokenPackLineRemove)}
             </div>
             <div class="whitespace-pre-wrap text-success">
               {@render renderTokens(part.tokens, 'remove', tokenPackLineAdd)}
             </div>
           {:else} <!-- split -->
-            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-draculared' : 'text-success'}`}>
+            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-danger' : 'text-success'}`}>
               {@render renderTokens(
                 part.tokens,
                 side === 'left' ? 'add' : 'remove',
@@ -1318,7 +1318,7 @@
             </div>
           {:else}
             <!-- split intraline: -->
-            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-draculared' : 'text-success'}`}>
+            <div class={`whitespace-pre-wrap ${side === 'left' ? 'text-danger' : 'text-success'}`}>
               {@render renderTokens(
                 part.tokens,
                 side === 'left' ? 'add' : 'remove',
@@ -1333,29 +1333,29 @@
         <div
           class={`whitespace-pre-wrap ${
             part.k === 'same'
-              ? 'text-textcolor'
+              ? 'text-maintext'
               : part.k === 'add'
               ? 'text-success'
-              : 'text-draculared'
+              : 'text-danger'
           }`}
         >
           {part.line.text}
         </div>
       {/if}
     {:else}
-      <div class="text-xs text-textcolor2 italic">{formatPromptDiffText(language.promptDiff.missingField, { field: type })}</div>
+      <div class="text-xs text-subtext italic">{formatPromptDiffText(language.promptDiff.missingField, { field: type })}</div>
     {/if}
     </div>
   </div>
 {/snippet}
 
 {#snippet renderDivider(d: Extract<DiffSegment, { kind: 'divider' }>, scope: string)}
-  <div class="my-3 flex items-center gap-3 text-xs text-textcolor2/70">
+  <div class="my-3 flex items-center gap-3 text-xs text-subtext/70">
     <div class="h-px flex-1 bg-darkborderc/50"></div>
     <button
       type="button"
       class={`px-2 py-0.5 rounded-sm border border-darkborderc bg-darkbg shadow-md
-        ${d.omitted > 0 ? 'risu-interactive-border risu-interactive-foreground hover:shadow-lg cursor-pointer' : 'text-textcolor2/50 cursor-default'}`}
+        ${d.omitted > 0 ? 'risu-interactive-border risu-interactive-foreground hover:shadow-lg cursor-pointer' : 'text-subtext/50 cursor-default'}`}
       disabled={d.omitted === 0}
       onclick={() => expandRange(scope, d.from, d.to)}
       title={d.omitted > 0 ? language.promptDiff.expandHiddenLines : ''}
@@ -1413,7 +1413,7 @@
         class:mb-5={role === 'header'}
       >
         {#if isLineby(part) && sideText === ''}
-          <span class="text-textcolor2/60 italic">{language.promptDiff.emptyLine}</span>
+          <span class="text-subtext/60 italic">{language.promptDiff.emptyLine}</span>
         {:else}
           {@render renderTokens(part.tokens, isLeft ? 'add' : 'remove', diffStyle === 'line' ? (isLeft ? tokenPackLineRemove : tokenPackLineAdd) : tokenPackIntraline)}
         {/if}
@@ -1443,7 +1443,7 @@
     >
       {statusLabel}
     </ShBadge>
-    <div class="flex items-center gap-3 text-[11px] text-textcolor2">
+    <div class="flex items-center gap-3 text-[11px] text-subtext">
       <span>{formatPromptDiffText(language.promptDiff.changeCount, { count: cardChangeCount })}</span>
       <span class="tabular-nums">~{c.modifiedCount ?? 0} / +{c.addedCount ?? 0} / -{c.removedCount ?? 0}</span>
     </div>
@@ -1465,7 +1465,7 @@
     <div class="flex items-center gap-3 px-4 py-3 border-b border-darkborderc">
       <div class="flex min-w-0 flex-1 flex-nowrap items-center gap-4 overflow-x-auto">
         <div class="flex shrink-0 items-center gap-2">
-          <span class="text-xs text-textcolor2">{language.promptDiff.viewMode}</span>
+          <span class="text-xs text-subtext">{language.promptDiff.viewMode}</span>
           <div class="flex items-center gap-1">
             <ShChoiceGroup variant="pill" name="diffStyle" bind:value={diffStyle} options={diffOptions} />
             <ShChoiceGroup variant="pill" name="formatStyle" bind:value={formatStyle} options={formatOptions} />
@@ -1489,7 +1489,7 @@
         />
         {#if showOnlyChanges}
           <div class="flex shrink-0 items-center gap-2">
-            <span class="text-xs text-textcolor2">{language.promptDiff.context}</span>
+            <span class="text-xs text-subtext">{language.promptDiff.context}</span>
             <ShSlider
               className="w-28"
               min={0}
@@ -1516,14 +1516,14 @@
       <!-- card view -->
       {#if formatStyle === 'card'}
         {#if cardDiffResult}
-          <div class="mb-3 flex items-center gap-2 text-xs text-textcolor2">
+          <div class="mb-3 flex items-center gap-2 text-xs text-subtext">
             <span>{language.promptDiff.changedBlocks}:</span>
             <span class="tabular-nums">
               <span class="text-accent">~{cardDiffResult.cardCounts.modifiedCount}</span>
               <span aria-hidden="true"> / </span>
               <span class="text-success">+{cardDiffResult.cardCounts.addedCount}</span>
               <span aria-hidden="true"> / </span>
-              <span class="text-draculared">-{cardDiffResult.cardCounts.removedCount}</span>
+              <span class="text-danger">-{cardDiffResult.cardCounts.removedCount}</span>
             </span>
           </div>
 
@@ -1535,7 +1535,7 @@
               {@const headerPart = lines[1]}
               {@const bodyParts = lines.slice(2)}
 
-              <div class="prompt-diff-hover bg-bgcolor border border-darkborderc rounded-xl p-3 flex flex-col gap-2">
+              <div class="prompt-diff-hover bg-lightbg border border-darkborderc rounded-xl p-3 flex flex-col gap-2">
                 <!-- name / header / card diff -->
                 <div class="flex items-start justify-between gap-2">
                   <div class="flex min-w-0 flex-col gap-2">
@@ -1550,7 +1550,7 @@
                 <!-- body -->
                 <div class="mt-2 border-t border-darkborderc pt-2 font-mono text-sm leading-5">
                   {#if bodyParts.length === 0}
-                    <div class="text-textcolor2 italic">{language.promptDiff.noBodyContent}</div>
+                    <div class="text-subtext italic">{language.promptDiff.noBodyContent}</div>
                   {:else}
                     {@const segments = buildSegments(bodyParts, { showOnlyChanges, contextRadius, scope: `card-${idx}`, expandedRanges })}
                     {#each segments as seg, sIdx (sIdx)}
@@ -1596,8 +1596,8 @@
 
                 <div class="relative">
                   <div class="absolute inset-0 grid grid-cols-2 gap-x-3 pointer-events-none">
-                    <div class="bg-bgcolor border border-darkborderc rounded-xl"></div>
-                    <div class="bg-bgcolor border border-darkborderc rounded-xl"></div>
+                    <div class="bg-lightbg border border-darkborderc rounded-xl"></div>
+                    <div class="bg-lightbg border border-darkborderc rounded-xl"></div>
                   </div>
 
                   <div class="relative z-10 grid grid-cols-2 gap-x-3 p-px">
@@ -1613,7 +1613,7 @@
                         </div>
                       {:else}
                         <div class="h-[70px] rounded-lg border border-dashed border-darkborderc/50 bg-darkbg/50 flex items-center justify-center">
-                          <span class="text-textcolor2/60 italic text-xs select-none">-</span>
+                          <span class="text-subtext/60 italic text-xs select-none">-</span>
                         </div>
                       {/if}
                     </div>
@@ -1630,7 +1630,7 @@
                         </div>
                       {:else}
                         <div class="h-[70px] rounded-lg border border-dashed border-darkborderc/50 bg-darkbg/50 flex items-center justify-center">
-                          <span class="text-textcolor2/60 italic text-xs select-none">-</span>
+                          <span class="text-subtext/60 italic text-xs select-none">-</span>
                         </div>
                       {/if}
                     </div>
@@ -1646,10 +1646,10 @@
                         </div>
                       {:else}
                         <div class="contents group">
-                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
+                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-lightborderc/30">
                           {@render renderSplitCell(leftExists ? r.left : { kind: 'empty', role: r.left.role }, rIdx)}
                         </div>
-                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
+                        <div class="px-3 py-0.5 font-mono text-sm leading-5 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-lightborderc/30">
                           {@render renderSplitCell(rightExists ? r.right : { kind: 'empty', role: r.right.role }, rIdx)}
                         </div>
                         </div>
@@ -1661,7 +1661,7 @@
             {/each}
           </div>
         {:else}
-          <div class="text-textcolor2 text-sm">{language.promptDiff.calculating}</div>
+          <div class="text-subtext text-sm">{language.promptDiff.calculating}</div>
         {/if}
       {:else}<!-- raw view -->
         {#if cardlineFlatResult}
@@ -1670,7 +1670,7 @@
 
           {#if showOnlyChanges && segments.length === 0}
             <div class="flex items-center justify-center py-10">
-              <div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-darkborderc bg-bgcolor text-textcolor2">
+              <div class="flex items-center gap-2 px-3 py-2 rounded-lg border border-darkborderc bg-lightbg text-subtext">
                 <span class="inline-block w-2 h-2 rounded-full bg-success/70"></span>
                 <span class="text-sm">{language.promptDiff.noChanges}</span>
               </div>
@@ -1705,7 +1705,7 @@
           </div>
           {:else} <!-- split view -->
             {@const rows = toSplitRows(segments, 'raw')}
-            <div class="rounded-xl border border-darkborderc bg-bgcolor overflow-hidden">
+            <div class="rounded-xl border border-darkborderc bg-lightbg overflow-hidden">
               <div class="grid grid-cols-[1fr_auto_1fr] gap-0 font-mono text-sm leading-5">
                 {#each rows as r, idx (r.key)}
                   {#if r.kind === 'divider'}
@@ -1714,11 +1714,11 @@
                     </div>
                   {:else}
                     <div class="contents group">
-                    <div class="px-3 py-0.5 bg-darkbg/50 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
+                    <div class="px-3 py-0.5 bg-darkbg/50 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-lightborderc/30">
                       {@render renderSplitCell(r.left, idx)}
                     </div>
                     <div class="w-px bg-darkborderc/50"></div>
-                    <div class="px-3 py-0.5 bg-darkbg/50 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-borderc/30">
+                    <div class="px-3 py-0.5 bg-darkbg/50 group-hover:bg-selected/30 group-hover:outline group-hover:outline-1 group-hover:outline-lightborderc/30">
                       {@render renderSplitCell(r.right, idx)}
                     </div>
                     </div>
@@ -1728,7 +1728,7 @@
             </div>
           {/if}
         {:else}
-          <div class="text-textcolor2 text-sm">{language.promptDiff.calculating}</div>
+          <div class="text-subtext text-sm">{language.promptDiff.calculating}</div>
         {/if}
       {/if}
     </div>

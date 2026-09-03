@@ -31,8 +31,8 @@
 
 <div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
     <div class="flex flex-col min-w-0">
-        <span class="text-sm text-textcolor">{language.useCustomBackground}</span>
-        {#if language.help.customBackground}<p class="text-xs text-textcolor2 mt-0.5">{language.help.customBackground}</p>{/if}
+        <span class="text-sm text-maintext">{language.useCustomBackground}</span>
+        {#if language.help.customBackground}<p class="text-xs text-subtext mt-0.5">{language.help.customBackground}</p>{/if}
     </div>
     <div class="shrink-0 flex items-center gap-2">
         {#if hasBg && previewUrl}

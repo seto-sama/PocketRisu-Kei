@@ -99,6 +99,10 @@ export function getVisibleSidebarMenuOrder(
     return compacted
 }
 
+export function getSidebarMenuDisplayOrder(order: string[], bottom: boolean): string[] {
+    return bottom ? [...order].reverse() : order
+}
+
 // Reorder rendered entries without discarding positions reserved for temporarily unloaded plugins.
 export function mergeVisibleSidebarMenuOrder(storedOrder: string[], visibleOrder: string[]): string[] {
     const visibleKeys = new Set(visibleOrder)

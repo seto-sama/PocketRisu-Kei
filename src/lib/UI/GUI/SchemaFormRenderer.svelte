@@ -184,16 +184,16 @@
         <!-- Fully degenerate snapshot (no schema fields to even fall back to) that
              heal couldn't repair. Don't dead-end on a blank/"no items" form —
              point the user at re-download / replace. -->
-        <p class="text-textcolor2 text-sm py-4">{language.modelPresetSnapshotEmpty}</p>
+        <p class="text-subtext text-sm py-4">{language.modelPresetSnapshotEmpty}</p>
     {:else if visibility !== 'info'}
-        <p class="text-textcolor2 text-sm py-4">표시할 항목이 없습니다.</p>
+        <p class="text-subtext text-sm py-4">표시할 항목이 없습니다.</p>
     {/if}
 {:else}
     <div class="flex flex-col gap-6">
         {#each groupedRendered as group}
             <div class="flex flex-col">
                 {#if group.label && showGroupLabels}
-                    <h3 class="text-base font-bold mb-1 text-textcolor">{group.label}</h3>
+                    <h3 class="text-base font-bold mb-1 text-maintext">{group.label}</h3>
                 {/if}
                 {#each segmentEntries(group.items) as segment}
                     <div class={segment.row

@@ -305,7 +305,9 @@ interface RisuModule {
     name: string;
     /** Module description */
     description: string;
-    /** Optional user-defined folder used by module pickers */
+    /** User-defined tags used by module pickers */
+    tagIds?: string[];
+    /** @deprecated Legacy import field; use tagIds */
     folderId?: string;
     /** Lorebook entries */
     lorebook?: any[];
@@ -413,17 +415,43 @@ interface DatabaseSubset {
  * Color scheme definition for UI theming.
  */
 interface ColorScheme {
+    lightbg: string;
+    darkbg: string;
+    lightborderc: string;
+    selected: string;
+    danger: string;
+    maintext: string;
+    subtext: string;
+    white?: string;
+    black?: string;
+    darkborderc: string;
+    button: string;
+    type: 'light' | 'dark';
+}
+
+interface LegacyColorScheme {
+    /** @deprecated Use `lightbg`. */
     bgcolor: string;
     darkbg: string;
+    /** @deprecated Use `lightborderc`. */
     borderc: string;
     selected: string;
+    /** @deprecated Use `danger`. */
     draculared: string;
+    /** @deprecated Use `maintext`. */
     textcolor: string;
+    /** @deprecated Use `subtext`. */
     textcolor2: string;
+    white?: string;
+    black?: string;
+    /** @deprecated Use `darkborderc`. */
     darkBorderc: string;
+    /** @deprecated Use `button`. */
     darkbutton: string;
     type: 'light' | 'dark';
 }
+
+type ColorSchemeWithLegacyAliases = ColorScheme & LegacyColorScheme;
 
 /**
  * Custom text theme definition for chat text colors.
@@ -1517,13 +1545,13 @@ interface RisuaiPluginAPI {
      * Apply a custom color scheme. Automatically sets colorSchemeName to 'custom'.
      * @param scheme - ColorScheme object with all color values
      */
-    setColorScheme(scheme: ColorScheme): Promise<void>;
+    setColorScheme(scheme: ColorScheme | LegacyColorScheme): Promise<void>;
 
     /**
      * Get the current color scheme name and values.
      * @returns Object with name and scheme
      */
-    getColorScheme(): Promise<{ name: string; scheme: ColorScheme }>;
+    getColorScheme(): Promise<{ name: string; scheme: ColorSchemeWithLegacyAliases }>;
 
     // ========== Text Theme APIs ==========
 

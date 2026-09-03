@@ -133,7 +133,7 @@
         z-index: 1;
         border: none;
         background: transparent;
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
         font-weight: 500;
         border-radius: 0.375rem;
         cursor: pointer;
@@ -143,11 +143,11 @@
     }
 
     .segmented-btn:is(:hover, :focus-visible):not(.segmented-btn-active) {
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
     }
 
     .segmented-btn-active {
-        color: #fff;
+        color: var(--risu-theme-white);
     }
 
 </style>

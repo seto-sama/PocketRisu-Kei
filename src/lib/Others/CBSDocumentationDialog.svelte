@@ -19,7 +19,7 @@
 <ShDialog
     bind:open
     size="xl"
-    contentClass="h-[calc(100dvh-2rem)] sm:h-[80vh]"
+    contentClass="h-[calc(100dvh-2rem)]"
     bodyClass="min-h-0 flex-1"
 >
     {#snippet title()}{language.cbsDocumentationTitle}{/snippet}
@@ -31,6 +31,6 @@
             emptyMessage={language.cbsDocumentationEmpty}
         />
     {:else}
-        <p class="text-sm text-textcolor2">{language.loading}</p>
+        <p class="text-sm text-subtext">{language.loading}</p>
     {/if}
 </ShDialog>

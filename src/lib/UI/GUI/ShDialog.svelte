@@ -24,6 +24,7 @@
         contentClass?: string;
         bodyClass?: string;
         overlayClass?: string;
+        onOpenAutoFocus?: (event: Event) => void;
         onCloseAutoFocus?: (event: Event) => void;
         title?: Snippet;
         description?: Snippet;
@@ -48,6 +49,7 @@
         contentClass = '',
         bodyClass = '',
         overlayClass = '',
+        onOpenAutoFocus,
         onCloseAutoFocus,
         title,
         description,
@@ -70,9 +72,9 @@
     // w-[calc(100vw-2rem)] guarantees a 1rem gutter on each side at any
     // viewport (size class supplies max-width upper bound on desktop).
     const contentBase =
-        'fixed left-1/2 top-1/2 w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 ' +
+        'risu-modal-content-viewport fixed left-1/2 w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 ' +
         'bg-darkbg border border-darkborderc rounded-md shadow-lg ' +
-        'p-4 flex flex-col gap-4 max-h-[90vh] overflow-y-auto outline-none ' +
+        'p-4 flex flex-col gap-4 overflow-y-auto outline-none ' +
         'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95';
@@ -96,6 +98,11 @@
     }
 
     function handleEscapeKeydown(event: KeyboardEvent) {
+        const target = event.target
+        if (target instanceof Element && target.closest('[data-inline-name-editor]')) {
+            event.preventDefault()
+            return
+        }
         if (!onRequestClose || !escapeEnabled) return
         event.preventDefault()
         onRequestClose()
@@ -116,17 +123,18 @@
             interactOutsideBehavior={closeOnOutsideClick ? 'close' : 'ignore'}
             onEscapeKeydown={handleEscapeKeydown}
             onInteractOutside={handleInteractOutside}
+            {onOpenAutoFocus}
             {onCloseAutoFocus}
         >
             {#if title || description || closable}
                 <div class={cn('flex flex-col gap-1 relative', closable && 'pr-8')}>
                     {#if title}
-                        <Dialog.Title class="text-lg font-semibold text-textcolor leading-tight">
+                        <Dialog.Title class="text-lg font-semibold text-maintext leading-tight">
                             {@render title()}
                         </Dialog.Title>
                     {/if}
                     {#if description}
-                        <Dialog.Description class="text-sm text-textcolor2">
+                        <Dialog.Description class="text-sm text-subtext">
                             {@render description()}
                         </Dialog.Description>
                     {/if}
@@ -134,7 +142,7 @@
                         {#if onRequestClose}
                             <button
                                 type="button"
-                                class="absolute right-0 top-0 rounded-sm border border-transparent text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
+                                class="absolute right-0 top-0 rounded-sm border border-transparent text-subtext risu-interactive-foreground transition-colors cursor-pointer"
                                 aria-label="Close"
                                 onclick={onRequestClose}
                             >
@@ -142,7 +150,7 @@
                             </button>
                         {:else}
                             <Dialog.Close
-                                class="absolute right-0 top-0 rounded-sm border border-transparent text-textcolor2 risu-interactive-foreground transition-colors cursor-pointer"
+                                class="absolute right-0 top-0 rounded-sm border border-transparent text-subtext risu-interactive-foreground transition-colors cursor-pointer"
                                 aria-label="Close"
                             >
                                 <XIcon size={18} />
@@ -159,7 +167,7 @@
             {/if}
 
             {#if children}
-                <div class={cn('text-textcolor wrap-break-word', bodyClass)}>
+                <div class={cn('text-maintext wrap-break-word', bodyClass)}>
                     {@render children()}
                 </div>
             {/if}

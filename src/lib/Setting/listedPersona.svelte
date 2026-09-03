@@ -8,8 +8,10 @@
     import { openSettings, SettingsRoute } from "src/ts/routing";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
-    import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
+    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
+    import AvatarFallback from "../UI/AvatarFallback.svelte";
     import { v4 as uuidv4 } from "uuid";
+    import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
     interface Props {
         close?: () => void;
@@ -21,8 +23,7 @@
     let searchQuery = $state('');
     let visibleItemIndexes = $state<number[]>([]);
     let emptyMessage = $state('');
-    let editMode = $state(false);
-    const folders = $derived(DBState.db.personaFolders ?? []);
+    const tags = $derived(DBState.db.personaTags ?? []);
 
     function selectPersona(index: number) {
         if (onSelect) onSelect(index);
@@ -48,10 +49,10 @@
         void requestImmediateSave();
     }
 
-    function assignPersonaToFolder(index: number, folderId: string | undefined) {
+    function assignPersonaToTag(index: number, tagId: string | undefined) {
         const persona = DBState.db.personas[index];
         if (!persona) return;
-        persona.folderId = folderId === 'all' || folderId === 'uncategorized' ? undefined : folderId;
+        persona.tagIds = togglePresetTag(persona.tagIds, tagId);
         DBState.db.personas = [...DBState.db.personas];
         void requestImmediateSave();
     }
@@ -63,7 +64,7 @@
             icon: '',
             personaPrompt: '',
             note: '',
-            folderId: undefined,
+            tagIds: undefined,
         }];
         changeUserPersona(DBState.db.personas.length - 1);
         void requestImmediateSave();
@@ -111,8 +112,9 @@
 
 <PresetPickerLayout
     title={language.persona}
-    {folders}
-    itemFolderIds={DBState.db.personas.map(persona => persona.folderId)}
+    folders={tags}
+    itemFolderIds={DBState.db.personas.map(persona => persona.tagIds)}
+    organizationKind="tag"
     itemNames={DBState.db.personas.map(persona => persona.name ?? '')}
     itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
     searchPlaceholder={language.personaSearch}
@@ -123,21 +125,21 @@
     bind:visibleItemIndexes
     bind:emptyMessage
     selectedItemIndex={DBState.db.selectedPersona}
-    itemEditMode={editMode}
     onMoveItem={movePersona}
     onSelectItem={selectPersona}
     onDuplicateItem={duplicatePersona}
     onExportItem={exportPersona}
     onDeleteItem={deletePersona}
+    itemDeleteLabel={language.personaDeleteAction}
     {close}
     onFoldersChange={(next) => {
-        DBState.db.personaFolders = next;
+        DBState.db.personaTags = next;
         void requestImmediateSave();
     }}
-    onAssignItem={assignPersonaToFolder}
-    onDeleteFolder={(folderId) => {
+    onAssignItem={assignPersonaToTag}
+    onDeleteFolder={(tagId) => {
         DBState.db.personas = DBState.db.personas.map(persona =>
-            persona.folderId === folderId ? { ...persona, folderId: undefined } : persona
+            ({ ...persona, tagIds: removePresetTag(persona.tagIds, tagId) })
         );
         void requestImmediateSave();
     }}
@@ -145,39 +147,40 @@
         close();
         openSettings(SettingsRoute.Persona);
     } : undefined}
+    itemRenameable
 >
-    {#snippet itemContent(index)}
+    {#snippet itemContent(index, renameController)}
         {@const persona = DBState.db.personas[index]}
-        <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md bg-textcolor2">
+        <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md">
             {#if persona.icon}
                 {#await getCharImage(persona.icon, 'css') then imageStyle}
                     <div class="h-full w-full bg-cover bg-center" style={imageStyle}></div>
                 {/await}
+            {:else}
+                <AvatarFallback className="h-full w-full" iconSize={16} />
             {/if}
         </div>
-        {#if editMode}
-            <div class="min-w-0 grow">
-                <InlineNameInput
-                    bind:value={DBState.db.personas[index].name}
-                    size="default"
-                    oninput={(event) => {
-                        if (index === DBState.db.selectedPersona) DBState.db.username = event.currentTarget.value;
-                    }}
-                />
-            </div>
-        {:else}
-            <div class="min-w-0 grow truncate">
+        <InlineEditableName
+            controller={renameController}
+            bind:value={DBState.db.personas[index].name}
+            size="default"
+            disabled={!$settingsOpen}
+            onActivate={() => selectPersona(index)}
+            onValueChange={(value) => {
+                if (index === DBState.db.selectedPersona) DBState.db.username = value;
+            }}
+        >
+            {#snippet display()}
                 <span>{persona.name}</span>
-                {#if persona.note}<span class="text-textcolor2"> / {persona.note}</span>{/if}
-            </div>
-        {/if}
+                {#if persona.note}<span class="text-subtext"> / {persona.note}</span>{/if}
+            {/snippet}
+        </InlineEditableName>
     {/snippet}
 
     {#if $settingsOpen}
         <PresetPickerActions
             onCreate={createPersona}
             onImport={importPersona}
-            onRename={() => { editMode = !editMode; }}
         />
     {/if}
 </PresetPickerLayout>

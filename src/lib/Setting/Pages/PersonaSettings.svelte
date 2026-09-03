@@ -11,6 +11,7 @@
     import { saveUserPersona, selectUserImg } from "src/ts/persona";
     import type { SettingItem } from "src/ts/setting/types";
     import { DBState, openPersonaList } from "src/ts/stores.svelte";
+    import AvatarFallback from "src/lib/UI/AvatarFallback.svelte";
 
     const activePersona = $derived(DBState.db.personas[DBState.db.selectedPersona]);
     const basicInfoItems: SettingItem[] = [
@@ -72,7 +73,7 @@
             <div class="flex h-[16.5rem] w-44 shrink-0 flex-col gap-2 max-sm:w-full max-sm:items-center">
                 <button
                     type="button"
-                    class="relative w-44 overflow-hidden rounded-md border border-darkborderc bg-textcolor2 shadow-lg transition-[height,border-color] duration-200 hover:border-primary"
+                    class="relative w-44 overflow-hidden rounded-md border border-darkborderc bg-button shadow-lg transition-[height,border-color] duration-200 hover:border-primary"
                     class:h-56={!!activePersona?.largePortrait}
                     class:h-44={!activePersona?.largePortrait}
                     aria-label={language.select}
@@ -80,10 +81,12 @@
                 >
                     {#if DBState.db.userIcon}
                         {#await getCharImage(DBState.db.userIcon, 'css')}
-                            <div class="h-full w-full animate-pulse bg-textcolor2"></div>
+                            <div class="h-full w-full animate-pulse bg-button"></div>
                         {:then imageStyle}
                             <div class="h-full w-full bg-cover bg-center" style={imageStyle}></div>
                         {/await}
+                    {:else}
+                        <AvatarFallback className="h-full w-full" iconSize={56} />
                     {/if}
                 </button>
                 <ShButton variant="outline" size="sm" className="w-full max-sm:w-44" onclick={selectUserImg}>

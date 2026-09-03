@@ -1,6 +1,6 @@
 <script lang="ts">
     import { v4 } from "uuid";
-    import { DownloadIcon, PencilIcon, UploadIcon, MenuIcon, TrashIcon, FolderPlusIcon, PackageIcon, CopyIcon } from "@lucide/svelte";
+    import { DownloadIcon, UploadIcon, MenuIcon, TrashIcon, FolderPlusIcon, PackageIcon, CopyIcon } from "@lucide/svelte";
 
     import type { Chat, ChatFolder, character } from "src/ts/storage/database.svelte";
     import { newChatModelDefaults } from "src/ts/storage/database.svelte";
@@ -10,9 +10,11 @@
 
     import ShButton from "../UI/GUI/ShButton.svelte";
     import ShSortableList from "../UI/GUI/ShSortableList.svelte";
-    import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
+    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
+    import InlineRenameAction from "../UI/GUI/InlineRenameAction.svelte";
+    import { InlineEditableNameController } from "../UI/GUI/inlineEditableNameController.svelte";
 
     import { exportChat, importChat, exportAllChats } from "src/ts/characters";
     import { alertConfirm, alertError, alertSelect, notifySuccess, notifyError } from "src/ts/alert";
@@ -31,7 +33,6 @@
     }
 
     let { chara = $bindable() }: Props = $props();
-    let editMode = $state(false)
 
     // Safety net: chats whose folderId references a deleted folder would
     // otherwise be invisible (excluded from both the no-folder section and
@@ -77,7 +78,7 @@
     async function createNewChat() {
         const len = chara.chats.length
         const newChat = {
-            message:[] as any[], note:'', name:`New Chat ${len + 1}`, localLore:[] as any[], fmIndex: -1, id: v4(),
+            message:[] as any[], note:'', name:`${language.newChat} ${len + 1}`, localLore:[] as any[], fmIndex: -1, id: v4(),
             ...newChatModelDefaults()
         }
         try {
@@ -127,32 +128,38 @@
             <!-- chat folder -->
             {#each chara.chatFolders as folder, i (folder.id)}
             {@const folderColorStyle = getFolderColorStyle(folder.color)}
+            {@const renameController = new InlineEditableNameController()}
             <div data-sortable-key={folder.id} data-risu-chat-folder-id={folder.id}
                 class="flex flex-col mb-2 border-solid border-1 cursor-pointer rounded-md {folderColorStyle.border}">
                 <!-- folder header -->
-                <button 
+                <div
+                    role="button"
+                    tabindex="0"
+                    data-inline-rename-row
                     onclick={() => {
-                        if(!editMode) {
+                        chara.chatFolders[i].folded = !folder.folded
+                        $ReloadGUIPointer += 1
+                    }}
+                    onkeydown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
                             chara.chatFolders[i].folded = !folder.folded
                             $ReloadGUIPointer += 1
                         }
                     }}
-                    class="chat-folder-header flex min-w-0 items-center text-textcolor border-0 p-2 cursor-pointer rounded-md {folderColorStyle.fill}"
+                    class="chat-folder-header flex min-w-0 items-center text-maintext border-0 p-2 cursor-pointer rounded-md {folderColorStyle.fill}"
                 >
-                    {#if editMode}
-                        <div class="min-w-0 grow">
-                            <InlineNameInput bind:value={chara.chatFolders[i].name} />
-                        </div>
-                    {:else}
-                        <span class="truncate grow text-left">{folder.name}</span>
-                    {/if}
-                    <div class="no-sort ml-3 flex shrink-0 items-center gap-2">
-                        <div role="button" tabindex="0" onkeydown={(e) => {
-                            if(e.key === 'Enter'){
-                                e.currentTarget.click()
-                            }
-                        }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
-                            e.stopPropagation()
+                    <InlineEditableName
+                        controller={renameController}
+                        bind:value={chara.chatFolders[i].name}
+                        onActivate={() => {
+                            chara.chatFolders[i].folded = !folder.folded
+                            $ReloadGUIPointer += 1
+                        }}
+                    />
+                    <IconButtonGroup className="no-sort ml-3 shrink-0" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+                        <InlineRenameAction controller={renameController} />
+                        <IconButton onclick={async () => {
                             const remoteVisibilityLabel = folder.localOnly
                                 ? language.showFolderOnRemoteAccess
                                 : language.hideFolderOnRemoteAccess
@@ -172,14 +179,9 @@
                                     break
                             }
                         }}>
-                            <MenuIcon size={18}/>
-                        </div>
-                        <div role="button" tabindex="0" onkeydown={(e) => {
-                            if(e.key === 'Enter'){
-                                e.currentTarget.click()
-                            }
-                        }} class="text-textcolor2 risu-interactive-danger cursor-pointer" onclick={async (e) => {
-                            e.stopPropagation()
+                            <MenuIcon />
+                        </IconButton>
+                        <IconButton tone="destructive" onclick={async () => {
                             const d = await alertConfirm(`${language.removeConfirm}${folder.name}`)
                             if (d) {
                                 $ReloadGUIPointer += 1
@@ -193,13 +195,13 @@
                                 chara.chatFolders = folders
                             }
                         }}>
-                            <TrashIcon size={18}/>
-                        </div>
-                    </div>
-                </button>
+                            <TrashIcon />
+                        </IconButton>
+                    </IconButtonGroup>
+                </div>
                 <!-- chats in folder -->
                 <ShSortableList
-                    className="risu-chat flex flex-col w-full text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md {folder.folded ? 'hidden' : ''}"
+                    className="risu-sidebar-chat-list flex flex-col w-full text-maintext border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md {folder.folded ? 'hidden' : ''}"
                     draggable="[data-sortable-chat-id]"
                     dataAttribute="data-sortable-chat-id"
                     dragPreviewText={(chatId) => chara.chats.find(chat => chat.id === chatId)?.name}
@@ -207,30 +209,22 @@
                     onReorder={syncChatOrderFromDom}
                 >
                     {#if chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id).length == 0}
-                    <span class="no-sort flex justify-center text-textcolor2">Empty</span>
+                    <span class="no-sort flex justify-center text-subtext">Empty</span>
                     <div></div>
                     {:else}
                     {#each chara.chats.filter(chat => chat.folderId == chara.chatFolders[i].id) as chat (chat.id)}
                     {@const chatIdx = chara.chats.indexOf(chat)}
-                    <button data-risu-chat-idx={chatIdx} data-sortable-chat-id={chat.id} data-sortable-no-scale onclick={() => {
-                        if(!editMode){
+                    {@const renameController = new InlineEditableNameController()}
+                    <div role="button" tabindex="0" data-inline-rename-row data-risu-chat-idx={chatIdx} data-sortable-chat-id={chat.id} data-sortable-no-scale onclick={() => changeChatTo(chatIdx)} onkeydown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
                             changeChatTo(chatIdx)
                         }
-                    }} class="risu-chats flex min-w-0 items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"class:bg-selected={chatIdx === chara.chatPage && !$chatDeselected}>
-                        {#if editMode}
-                            <div class="min-w-0 grow">
-                                <InlineNameInput bind:value={chat.name} />
-                            </div>
-                        {:else}
-                            <span class="truncate grow text-left">{chat.name}</span>
-                        {/if}
-                        <div class="no-sort ml-3 flex shrink-0 items-center gap-2">
-                            <div role="button" tabindex="0" onkeydown={(e) => {
-                                if(e.key === 'Enter'){
-                                    e.currentTarget.click()
-                                }
-                            }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
-                                e.stopPropagation()
+                    }} class="risu-selectable-row risu-chats flex min-w-0 items-center text-maintext border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md" data-selected={chatIdx === chara.chatPage && !$chatDeselected}>
+                        <InlineEditableName controller={renameController} bind:value={chat.name} onActivate={() => changeChatTo(chatIdx)} />
+                        <IconButtonGroup className="no-sort ml-3 shrink-0" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+                            <InlineRenameAction controller={renameController} />
+                            <IconButton onclick={async () => {
                                 const confirmed = await alertConfirm(`${language.copyChatConfirm}${chat.name}`)
                                 if(!confirmed) return
                                 const chatIdx = chara.chats.indexOf(chat)
@@ -248,24 +242,14 @@
                                     alertError(error)
                                 }
                             }}>
-                                <CopyIcon size={18}/>
-                            </div>
-                            <div role="button" tabindex="0" onkeydown={(e) => {
-                                if(e.key === 'Enter'){
-                                    e.currentTarget.click()
-                                }
-                            }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
-                                e.stopPropagation()
+                                <CopyIcon />
+                            </IconButton>
+                            <IconButton onclick={() => {
                                 exportChat(chara.chats.indexOf(chat))
                             }}>
-                                <DownloadIcon size={18}/>
-                            </div>
-                            <div role="button" tabindex="0" onkeydown={(e) => {
-                                if(e.key === 'Enter'){
-                                    e.currentTarget.click()
-                                }
-                            }} class="text-textcolor2 risu-interactive-danger cursor-pointer" onclick={async (e) => {
-                                e.stopPropagation()
+                                <DownloadIcon />
+                            </IconButton>
+                            <IconButton tone="destructive" onclick={async () => {
                                 if(chara.chats.length === 1){
                                     notifyError(language.errors.onlyOneChat)
                                     return
@@ -280,10 +264,10 @@
                                     void requestImmediateSave()
                                 }
                             }}>
-                                <TrashIcon size={18}/>
-                            </div>
-                        </div>
-                    </button>
+                                <TrashIcon />
+                            </IconButton>
+                        </IconButtonGroup>
+                    </div>
                     {/each}
                     {/if}
                 </ShSortableList>
@@ -292,7 +276,7 @@
         </ShSortableList>
         <!-- chat without folder div -->
         <ShSortableList
-            className="risu-chat flex flex-col"
+            className="risu-sidebar-chat-list flex flex-col"
             draggable="[data-sortable-chat-id]"
             dataAttribute="data-sortable-chat-id"
             dragPreviewText={(chatId) => chara.chats.find(chat => chat.id === chatId)?.name}
@@ -300,28 +284,20 @@
             onReorder={syncChatOrderFromDom}
         >
             {#each chara.chats as chat, i (chat.id)}
+            {@const renameController = new InlineEditableNameController()}
             {#if chat.folderId == null || isOrphanFolder(chat.folderId)}
-            <button data-risu-chat-idx={i} data-sortable-chat-id={chat.id} data-sortable-no-scale onclick={() => {
-                if(!editMode){
+            <div role="button" tabindex="0" data-inline-rename-row data-risu-chat-idx={i} data-sortable-chat-id={chat.id} data-sortable-no-scale onclick={() => changeChatTo(i)} onkeydown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
                     changeChatTo(i)
                 }
             }}
-            class="flex min-w-0 items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
-            class:bg-selected={i === chara.chatPage && !$chatDeselected}>
-                {#if editMode}
-                    <div class="min-w-0 grow">
-                        <InlineNameInput bind:value={chara.chats[i].name} />
-                    </div>
-                {:else}
-                    <span class="truncate grow text-left">{chat.name}</span>
-                {/if}
-                <div class="no-sort ml-3 flex shrink-0 items-center gap-2">
-                    <div role="button" tabindex="0" onkeydown={(e) => {
-                        if(e.key === 'Enter'){
-                            e.currentTarget.click()
-                        }
-                    }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
-                        e.stopPropagation()
+            class="risu-selectable-row flex min-w-0 items-center text-maintext border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
+            data-selected={i === chara.chatPage && !$chatDeselected}>
+                <InlineEditableName controller={renameController} bind:value={chara.chats[i].name} onActivate={() => changeChatTo(i)} />
+                <IconButtonGroup className="no-sort ml-3 shrink-0" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+                    <InlineRenameAction controller={renameController} />
+                    <IconButton onclick={async () => {
                         const confirmed = await alertConfirm(`${language.copyChatConfirm}${chat.name}`)
                         if(!confirmed) return
                         if(chara.chats[i]?._placeholder){
@@ -338,24 +314,14 @@
                             alertError(error)
                         }
                     }}>
-                        <CopyIcon size={18}/>
-                    </div>
-                    <div role="button" tabindex="0" onkeydown={(e) => {
-                        if(e.key === 'Enter'){
-                            e.currentTarget.click()
-                        }
-                    }} class="text-textcolor2 risu-interactive-accent cursor-pointer" onclick={async (e) => {
-                        e.stopPropagation()
+                        <CopyIcon />
+                    </IconButton>
+                    <IconButton onclick={() => {
                         exportChat(i)
                     }}>
-                        <DownloadIcon size={18}/>
-                    </div>
-                    <div role="button" tabindex="0" onkeydown={(e) => {
-                        if(e.key === 'Enter'){
-                            e.currentTarget.click()
-                        }
-                    }} class="text-textcolor2 risu-interactive-danger cursor-pointer" onclick={async (e) => {
-                        e.stopPropagation()
+                        <DownloadIcon />
+                    </IconButton>
+                    <IconButton tone="destructive" onclick={async () => {
                         if(chara.chats.length === 1){
                             notifyError(language.errors.onlyOneChat)
                             return
@@ -370,10 +336,10 @@
                             void requestImmediateSave()
                         }
                     }}>
-                        <TrashIcon size={18}/>
-                    </div>
-                </div>
-            </button>
+                        <TrashIcon />
+                    </IconButton>
+                </IconButtonGroup>
+            </div>
             {/if}
             {/each}
         </ShSortableList>
@@ -390,11 +356,6 @@
                 importChat()
             }}>
                 <UploadIcon />
-            </IconButton>
-            <IconButton active={editMode} onclick={() => {
-                editMode = !editMode
-            }}>
-                <PencilIcon />
             </IconButton>
         </IconButtonGroup>
 

@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url)
 const {
     UNREGISTERED_WORKFLOW_TIMEOUT_MS,
     findReusableActiveMainJob,
+    getUnregisteredWorkflowRetryAfterMs,
     hasRegisteredMainJob,
     isUnregisteredWorkflowExpired,
     shouldSupersedeFailedActiveWorkflow,
@@ -14,6 +15,11 @@ const {
         jobs: Array<Record<string, unknown>>,
         request: Record<string, unknown>,
     ) => Record<string, unknown> | undefined
+    getUnregisteredWorkflowRetryAfterMs: (
+        workflow: { createdAt: number },
+        jobs: Array<Record<string, unknown>>,
+        now?: number,
+    ) => number | undefined
     hasRegisteredMainJob: (jobs: Array<Record<string, unknown>>) => boolean
     isUnregisteredWorkflowExpired: (
         workflow: { createdAt: number },
@@ -73,6 +79,16 @@ describe('generation route main-job race recovery', () => {
             registered,
             createdAt + UNREGISTERED_WORKFLOW_TIMEOUT_MS,
         )).toBe(false)
+        expect(getUnregisteredWorkflowRetryAfterMs(
+            { createdAt },
+            [],
+            createdAt + 12_250,
+        )).toBe(17_750)
+        expect(getUnregisteredWorkflowRetryAfterMs(
+            { createdAt },
+            registered,
+            createdAt + 12_250,
+        )).toBeUndefined()
     })
 
     it('supersedes only failed workflows with no live main request', () => {

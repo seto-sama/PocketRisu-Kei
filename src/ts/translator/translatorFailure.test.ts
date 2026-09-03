@@ -32,6 +32,7 @@ vi.mock('../process/request/request', () => ({
 }))
 vi.mock('../process/revenant/recovery', () => ({
     completeRevenantTranslation: mocks.completeRevenantTranslation,
+    decodeRevenantTranslation: (value: string) => value,
     isUsableTranslationResult: (value: string | null | undefined) => Boolean(value?.trim()),
     prepareRevenantTranslationRequest: (text: string) => ({
         cacheKey: text,
@@ -71,7 +72,7 @@ vi.mock('../storage/persistentKv', () => ({
     writePersistentJson: vi.fn(),
 }))
 
-import { getLLMCache, runTranslator } from './translator'
+import { getLLMCache, runPromptTranslator, runTranslator } from './translator'
 
 describe('LLM translation failure lifecycle', () => {
     beforeEach(() => {
@@ -102,6 +103,31 @@ describe('LLM translation failure lifecycle', () => {
         expect(mocks.notifyError).toHaveBeenCalledWith(
             'Requests ending with a model turn are not supported.',
         )
+    })
+
+    it('does not read or write the translation cache for an ephemeral prompt translation', async () => {
+        let requestArg: Record<string, any> | undefined
+        mocks.requestChatData.mockImplementationOnce(async (arg) => {
+            requestArg = arg
+            return { type: 'success', result: 'translated' }
+        })
+
+        await expect(runPromptTranslator('hello', {
+            preset: {
+                id: 'dialog-preset',
+                name: 'Dialog preset',
+                prompt: 'Translate {{slot::content}}',
+                maxResponse: 1024,
+            },
+            modelPresetId: 'model-preset',
+            regenerate: true,
+            cache: false,
+        })).resolves.toBe('translated')
+
+        expect(mocks.recoverRevenantTranslationJobs).not.toHaveBeenCalled()
+        expect(mocks.completeRevenantTranslation).not.toHaveBeenCalled()
+        expect(requestArg?.revenantOperationContext).toBeUndefined()
+        expect(requestArg?.revenantAuxiliaryResultPolicy).toBeUndefined()
     })
 
     it('falls back to the source when a successful request completes empty', async () => {

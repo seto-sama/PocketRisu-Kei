@@ -38,7 +38,7 @@
                 <BarIcon additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
                 <div class="flex flex-1 w-full flex-col justify-start items-start text-start">
                     <span>{char.name}</span>
-                    <div class="text-sm text-textcolor2 flex items-center w-full flex-wrap">
+                    <div class="text-sm text-subtext flex items-center w-full flex-wrap">
                         <span class="mr-1">{char.chats}</span>
                         <MessageSquareIcon size={12} />
                         <span class="mr-1 ml-1">|</span>

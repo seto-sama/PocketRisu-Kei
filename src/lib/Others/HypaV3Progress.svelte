@@ -12,14 +12,14 @@
 <OverlayPortal>
 {#if isExpanded}
   <div
-    class="risu-layer-overlay fixed inset-0 flex justify-center items-center pointer-events-none"
+    class="risu-layer-overlay fixed inset-0 flex h-dvh justify-center items-center pointer-events-none"
   >
     <button
       class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl max-h-full overflow-y-auto transition-opacity duration-300 pointer-events-auto"
       type="button"
       onclick={toggleExpand}
     >
-      <span class="mb-6 text-left text-textcolor2 text-sm"
+      <span class="mb-6 text-left text-subtext text-sm"
         >{$hypaV3ProgressStore.msg || ""}</span
       >
       <div
@@ -29,7 +29,7 @@
           class="h-full bg-linear-to-r risu-saving-gradient saving-animation transition-[width]"
         ></div>
       </div>
-      <span class="w-full mt-6 text-center text-textcolor2 text-sm"
+      <span class="w-full mt-6 text-center text-subtext text-sm"
         >{$hypaV3ProgressStore.subMsg || ""}</span
       >
     </button>
@@ -45,10 +45,10 @@
   >
     <div class="w-8 h-8 relative">
       <div
-        class="absolute inset-0 border-t-2 border-draculared rounded-full animate-spin"
+        class="absolute inset-0 border-t-2 border-danger rounded-full animate-spin"
       ></div>
       <div
-        class="absolute inset-1 flex items-center justify-center text-xs text-textcolor"
+        class="absolute inset-1 flex items-center justify-center text-xs text-maintext"
       >
         {$hypaV3ProgressStore.miniMsg || ""}
       </div>

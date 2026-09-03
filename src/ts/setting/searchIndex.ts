@@ -9,6 +9,7 @@ import {
     AdvancedSubmenuIndex,
     DisplaySubmenuIndex,
     InlayGallerySubmenuIndex,
+    HotkeySubmenuIndex,
     LanguageSubmenuIndex,
     ModelPresetListTabIndex,
     OtherBotsSubmenuIndex,
@@ -34,6 +35,7 @@ import {
     accessibilityOtherItems,
     accessibilityScrollItems,
 } from './accessibilitySettingsData';
+import { hotkeyChatScreenItems } from './hotkeySettingsData';
 import { advancedSettingsItems } from './advancedSettingsData';
 import { languageSettingsItems } from './languageSettingsData.svelte';
 import { inlayImageSettingsItems } from './inlayImageSettingsData';
@@ -50,7 +52,7 @@ interface DeclarativeSource {
 }
 
 const advancedRequestIds = new Set([
-    'adv.retries', 'adv.genTime', 'adv.sayNothing', 'adv.autoFill',
+    'adv.retries', 'adv.outputRepetition', 'adv.genTime', 'adv.sayNothing', 'adv.autoFill',
     'adv.exp.cachePoint', 'adv.toolUsage', 'adv.simpleTool', 'adv.banChar', 'adv.lbDepth',
     'adv.lbToken', 'adv.disableLbRecursive', 'adv.localActivationInCharacterLorebook', 'adv.bulkEnabling',
 ]);
@@ -66,7 +68,8 @@ const declarativeSources: DeclarativeSource[] = [
     { items: accessibilityEditingItems, route: SettingsRoute.Accessibility, subTab: 0, tabLabel: () => language.accTabEditing },
     { items: accessibilityScrollItems, route: SettingsRoute.Accessibility, subTab: 1, tabLabel: () => language.accTabScroll },
     { items: [...accessibilityChatPanelItems, ...accessibilityInputItems, ...accessibilityMenuBarItems], route: SettingsRoute.Accessibility, subTab: 2, tabLabel: () => language.accTabSidebar },
-    { items: accessibilityOtherItems, route: SettingsRoute.Accessibility, subTab: 4, tabLabel: () => language.others },
+    { items: accessibilityOtherItems, route: SettingsRoute.Accessibility, subTab: 3, tabLabel: () => language.others },
+    { items: hotkeyChatScreenItems, route: SettingsRoute.Hotkeys, subTab: 0, tabLabel: () => language.sectionChatView },
     { items: advancedSettingsItems.filter((item) => advancedRequestIds.has(item.id)), route: SettingsRoute.Advanced, subTab: 0, tabLabel: () => language.advancedRequestTab },
     { items: advancedSettingsItems.filter((item) => !advancedRequestIds.has(item.id)), route: SettingsRoute.Advanced, subTab: 1, tabLabel: () => language.others },
     { items: languageSettingsItems, route: SettingsRoute.Language, subTab: 0, tabLabel: () => language.generalSettings },
@@ -85,6 +88,7 @@ function routeLabel(route: SettingsRouteValue): string {
         case SettingsRoute.Advanced: return language.advancedSettings;
         case SettingsRoute.Language: return language.language;
         case SettingsRoute.Accessibility: return language.accessibility;
+        case SettingsRoute.Hotkeys: return language.hotkey;
         case SettingsRoute.Persona: return language.persona;
         case SettingsRoute.Prompt: return language.prompt;
         case SettingsRoute.ModelPreset: return language.modelPresetMenu;
@@ -177,6 +181,7 @@ const submenuStores: Partial<Record<SettingsRouteValue, Writable<number>>> = {
     [SettingsRoute.Advanced]: AdvancedSubmenuIndex,
     [SettingsRoute.Language]: LanguageSubmenuIndex,
     [SettingsRoute.Accessibility]: AccessibilitySubmenuIndex,
+    [SettingsRoute.Hotkeys]: HotkeySubmenuIndex,
     [SettingsRoute.OtherBots]: OtherBotsSubmenuIndex,
     [SettingsRoute.PromptPreset]: PromptPresetSubmenuIndex,
     [SettingsRoute.InlayImageGallery]: InlayGallerySubmenuIndex,
@@ -198,7 +203,7 @@ function scrollToSettingAnchor(itemId: string, attempt = 0): void {
     if (element) {
         element.scrollIntoView({ block: 'center' });
         element.animate?.([
-            { boxShadow: '0 0 0 3px var(--risu-theme-primary, #fbbf24)' },
+            { boxShadow: '0 0 0 3px var(--risu-theme-primary)' },
             { boxShadow: '0 0 0 3px transparent' },
         ], { duration: 1600, easing: 'ease-out' });
     } else if (attempt < 40) {

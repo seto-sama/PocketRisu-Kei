@@ -7,26 +7,19 @@
  * folderIds during decodeDatabaseWithPersistentChatIds and persist the fix.
  */
 import { describe, test, expect, afterAll } from 'vitest'
-import { Packr, Unpackr } from 'msgpackr'
+import { Packr } from 'msgpackr'
 import { spawnServer, type ServerHandle } from './helpers/spawnServer.js'
 import { createClient } from './helpers/client.js'
 import { encodeBackup } from './helpers/encode.js'
 import { decodeBackup } from './helpers/decode.js'
+import { decodeRisuDat } from './helpers/normalize.js'
 
 // Mirror server's "raw" magic header for uncompressed RisuSave format.
 const MAGIC_RAW = Buffer.from([0, 82, 73, 83, 85, 83, 65, 86, 69, 0, 7])
 const packr = new Packr({ useRecords: false })
-const unpackr = new Unpackr({ useRecords: false })
 
 function encodeRisuSave(data: unknown): Buffer {
     return Buffer.concat([MAGIC_RAW, packr.encode(data)])
-}
-
-function decodeRisuSave(buf: Buffer): any {
-    if (buf.subarray(0, MAGIC_RAW.length).equals(MAGIC_RAW)) {
-        return unpackr.decode(buf.subarray(MAGIC_RAW.length))
-    }
-    return unpackr.decode(buf)
 }
 
 function buildBackupWithOrphanFolderId(): Buffer {
@@ -108,7 +101,7 @@ describe('orphan folderId boot-time normalize', () => {
         const dbEntry = entries.find(e => e.name === 'database.risudat')
         expect(dbEntry).toBeDefined()
 
-        const db = decodeRisuSave(dbEntry!.data)
+        const db = decodeRisuDat(dbEntry!.data) as any
         const character = db.characters.find((c: any) => c?.chaId === 'orphan-char-1')
         expect(character).toBeDefined()
 
@@ -127,9 +120,10 @@ describe('orphan folderId boot-time normalize', () => {
 
         // Orphan chat's payload (messages) must be preserved — we only fix
         // the folder pointer, not the data the user typed.
-        expect(chatById('c-orphan').message).toEqual([
+        expect(chatById('c-orphan').message).toMatchObject([
             { role: 'user', data: 'lost' },
         ])
+        expect(chatById('c-orphan').message[0].chatId).toEqual(expect.any(String))
     })
 
     test('database with no orphans is left alone (no false positives)', async () => {
@@ -175,7 +169,7 @@ describe('orphan folderId boot-time normalize', () => {
         const exported = await client.exportBackup()
         const dbEntry = decodeBackup(exported)
             .find(e => e.name === 'database.risudat')!
-        const db = decodeRisuSave(dbEntry.data)
+        const db = decodeRisuDat(dbEntry.data) as any
         const char = db.characters.find((c: any) => c?.chaId === 'clean-char-1')
         const find = (id: string) => char.chats.find((c: any) => c?.id === id)
         expect(find('c1').folderId).toBe('F1')

@@ -97,10 +97,15 @@ export function beginGenerationMessageProjection(
 export function setGenerationMessageInfo(
     message: Message,
     generationInfo: MessageGenerationInfo,
+    promptInfo?: MessagePresetInfo,
 ): void {
     message.generationInfo = generationInfo
+    if(promptInfo !== undefined) message.promptInfo = promptInfo
     const metadata = getActiveSwipeMetadata(message)
-    if(metadata) metadata.generationInfo = safeStructuredClone(generationInfo)
+    if(metadata){
+        metadata.generationInfo = safeStructuredClone(generationInfo)
+        if(promptInfo !== undefined) metadata.promptInfo = safeStructuredClone(promptInfo)
+    }
 }
 
 /**

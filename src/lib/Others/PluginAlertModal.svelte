@@ -42,7 +42,7 @@
         <ShAlert variant="destructive">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}
             <p class="m-0">{language.pluginRiskDetectedAlert}</p>
-            <ul class="mt-3 flex list-none flex-col divide-y divide-draculared/30 border-t border-draculared/30 p-0 pt-1 text-sm">
+            <ul class="mt-3 flex list-none flex-col divide-y divide-danger/30 border-t border-danger/30 p-0 pt-1 text-sm">
                 {#each reasons as reason}
                     <li class="py-2.5 first:pt-1.5 last:pb-0">
                         <div class="font-semibold">{reason[0]}</div>
@@ -52,7 +52,7 @@
             </ul>
         </ShAlert>
 
-        <details class="rounded-md border border-darkborderc bg-bgcolor/30 px-3 py-2 text-sm text-textcolor2">
+        <details class="rounded-md border border-darkborderc bg-lightbg/30 px-3 py-2 text-sm text-subtext">
             <summary class="cursor-pointer font-medium risu-interactive-foreground">Dev Info</summary>
             <div class="mt-2 flex flex-col gap-2">
                 {#each pluginAlertModalStore.errors as error}

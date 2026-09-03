@@ -39,12 +39,12 @@
 
     const variantClasses: Record<ShToggleVariant, string> = {
         default:
-            'bg-darkbg text-textcolor2 risu-interactive-surface risu-interactive-foreground ' +
-            'data-[state=on]:bg-selected data-[state=on]:text-textcolor',
+            'bg-darkbg text-subtext risu-interactive-surface risu-interactive-foreground ' +
+            'data-[state=on]:bg-selected data-[state=on]:text-maintext',
         outline:
-            'border border-darkborderc bg-transparent text-textcolor2 ' +
+            'border border-darkborderc bg-transparent text-subtext ' +
             'risu-interactive-surface risu-interactive-foreground ' +
-            'data-[state=on]:bg-selected data-[state=on]:text-textcolor data-[state=on]:border-borderc',
+            'data-[state=on]:bg-selected data-[state=on]:text-maintext data-[state=on]:border-lightborderc',
     };
 
     const sizeClasses: Record<ShToggleSize, string> = {

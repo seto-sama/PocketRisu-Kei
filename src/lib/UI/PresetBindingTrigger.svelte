@@ -23,9 +23,9 @@
 
     const className = $derived(
         state === 'selected'
-            ? 'border-selected text-textcolor'
+            ? 'border-selected text-maintext'
             : state === 'empty'
-                ? 'text-textcolor2 opacity-75 risu-interactive-reveal'
+                ? 'text-subtext opacity-75 risu-interactive-reveal'
                 : '',
     )
 </script>

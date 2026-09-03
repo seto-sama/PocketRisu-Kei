@@ -11,19 +11,20 @@
         SearchIcon,
         TrashIcon,
         Undo2Icon,
+        CircleXIcon,
     } from "@lucide/svelte";
     import { language } from "src/lang";
     import { checkCharOrder, requestImmediateSave } from "src/ts/globalApi.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import MultiLangDisplay from "../UI/GUI/MultiLangDisplay.svelte";
-    import SideBarArrow from "../UI/GUI/SideBarArrow.svelte";
     import { makeAgoText } from "src/ts/util";
     import SettingTabs from "../UI/GUI/SettingTabs.svelte";
     import ShInput from "../UI/GUI/ShInput.svelte";
     import CharacterMasonryIcon from "../UI/CharacterMasonryIcon.svelte";
     import HorizontalMasonry from "../UI/HorizontalMasonry.svelte";
     import { readViewPreference, viewPreferenceKeys, writeViewPreference } from "src/ts/viewPreference";
+    import { doingAlert } from "src/ts/alert";
 
     interface Props {
         endGrid?: () => void;
@@ -55,6 +56,15 @@
 
     function selectAndClose(index = -1){
         changeChar(index);
+        endGrid();
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+        if (event.key !== 'Escape' || event.isComposing) return;
+        if (doingAlert() || document.querySelector('[aria-modal="true"][data-state="open"]')) return;
+
+        event.preventDefault();
+        event.stopPropagation();
         endGrid();
     }
 
@@ -143,13 +153,22 @@
     }
 </script>
 
-<div class="relative flex h-full min-w-0 grow justify-center bg-bg">
-    <SideBarArrow />
-    <section class="relative flex h-full w-full max-w-5xl flex-col overflow-hidden bg-darkbg">
-        <header class="shrink-0 border-b border-darkborderc px-4 py-4 sm:px-6">
-            <div class="mb-3 flex items-baseline gap-2">
-                <h1 class="text-xl font-bold text-textcolor">{language.character}</h1>
-                <span class="text-xs text-textcolor2">
+<svelte:window onkeydown={handleEscape} />
+
+<div class="relative flex h-full w-full min-w-0 grow justify-center bg-lightbg">
+    <section class="relative flex h-full w-full max-w-4xl flex-col overflow-hidden bg-lightbg">
+        <button
+            class="risu-layer-composer absolute right-2 top-2 flex items-center justify-center text-maintext risu-interactive-accent"
+            aria-label={language.close}
+            title={language.close}
+            onclick={endGrid}
+        >
+            <CircleXIcon size={DBState.db.settingsCloseButtonSize} />
+        </button>
+        <header class="shrink-0 px-4 pb-4 pt-6 sm:px-6">
+            <div class="mb-4 flex items-baseline gap-2 pr-10">
+                <h1 class="text-xl font-bold text-maintext">{language.characterList}</h1>
+                <span class="text-xs text-subtext">
                     {language.characterCount(formatChars(search, DBState.db, section === 1).length)}
                 </span>
             </div>
@@ -160,12 +179,12 @@
                         { label: language.trash, value: 1 },
                     ]}
                     bind:selected={section}
-                    className="mb-0 w-auto shrink-0 border-b-0"
+                    className="mb-0 w-auto shrink-0"
                 />
                 <div class="relative min-w-0 grow">
                     <SearchIcon
                         size={16}
-                        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-textcolor2"
+                        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtext"
                         aria-hidden="true"
                     />
                     <ShInput
@@ -176,7 +195,7 @@
                     />
                 </div>
                 {#if section === 0}
-                    <IconButtonGroup size="lg" className="shrink-0 rounded-md border border-darkborderc bg-bgcolor p-1">
+                    <IconButtonGroup size="lg" className="shrink-0 rounded-md border border-darkborderc bg-lightbg p-1">
                         <IconButton
                             active={viewMode === 'simple'}
                             activeColor="primary"
@@ -197,10 +216,10 @@
                         </IconButton>
                     </IconButtonGroup>
                 {:else}
-                    <IconButtonGroup size="lg" className="shrink-0 rounded-md border border-draculared/40 bg-draculared/20 p-1 transition-colors hover:bg-draculared/30">
+                    <IconButtonGroup size="lg" className="shrink-0 rounded-md border border-danger/40 bg-danger/20 p-1 transition-colors hover:bg-danger/30">
                         <IconButton
                             tone="destructive"
-                            className="text-draculared"
+                            className="text-danger"
                             title={language.emptyTrash}
                             aria-label={language.emptyTrash}
                             disabled={formatChars('', DBState.db, true).length === 0 || deletingCharacterId !== null || emptyingTrash}
@@ -215,12 +234,12 @@
 
         <div class="min-h-0 grow overflow-y-auto px-4 py-4 sm:px-6">
             {#if section === 1}
-                <p class="mb-4 text-sm text-textcolor2">{language.trashDesc}</p>
+                <p class="mb-4 text-sm text-subtext">{language.trashDesc}</p>
                 <div class="flex flex-col gap-2">
                     {#each formatChars(search, DBState.db, true) as char (char.chaId)}
-                        <article class="flex items-center gap-3 rounded-md border border-darkborderc bg-bgcolor/20 p-3">
+                        <article class="flex items-center gap-3 rounded-md border border-darkborderc bg-lightbg/20 p-3">
                             <BarIcon interactive={false} additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
-                            <h2 class="min-w-0 grow truncate font-semibold text-textcolor">{char.name}</h2>
+                            <h2 class="min-w-0 grow truncate font-semibold text-maintext">{char.name}</h2>
                             <IconButtonGroup>
                                 <IconButton title={language.restore} aria-label={language.restore} disabled={deletingCharacterId !== null || emptyingTrash} onclick={(event) => restoreCharacter(event, char)}>
                                     <Undo2Icon />
@@ -237,7 +256,7 @@
                             </IconButtonGroup>
                         </article>
                     {:else}
-                        <div class="flex min-h-48 items-center justify-center rounded-md border border-dashed border-darkborderc text-sm text-textcolor2">
+                        <div class="flex min-h-48 items-center justify-center rounded-md border border-dashed border-darkborderc text-sm text-subtext">
                             {language.noData}
                         </div>
                     {/each}
@@ -257,14 +276,14 @@
                         {/snippet}
                     </HorizontalMasonry>
                 {:else}
-                    <div class="flex min-h-48 items-center justify-center rounded-md border border-dashed border-darkborderc text-sm text-textcolor2">
+                    <div class="flex min-h-48 items-center justify-center rounded-md border border-dashed border-darkborderc text-sm text-subtext">
                         {language.noData}
                     </div>
                 {/if}
             {:else}
                 <div class="flex flex-col gap-2">
                     {#each simpleChars(search, DBState.db) as char (char.chaId)}
-                        <article class="rounded-md border border-darkborderc bg-bgcolor/20 transition-colors hover:bg-bgcolor/40">
+                        <article class="rounded-md border border-darkborderc bg-lightbg/20 transition-colors hover:bg-lightbg/40">
                             <div class="flex items-stretch">
                                 <button
                                     type="button"
@@ -276,8 +295,8 @@
                                         <BarIcon interactive={false} additionalStyle={getCharImage(char.image, 'css')}></BarIcon>
                                     </div>
                                     <div class="min-w-0 grow">
-                                        <h2 class="truncate font-semibold text-textcolor">{char.name}</h2>
-                                        <span class="mt-1 flex items-center gap-1.5 text-xs text-textcolor2">
+                                        <h2 class="truncate font-semibold text-maintext">{char.name}</h2>
+                                        <span class="mt-1 flex items-center gap-1.5 text-xs text-subtext">
                                             <MessageSquareIcon size={12} />{char.chats}
                                             {#if char.interaction > 0}
                                                 <span aria-hidden="true">·</span>{makeAgoText(char.interaction)}
@@ -301,18 +320,18 @@
                             </div>
                             {#if char.desc.trim()}
                                 <details class="group/notes border-t border-darkborderc">
-                                    <summary class="flex h-8 cursor-pointer list-none items-center justify-between px-3 text-sm font-medium text-textcolor2 transition-colors risu-interactive-foreground">
+                                    <summary class="flex h-8 cursor-pointer list-none items-center justify-between px-3 text-sm font-medium text-subtext transition-colors risu-interactive-foreground">
                                         {language.creatorNotes}
                                         <ChevronDownIcon class="transition-transform group-open/notes:rotate-180" size={16} />
                                     </summary>
-                                    <div class="bg-darkbg/30 px-3 py-2 text-xs text-textcolor2">
+                                    <div class="bg-darkbg/30 px-3 py-2 text-xs text-subtext">
                                         <MultiLangDisplay value={char.desc} markdown={true} showLanguageSelector={false} contentClass="prose-sm" />
                                     </div>
                                 </details>
                             {/if}
                         </article>
                     {:else}
-                        <div class="flex min-h-48 items-center justify-center rounded-md border border-dashed border-darkborderc text-sm text-textcolor2">
+                        <div class="flex min-h-48 items-center justify-center rounded-md border border-dashed border-darkborderc text-sm text-subtext">
                             {language.noData}
                         </div>
                     {/each}

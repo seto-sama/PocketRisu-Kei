@@ -55,8 +55,8 @@
     }
     function phaseColor(phase: RequestPhase): string {
         if (phase === 'done') return 'text-success'
-        if (phase === 'failed') return 'text-draculared'
-        if (phase === 'stalled' || phase === 'aborted') return 'text-textcolor2'
+        if (phase === 'failed') return 'text-danger'
+        if (phase === 'stalled' || phase === 'aborted') return 'text-subtext'
         return 'text-primary'
     }
 
@@ -157,7 +157,7 @@
         display: flex;
         width: 100%;
         background: var(--risu-theme-darkbg);
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 0.5rem;
         overflow: hidden;
@@ -172,8 +172,8 @@
     .rs-card { border-left-width: 4px; }
     .rs-accent-primary { border-left-color: var(--risu-theme-primary); }
     .rs-accent-success { border-left-color: var(--risu-theme-success); }
-    .rs-accent-danger  { border-left-color: var(--risu-theme-draculared); }
-    .rs-accent-muted   { border-left-color: var(--risu-theme-textcolor2); }
+    .rs-accent-danger  { border-left-color: var(--risu-theme-danger); }
+    .rs-accent-muted   { border-left-color: var(--risu-theme-subtext); }
 
     .rs-body { flex: 1; min-width: 0; padding: 10px 13px; }
     .rs-row1 { display: flex; align-items: center; gap: 8px; }
@@ -181,8 +181,8 @@
     .rs-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
         background: var(--risu-theme-primary); }
     .rs-dot-success { background: var(--risu-theme-success); }
-    .rs-dot-danger  { background: var(--risu-theme-draculared); }
-    .rs-dot-muted   { background: var(--risu-theme-textcolor2); }
+    .rs-dot-danger  { background: var(--risu-theme-danger); }
+    .rs-dot-muted   { background: var(--risu-theme-subtext); }
     .rs-breathe { animation: rs-breathe 1.5s ease-in-out infinite; }
     @keyframes rs-breathe {
         0%,100% { transform: scale(.7); opacity: .5; }
@@ -194,18 +194,18 @@
     .rs-phase { font-weight: 600; }
     .rs-chip {
         font-size: 11px; padding: 1px 7px; border-radius: 999px; flex-shrink: 0;
-        background: var(--risu-theme-selected); color: var(--risu-theme-textcolor);
+        background: var(--risu-theme-selected); color: var(--risu-theme-maintext);
     }
-    .rs-elapsed { font-size: 12px; color: var(--risu-theme-textcolor2); font-variant-numeric: tabular-nums; }
-    .rs-retry { font-size: 12px; color: var(--risu-theme-textcolor2); }
-    .rs-right { margin-left: auto; font-size: 12px; color: var(--risu-theme-textcolor2); white-space: nowrap; }
-    .rs-right b { color: var(--risu-theme-textcolor); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .rs-elapsed { font-size: 12px; color: var(--risu-theme-subtext); font-variant-numeric: tabular-nums; }
+    .rs-retry { font-size: 12px; color: var(--risu-theme-subtext); }
+    .rs-right { margin-left: auto; font-size: 12px; color: var(--risu-theme-subtext); white-space: nowrap; }
+    .rs-right b { color: var(--risu-theme-maintext); font-weight: 600; font-variant-numeric: tabular-nums; }
 
-    .rs-detail { font-size: 12px; color: var(--risu-theme-textcolor2); margin-top: 3px; }
-    .rs-error { color: var(--risu-theme-draculared); }
+    .rs-detail { font-size: 12px; color: var(--risu-theme-subtext); margin-top: 3px; }
+    .rs-error { color: var(--risu-theme-danger); }
     .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    .rs-badge-row { font-size: 12px; color: var(--risu-theme-textcolor2); margin-top: 5px; }
+    .rs-badge-row { font-size: 12px; color: var(--risu-theme-subtext); margin-top: 5px; }
     .rs-badge-success { color: var(--risu-theme-success); }
     .rs-badge-warn { color: var(--risu-theme-warning); }
 </style>

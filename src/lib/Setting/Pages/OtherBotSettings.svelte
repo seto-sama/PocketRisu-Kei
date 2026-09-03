@@ -10,6 +10,8 @@
     import TTSSettings from "./TTSSettings.svelte";
     import ImageSettings from "./ImageSettings.svelte";
 
+    let { embedded = false }: { embedded?: boolean } = $props();
+
     $effect(() => {
         const settings = DBState.db.hypaV3Presets?.[DBState.db.hypaV3PresetId]?.settings;
         const currentValue = settings?.similarMemoryRatio;
@@ -51,7 +53,7 @@
     }
 </script>
 
-<SettingPage title={language.otherBots}>
+<SettingPage title={embedded ? undefined : language.otherBots}>
     <SettingTabs tabs={[
         { label: language.longTermMemory, value: 0 },
         { label: 'TTS', value: 1 },

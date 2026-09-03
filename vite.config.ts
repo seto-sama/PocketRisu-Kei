@@ -8,6 +8,17 @@ import { localFontsPlugin } from './vite.localFonts';
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
+const browserCompatibleNodeImporters = [
+  '/node_modules/@browsermt/bergamot-translator/',
+  '/node_modules/wasmoon/',
+]
+
+function isExpectedBrowserExternalization(warning: { message: string }) {
+  const message = warning.message.replaceAll('\\', '/')
+  return message.includes('has been externalized for browser compatibility')
+    && browserCompatibleNodeImporters.some(importer => message.includes(importer))
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({command, mode}) => {
   return {
@@ -52,15 +63,33 @@ export default defineConfig(({command, mode}) => {
       minify: process.env.TAURI_ENV_DEBUG === 'true' ? false : 'oxc',
       // produce sourcemaps for debug builds
       sourcemap: process.env.TAURI_ENV_DEBUG === 'true',
-      chunkSizeWarningLimit: 2000,
+      // The largest remaining JS chunk is lazy-loaded tiktoken vocabulary data.
+      chunkSizeWarningLimit: 2500,
+      rolldownOptions: {
+        checks: {
+          // This check reports relative plugin time, not an actionable build
+          // failure. WASM parsing naturally dominates builds that include tiktoken.
+          pluginTimings: false,
+        },
+        onwarn(warning, handler) {
+          // These browser-capable WASM libraries also ship guarded Node.js
+          // branches. Rolldown sees their built-in imports statically even
+          // though those branches are unreachable in the browser.
+          if (isExpectedBrowserExternalization(warning)) return
+          // util.ts intentionally defers alert UI to avoid making file-selection
+          // helpers depend eagerly on the alert/database cycle.
+          if (
+            warning.code === 'INEFFECTIVE_DYNAMIC_IMPORT'
+            && warning.message.includes('src/ts/alert.ts')
+          ) return
+          handler(warning)
+        },
+      },
     },
     
     optimizeDeps:{
       exclude: [
         "@browsermt/bergamot-translator"
-      ],
-      needsInterop:[
-        "@mlc-ai/web-tokenizers"
       ]
     },
 
@@ -71,7 +100,16 @@ export default defineConfig(({command, mode}) => {
       }
     },
     worker: {
-      format: 'es'
+      format: 'es',
+      rolldownOptions: {
+        checks: {
+          pluginTimings: false,
+        },
+        onwarn(warning, handler) {
+          if (isExpectedBrowserExternalization(warning)) return
+          handler(warning)
+        },
+      },
     }
 }
 });

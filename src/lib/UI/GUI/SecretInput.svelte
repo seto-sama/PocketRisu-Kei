@@ -45,7 +45,7 @@
     />
     <button
         type="button"
-        class="absolute right-2 top-1/2 -translate-y-1/2 text-textcolor2 risu-interactive-foreground transition-colors"
+        class="absolute right-2 top-1/2 -translate-y-1/2 text-subtext risu-interactive-foreground transition-colors"
         title={revealed ? 'hide' : 'show'}
         onclick={() => { revealed = !revealed }}
         tabindex="-1"

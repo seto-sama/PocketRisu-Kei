@@ -387,10 +387,10 @@ export async function CleanupMigratedFiles() {
 
 // ── Server-side backup functions ─────────────────────────────────────────────
 
-export async function SaveServerBackup() {
+export async function SaveServerBackup(note = '') {
     try {
         alertWait(language.serverBackupSaving)
-        const result = await forageStorage.saveServerBackup((current, total, bytes) => {
+        const result = await forageStorage.saveServerBackup(note, (current, total, bytes) => {
             const pct = total > 0 ? ((current / total) * 100).toFixed(1) : '0'
             const bytesStr = formatBytes(bytes)
             alertWait(`${language.serverBackupSaving} (${pct}% - ${bytesStr})`)
@@ -404,14 +404,14 @@ export async function SaveServerBackup() {
     }
 }
 
-export async function SaveManualSnapshot() {
+export async function SaveManualSnapshot(note = '') {
     try {
         alertWait(language.manualSnapshotSaving)
         const auth = await forageStorage.createAuth()
         const res = await fetch('/api/db/manual-snapshots', {
             method: 'POST',
             headers: { 'risu-auth': auth, 'x-sync-client-id': getSyncClientId(), 'content-type': 'application/json' },
-            body: JSON.stringify({}),
+            body: JSON.stringify({ note }),
         })
         const json = await res.json().catch(() => ({}))
         if (!res.ok) {

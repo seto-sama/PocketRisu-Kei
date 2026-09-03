@@ -7,8 +7,7 @@
     BarChartIcon,
     Trash2Icon,
     XIcon,
-    PencilIcon,
-    SquarePenIcon,
+    StickyNotePlusIcon,
     TagIcon,
   } from "@lucide/svelte";
   import { language } from "src/lang";
@@ -23,18 +22,19 @@
   import ShDropdownMenuContent from "src/lib/UI/GUI/ShDropdownMenuContent.svelte";
   import ShDropdownMenuItem from "src/lib/UI/GUI/ShDropdownMenuItem.svelte";
   import ShDropdownMenuTrigger from "src/lib/UI/GUI/ShDropdownMenuTrigger.svelte";
+  import { handleDualAction } from "./utils";
 
   interface Props {
     searchState: SearchState;
     showImportantOnly: boolean;
     manualSummaryMode: boolean;
+    resummaryMode: boolean;
     filterSelected: boolean;
-    bulkEditEnabled: boolean;
     onToggleImportant: () => void;
     onToggleFilterSelected: () => void;
     onResetData: () => Promise<void>;
     onToggleManualSummaryMode: () => void;
-    onToggleBulkEditMode: () => void;
+    onToggleResummaryMode: () => void;
     onOpenCategoryManager: () => void;
   }
 
@@ -42,13 +42,13 @@
     searchState = $bindable(),
     showImportantOnly,
     manualSummaryMode,
+    resummaryMode,
     filterSelected,
-    bulkEditEnabled,
     onToggleImportant,
     onToggleFilterSelected,
     onResetData,
     onToggleManualSummaryMode,
-    onToggleBulkEditMode,
+    onToggleResummaryMode,
     onOpenCategoryManager,
   }: Props = $props();
 
@@ -84,7 +84,7 @@
 
 <div class="flex min-w-0 items-center justify-between gap-1 mb-2 sm:mb-4">
   <!-- Modal Title -->
-  <h1 class="min-w-0 truncate text-lg font-semibold text-textcolor sm:text-2xl">
+  <h1 class="min-w-0 truncate text-lg font-semibold text-maintext sm:text-2xl">
     {language.hypaV3Modal.titleLabel}
   </h1>
 
@@ -98,6 +98,15 @@
       <SearchIcon />
     </IconButton>
 
+    <!-- Category Manager / Category Filter Button -->
+    <IconButton
+      className="header-category-action"
+      tabindex={-1}
+      onclick={onOpenCategoryManager}
+    >
+      <TagIcon />
+    </IconButton>
+
     <!-- Filter Important Summary Button -->
     <IconButton
       active={showImportantOnly}
@@ -107,36 +116,27 @@
       <StarIcon />
     </IconButton>
 
-    <!-- Manual Summarization Button -->
-    <IconButton
-      active={manualSummaryMode}
-      activeColor="primary"
-      tabindex={-1}
-      title={language.hypaV3Modal.manualSummarize}
-      onclick={onToggleManualSummaryMode}
+    <!-- Left click: manual summary. Right click / alternate action: re-summary. -->
+    <span
+      class="inline-flex"
+      use:handleDualAction={{
+        onMainAction: onToggleManualSummaryMode,
+        onAlternativeAction: onToggleResummaryMode,
+      }}
     >
-      <PencilIcon />
-    </IconButton>
-
-    <!-- Bulk Edit Mode Button -->
-    <IconButton
-      className="header-bulk-action"
-      active={bulkEditEnabled}
-      activeColor="primary"
-      tabindex={-1}
-      onclick={onToggleBulkEditMode}
-    >
-      <SquarePenIcon />
-    </IconButton>
-
-    <!-- Category Manager Button -->
-    <IconButton
-      className="header-category-action"
-      tabindex={-1}
-      onclick={onOpenCategoryManager}
-    >
-      <TagIcon />
-    </IconButton>
+      <IconButton
+        active={manualSummaryMode || resummaryMode}
+        activeColor="primary"
+        tabindex={-1}
+        title={language.hypaV3Modal.manualSummarize}
+        oncontextmenu={(event) => {
+          event.preventDefault();
+          onToggleResummaryMode();
+        }}
+      >
+        <StickyNotePlusIcon />
+      </IconButton>
+    </span>
 
     <!-- Open Global Settings Button -->
     <IconButton
@@ -158,10 +158,6 @@
           {/snippet}
         </ShDropdownMenuTrigger>
         <ShDropdownMenuContent align="end" class="min-w-44">
-        <ShDropdownMenuItem class="dropdown-bulk-action" onSelect={onToggleBulkEditMode}>
-          <SquarePenIcon />
-          {language.edit}
-        </ShDropdownMenuItem>
         <ShDropdownMenuItem class="dropdown-category-action" onSelect={onOpenCategoryManager}>
           <TagIcon />
           {language.hypaV3Modal.categoryManager}
@@ -193,20 +189,9 @@
 </div>
 
 <style>
-  :global(.header-bulk-action),
   :global(.header-category-action),
   :global(.header-settings-action) {
     display: none;
-  }
-
-  @media (min-width: 440px) {
-    :global(.header-bulk-action) {
-      display: inline-flex;
-    }
-
-    :global(.dropdown-bulk-action) {
-      display: none;
-    }
   }
 
   @media (min-width: 520px) {

@@ -263,7 +263,6 @@ function toRegistryTokenizer(tokenizer: LLMTokenizer | undefined): RegistryToken
         case LLMTokenizer.Claude: return 'claude'
         case LLMTokenizer.NovelList: return 'novellist'
         case LLMTokenizer.Gemma: return 'gemma'
-        case LLMTokenizer.Cohere: return 'cohere'
         case LLMTokenizer.DeepSeek: return 'deepseek'
         default: return undefined
     }

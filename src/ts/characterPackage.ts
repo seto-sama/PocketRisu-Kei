@@ -2,7 +2,7 @@ import * as fflate from 'fflate'
 import { v4 } from 'uuid'
 import { alertConfirm, alertError, alertStore, alertWait, notifySuccess } from './alert'
 import { exportCharacterCard, importCharacterProcess } from './characterCards'
-import { LocalWriter, readImage, requestImmediateSave, VirtualWriter } from './globalApi.svelte'
+import { AppendableBuffer, checkCharOrder, LocalWriter, requestImmediateSave, saveAsset, VirtualWriter } from './globalApi.svelte'
 import { language } from 'src/lang'
 import { type character, getDatabase, setDatabase, saveImage, normalizeChat } from './storage/database.svelte'
 import type { Chat } from './storage/database.svelte'
@@ -10,19 +10,19 @@ import { fetchChatFromServer } from './storage/chatStorage'
 import { selectSingleFile } from './util'
 import { createBlankChar } from './characters'
 import { CharXWriter } from './process/processzip'
-import { checkCharOrder } from './globalApi.svelte'
 import { getInlayAsset, setInlayAsset, getInlayInfosBatch, type InlayAsset } from './process/files/inlays'
 import { getInlayMeta, setInlayMeta, type InlayAssetMeta } from './process/files/inlayMeta'
 import { PngChunk } from './pngChunk'
 import { reencodeImage } from './process/files/inlays'
 import {
-    remapBookmarkFolders,
+    remapBookmarkTags,
 } from './bookmarks/bookmarkData'
 import {
     finalizeImportedBookmarks,
-    mergeBookmarkFoldersForImport,
+    mergeBookmarkTagsForImport,
     prepareBookmarkCompatibleChats,
 } from './bookmarks/bookmarkService'
+import { readAvatarImageOrDefault, readDefaultAvatarImage } from './avatarImage'
 
 // ── Types ──
 
@@ -110,22 +110,7 @@ function sanitizeFilename(name: string): string {
 }
 
 async function buildPersonaPng(persona: { name: string, personaPrompt: string, icon: string, note?: string }): Promise<Uint8Array> {
-    let img: Uint8Array
-    if (!persona.icon) {
-        const canvas = document.createElement('canvas')
-        canvas.width = 256
-        canvas.height = 256
-        const ctx = canvas.getContext('2d')
-        if (ctx) {
-            ctx.fillStyle = 'rgb(100, 116, 139)'
-            ctx.fillRect(0, 0, 256, 256)
-        }
-        const dataUrl = canvas.toDataURL('image/png')
-        const base64 = dataUrl.split(',')[1]
-        img = new Uint8Array(Buffer.from(base64, 'base64'))
-    } else {
-        img = await readImage(persona.icon)
-    }
+    let img = await readAvatarImageOrDefault(persona.icon)
 
     const card = {
         name: persona.name,
@@ -205,8 +190,6 @@ async function importPersonas(
 
     // Parse all persona PNGs first
     const parsed: { entry: typeof manifest.personas[0], pngBytes: Uint8Array, card: { name: string, personaPrompt: string, note?: string } }[] = []
-    const { AppendableBuffer: AB } = await import('./globalApi.svelte')
-
     for (const personaEntry of manifest.personas) {
         const pngBytes = unzipped[personaEntry.file]
         if (!pngBytes) {
@@ -217,7 +200,7 @@ async function importPersonas(
         const readGenerator = PngChunk.readGenerator(pngBytes)
         let decoded: string | undefined
         for await (const chunk of readGenerator) {
-            if (chunk && !(chunk instanceof AB) && chunk.key === 'persona') {
+            if (chunk && !(chunk instanceof AppendableBuffer) && chunk.key === 'persona') {
                 decoded = chunk.value
                 break
             }
@@ -284,13 +267,13 @@ async function importChatsToCharacter(
     if (chatsJson.type !== 'risuAllChats' || chatsJson.ver !== 2 || !Array.isArray(chatsJson.data)) return []
 
     const importedChats: Chat[] = chatsJson.data
-    const bookmarkFolderIdMap = await mergeBookmarkFoldersForImport(chatsJson.bookmarkFolders)
+    const bookmarkTagIdMap = await mergeBookmarkTagsForImport(chatsJson.bookmarkTags)
 
     for (const chat of importedChats) {
         if (chat.bindedPersona && personaIdMap[chat.bindedPersona]) {
             chat.bindedPersona = personaIdMap[chat.bindedPersona]
         }
-        remapBookmarkFolders(chat, bookmarkFolderIdMap)
+        remapBookmarkTags(chat, bookmarkTagIdMap)
         chat.id = v4()
     }
 
@@ -493,10 +476,7 @@ export async function exportCharacterPackage(
             const charClone = safeStructuredClone(char) as character
             charClone.image = charClone.image || ''
             if (!charClone.image) {
-                const res = await fetch('/none.webp')
-                const data = new Uint8Array(await res.arrayBuffer())
-                const { saveAsset } = await import('./globalApi.svelte')
-                charClone.image = await saveAsset(data)
+                charClone.image = await saveAsset(await readDefaultAvatarImage())
             }
             await exportCharacterCard(charClone, 'charx', {
                 writer: virtualWriter,
@@ -523,7 +503,7 @@ export async function exportCharacterPackage(
                 ver: 2,
                 data: bookmarkExport.chats,
                 folders: char.chatFolders ?? [],
-                bookmarkFolders: bookmarkExport.folders,
+                bookmarkTags: bookmarkExport.tags,
             }, null, 2)
             const chatsPath = 'chats/chats.json'
             await zipWriter.write(chatsPath, chatsData, 6)

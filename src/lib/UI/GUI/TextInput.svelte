@@ -4,7 +4,7 @@
 {#if hideText}
      <!-- new-password disables autofill -->
     <input 
-        class={"risu-field-border peer rounded-md shadow-xs text-textcolor bg-transparent" + ((className) ? (' ' + className) : '')}
+        class={"risu-field-border peer rounded-md shadow-xs text-maintext bg-transparent" + ((className) ? (' ' + className) : '')}
         class:text-sm={size === 'sm'}
         class:text-md={size === 'md'}
         class:text-lg={size === 'lg'}
@@ -19,7 +19,7 @@
         class:mt-4={marginTop}
         class:w-full={fullwidth}
         class:h-full={fullh}
-        class:text-textcolor2={disabled}
+        class:text-subtext={disabled}
 
         autocomplete="new-password"
         {placeholder}
@@ -44,7 +44,7 @@
 {:else}
 
     <input 
-        class={"risu-field-border peer rounded-md shadow-xs text-textcolor bg-transparent" + ((className) ? (' ' + className) : '')}
+        class={"risu-field-border peer rounded-md shadow-xs text-maintext bg-transparent" + ((className) ? (' ' + className) : '')}
         list={list}
         class:text-sm={size === 'sm'}
         class:text-md={size === 'md'}
@@ -60,7 +60,7 @@
         class:mt-4={marginTop}
         class:w-full={fullwidth}
         class:h-full={fullh}
-        class:text-textcolor2={disabled}
+        class:text-subtext={disabled}
 
         {autocomplete}
         {placeholder}

@@ -24,6 +24,7 @@
         chatRoomId,
         roomIsStreaming = false,
         roomIsResponding = roomIsStreaming,
+        imageRerollingMessageId = null,
         loadPages,
         userIconPortrait,
         getScrollController = () => null,
@@ -31,7 +32,7 @@
     }:{
         messages: Message[]
         currentCharacter: character
-        onReroll: () => void
+        onReroll: (idx?: number) => void
         onNextSwipe?: (idx?: number) => void
         unReroll: (idx?: number) => void
         onDeleteSwipe?: (idx?: number) => void
@@ -40,6 +41,7 @@
         chatRoomId: string
         roomIsStreaming?: boolean
         roomIsResponding?: boolean
+        imageRerollingMessageId?: string | null
         loadPages: number
         userIconPortrait?: boolean
         getScrollController?: () => ChatScrollController | null
@@ -116,9 +118,15 @@
                 messageIndex: i,
                 generationTargetIndex: lastRealCharIdx,
                 roomIsResponding,
-            });
+            }) || (
+                imageRerollingMessageId !== null
+                && imageRerollingMessageId !== undefined
+                && message.chatId === imageRerollingMessageId
+            );
             const showHistoricalSwipes = showPreviousChatSwipeButtons && message.role === 'char' && !message.isComment && !isRerollTarget && (message.swipes?.length ?? 0) > 1;
-            const showSwipeControls = isRerollTarget || showHistoricalSwipes;
+            const showHistoricalImageReroll = isImageGeneration && !message.isComment && !isRerollTarget;
+            const showSwipeControls = isRerollTarget || showHistoricalSwipes || showHistoricalImageReroll;
+            const swipeNavigationOnly = showHistoricalSwipes && !isImageGeneration;
             const isStreamingMessage = message.role === 'char'
                 && (
                     message.isRecovering === true
@@ -130,6 +138,12 @@
                 )
             const swipes = message.swipes;
             const swipeId = message.swipeId ?? 0;
+            const adjacentSwipeMessages = swipes && swipes.length > 1
+                ? [
+                    swipes[(swipeId - 1 + swipes.length) % swipes.length],
+                    swipes[(swipeId + 1) % swipes.length],
+                ].filter((swipe): swipe is string => typeof swipe === 'string' && swipe !== displayMessage)
+                : []
             const key = getMessageKey(roomKey, message)
             visibleKeys.add(key)
             const totalLengthPointer = i > messages.length - 6 ? messages.length : 0
@@ -151,6 +165,8 @@
                 onDeleteSwipe,
                 rerollIcon,
                 showHistoricalSwipes,
+                showHistoricalImageReroll,
+                swipeNavigationOnly,
                 isStreamingMessage,
                 generationOwned,
                 isImageGeneration,
@@ -158,6 +174,7 @@
                 messageLargePortrait,
                 generationModel: message.generationInfo?.model,
                 messageRole: message.role,
+                isLastMessage: i === messages.length - 1,
                 displayName,
                 isComment,
                 disabled,
@@ -166,6 +183,8 @@
                 translationRecoveryScope,
                 messageChatId: message.chatId ?? null,
                 swipeId,
+                previousSwipeMessage: adjacentSwipeMessages[0] ?? '',
+                nextSwipeMessage: adjacentSwipeMessages[1] ?? '',
                 getScrollController,
             }
             const cachedEntry = renderEntryCache.get(key)
@@ -182,24 +201,27 @@
                     // Chat only uses this value to refresh the five newest bodies.
                     totalLength: totalLengthPointer,
                     img: messageImage,
-                    onReroll,
+                    onReroll: () => onReroll(isImageGeneration ? i : undefined),
                     onNextSwipe: showSwipeControls ? () => onNextSwipe(isRerollTarget ? undefined : i) : noop,
                     unReroll: showSwipeControls ? () => unReroll(isRerollTarget ? undefined : i) : noop,
                     onDeleteSwipe: showSwipeControls ? () => onDeleteSwipe(isRerollTarget ? undefined : i) : noop,
                     rerollIcon: showSwipeControls ? 'force' : false,
-                    swipeNavigationOnly: showHistoricalSwipes,
+                    swipeNavigationOnly,
                     isStreamingDisplay: isStreamingMessage,
                     generationOwned,
+                    isImageGeneration,
                     hideSender: isImageGeneration,
                     character: simpleChar,
                     largePortrait: messageLargePortrait,
                     messageGenerationInfo: message.generationInfo ? { ...message.generationInfo } : undefined,
                     role: message.role,
+                    isLastMessage: i === messages.length - 1,
                     name: displayName,
                     isComment,
                     disabled,
                     currentPage,
                     totalPages,
+                    adjacentSwipeMessages,
                     renderCacheKey: key,
                     translationRecoveryContext,
                     translationRecoveryScope,

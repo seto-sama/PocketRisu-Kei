@@ -36,8 +36,8 @@
 
 <div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
     <div class="flex flex-col min-w-0">
-        <span class="text-sm text-textcolor">{language.registryRefresh}</span>
-        <p class="text-xs text-textcolor2 mt-0.5">{status || language.registryRefreshHelp}</p>
+        <span class="text-sm text-maintext">{language.registryRefresh}</span>
+        <p class="text-xs text-subtext mt-0.5">{status || language.registryRefreshHelp}</p>
     </div>
     <ShButton variant="outline" size="sm" onclick={refresh} disabled={busy} className="shrink-0">
         <RefreshCwIcon class={busy ? "animate-spin" : ""} />

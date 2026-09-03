@@ -34,8 +34,8 @@ export interface AccessTokenResult {
 }
 
 async function defaultAuthHeader(): Promise<string> {
-    const { forageStorage } = await import('src/ts/globalApi.svelte')
-    return forageStorage.createAuth()
+    const { createStorageAuth } = await import('../../../storage/auth')
+    return createStorageAuth()
 }
 
 export async function exchangeServiceAccountForAccessToken(

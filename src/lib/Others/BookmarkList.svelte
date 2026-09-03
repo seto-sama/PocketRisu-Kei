@@ -1,12 +1,12 @@
 <script lang="ts">
     import { BookmarkIcon, LoaderCircleIcon } from '@lucide/svelte'
     import { onMount } from 'svelte'
-    import { alertError } from 'src/ts/alert'
+    import { alertConfirm, alertError } from 'src/ts/alert'
     import {
         collectGlobalBookmarks,
     } from 'src/ts/bookmarks/bookmarkData'
     import {
-        assignBookmarkFolder,
+        assignBookmarkTags,
         bookmarkCatalog,
         bookmarkCatalogLoading,
         bookmarkKey,
@@ -14,22 +14,21 @@
         ensureBookmarkCatalog,
         navigateToBookmark,
         renameBookmark,
-        replaceBookmarkFolders,
+        replaceBookmarkTags,
     } from 'src/ts/bookmarks/bookmarkService'
     import type { GlobalBookmarkEntry } from 'src/ts/bookmarks/bookmarkTypes'
     import { language } from 'src/lang'
+    import { togglePresetTag } from 'src/ts/preset/tags'
     import { bookmarkListOpen, DBState } from 'src/ts/stores.svelte'
-    import InlineNameInput from '../UI/GUI/InlineNameInput.svelte'
-    import PresetPickerActions from '../UI/PresetPickerActions.svelte'
+    import InlineEditableName from '../UI/GUI/InlineEditableName.svelte'
     import PresetPickerLayout from '../UI/PresetPickerLayout.svelte'
 
     const close = () => $bookmarkListOpen = false
     let selectedFolder = $state('all')
     let searchQuery = $state('')
     let busyKey = $state('')
-    let editMode = $state(false)
 
-    const folders = $derived($bookmarkCatalog.folders)
+    const tags = $derived($bookmarkCatalog.tags)
     const bookmarks = $derived(collectGlobalBookmarks(DBState.db, $bookmarkCatalog))
 
     async function runBookmarkMutation(
@@ -51,10 +50,11 @@
         }
     }
 
-    function assignToFolder(index: number, folderId?: string) {
+    function assignToTag(index: number, tagId?: string) {
         const bookmark = bookmarks[index]
         if (!bookmark) return
-        void runBookmarkMutation(bookmark, () => assignBookmarkFolder(bookmark, folderId))
+        void runBookmarkMutation(bookmark, () =>
+            assignBookmarkTags(bookmark, togglePresetTag(bookmark.tagIds, tagId) ?? []))
     }
 
     async function commitName(index: number, value: string) {
@@ -65,9 +65,10 @@
         await runBookmarkMutation(bookmark, () => renameBookmark(bookmark, name))
     }
 
-    function deleteBookmarkAt(index: number) {
+    async function deleteBookmarkAt(index: number) {
         const bookmark = bookmarks[index]
         if (!bookmark) return
+        if (!await alertConfirm(`${language.removeConfirm}${bookmark.name}`)) return
         void runBookmarkMutation(bookmark, () => deleteBookmark(bookmark))
     }
 
@@ -98,8 +99,9 @@
 
 <PresetPickerLayout
     title={language.bookmarks}
-    {folders}
-    itemFolderIds={bookmarks.map(bookmark => bookmark.folderId)}
+    folders={tags}
+    itemFolderIds={bookmarks.map(bookmark => bookmark.tagIds)}
+    organizationKind="tag"
     itemNames={bookmarks.map(bookmark => bookmark.name)}
     itemSearchTexts={bookmarks.map(bookmark =>
         `${bookmark.name} ${bookmark.characterName} ${bookmark.chatName}`
@@ -108,65 +110,61 @@
     bind:selectedFolder
     bind:searchQuery
     searchPlaceholder={language.bookmarkSearchPlaceholder}
-    folderNamePrompt={language.bookmarkFolderNamePrompt}
-    folderRenamePrompt={language.bookmarkFolderRenamePrompt}
-    folderDeleteConfirm={language.bookmarkFolderDeleteConfirm}
+    folderNamePrompt={language.bookmarkTagNamePrompt}
+    folderRenamePrompt={language.bookmarkTagRenamePrompt}
+    folderDeleteConfirm={language.bookmarkTagDeleteConfirm}
     folderEmptyMessage={language.noBookmarks}
     noSearchResultsMessage={language.bookmarkNoSearchResults}
     allowFolderAssignmentDrag
     readOnly={!!busyKey}
-    itemEditMode={editMode}
     {close}
     onFoldersChange={(next) => {
-        void replaceBookmarkFolders(next).catch(error => {
-            console.error('[bookmarks] Folder update failed', error)
+        void replaceBookmarkTags(next).catch(error => {
+            console.error('[bookmarks] Tag update failed', error)
             alertError(language.bookmarkOperationFailed)
         })
     }}
-    onAssignItem={assignToFolder}
+    onAssignItem={assignToTag}
     onDeleteFolder={() => {}}
     onSelectItem={(index) => { void goToBookmark(index) }}
     onDeleteItem={deleteBookmarkAt}
+    itemDeleteLabel={language.bookmarkDeleteAction}
+    itemRenameable
 >
-    {#snippet itemContent(index)}
+    {#snippet itemContent(index, renameController)}
         {@const bookmark = bookmarks[index]}
         {#if bookmark}
             <BookmarkIcon class="mr-2 shrink-0" size={18} />
-            {#if editMode}
-                <div class="min-w-0 grow">
-                    <InlineNameInput
-                        value={bookmark.name}
-                        size="default"
-                        onchange={(event) => { void commitName(index, event.currentTarget.value) }}
-                        onkeydown={(event) => {
-                            if (event.key === 'Enter') event.currentTarget.blur()
-                        }}
-                    />
-                </div>
-            {:else}
-                <div class="min-w-0 grow truncate">
+            <InlineEditableName
+                controller={renameController}
+                value={bookmark.name}
+                size="default"
+                disabled={!!busyKey}
+                onActivate={() => { void goToBookmark(index) }}
+                onCommit={(value) => { void commitName(index, value) }}
+            >
+                {#snippet display()}
                     <span>{bookmark.name}</span>
                     {#if bookmark.characterName}
-                        <span class="text-textcolor2"> / {bookmark.characterName}</span>
+                        <span class="text-subtext"> / {bookmark.characterName}</span>
                     {/if}
                     {#if bookmark.chatName}
-                        <span class="text-textcolor2"> / {bookmark.chatName}</span>
+                        <span class="text-subtext"> / {bookmark.chatName}</span>
                     {/if}
-                </div>
-            {/if}
+                {/snippet}
+            </InlineEditableName>
             {#if busyKey === bookmarkKey(bookmark)}
-                <LoaderCircleIcon class="ml-2 shrink-0 animate-spin text-textcolor2" size={18} />
+                <LoaderCircleIcon class="ml-2 shrink-0 animate-spin text-subtext" size={18} />
             {/if}
         {/if}
     {/snippet}
     {#snippet listFooter()}
         {#if $bookmarkCatalogLoading}
-            <div class="flex items-center justify-center gap-2 py-3 text-sm text-textcolor2">
+            <div class="flex items-center justify-center gap-2 py-3 text-sm text-subtext">
                 <LoaderCircleIcon class="animate-spin" size={16} />
                 <span>{language.loading}</span>
             </div>
         {/if}
     {/snippet}
 
-    <PresetPickerActions onRename={() => { editMode = !editMode }} />
 </PresetPickerLayout>

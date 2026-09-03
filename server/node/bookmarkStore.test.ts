@@ -15,7 +15,7 @@ function createStore() {
 
 function compatibleDatabase() {
     return {
-        bookmarkFolders: [{ id: 'folder-1', name: 'Favorites' }],
+        bookmarkTags: [{ id: 'tag-1', name: 'Favorites' }],
         characters: [{
             chaId: 'character-1',
             chats: [{
@@ -23,7 +23,7 @@ function compatibleDatabase() {
                 message: [{ chatId: 'message-1', data: '  bookmarked   body  ' }],
                 bookmarks: ['message-1'],
                 bookmarkNames: { 'message-1': 'Saved' },
-                bookmarkFolderIds: { 'message-1': 'folder-1' },
+                bookmarkTagIds: { 'message-1': ['tag-1'] },
             }],
         }],
     }
@@ -39,17 +39,17 @@ describe('SQLite bookmark store', () => {
         const database = compatibleDatabase()
 
         expect(store.migrateLegacyDatabase(database)).toEqual({ changed: true, migrated: true })
-        expect(database).not.toHaveProperty('bookmarkFolders')
+        expect(database).not.toHaveProperty('bookmarkTags')
         expect(database.characters[0].chats[0]).not.toHaveProperty('bookmarks')
         expect(store.catalog()).toEqual(expect.objectContaining({
-            folders: [],
+            tags: [],
             entries: [expect.objectContaining({
                 characterId: 'character-1',
                 chatId: 'chat-1',
                 messageId: 'message-1',
                 name: 'Saved',
                 preview: 'bookmarked body',
-                folderId: null,
+                tagIds: [],
             })],
         }))
 
@@ -76,10 +76,10 @@ describe('SQLite bookmark store', () => {
                 data: {
                     bookmarks: ['message-1'],
                     bookmarkNames: { 'message-1': 'Saved' },
-                    bookmarkFolderIds: { 'message-1': 'folder-1' },
+                    bookmarkTagIds: { 'message-1': ['tag-1'] },
                 },
             }],
-            folders: [{ id: 'folder-1', name: 'Favorites' }],
+            tags: [{ id: 'tag-1', name: 'Favorites' }],
         })
     })
 
@@ -95,7 +95,7 @@ describe('SQLite bookmark store', () => {
 
         store.projectDatabaseCompatibility(exported)
         expect(exported).toEqual(expect.objectContaining({
-            bookmarkFolders: [{ id: 'folder-1', name: 'Favorites' }],
+            bookmarkTags: [{ id: 'tag-1', name: 'Favorites' }],
         }))
         expect(exported.characters[0].chats[0]).toEqual(expect.objectContaining({
             bookmarks: ['message-1'],
@@ -106,14 +106,66 @@ describe('SQLite bookmark store', () => {
         store.removeBookmarkEntry({
             characterId: 'character-1', chatId: 'chat-1', messageId: 'message-1',
         })
+        const promoted = {
+            characters: [{
+                chaId: 'character-1',
+                chats: [{ id: 'chat-1', message: [{ chatId: 'message-1', data: 'Body' }] }],
+            }],
+        }
+        expect(store.projectSnapshotDatabaseCompatibility('database/dbbackup-1.bin', promoted)).toBe(true)
+        expect(promoted.characters[0].chats[0]).toEqual(expect.objectContaining({
+            bookmarks: ['message-1'],
+            bookmarkNames: { 'message-1': 'Saved' },
+        }))
+        expect(store.catalog().entries).toHaveLength(0)
         expect(store.restoreSnapshot('database/dbbackup-1.bin')).toBe(true)
         expect(store.catalog().entries).toHaveLength(1)
     })
 
-    it('uncategorizes bookmarks when their folder is deleted', () => {
+    it('commits and rolls back snapshot bodies with bookmark catalogs in one outer transaction', () => {
+        const database = new Database(':memory:')
+        databases.push(database)
+        database.exec('CREATE TABLE snapshot_bodies (key TEXT PRIMARY KEY, value BLOB NOT NULL)')
+        const store = createBookmarkStore(database)
+        store.replaceDatabaseCompatibility(compatibleDatabase())
+        const insertBody = database.prepare('INSERT INTO snapshot_bodies(key, value) VALUES (?, ?)')
+        const deleteBody = database.prepare('DELETE FROM snapshot_bodies WHERE key = ?')
+        const countBodies = database.prepare('SELECT COUNT(*) AS count FROM snapshot_bodies')
+        const key = 'database/dbbackup-atomic.bin'
+
+        const createSnapshot = database.transaction((fail: boolean) => {
+            insertBody.run(key, Buffer.from('snapshot'))
+            store.saveSnapshot(key)
+            if (fail) throw new Error('injected failure')
+        })
+
+        expect(() => createSnapshot(true)).toThrow('injected failure')
+        expect(countBodies.get()).toEqual({ count: 0 })
+        expect(store.restoreSnapshot(key)).toBe(false)
+
+        createSnapshot(false)
+        expect(countBodies.get()).toEqual({ count: 1 })
+        expect(store.restoreSnapshot(key)).toBe(true)
+
+        const deleteSnapshot = database.transaction((fail: boolean) => {
+            deleteBody.run(key)
+            store.deleteSnapshot(key)
+            if (fail) throw new Error('injected failure')
+        })
+
+        expect(() => deleteSnapshot(true)).toThrow('injected failure')
+        expect(countBodies.get()).toEqual({ count: 1 })
+        expect(store.restoreSnapshot(key)).toBe(true)
+
+        deleteSnapshot(false)
+        expect(countBodies.get()).toEqual({ count: 0 })
+        expect(store.restoreSnapshot(key)).toBe(false)
+    })
+
+    it('removes a tag binding when its tag is deleted', () => {
         const store = createStore()
         store.replaceDatabaseCompatibility(compatibleDatabase())
-        store.replaceFolders([])
-        expect(store.catalog().entries[0].folderId).toBeNull()
+        store.replaceTags([])
+        expect(store.catalog().entries[0].tagIds).toEqual([])
     })
 })

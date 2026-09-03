@@ -1,10 +1,4 @@
-import { SourceMapConsumer } from 'source-map';
-
-// Initialize the source-map library with the wasm file location
-// @ts-expect-error initialize is a static method but typed as instance method
-SourceMapConsumer.initialize({
-    'lib/mappings.wasm': 'https://cdn.jsdelivr.net/npm/source-map@0.7.4/lib/mappings.wasm'
-});
+import { originalPositionFor, TraceMap } from '@jridgewell/trace-mapping';
 
 // Timeout for fetch requests (10 seconds)
 const FETCH_TIMEOUT_MS = 10000;
@@ -23,12 +17,9 @@ export async function translateStackTrace(stackTrace: string): Promise<StackTrac
     }
 
     const stackLines = stackTrace.split('\n');
-    const newStackLines: string[] = [];
-    
-    // Cache for SourceMapConsumer instances to avoid fetching/parsing the same map file multiple times
-    const consumerCache = new Map<string, SourceMapConsumer>();
-    // Track failed URLs to avoid duplicate warnings and repeated fetch attempts
-    const failedUrls = new Map<string, string>(); // url -> error message
+
+    // Cache parsed maps to avoid fetching/parsing the same file multiple times.
+    const consumerCache = new Map<string, TraceMap>();
 
     // Step 1: Collect all unique mapUrls from stack trace
     const urlsToFetch = new Set<string>();
@@ -55,7 +46,7 @@ export async function translateStackTrace(stackTrace: string): Promise<StackTrac
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-                
+
                 try {
                     const mapRes = await fetch(mapUrl, { 
                         method: 'GET',
@@ -67,16 +58,14 @@ export async function translateStackTrace(stackTrace: string): Promise<StackTrac
                     if (mapRes.ok) {
                         try {
                             const mapContent = await mapRes.json();
-                            const consumer = await new SourceMapConsumer(mapContent);
+                            const consumer = new TraceMap(mapContent);
                             consumerCache.set(mapUrl, consumer);
                         } catch (parseError) {
                             const errorMsg = `Failed to parse sourcemap: ${getFileName(mapUrl)}`;
-                            failedUrls.set(mapUrl, errorMsg);
                             console.error(errorMsg, parseError);
                         }
                     } else {
                         const errorMsg = `Sourcemap not found: ${getFileName(mapUrl)} (${mapRes.status} ${mapRes.statusText})`;
-                        failedUrls.set(mapUrl, errorMsg);
                         console.error(errorMsg);
                     }
                 } catch (fetchError) {
@@ -84,57 +73,44 @@ export async function translateStackTrace(stackTrace: string): Promise<StackTrac
                     
                     if (fetchError instanceof Error && fetchError.name === 'AbortError') {
                         const errorMsg = `Sourcemap fetch timed out: ${getFileName(mapUrl)}`;
-                        failedUrls.set(mapUrl, errorMsg);
                         console.error(errorMsg);
                     } else {
                         const errorMsg = `Failed to fetch sourcemap: ${getFileName(mapUrl)}`;
-                        failedUrls.set(mapUrl, errorMsg);
                         console.error(errorMsg, fetchError);
                     }
                 }
             } catch (e) {
                 const errorMsg = `Failed to fetch sourcemap: ${getFileName(mapUrl)}`;
-                failedUrls.set(mapUrl, errorMsg);
                 console.error(errorMsg, e);
             }
         })
     );
 
-    // Step 3: Process all stack lines in parallel while maintaining order
+    // Step 3: Translate stack frames while maintaining order.
     let translatedFrameCount = 0;
-    try {
-        const processedLines = await Promise.all(
-            stackLines.map((line) => {
-                const match = line.match(linePattern);
-                if (match) {
-                    const [, url, lineNumber, columnNumber] = match;
-                    const mapUrl = url + '.map';
-                    
-                    const consumer = consumerCache.get(mapUrl);
-                    if (consumer) {
-                        const originalPosition = consumer.originalPositionFor({
-                            line: parseInt(lineNumber),
-                            column: parseInt(columnNumber)
-                        });
-                        if (originalPosition.source) {
-                            translatedFrameCount += 1;
-                            if (originalPosition.name) {
-                                return `    at ${originalPosition.name} (${originalPosition.source}:${originalPosition.line}:${originalPosition.column})`;
-                            }
-                            return `    at ${originalPosition.source}:${originalPosition.line}:${originalPosition.column}`;
-                        }
+    const processedLines = stackLines.map((line) => {
+        const match = line.match(linePattern);
+        if (match) {
+            const [, url, lineNumber, columnNumber] = match;
+            const mapUrl = url + '.map';
+
+            const consumer = consumerCache.get(mapUrl);
+            if (consumer) {
+                const originalPosition = originalPositionFor(consumer, {
+                    line: parseInt(lineNumber, 10),
+                    column: parseInt(columnNumber, 10)
+                });
+                if (originalPosition.source) {
+                    translatedFrameCount += 1;
+                    if (originalPosition.name) {
+                        return `    at ${originalPosition.name} (${originalPosition.source}:${originalPosition.line}:${originalPosition.column})`;
                     }
+                    return `    at ${originalPosition.source}:${originalPosition.line}:${originalPosition.column}`;
                 }
-                return line;
-            })
-        );
-        newStackLines.push(...processedLines);
-    } finally {
-        // Clean up all cached consumers
-        for (const consumer of consumerCache.values()) {
-            consumer.destroy();
+            }
         }
-    }
+        return line;
+    });
 
     if (translatedFrameCount === 0) {
         return {
@@ -144,7 +120,7 @@ export async function translateStackTrace(stackTrace: string): Promise<StackTrac
     }
 
     return {
-        stackTrace: newStackLines.join('\n'),
+        stackTrace: processedLines.join('\n'),
         didTranslate: true
     };
 }

@@ -4,7 +4,7 @@
     //
     // Variants:
     //  - default: 중성 정보 박스
-    //  - destructive: 위험/보안 경고 (draculared 톤)
+    //  - destructive: 위험/보안 경고 (danger 톤)
     //  - warning: 주의 환기 (노랑)
     //  - info: 정보 안내 (파랑)
     //  - success: 성공/완료 (초록)
@@ -44,8 +44,8 @@
     const base = 'rounded-md border px-4 py-3 text-sm text-left';
 
     const variantClasses: Record<ShAlertVariant, string> = {
-        default:     'bg-darkbg text-textcolor border-darkborderc',
-        destructive: 'risu-status-danger [&_[data-slot=alert-icon]_svg]:text-draculared',
+        default:     'bg-darkbg text-maintext border-darkborderc',
+        destructive: 'risu-status-danger [&_[data-slot=alert-icon]_svg]:text-danger',
         warning:     'risu-status-warning [&_[data-slot=alert-icon]_svg]:text-warning',
         info:        'risu-status-info [&_[data-slot=alert-icon]_svg]:text-accent',
         success:     'risu-status-success [&_[data-slot=alert-icon]_svg]:text-success',

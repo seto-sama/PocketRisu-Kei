@@ -42,7 +42,7 @@
       </form>
 
       {#if searchState.results.length > 0}
-        <span class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-selected/60 px-2 py-1 text-xs font-medium text-textcolor">
+        <span class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-selected/60 px-2 py-1 text-xs font-medium text-maintext">
           {searchState.currentResultIndex + 1}/{searchState.results.length}
         </span>
       {/if}

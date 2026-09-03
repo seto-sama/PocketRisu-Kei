@@ -82,7 +82,7 @@ export type ChatScrollController = {
         element: HTMLElement,
         options?: PreserveElementOptions,
     ): () => void
-    preserveViewportPosition(): () => void
+    preserveViewportPosition(options?: Pick<PreserveElementOptions, 'followLayout'>): () => void
     destroy(): void
 }
 
@@ -144,6 +144,7 @@ export function createChatScrollController(
     let navigationAnchor: LayoutAnchor | null = null
     const layoutAnchors = new Map<symbol, LayoutAnchor>()
     const observedElements = new Set<Element>()
+    const observedInlineSizes = new WeakMap<Element, number>()
 
     const maxScrollTop = () => Math.max(0, container.scrollHeight - container.clientHeight)
     const setMode = (nextMode: ChatScrollMode) => {
@@ -269,10 +270,12 @@ export function createChatScrollController(
             if (nextElements.has(element)) continue
             resizeObserver.unobserve(element)
             observedElements.delete(element)
+            observedInlineSizes.delete(element)
         }
         for (const element of nextElements) {
             if (observedElements.has(element)) continue
             observedElements.add(element)
+            observedInlineSizes.set(element, element.getBoundingClientRect().width)
             resizeObserver.observe(element)
         }
     }
@@ -470,7 +473,9 @@ export function createChatScrollController(
         }
     }
 
-    const preserveViewportPosition = () => {
+    const preserveViewportPosition = (
+        options: Pick<PreserveElementOptions, 'followLayout'> = {},
+    ) => {
         const containerRect = container.getBoundingClientRect()
         const visibleElement = Array.from(
             container.querySelectorAll<HTMLElement>(LAYOUT_ELEMENT_SELECTOR),
@@ -479,15 +484,33 @@ export function createChatScrollController(
             return rect.bottom > containerRect.top && rect.top < containerRect.bottom
         })
         return visibleElement
-            ? preserveElementPosition(visibleElement, { edge: 'top' })
+            ? preserveElementPosition(visibleElement, {
+                edge: 'top',
+                followLayout: options.followLayout,
+            })
             : () => {}
     }
 
-    const handleObservedLayout = () => {
+    const handleObservedLayout = (entries: ResizeObserverEntry[] = []) => {
         // Mobile browser chrome can resize the visual viewport on every frame
         // of a touch gesture. Never let bottom-follow corrections compete with
         // the browser while the user is directly manipulating the scroller.
         if (destroyed || pointerActive || touchActive) return
+        let horizontalLayoutChanged = false
+        for (const entry of entries) {
+            const inlineSize = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width
+            const previousSize = observedInlineSizes.get(entry.target)
+            observedInlineSizes.set(entry.target, inlineSize)
+            if (previousSize !== undefined && previousSize !== inlineSize) {
+                horizontalLayoutChanged = true
+            }
+        }
+        if (horizontalLayoutChanged) {
+            // Sidebar width animation can resize every message in one delivery.
+            // Defer any phase-height/scroll writes until ResizeObserver finishes.
+            scheduleLayout()
+            return
+        }
         if (followsNativeBottomAnchor()) {
             // Native anchoring owns healthy streamed frames. JS only recovers
             // a fractional phase mismatch and otherwise performs no scroll

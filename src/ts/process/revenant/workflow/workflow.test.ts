@@ -11,6 +11,7 @@ import {
     getActiveRevenantWorkflow,
     getRevenantWorkflow,
     getRevenantWorkflowResumeContext,
+    RevenantWorkflowBusyError,
 } from './workflow'
 import {
     configureRevenantGenerationClient,
@@ -255,6 +256,26 @@ describe('active workflow client state', () => {
             plan: [{ key: 'input.commit', kind: 'input.chat.commit', recoveryPolicy: 'resume' }],
             context: {} as any,
         })).rejects.toThrow('Chat changed before the generation input was committed')
+    })
+
+    it('preserves the remaining registration grace period for an abandoned setup', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({
+                error: 'A generation workflow is already active for this room',
+                busyReason: 'main_job_unregistered',
+                retryAfterMs: 17_750,
+            }), { status: 409 }),
+        ))
+
+        const error = await beginRevenantWorkflow({
+            characterId: 'character-1',
+            roomId: 'room-1',
+            plan: [{ key: 'input.commit', kind: 'input.chat.commit', recoveryPolicy: 'resume' }],
+            context: {} as any,
+        }).catch(caught => caught)
+
+        expect(error).toBeInstanceOf(RevenantWorkflowBusyError)
+        expect(error.retryAfterMs).toBe(17_750)
     })
 
 })

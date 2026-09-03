@@ -31,7 +31,7 @@
     // buttons elsewhere in the codebase.
     const base =
         'risu-field-border flex h-10 min-h-10 w-full min-w-0 rounded-md bg-transparent px-2.5 py-1 text-base ' +
-        'text-textcolor ' +
+        'text-maintext ' +
         'disabled:opacity-50 disabled:cursor-not-allowed ' +
         'file:inline-flex file:h-8 file:border-0 file:bg-transparent file:text-sm file:font-medium';
 </script>

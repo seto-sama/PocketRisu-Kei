@@ -2,7 +2,7 @@
     
     import { DBState } from 'src/ts/stores.svelte';
     import { language } from "../../../lang";
-    import { DownloadIcon, UploadIcon, PlusIcon, SunIcon, LinkIcon, FolderPlusIcon, PencilIcon } from "@lucide/svelte";
+    import { DownloadIcon, UploadIcon, PlusIcon, SunIcon, LinkIcon, FolderPlusIcon } from "@lucide/svelte";
     import { addLorebook, addLorebookFolder, exportLoreBook, importLoreBook } from "../../../ts/process/lorebook.svelte";
     import NumberInput from "../../UI/GUI/NumberInput.svelte";
     import ShSettings from "../../UI/GUI/ShSettings.svelte";
@@ -16,7 +16,6 @@
 
     let submenu = $state('character')
     let loreSubmenu = $derived(submenu === 'character' ? 0 : 1)
-    let listEditMode = $state(false)
 
     function isAllCharacterLoreAlwaysActive() {
         const globalLore = DBState.db.characters[$selectedCharID].globalLore;
@@ -67,27 +66,36 @@
     }
 </script>
 
+<div class="w-full shrink-0">
 <ShChoiceGroup
     variant="pill"
     size="md"
     name="lorebookSubmenu"
     bind:value={submenu}
     options={[
-        { value: 'character', label: language.character },
-        { value: 'chat', label: language.Chat },
+        {
+            value: 'character',
+            label: language.character,
+            description: `${language.help.lorebook.trim()}\n${language.globalLoreInfo}`,
+        },
+        {
+            value: 'chat',
+            label: language.Chat,
+            description: `${language.help.lorebook.trim()}\n${language.localLoreInfo}`,
+        },
         { value: 'settings', label: language.settings },
     ]}
     activeColor="selected"
     fullWidth
     divided
+    className="mb-4 shrink-0"
 />
 {#if submenu !== 'settings'}
-    <span class="text-textcolor2 mt-2 text-sm">{submenu === 'character' ? language.globalLoreInfo : language.localLoreInfo}</span>
-    <LoreBookList submenu={loreSubmenu} bind:listEditMode />
+    <LoreBookList submenu={loreSubmenu} />
 {:else}
-    <ShSettings spacing="none" className="mt-4">
+    <ShSettings spacing="none">
         <ShSettings variant="row">
-            <span class="min-w-0 text-textcolor">{language.useGlobalSettings}</span>
+            <span class="min-w-0 text-maintext">{language.useGlobalSettings}</span>
             <ShSwitch
                 checked={!DBState.db.characters[$selectedCharID].loreSettings}
                 onCheckedChange={setUseGlobalSettings}
@@ -95,19 +103,19 @@
         </ShSettings>
         {#if DBState.db.characters[$selectedCharID].loreSettings}
             <ShSettings variant="row">
-                <span class="min-w-0 text-textcolor">{language.recursiveScanning}</span>
+                <span class="min-w-0 text-maintext">{language.recursiveScanning}</span>
                 <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].loreSettings.recursiveScanning}/>
             </ShSettings>
             <ShSettings variant="row">
-                <span class="min-w-0 text-textcolor">{language.fullWordMatching}</span>
+                <span class="min-w-0 text-maintext">{language.fullWordMatching}</span>
                 <ShSwitch bind:checked={DBState.db.characters[$selectedCharID].loreSettings.fullWordMatching}/>
             </ShSettings>
             <ShSettings variant="row">
-                <span class="min-w-0 text-textcolor">{language.loreBookDepth}</span>
+                <span class="min-w-0 text-maintext">{language.loreBookDepth}</span>
                 <NumberInput size="sm" className="w-24" min={0} max={20} bind:value={DBState.db.characters[$selectedCharID].loreSettings.scanDepth} />
             </ShSettings>
             <ShSettings variant="row">
-                <span class="min-w-0 text-textcolor">{language.loreBookToken}</span>
+                <span class="min-w-0 text-maintext">{language.loreBookToken}</span>
                 <NumberInput size="sm" className="w-24" min={0} max={4096} bind:value={DBState.db.characters[$selectedCharID].loreSettings.tokenBudget} />
             </ShSettings>
         {/if}
@@ -129,17 +137,8 @@
     }}>
         <UploadIcon />
     </IconButton>
-    <IconButton
-        active={listEditMode}
-        aria-label={language.changeFolderName}
-        onclick={() => {
-            listEditMode = !listEditMode
-        }}
-    >
-        <PencilIcon />
-    </IconButton>
     {#if DBState.db.bulkEnabling}
-        <button class="flex items-center gap-1 text-textcolor2 risu-interactive-accent" onclick={() => {
+        <button class="flex items-center gap-1 text-subtext risu-interactive-accent" onclick={() => {
             toggleCharacterLoreAlwaysActive()
         }}>
             {#if isAllCharacterLoreAlwaysActive()}
@@ -167,3 +166,4 @@
     </IconButton>
 </IconButtonGroup>
 {/if}
+</div>

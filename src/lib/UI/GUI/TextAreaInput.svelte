@@ -1,6 +1,24 @@
+{#snippet defaultActionBarContent()}
+    <IconButton title={language.copy} aria-label={language.copy} onclick={copyValue}>
+        {#if copied}
+            <CheckIcon class="text-success" />
+        {:else}
+            <CopyIcon />
+        {/if}
+    </IconButton>
+    {#if !readonly}
+        <IconButton tone="destructive" title={language.reset} aria-label={language.reset} onclick={resetValue}>
+            <EraserIcon />
+        </IconButton>
+        <IconButton title="Popup Editor" aria-label="Popup Editor" onclick={openPopupEditor}>
+            <Maximize2Icon />
+        </IconButton>
+    {/if}
+{/snippet}
+
 <div
     bind:this={containerRef}
-    class={"risu-field-border risu-local-stack risu-local-stack-focus relative flex flex-col n-scroll rounded-md shadow-xs text-textcolor focus-within:outline-hidden"
+    class={"risu-field-border risu-local-stack risu-local-stack-focus relative flex flex-col n-scroll rounded-md shadow-xs text-maintext focus-within:outline-hidden"
         + (margin === 'top' ? ' mt-4' : margin === 'bottom' ? ' mb-4' : margin === 'both' ? ' mt-2 mb-2' : '')
         + ((className) ? (' ' + className) : '')}
     class:text-sm={size === 'sm' || (size === 'default' && $textAreaTextSize === 1)}
@@ -85,22 +103,10 @@
     </div>
     {#if showActionBar}
         <IconButtonGroup size="sm" className="risu-layer-local-control absolute bottom-0 right-0 px-1.5 py-1">
-            <IconButton title={language.copy} aria-label={language.copy} onclick={copyValue}>
-                {#if copied}
-                    <CheckIcon class="text-success" />
-                {:else}
-                    <CopyIcon />
-                {/if}
-            </IconButton>
-            {#if !readonly}
-                <IconButton tone="destructive" title={language.reset} aria-label={language.reset} onclick={resetValue}>
-                    <RefreshCwIcon />
-                </IconButton>
-            {/if}
-            {#if !readonly}
-                <IconButton title="Popup Editor" aria-label="Popup Editor" onclick={openPopupEditor}>
-                    <Maximize2Icon />
-                </IconButton>
+            {#if actionBarVariant === 'custom'}
+                {@render customActionBar(copyValue, copied)}
+            {:else}
+                {@render defaultActionBarContent()}
             {/if}
         </IconButtonGroup>
     {/if}
@@ -113,9 +119,9 @@
 </style>
 <script lang="ts">
     import { textAreaSize, textAreaTextSize } from 'src/ts/gui/guisize'
-    import { onDestroy, tick, untrack } from 'svelte';
+    import { onDestroy, tick, untrack, type Snippet } from 'svelte';
   import { DBState, showPopupEditor } from 'src/ts/stores.svelte';
-    import { Maximize2Icon, CopyIcon, CheckIcon, RefreshCwIcon } from '@lucide/svelte'
+    import { Maximize2Icon, CopyIcon, CheckIcon, EraserIcon } from '@lucide/svelte'
     import { alertConfirm } from 'src/ts/alert'
     import { isSecureContext } from 'src/ts/secureContext'
     import { language } from 'src/lang'
@@ -125,7 +131,7 @@
     import { longpress } from 'src/ts/gui/longtouch'
     import { createDebouncedDraftWriter } from 'src/ts/storage/draftPersistence'
     import { INPUT_COMMIT_DEBOUNCE_MS, resolveInputCommitMode, type InputCommitMode } from 'src/ts/inputCommit'
-    interface Props {
+    interface BaseProps {
         size?: 'xs'|'sm'|'md'|'lg'|'xl'|'default';
         autocomplete?: 'on'|'off';
         placeholder?: string;
@@ -155,6 +161,11 @@
         popupTitle?: string;
     }
 
+    type Props = BaseProps & (
+        | { actionBarVariant?: 'default'; customActionBar?: never }
+        | { actionBarVariant: 'custom'; customActionBar: Snippet<[() => Promise<void>, boolean]> }
+    )
+
     let {
         size = 'default',
         autocomplete = 'off',
@@ -174,6 +185,8 @@
         ondraft = () => {},
         onchange = () => {},
         actionBar = undefined,
+        actionBarVariant = 'default',
+        customActionBar = undefined,
         readonly = false,
         tabindex = undefined,
         textareaRef = $bindable(),
@@ -321,7 +334,7 @@
     }
 
     const handlePopupEditorHotkey = (event: KeyboardEvent) => {
-        if (readonly || DBState.db.enableHotkeys === false) return false
+        if (readonly) return false
         const hotkey = DBState.db.hotkeys?.find((entry) => entry.action === 'popupEditor')
         if (!hotkeyMatches(hotkey, event)) return false
         event.preventDefault()

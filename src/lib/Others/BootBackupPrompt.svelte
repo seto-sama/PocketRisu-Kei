@@ -47,7 +47,7 @@
     >
         {#snippet title()}{language.backupBootPromptTitle}{/snippet}
 
-        <div class="flex flex-col gap-2 text-textcolor2 text-sm leading-relaxed">
+        <div class="flex flex-col gap-2 text-subtext text-sm leading-relaxed">
             {#if data.estimate != null}
                 <div class="tabular-nums">{language.backupBootPromptEstimate(data.estimate)}</div>
             {/if}

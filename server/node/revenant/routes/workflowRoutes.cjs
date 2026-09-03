@@ -22,6 +22,7 @@ const {
     normalizeRevenantWorkflowTerminalStatus,
 } = require('../generation.cjs');
 const {
+    getUnregisteredWorkflowRetryAfterMs,
     hasRegisteredMainJob,
     isUnregisteredWorkflowExpired,
     shouldSupersedeFailedActiveWorkflow,
@@ -83,12 +84,19 @@ function installRevenantWorkflowRoutes(app, deps) {
                 }
             }
             if (result.busy) {
-                const hasMainJob = hasRegisteredMainJob(
-                    listGenerationWorkflowJobs(result.workflow.workflowId),
+                const jobs = listGenerationWorkflowJobs(result.workflow.workflowId);
+                const hasMainJob = hasRegisteredMainJob(jobs);
+                const retryAfterMs = getUnregisteredWorkflowRetryAfterMs(
+                    result.workflow,
+                    jobs,
                 );
                 res.status(409).send({
                     error: 'A generation workflow is already active for this room',
                     ...(hasMainJob ? { workflow: result.workflow } : {}),
+                    ...(retryAfterMs === undefined ? {} : {
+                        busyReason: 'main_job_unregistered',
+                        retryAfterMs,
+                    }),
                 });
                 return;
             }

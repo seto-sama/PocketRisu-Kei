@@ -209,7 +209,7 @@
     </div>
 
     <div data-disclosure-row>
-        <span class="text-sm text-textcolor">FLAGS</span>
+        <span class="text-sm text-maintext">FLAGS</span>
         <ShSwitch
             checked={!!value.ableFlag}
             onCheckedChange={(checked) => {
@@ -236,7 +236,7 @@
             />
 
             <div data-disclosure-row>
-                <span class="flex items-center text-sm text-textcolor">
+                <span class="flex items-center text-sm text-maintext">
                     {language.insertOrder}
                     <Help key="regexOrder"/>
                 </span>

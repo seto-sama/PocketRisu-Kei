@@ -111,15 +111,15 @@
 <SoundGroup title={language.modelPresetBindingGroup}>
     <div class="flex items-center justify-between gap-3 py-3">
         <div class="flex flex-col gap-0.5 min-w-0">
-            <span class="text-sm text-textcolor">{language.modelPresetGlobalBinding}</span>
-            <span class="text-xs text-textcolor2">{language.help.modelPresetGlobalBindingHelp}</span>
+            <span class="text-sm text-maintext">{language.modelPresetGlobalBinding}</span>
+            <span class="text-xs text-subtext">{language.help.modelPresetGlobalBindingHelp}</span>
         </div>
         <ModelPresetList compact warnIfEmpty bind:value={defaultBinding.main} />
     </div>
     <div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
         <div class="flex flex-col gap-0.5 min-w-0">
-            <span class="text-sm text-textcolor">{language.modelPresetGlobalSubBinding}</span>
-            <span class="text-xs text-textcolor2">{language.help.modelPresetGlobalSubBindingHelp}</span>
+            <span class="text-sm text-maintext">{language.modelPresetGlobalSubBinding}</span>
+            <span class="text-xs text-subtext">{language.help.modelPresetGlobalSubBindingHelp}</span>
         </div>
         <ModelPresetList compact warnIfEmpty bind:value={defaultBinding.sub} />
     </div>
@@ -134,7 +134,7 @@
             { label: language.axModelOther, key: 'otherAx' as const },
         ] as aux}
             <div class="flex items-center justify-between gap-3 py-3 pl-4 border-t border-darkborderc">
-                <span class="text-sm text-textcolor">{aux.label}</span>
+                <span class="text-sm text-maintext">{aux.label}</span>
                 <ModelPresetList compact blankable bind:value={defaultBinding.aux[aux.key]} />
             </div>
         {/each}

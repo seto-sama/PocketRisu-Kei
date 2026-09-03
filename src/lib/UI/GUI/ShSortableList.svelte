@@ -6,14 +6,14 @@
     }
 
     export function restoreSortableDragOrigin(origin: SortableDragOrigin | null) {
-        if (!origin || origin.item.parentElement !== origin.parent) return;
+        if (!origin || !origin.item.isConnected || !origin.parent.isConnected) return;
         const { item, parent, nextSibling } = origin;
         parent.insertBefore(item, nextSibling?.parentNode === parent ? nextSibling : null);
     }
 </script>
 
 <script lang="ts">
-    import type { Snippet } from 'svelte';
+    import { untrack, type Snippet } from 'svelte';
     import Sortable, { type Options, type SortableEvent } from 'sortablejs';
     import { sortableOptions } from 'src/ts/util';
     import { layerZIndexes } from 'src/ts/gui/layers';
@@ -54,6 +54,7 @@
 
     let keysBeforeDrag: string[] = [];
     let dragOrigin: SortableDragOrigin | null = null;
+    let sortableInstance: Sortable | null = null;
 
     function itemKey(item: HTMLElement): string {
         return item.getAttribute(dataAttribute) ?? '';
@@ -99,7 +100,7 @@
         if (previewText) {
             preview.className += ' px-4 py-2 rounded-sm text-sm whitespace-nowrap shadow-lg';
             preview.style.background = 'var(--risu-theme-darkbg)';
-            preview.style.color = 'var(--risu-theme-textcolor2)';
+            preview.style.color = 'var(--risu-theme-subtext)';
         } else {
             const computedStyle = getComputedStyle(previewSource);
             preview.style.backgroundImage = 'none';
@@ -112,7 +113,7 @@
     }
 
     $effect(() => {
-        if (!element || disabled) return;
+        if (!element) return;
 
         const sortable = Sortable.create(element, {
             ...sortableOptions,
@@ -122,6 +123,7 @@
             dragClass: 'risu-drag-item',
             ghostClass: 'risu-ghost-item',
             ...options,
+            disabled: untrack(() => disabled),
             draggable,
             ...(handle ? { handle } : {}),
             setData: setDragData,
@@ -151,21 +153,27 @@
                 } finally {
                     // Sortable mutates the DOM before Svelte updates the keyed list. Restore Svelte's
                     // expected pre-drag DOM so its next reconciliation applies the data order cleanly.
-                    // An external drop target may update the backing data before dragend,
-                    // causing Svelte to detach this item from the keyed list. Re-inserting
-                    // that stale node would resurrect it as an untracked DOM duplicate.
+                    // Cross-list drops must also return the moved node; otherwise it remains in the
+                    // destination beside the new node rendered from the updated backing data. If a
+                    // synchronous update already detached either side, leave the stale node alone.
                     restoreSortableDragOrigin(dragOrigin);
                     keysBeforeDrag = [];
                     dragOrigin = null;
                 }
             },
         });
+        sortableInstance = sortable;
 
         return () => {
+            if (sortableInstance === sortable) sortableInstance = null;
             try {
                 sortable.destroy();
             } catch (_) {}
         };
+    });
+
+    $effect(() => {
+        sortableInstance?.option('disabled', disabled);
     });
 </script>
 

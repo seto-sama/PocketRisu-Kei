@@ -22,7 +22,7 @@
             </IconButton>
         {/snippet}
     </ShDropdownMenuTrigger>
-    <ShDropdownMenuContent side="top" align="end" class="min-w-48 max-h-[70vh] overflow-y-auto">
+    <ShDropdownMenuContent side="top" align="end" class="min-w-48">
         {@render children()}
     </ShDropdownMenuContent>
 </ShDropdownMenu>

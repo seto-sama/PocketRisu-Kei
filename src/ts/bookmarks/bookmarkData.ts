@@ -27,7 +27,7 @@ export function collectGlobalBookmarks(
         const chat = locatedCharacter.character.chats[chatIndex]
         entries.push({
             ...bookmark,
-            folderId: bookmark.folderId || undefined,
+            tagIds: [...bookmark.tagIds],
             characterIndex: locatedCharacter.characterIndex,
             characterName: locatedCharacter.character.name ?? '',
             chatIndex,
@@ -49,28 +49,31 @@ export function applyBookmarkCompatibility(
     else {
         delete compatible.bookmarkNames
     }
-    if (data?.bookmarkFolderIds && Object.keys(data.bookmarkFolderIds).length > 0) {
-        compatible.bookmarkFolderIds = { ...data.bookmarkFolderIds }
+    if (data?.bookmarkTagIds && Object.keys(data.bookmarkTagIds).length > 0) {
+        compatible.bookmarkTagIds = Object.fromEntries(
+            Object.entries(data.bookmarkTagIds).map(([id, tagIds]) => [id, [...tagIds]]),
+        )
     }
     else {
-        delete compatible.bookmarkFolderIds
+        delete compatible.bookmarkTagIds
     }
     return compatible
 }
 
-export function remapBookmarkFolders(
+export function remapBookmarkTags(
     chat: Chat,
     idMap: Record<string, string>,
 ): void {
-    if (!chat.bookmarkFolderIds) return
-    for (const messageId of Object.keys(chat.bookmarkFolderIds)) {
-        const mapped = idMap[chat.bookmarkFolderIds[messageId]]
-        if (mapped) chat.bookmarkFolderIds[messageId] = mapped
+    if (!chat.bookmarkTagIds) return
+    for (const messageId of Object.keys(chat.bookmarkTagIds)) {
+        chat.bookmarkTagIds[messageId] = chat.bookmarkTagIds[messageId]
+            .map(id => idMap[id])
+            .filter(Boolean)
     }
 }
 
 export function stripBookmarkCompatibility(chat: Chat): void {
     delete chat.bookmarks
     delete chat.bookmarkNames
-    delete chat.bookmarkFolderIds
+    delete chat.bookmarkTagIds
 }

@@ -1,10 +1,13 @@
 <script lang="ts">
-    import { LanguagesIcon, LoaderCircleIcon } from '@lucide/svelte'
-    import { onDestroy, onMount } from 'svelte'
+    import { CheckIcon, CopyIcon, LanguagesIcon, LoaderCircleIcon, RefreshCwIcon } from '@lucide/svelte'
+    import { onDestroy, onMount, tick } from 'svelte'
     import { language } from 'src/lang'
     import ShButton from 'src/lib/UI/GUI/ShButton.svelte'
     import ShDialog from 'src/lib/UI/GUI/ShDialog.svelte'
     import TextAreaInput from 'src/lib/UI/GUI/TextAreaInput.svelte'
+    import IconButton from 'src/lib/UI/GUI/IconButton.svelte'
+    import ShSwitch from 'src/lib/UI/GUI/ShSwitch.svelte'
+    import Help from 'src/lib/Others/Help.svelte'
     import ModelPresetList from 'src/lib/UI/ModelPresetList.svelte'
     import TranslatorPresetList from 'src/lib/UI/TranslatorPresetList.svelte'
     import { notifyError } from 'src/ts/alert'
@@ -18,9 +21,10 @@
 
     interface Props {
         open?: boolean
+        onConfirm?: (translation: string) => void | Promise<void>
     }
 
-    let { open = $bindable(false) }: Props = $props()
+    let { open = $bindable(false), onConfirm = () => {} }: Props = $props()
     let input = $state('')
     let output = $state('')
     let translating = $state(false)
@@ -49,6 +53,7 @@
                 preset,
                 modelPresetId,
                 regenerate: true,
+                cache: false,
                 onRequestStatusActivate: () => { open = true },
             }, abortController.signal)
         }
@@ -58,6 +63,19 @@
         finally {
             translating = false
             controller = null
+        }
+    }
+
+    async function confirmOutput() {
+        if(!output) return
+        const translation = output
+        output = ''
+        open = false
+        await tick()
+        await onConfirm(translation)
+        if(DBState.db.translationDialogClearAfterConfirm){
+            input = ''
+            await draftStore.flush({ input: '' })
         }
     }
 
@@ -78,9 +96,9 @@
 
     <div class="flex flex-col gap-3">
         <div>
-            <div>
-                <div class="flex items-center justify-between gap-3 py-1">
-                    <span class="text-sm text-textcolor">{language.translationPrompt}</span>
+            <div class="flex flex-col gap-2">
+                <div class="flex min-h-8 items-center justify-between gap-3">
+                    <span class="text-sm text-maintext">{language.translationPrompt}</span>
                     <TranslatorPresetList
                         compact
                         bind:value={DBState.db.translationDialogPromptPresetId}
@@ -88,8 +106,8 @@
                         showConfigure
                     />
                 </div>
-                <div class="flex items-center justify-between gap-3 py-1">
-                    <span class="text-sm text-textcolor">{language.modelPresetMenu}</span>
+                <div class="flex min-h-8 items-center justify-between gap-3">
+                    <span class="text-sm text-maintext">{language.modelPresetMenu}</span>
                     <ModelPresetList
                         compact
                         bind:value={DBState.db.translationDialogModelPresetId}
@@ -98,26 +116,60 @@
                         blankable
                     />
                 </div>
+                <div class="flex min-h-8 items-center justify-between gap-3">
+                    <span class="min-w-0 text-sm text-maintext">
+                        {language.translationDialogClearAfterConfirm}<Help
+                            key="translationDialogClearAfterConfirm"
+                            name={language.translationDialogClearAfterConfirm}
+                        />
+                    </span>
+                    <ShSwitch
+                        className="shrink-0"
+                        bind:checked={DBState.db.translationDialogClearAfterConfirm}
+                        ariaLabel={language.translationDialogClearAfterConfirm}
+                    />
+                </div>
             </div>
-        </div>
-
-        <div class="pt-3 border-t border-darkborderc">
-            <TextAreaInput
-                bind:value={input}
-                fullwidth
-                optimaizedInput={false}
-                onInput={() => draftStore.schedule({ input })}
-                placeholder={language.translationInputPlaceholder}
-                contentClassName="placeholder:text-textcolor2"
-            />
+            <div class="mt-2 border-t border-darkborderc pt-3">
+                <TextAreaInput
+                    bind:value={input}
+                    fullwidth
+                    commitMode="input"
+                    onInput={() => {
+                        output = ''
+                        draftStore.schedule({ input })
+                    }}
+                    placeholder={language.translationInputPlaceholder}
+                    contentClassName="placeholder:text-subtext"
+                />
+            </div>
         </div>
 
         {#if translating}
-            <div class="min-h-24 flex items-center justify-center text-textcolor2">
-                <LoaderCircleIcon class="size-8 animate-spin" />
+            <div class="min-h-24 flex items-center justify-center">
+                <LoaderCircleIcon class="size-8 animate-spin text-primary" />
             </div>
         {:else if output}
-            <TextAreaInput bind:value={output} fullwidth optimaizedInput={false} readonly />
+            {#snippet resultActionBar(copyOutput: () => Promise<void>, copied: boolean)}
+                <IconButton title={language.copy} aria-label={language.copy} onclick={copyOutput}>
+                    {#if copied}
+                        <CheckIcon class="text-success" />
+                    {:else}
+                        <CopyIcon />
+                    {/if}
+                </IconButton>
+                <IconButton title={language.retranslate} aria-label={language.retranslate} onclick={translateInput}>
+                    <RefreshCwIcon />
+                </IconButton>
+            {/snippet}
+            <TextAreaInput
+                bind:value={output}
+                fullwidth
+                readonly
+                actionBar
+                actionBarVariant="custom"
+                customActionBar={resultActionBar}
+            />
         {/if}
     </div>
 
@@ -125,15 +177,22 @@
         <ShButton variant="outline" onclick={() => { open = false }}>
             {translating ? language.close : language.cancel}
         </ShButton>
-        <ShButton
-            variant="primary"
-            disabled={translating
-                || !input.trim()
-                || !DBState.db.translatorPresets?.some(preset => preset.id === DBState.db.translationDialogPromptPresetId)}
-            onclick={translateInput}
-        >
-            <LanguagesIcon />
-            {translating ? language.loading : language.translate}
-        </ShButton>
+        {#if output && !translating}
+            <ShButton variant="primary" onclick={confirmOutput}>
+                <CheckIcon />
+                {language.confirm}
+            </ShButton>
+        {:else}
+            <ShButton
+                variant="primary"
+                disabled={translating
+                    || !input.trim()
+                    || !DBState.db.translatorPresets?.some(preset => preset.id === DBState.db.translationDialogPromptPresetId)}
+                onclick={translateInput}
+            >
+                <LanguagesIcon />
+                {translating ? language.loading : language.translate}
+            </ShButton>
+        {/if}
     {/snippet}
 </ShDialog>

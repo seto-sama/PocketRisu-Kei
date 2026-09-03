@@ -26,10 +26,10 @@
 <style>
     .cl{
         --input-size: 2rem;
-        --cp-bg-color: var(--risu-theme-bgcolor);
+        --cp-bg-color: var(--risu-theme-lightbg);
         --cp-border-color: var(--risu-theme-darkborderc);
-        --cp-text-color: var(--risu-theme-textcolor);
-        --focus-color: var(--risu-theme-primary);
+        --cp-text-color: var(--risu-theme-maintext);
+        --focus-color: var(--risu-theme-lightborderc);
         --swatch-border-color: var(--color-black);
         --cp-input-color: var(--risu-theme-darkbg);
         --cp-button-hover-color: var(--risu-theme-selected);

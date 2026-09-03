@@ -9,17 +9,17 @@
         themePresetTemplate,
     } from "../../ts/storage/database.svelte";
     import { DBState } from 'src/ts/stores.svelte';
-    import InlineNameInput from "../UI/GUI/InlineNameInput.svelte";
+    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import { updateColorScheme, updateTextThemeAndCSS } from "src/ts/gui/colorscheme";
     import { updateAnimationSpeed } from "src/ts/gui/animation";
     import { updateGuisize } from "src/ts/gui/guisize";
+    import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
-    let editMode = $state(false);
     let selectedFolder = $state('all');
 
-    const folders = $derived(DBState.db.themePresetFolders ?? []);
+    const tags = $derived(DBState.db.themePresetTags ?? []);
 
     interface Props {
         close?: () => void;
@@ -41,10 +41,10 @@
         DBState.db.themePresets = next;
     }
 
-    function assignPresetToFolder(index: number, folderId: string | undefined) {
+    function assignPresetToTag(index: number, tagId: string | undefined) {
         const preset = DBState.db.themePresets[index];
         if (!preset) return;
-        preset.folderId = folderId === 'all' || folderId === 'uncategorized' ? undefined : folderId;
+        preset.tagIds = togglePresetTag(preset.tagIds, tagId);
         DBState.db.themePresets = [...DBState.db.themePresets];
     }
 
@@ -80,48 +80,47 @@
 
 <PresetPickerLayout
     title={language.themePresets}
-    {folders}
-    itemFolderIds={DBState.db.themePresets.map(preset => preset.folderId)}
+    folders={tags}
+    itemFolderIds={DBState.db.themePresets.map(preset => preset.tagIds)}
+    organizationKind="tag"
     itemNames={DBState.db.themePresets.map(preset => preset.name ?? '')}
     bind:selectedFolder
     itemDragDataKey="presetIndex"
     {close}
-    onFoldersChange={(next) => { DBState.db.themePresetFolders = next }}
-    onAssignItem={assignPresetToFolder}
-    onDeleteFolder={(folderId) => {
+    onFoldersChange={(next) => { DBState.db.themePresetTags = next }}
+    onAssignItem={assignPresetToTag}
+    onDeleteFolder={(tagId) => {
         DBState.db.themePresets = DBState.db.themePresets.map(preset =>
-            preset.folderId === folderId ? { ...preset, folderId: undefined } : preset
+            ({ ...preset, tagIds: removePresetTag(preset.tagIds, tagId) })
         )
     }}
     selectedItemIndex={DBState.db.themePresetsId}
-    itemEditMode={editMode}
     onMoveItem={movePreset}
     onSelectItem={selectPreset}
     onDuplicateItem={copyThemePreset}
     onExportItem={(index) => downloadThemePreset(index, 'json')}
     onDeleteItem={deletePreset}
+    itemRenameable
 >
-    {#snippet itemContent(index)}
-        {@const preset = DBState.db.themePresets[index]}
-        {#if editMode}
-            <div class="min-w-0 grow">
-                <InlineNameInput bind:value={DBState.db.themePresets[index].name} size="default" placeholder="string" />
-            </div>
-        {:else}
-            <span class="min-w-0 grow truncate">{preset.name}</span>
-        {/if}
+    {#snippet itemContent(index, renameController)}
+        <InlineEditableName
+            controller={renameController}
+            bind:value={DBState.db.themePresets[index].name}
+            size="default"
+            placeholder="string"
+            onActivate={() => selectPreset(index)}
+        />
     {/snippet}
 
     <PresetPickerActions
         onCreate={() => {
             const newPreset = safeStructuredClone(themePresetTemplate);
             newPreset.name = 'New Theme';
-            newPreset.folderId = undefined;
+            newPreset.tagIds = undefined;
             DBState.db.themePresets = [...DBState.db.themePresets, newPreset];
         }}
         onImport={async () => {
             await importThemePreset();
         }}
-        onRename={() => { editMode = !editMode }}
     />
 </PresetPickerLayout>

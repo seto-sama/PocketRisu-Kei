@@ -10,11 +10,12 @@ import { defaultJailbreak, defaultMainPrompt } from './defaultPrompts';
 import { alertError, notifySuccess } from '../alert';
 import type { NAISettings } from '../process/models/nai';
 import { prebuiltNAIpresets, prebuiltPresets } from '../process/templates/templates';
-import { defaultColorScheme, type ColorScheme } from '../gui/colorscheme';
+import { defaultColorScheme, normalizeColorScheme, type ColorScheme } from '../gui/colorscheme';
 import type { PromptItem, PromptSettings } from '../process/prompt';
 import type { OobaChatCompletionRequestParams } from '../model/ooba';
 import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../process/memory/hypav3'
 import { normalizeTranslatorPresetState, type TranslatorPreset } from '../translator/presets'
+import { isSupportedTranslatorType, type TranslatorType } from '../translator/types'
 import { safeStructuredClone } from '../polyfill';
 import { v4 as uuidv4 } from 'uuid';
 import { applyModelPresetDefaults } from '../preset/dbDefaults';
@@ -26,23 +27,33 @@ import { isChatStub } from './chatStub';
 import { normalizeTextTheme } from '../gui/textTheme';
 import { DEFAULT_TEXT_BORDER_COLOR, DEFAULT_TEXT_SCREEN_COLOR } from '../gui/textOutline';
 import { normalizeSidebarMenuHidden, normalizeSidebarMenuOrder } from '../sidebarMenuOrder';
+import { normalizeSettingsMenuOrder } from '../settingsMenuOrder';
+import { normalizeImageGenerationPresetState, type ImageGenerationPreset } from '../imageGeneration/presets';
+import { normalizeGenerationCount } from '../process/automaticReroll';
+import { OUTPUT_REPETITION_DISABLED } from '../process/request/repetitionDetector';
+import { normalizePresetTagFields, normalizePresetTagState, type PresetTag, type PresetTagFields } from '../preset/tags';
 
 //APP_VERSION_POINT is to locate the app version in the database file for version bumping
 export let appVer = "2026.2.291" //<APP_VERSION_POINT>
 export let webAppSubVer = ''
 export const nodeOnlyVer: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
 
-// 'custom' was a deprecated experimental theme (kwaroran's "not for real use now",
-// 2024-10) whose select option had been hidden but still reachable through legacy
-// DBs and theme presets. Coerce it to '' (NodeOnly Standard) at every entry point
-// so SettingSelect's auto-normalization can't silently flip it to 'customHTML'.
+const supportedThemes = new Set([
+    '',
+    'standardRisu',
+    'waifu',
+    'mobilechat',
+    'customHTML',
+])
+
+// Unknown or removed themes may still be present in legacy DBs and theme presets.
+// Coerce every unsupported value to PocketRisu Standard at each entry point.
 export function normalizeTheme(theme: string | undefined | null): string {
-    if (theme === undefined || theme === null || theme === 'custom') return ''
-    return theme
+    return typeof theme === 'string' && supportedThemes.has(theme) ? theme : ''
 }
 
 export function supportsCustomChatBackdrop(theme: string | undefined | null): boolean {
-    return theme === 'waifu' || theme === 'mobilechat' || theme === 'cardboard'
+    return theme === 'waifu' || theme === 'mobilechat'
 }
 
 export type StickyChatToolbarVariant = 'footer' | 'floating' | null
@@ -233,7 +244,26 @@ function normalizePromptTemplate(
 }
 
 export function setDatabase(data:Database){
+    normalizePresetTagState(data)
     delete (data as Database & { modelRegistrySeen?: unknown }).modelRegistrySeen
+    const legacyInstructData = data as Database & {
+        instructChatTemplate?: unknown
+        JinjaTemplate?: unknown
+        useInstructPrompt?: unknown
+    }
+    delete legacyInstructData.instructChatTemplate
+    delete legacyInstructData.JinjaTemplate
+    delete legacyInstructData.useInstructPrompt
+    for (const preset of data.botPresets ?? []) {
+        const legacyPreset = preset as botPreset & {
+            instructChatTemplate?: unknown
+            JinjaTemplate?: unknown
+            useInstructPrompt?: unknown
+        }
+        delete legacyPreset.instructChatTemplate
+        delete legacyPreset.JinjaTemplate
+        delete legacyPreset.useInstructPrompt
+    }
     data.promptTemplate = normalizePromptTemplate(data.promptTemplate, data)
     if(checkNullish(data.characters)){
         data.characters = []
@@ -328,6 +358,9 @@ export function setDatabase(data:Database){
     if(checkNullish(data.autoTranslate)){
         data.autoTranslate = false
     }
+    if(checkNullish(data.autoTranslateLastOutputOnly)){
+        data.autoTranslateLastOutputOnly = false
+    }
     if(checkNullish(data.fullScreen)){
         data.fullScreen = false
     }
@@ -410,9 +443,6 @@ export function setDatabase(data:Database){
     if(checkNullish(data.sdCFG)){
         data.sdCFG = 7
     }
-    if(checkNullish(data.NAIImgUrl)){
-        data.NAIImgUrl = 'https://image.novelai.net/ai/generate-image'
-    }
     if(checkNullish(data.NAIApiKey)){
         data.NAIApiKey = ''
     }
@@ -431,6 +461,9 @@ export function setDatabase(data:Database){
     }
     if(checkNullish(data.requestRetrys)){
         data.requestRetrys = 2
+    }
+    if(checkNullish(data.outputRepetitionLimit)){
+        data.outputRepetitionLimit = OUTPUT_REPETITION_DISABLED
     }
     if(checkNullish(data.useSayNothing)){
         data.useSayNothing = true
@@ -589,8 +622,16 @@ export function setDatabase(data:Database){
     data.sendKeyMobile ??= 'ctrl-enter'
     data.OAIPrediction ??= ''
     data.imageCompression ??= true
-    data.inlayImageLossless ??= false
-    data.inlayImagePriority ??= true
+    const legacyInlayImageLossless = (data as Database & { inlayImageLossless?: boolean }).inlayImageLossless
+    data.inlayImageCompression ??= !(legacyInlayImageLossless ?? false)
+    data.inlayImageSize ??= '1k'
+    data.inlayImageFormat ??= 'webp'
+    data.inlayImageLossy ??= true
+    data.inlayImageQuality ??= 0.85
+    if(!['1k', '2k', '4k', 'original'].includes(data.inlayImageSize)) data.inlayImageSize = '1k'
+    if(!['webp', 'png'].includes(data.inlayImageFormat)) data.inlayImageFormat = 'webp'
+    data.inlayImageQuality = Math.min(1, Math.max(0.01, Number(data.inlayImageQuality) || 0.85))
+    delete (data as Database & { inlayImageLossless?: boolean }).inlayImageLossless
     data.enableBlockPartialEdit ??= false
     data.enableDragPartialEdit ??= false
     // Concrete default so the settings toggle (reads !!value) and the runtime
@@ -601,7 +642,7 @@ export function setDatabase(data:Database){
     }
     data.personaPrompt ??= ''
     normalizePersonaSelection(data)
-    data.personaFolders ??= []
+    data.personaTags ??= []
     data.classicMaxWidth ??= false
     data.ooba ??= safeStructuredClone(defaultOoba)
     data.ainconfig ??= safeStructuredClone(defaultAIN)
@@ -616,26 +657,18 @@ export function setDatabase(data:Database){
     data.NAIsettings ??= safeStructuredClone(prebuiltNAIpresets)
     data.assetWidth ??= -1
     data.animationSpeed ??= 0.4
-    data.colorScheme ??= safeStructuredClone(defaultColorScheme)
-    // Backfill `primary` for existing colorScheme objects saved before the
-    // primary token was added. Without this, custom-scheme users (whose object
-    // is preserved as-is) would render with an undefined CSS var.
-    data.colorScheme.primary ??= defaultColorScheme.primary
+    data.colorScheme = normalizeColorScheme(data.colorScheme) ?? safeStructuredClone(defaultColorScheme)
     data.colorSchemeName ??= 'default'
     data.NAIsettings.starter ??= ""
     data.hypaModel ??= 'MiniLM'
     data.mancerHeader ??= ''
     data.emotionProcesser ??= 'submodel'
     data.translatorType ??= 'google'
-    data.htmlTranslation ??= false
-    data.deeplOptions ??= {
-        key:'',
-        freeApi: false
+    if (!isSupportedTranslatorType(data.translatorType)) {
+        data.translatorType = 'google'
     }
-    data.deeplXOptions ??= {
-        url:'',
-        token:''
-    } 
+    data.htmlTranslation ??= false
+    data.translateBeforeHTMLFormatting ??= true
     data.NAIadventure ??= false
     data.NAIappendName ??= true
     data.NAIsettings.cfg_scale ??= 1
@@ -658,7 +691,7 @@ export function setDatabase(data:Database){
     data.google ??= {}
     data.google.accessToken ??= ''
     data.google.projectId ??= ''
-    data.genTime ??= 1
+    data.genTime = normalizeGenerationCount(data.genTime)
     data.promptSettings ??= {
         assistantPrefill: '',
         postEndInnerFormat: '',
@@ -674,7 +707,7 @@ export function setDatabase(data:Database){
     data.openrouterFallback ??= true
     data.openrouterMiddleOut ??= false
     data.modules ??= []
-    data.moduleFolders ??= []
+    data.moduleTags ??= []
     data.enabledModules ??= []
     data.personaEnabledModules ??= {}
     data.additionalParams ??= []
@@ -684,7 +717,6 @@ export function setDatabase(data:Database){
     data.repetition_penalty ??= 1
     data.min_p ??= 0
     data.top_a ??= 0
-    data.instructChatTemplate ??= "chatml"
     // Migration: convert old string type into new provider object
     if (typeof data.openrouterProvider === 'string') {
         const oldProvider = data.openrouterProvider as unknown as string;
@@ -711,7 +743,6 @@ export function setDatabase(data:Database){
         only: [],
         ignore: []
     }
-    data.useInstructPrompt ??= false
     data.textAreaSize ??= 0
     data.sideBarSize ??= 0
     data.textAreaTextSize ??= 0
@@ -727,15 +758,10 @@ export function setDatabase(data:Database){
     data.lineHeight ??= 1.25
     data.stabilityModel ??= 'sd3-large'
     data.stabllityStyle ??= ''
-    data.legacyTranslation ??= false
     data.comfyUiUrl ??= 'http://localhost:8188'
-    data.comfyConfig ??= {
-        workflow: '',
-        posNodeID: '',
-        posInputName: 'text',
-        negNodeID: '',
-        negInputName: 'text',
-        timeout: 30
+    data.comfyConfig = {
+        workflow: data.comfyConfig?.workflow ?? '',
+        timeout: data.comfyConfig?.timeout ?? 30,
     }
     data.hideApiKey ??= true
     data.unformatQuotes ??= false
@@ -743,6 +769,14 @@ export function setDatabase(data:Database){
     data.ttsAutoSpeech ??= false
     data.ttsApiKeyRefs ??= {}
     data.imageApiKeyRefs ??= {}
+    normalizeImageGenerationPresetState(data, {
+        defaultName: language.imageGenerationPresetDefault,
+        fallbackName: index => `${language.imageGenerationPresetNew} ${index + 1}`,
+    })
+    data.imageStylePresetId ??= ''
+    data.imageStylePresetTags ??= []
+    data.imageStylePresetTagBindings ??= {}
+    data.imageStylePresetOrder ??= []
     data.translatorInputLanguage ??= 'auto'
     data.falModel ??= 'fal-ai/flux/dev'
     data.falLoraScale ??= 1
@@ -792,10 +826,10 @@ export function setDatabase(data:Database){
                 preset.name || `Preset ${i + 1}`,
                 preset.settings || {}
             ),
-            folderId: preset.folderId,
+            tagIds: preset.tagIds,
         }))
     }
-    data.hypaV3PresetFolders ??= []
+    data.hypaV3PresetTags ??= []
     data.hypaV3PresetId ??= 0
     normalizeTranslatorPresetState(data)
     data.translationDialogPromptPresetId ??=
@@ -818,8 +852,6 @@ export function setDatabase(data:Database){
     data.seperateModelsForAxModels ??= false
     data.seperateModels ??= { memory: '', emotion: '', translate: '', otherAx: '' }
     data.modelTools ??= []
-    data.enableHotkeys ??= true
-    data.enableScrollToActiveChar ??= true
     if (!Array.isArray(data.hotkeys)) {
         data.hotkeys = safeStructuredClone(defaultHotkeys)
     }
@@ -859,6 +891,7 @@ export function setDatabase(data:Database){
     data.disableMobileBackNavigation ??= false
     data.disableToggleBinding ??= false
     data.hideAllImages ??= false
+    data.preloadChatImages ??= true
     data.hideMessagePageCount ??= false
     data.ImagenModel ??= 'imagen-4.0-generate-001'
     data.ImagenImageSize ??= '1K'
@@ -889,6 +922,7 @@ export function setDatabase(data:Database){
     data.hamburgerButtonBottom ??= false
     data.sidebarMenuOrder = normalizeSidebarMenuOrder(data.sidebarMenuOrder)
     data.sidebarMenuHidden = normalizeSidebarMenuHidden(data.sidebarMenuHidden)
+    data.settingsMenuOrder = normalizeSettingsMenuOrder(data.settingsMenuOrder)
     data.sidebarMenuPluginOwners ??= {}
     data.hideLeftBarCollapseButton ??= false
     data.saveSignatures ??= false
@@ -909,11 +943,12 @@ export function setDatabase(data:Database){
     applyModelPresetDefaults(data)
     data.translationDialogModelPresetId ??=
         data.defaultModelBinding?.aux?.translate ?? ''
+    data.translationDialogClearAfterConfirm ??= false
     changeLanguage(data.language)
-    setDatabaseLite(data)
+    installDatabase(data)
 }
 
-export function setDatabaseLite(data:Database){
+function installDatabase(data: Database) {
     for (const character of data.characters ?? []) {
         initializeCharacterRuntimeState(character)
         for (const chat of character.chats ?? []) {
@@ -921,6 +956,11 @@ export function setDatabaseLite(data:Database){
         }
     }
     DBState.db = data
+}
+
+export function setDatabaseLite(data:Database){
+    normalizePresetTagState(data)
+    installDatabase(data)
 }
 
 interface getDatabaseOptions{
@@ -1121,15 +1161,13 @@ export interface DynamicOutput {
     dynamicRequest: boolean
 }
 
-export interface RisuPersona {
+export interface RisuPersona extends PresetTagFields {
     personaPrompt:string
     name:string
     icon:string
     largePortrait?:boolean
     id?:string
     note?:string
-    /** Optional folder membership. Missing means uncategorized. */
-    folderId?:string
     embeddedModule?:RisuModule
 }
 
@@ -1195,8 +1233,8 @@ export interface Database{
     waifuWidth:number
     waifuWidth2:number
     botPresets:botPreset[]
-    /** User-defined groups for organizing prompt presets. */
-    promptPresetFolders?:PromptPresetFolder[]
+    /** User-defined tags for organizing prompt presets. */
+    promptPresetTags?:PresetTag[]
     /**
      * @deprecated New code: use getActiveBotPreset() / setActiveBotPresetById() helpers.
      * Kept as the physical store for upstream RisuAI .bin backup compatibility.
@@ -1204,8 +1242,8 @@ export interface Database{
      */
     botPresetsId:number
     themePresets:themePreset[]
-    /** User-defined groups for organizing theme presets. */
-    themePresetFolders?:PromptPresetFolder[]
+    /** User-defined tags for organizing theme presets. */
+    themePresetTags?:PresetTag[]
     themePresetsId:number
     togglePresets?:TogglePreset[]
     sdProvider: string
@@ -1213,7 +1251,6 @@ export interface Database{
     sdSteps:number
     sdCFG:number
     sdConfig:sdConfig
-    NAIImgUrl:string
     NAIApiKey:string
     NAIImgModel:string
     NAII2I:boolean
@@ -1223,6 +1260,13 @@ export interface Database{
     ttsAutoSpeech?:boolean
     ttsApiKeyRefs?:Partial<Record<TTSApiKeyProvider, string>>
     imageApiKeyRefs?:Partial<Record<'openai'|'novelai'|'openai-compatible'|'google', string>>
+    imageGenerationPresets: ImageGenerationPreset[]
+    imageGenerationPresetTags?: PresetTag[]
+    imageGenerationPresetId: number
+    imageStylePresetId: string
+    imageStylePresetTags: PresetTag[]
+    imageStylePresetTagBindings: Record<string, string[]>
+    imageStylePresetOrder: string[]
     bias: [string, number][]
     swipe:boolean
     confirmReroll:boolean
@@ -1237,6 +1281,7 @@ export interface Database{
         FontColorQuote2 : string
     }
     requestRetrys:number
+    outputRepetitionLimit:number
     emotionPrompt2:string
     useSayNothing:boolean
     didFirstSetup: boolean
@@ -1276,8 +1321,11 @@ export interface Database{
     novellistAPI:string,
     useAutoTranslateInput:boolean
     imageCompression:boolean
-    inlayImageLossless:boolean
-    inlayImagePriority:boolean
+    inlayImageCompression:boolean
+    inlayImageSize:'1k' | '2k' | '4k' | 'original'
+    inlayImageFormat:'webp' | 'png'
+    inlayImageLossy:boolean
+    inlayImageQuality:number
     account?:{
         token:string
         id:string,
@@ -1289,7 +1337,6 @@ export interface Database{
         useSync?:boolean
     },
     classicMaxWidth: boolean,
-    useChatSticker:boolean,
     useAdditionalAssetsPreview:boolean,
     memoryAlgorithmType:string // To enable new memory module/algorithms
     proxyRequestModel:string
@@ -1308,8 +1355,8 @@ export interface Database{
     openrouterFallback:boolean
     selectedPersona:number
     personas:RisuPersona[]
-    /** User-defined groups for organizing personas. */
-    personaFolders?:PromptPresetFolder[]
+    /** User-defined tags for organizing personas. */
+    personaTags?:PresetTag[]
     assetWidth:number
     animationSpeed:number
     botSettingAtStart:false
@@ -1323,19 +1370,11 @@ export interface Database{
     mancerHeader:string
     emotionProcesser:'submodel'|'embedding',
     showMenuChatList?:boolean,
-    translatorType:'google'|'deepl'|'none'|'llm'|'deeplX'|'bergamot',
+    translatorType:TranslatorType,
     translatorInputLanguage?:string
     htmlTranslation?:boolean,
     NAIadventure?:boolean,
     NAIappendName?:boolean,
-    deeplOptions:{
-        key:string,
-        freeApi:boolean
-    }
-    deeplXOptions:{
-        url:string,
-        token:string    
-    }
     localStopStrings?:string[]
     customProxyRequestModel:string
     generationSeed:number
@@ -1347,12 +1386,13 @@ export interface Database{
     translatorPrompt:string
     translatorMaxResponse:number
     translatorPresets: TranslatorPreset[]
-    /** User-defined groups for organizing translator presets. */
-    translatorPresetFolders?: PromptPresetFolder[]
+    /** User-defined tags for organizing translator presets. */
+    translatorPresetTags?: PresetTag[]
     translatorPresetId: number
     /** Prompt/model selections used only by the manual translation dialog. */
     translationDialogPromptPresetId: string
     translationDialogModelPresetId: string
+    translationDialogClearAfterConfirm: boolean
     top_p: number,
     google: {
         accessToken: string
@@ -1369,8 +1409,8 @@ export interface Database{
     claudeAws:boolean
     lastPatchNoteCheckVersion?:string,
     modules: RisuModule[]
-    /** User-defined groups for organizing modules. */
-    moduleFolders?: PromptPresetFolder[]
+    /** User-defined tags for organizing modules. */
+    moduleTags?: PresetTag[]
     enabledModules: string[]
     personaEnabledModules: Record<string, string[]>
     sideMenuRerollButton?:boolean
@@ -1380,14 +1420,11 @@ export interface Database{
     antiClaudeOverload:boolean
     ollamaURL:string
     ollamaModel:string
-    instructChatTemplate:string
-    JinjaTemplate:string
     openrouterProvider: {
         order: string[]
         only: string[]
         ignore: string[]
     }
-    useInstructPrompt:boolean
     textAreaSize:number
     sideBarSize:number
     textAreaTextSize:number
@@ -1397,7 +1434,6 @@ export interface Database{
     customPromptTemplateToggle:string
     globalChatVariables:{[key:string]:string}
     templateDefaultVariables:string
-    cohereAPIKey:string
     goCharacterOnImport:boolean
     dallEQuality:string
     font: string
@@ -1406,7 +1442,6 @@ export interface Database{
     stabilityModel: string
     stabilityKey: string
     stabllityStyle: string
-    legacyTranslation: boolean
     comfyConfig: ComfyConfig
     comfyUiUrl: string
     useLegacyGUI: boolean
@@ -1452,6 +1487,7 @@ export interface Database{
         overrides: Record<string, SeparateParameters>
     }
     translateBeforeHTMLFormatting:boolean
+    autoTranslateLastOutputOnly:boolean
     autoTranslateCachedOnly:boolean
     lightningRealmImport:boolean
     notification: boolean
@@ -1476,9 +1512,8 @@ export interface Database{
     hypaV3Settings: HypaV3Settings // legacy
     hypaV3Presets: HypaV3Preset[]
     hypaV3PresetId: number
-    hypaV3PresetFolders?: PromptPresetFolder[]
+    hypaV3PresetTags?: PresetTag[]
     OaiCompAPIKeys: {[key:string]:string}
-    inlayErrorResponse:boolean
     reasoningEffort:number
     bulkEnabling:boolean
     showTranslationLoading: boolean
@@ -1515,7 +1550,6 @@ export interface Database{
     }
     doNotChangeSeperateModels:boolean
     modelTools: string[]
-    enableHotkeys:boolean
     hotkeys: Hotkey[]
     fallbackModels: {
         memory: string[],
@@ -1527,8 +1561,8 @@ export interface Database{
     doNotChangeFallbackModels: boolean
     fallbackWhenBlankResponse: boolean
     modelPresets: ModelPreset[]
-    /** User-defined groups for organizing model presets. */
-    modelPresetFolders?: PromptPresetFolder[]
+    /** User-defined tags for organizing model presets. */
+    modelPresetTags?: PresetTag[]
     // Global default binding copied into new chats. Existing chats without a
     // binding resolve against it at runtime.
     defaultModelBinding?: ModelBindingSet
@@ -1597,7 +1631,6 @@ export interface Database{
     ImagenImageSize:string
     ImagenAspectRatio:string
     ImagenPersonGeneration:string,
-    enableScrollToActiveChar:boolean
     openaiCompatImage: {
         url: string
         key: string
@@ -1617,6 +1650,7 @@ export interface Database{
     promptDiffPrefs:PromptDiffPrefs
     legacyMediaFindings?: boolean
     hideAllImages?: boolean
+    preloadChatImages?: boolean
     hideMessagePageCount?: boolean
     autoScrollToNewMessage?: boolean
     alwaysScrollToNewMessage?: boolean
@@ -1627,6 +1661,7 @@ export interface Database{
     hamburgerButtonBottom?:boolean
     sidebarMenuOrder?:string[]
     sidebarMenuHidden?:string[]
+    settingsMenuOrder?:string[]
     sidebarMenuPluginOwners?:Record<string, string>
     hideLeftBarCollapseButton?:boolean
     enableRemoteSaving?:boolean
@@ -1880,11 +1915,9 @@ export function purgeUnsupportedGroupChats(db: Database): number {
     }
     return before - db.characters.length
 }
-export interface botPreset{
+export interface botPreset extends PresetTagFields {
     id?: string
     name?:string
-    /** Optional folder membership. Missing means uncategorized. */
-    folderId?: string
     apiType?: string
     openAIKey?: string
     mainPrompt: string
@@ -1925,13 +1958,10 @@ export interface botPreset{
         only: string[]
         ignore: string[]
     }
-    useInstructPrompt?:boolean
     customPromptTemplateToggle?:string
     templateDefaultVariables?:string
     moduleIntergration?:string
     top_k?:number
-    instructChatTemplate?:string
-    JinjaTemplate?:string
     jsonSchemaEnabled?:boolean
     jsonSchema?:string
     strictJsonSchema?:boolean
@@ -1986,11 +2016,12 @@ export interface PromptPresetFolder {
     name: string
 }
 
+/** @deprecated Use PresetTag. */
+export type { PresetTag }
 
-export interface themePreset{
+
+export interface themePreset extends PresetTagFields {
     name: string
-    /** Optional folder membership. Missing means uncategorized. */
-    folderId?: string
     // Theme tab (submenu 0)
     theme: string
     nodeOnlyStandardChatWidth?: 'standard' | 'wide' | 'full'
@@ -2025,6 +2056,7 @@ export interface themePreset{
     showFirstMessagePages: boolean
     hideRealm: boolean
     hideAllImages?: boolean
+    preloadChatImages?: boolean
     hideMessagePageCount?: boolean
     showFolderName: boolean
     customBackground: string
@@ -2045,7 +2077,6 @@ export interface themePreset{
     customQuotesData?: [string, string, string, string]
     betaMobileGUI: boolean
     menuSideBar: boolean
-    useChatSticker: boolean
 }
 
 interface hordeConfig{
@@ -2172,10 +2203,6 @@ interface NAIVibeEncoding {
 
 interface ComfyConfig{
     workflow:string,
-    posNodeID: string,
-    posInputName:string,
-    negNodeID: string,
-    negInputName:string,
     timeout: number
 }
 
@@ -2218,7 +2245,7 @@ export interface Chat{
     bookmarks?: string[];
     bookmarkNames?: { [chatId: string]: string };
     /** Original-compatible bookmark fields are present only during import/export. */
-    bookmarkFolderIds?: { [chatId: string]: string };
+    bookmarkTagIds?: { [chatId: string]: string[] };
     supaMemory?: boolean
     savedToggleValues?: Record<string, string>
     modelBinding?: ModelBindingSet
@@ -2433,7 +2460,6 @@ export const presetTemplate:botPreset = {
         mode: 'instruct'
     },
     top_p: 1,
-    useInstructPrompt: false,
     verbosity: 1
 }
 
@@ -2470,6 +2496,7 @@ export const themePresetTemplate: themePreset = {
     showFirstMessagePages: false,
     hideRealm: false,
     hideAllImages: false,
+    preloadChatImages: true,
     hideMessagePageCount: false,
     showFolderName: false,
     customBackground: '',
@@ -2490,7 +2517,6 @@ export const themePresetTemplate: themePreset = {
     customQuotesData: ['"', '"', '\u2018', '\u2019'],
     betaMobileGUI: false,
     menuSideBar: false,
-    useChatSticker: false,
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2575,7 +2601,7 @@ export function saveCurrentPreset(){
         ...currentPreset,
         id: pres[db.botPresetsId]?.id || uuidv4(),
         name: pres[db.botPresetsId].name,
-        folderId: pres[db.botPresetsId]?.folderId,
+        tagIds: safeStructuredClone(pres[db.botPresetsId]?.tagIds),
         apiType: db.apiType,
         openAIKey: db.openAIKey,
         mainPrompt:db.mainPrompt,
@@ -2611,13 +2637,10 @@ export function saveCurrentPreset(){
         min_p: db.min_p,
         top_a: db.top_a,
         openrouterProvider: db.openrouterProvider,
-        useInstructPrompt: db.useInstructPrompt,
         customPromptTemplateToggle: db.customPromptTemplateToggle ?? "",
         templateDefaultVariables: db.templateDefaultVariables ?? "",
         moduleIntergration: db.moduleIntergration ?? "",
         top_k: db.top_k,
-        instructChatTemplate: db.instructChatTemplate,
-        JinjaTemplate: db.JinjaTemplate ?? '',
         jsonSchemaEnabled:db.jsonSchemaEnabled??false,
         jsonSchema:db.jsonSchema ?? '',
         strictJsonSchema:db.strictJsonSchema ?? true,
@@ -2734,13 +2757,10 @@ export function setPreset(db:Database, newPres: botPreset){
     db.min_p = newPres.min_p
     db.top_a = newPres.top_a
     db.openrouterProvider = newPres.openrouterProvider
-    db.useInstructPrompt = newPres.useInstructPrompt ?? false
     db.customPromptTemplateToggle = newPres.customPromptTemplateToggle ?? ''
     db.templateDefaultVariables = newPres.templateDefaultVariables ?? ''
     db.moduleIntergration = newPres.moduleIntergration ?? ''
     db.top_k = newPres.top_k ?? db.top_k
-    db.instructChatTemplate = newPres.instructChatTemplate ?? db.instructChatTemplate
-    db.JinjaTemplate = newPres.JinjaTemplate ?? db.JinjaTemplate
     db.jsonSchemaEnabled = newPres.jsonSchemaEnabled ?? false
     db.jsonSchema = newPres.jsonSchema ?? ''
     db.strictJsonSchema = newPres.strictJsonSchema ?? true
@@ -2787,7 +2807,7 @@ export function saveCurrentThemePreset(){
     let pres = db.themePresets
     const saved: themePreset = {
         name: pres[db.themePresetsId]?.name ?? "Default",
-        folderId: pres[db.themePresetsId]?.folderId,
+        tagIds: safeStructuredClone(pres[db.themePresetsId]?.tagIds),
         theme: normalizeTheme(db.theme),
         nodeOnlyStandardChatWidth: db.nodeOnlyStandardChatWidth,
         guiHTML: db.guiHTML,
@@ -2812,6 +2832,7 @@ export function saveCurrentThemePreset(){
         showFirstMessagePages: db.showFirstMessagePages,
         hideRealm: db.hideRealm,
         hideAllImages: db.hideAllImages,
+        preloadChatImages: db.preloadChatImages,
         hideMessagePageCount: db.hideMessagePageCount,
         showFolderName: db.showFolderName,
         customBackground: db.customBackground,
@@ -2832,7 +2853,6 @@ export function saveCurrentThemePreset(){
         customQuotesData: db.customQuotesData ? [...db.customQuotesData] as [string,string,string,string] : ['"','"','\u2018','\u2019'],
         betaMobileGUI: db.betaMobileGUI,
         menuSideBar: db.menuSideBar,
-        useChatSticker: db.useChatSticker,
     }
     if(!Array.isArray(pres)){
         pres = []
@@ -2861,7 +2881,7 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.waifuWidth = p.waifuWidth ?? db.waifuWidth
     db.waifuWidth2 = p.waifuWidth2 ?? db.waifuWidth2
     db.colorSchemeName = p.colorSchemeName ?? db.colorSchemeName
-    db.colorScheme = safeStructuredClone(p.colorScheme ?? db.colorScheme)
+    db.colorScheme = normalizeColorScheme(p.colorScheme ?? db.colorScheme) ?? db.colorScheme
     db.textTheme = normalizeTextTheme(p.textTheme ?? db.textTheme)
     db.customTextTheme = safeStructuredClone(p.customTextTheme ?? db.customTextTheme)
     db.font = p.font ?? db.font
@@ -2879,6 +2899,7 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.hideMessagePageCount = p.hideMessagePageCount ?? db.hideMessagePageCount
     db.hideRealm = p.hideRealm ?? db.hideRealm
     db.hideAllImages = p.hideAllImages ?? db.hideAllImages
+    db.preloadChatImages = p.preloadChatImages ?? db.preloadChatImages
     db.showFolderName = p.showFolderName ?? db.showFolderName
     db.customBackground = p.customBackground ?? db.customBackground
     db.roundIcons = p.roundIcons ?? db.roundIcons
@@ -2898,7 +2919,6 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.customQuotesData = p.customQuotesData ? [...p.customQuotesData] as [string,string,string,string] : db.customQuotesData
     db.betaMobileGUI = p.betaMobileGUI ?? db.betaMobileGUI
     db.menuSideBar = p.menuSideBar ?? db.menuSideBar
-    db.useChatSticker = p.useChatSticker ?? db.useChatSticker
 }
 
 export function copyThemePreset(id: number){
@@ -2965,7 +2985,7 @@ export async function importThemePreset(f: {
     pre.name = pre.name ?? "Imported Theme"
     pre.theme = normalizeTheme(pre.theme)
     pre.textTheme = normalizeTextTheme(pre.textTheme)
-    db.themePresets.push(pre)
+    db.themePresets.push(normalizePresetTagFields(pre))
     notifySuccess(language.successImport)
 }
 
@@ -3048,6 +3068,7 @@ function isLegacyRisuPreset(value:unknown):value is Partial<botPreset>{
 }
 
 function addImportedPreset(pre:botPreset, hasImportedPromptTemplate = true){
+    normalizePresetTagFields(pre)
     pre.promptTemplate = normalizePromptTemplate(hasImportedPromptTemplate ? pre.promptTemplate : undefined, pre)
     pre.name ||= "Imported"
     pre.id = uuidv4()

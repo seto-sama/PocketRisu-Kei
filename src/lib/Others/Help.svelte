@@ -25,11 +25,11 @@
             onclick={(event) => event.stopPropagation()}
         >
             {#if key === "experimental"}
-                <span class="text-draculared risu-interactive-accent">
+                <span class="text-danger risu-interactive-accent">
                     <FlaskConicalIcon size={16} />
                 </span>
             {:else if unrecommended}
-                <span class="text-draculared risu-interactive-accent">
+                <span class="text-danger risu-interactive-accent">
                     <TriangleAlertIcon size={12} />
                 </span>
             {:else}

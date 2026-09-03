@@ -6,6 +6,7 @@ const nodeCrypto = require('crypto');
 const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
+const Database = require('better-sqlite3');
 
 const DEFAULT_MAX_ENTRY_NAME_BYTES = 1024;
 const HASHED_ASSET_NAME = /^([0-9a-f]{64})\.[^/]+$/;
@@ -16,7 +17,6 @@ function createBackupRestoreService({
     inlayMigrationMarker,
     remoteMigrationMarkerKey,
     sqliteDb,
-    kvGet,
     kvSet,
     kvDel,
     kvDelPrefix,
@@ -25,8 +25,7 @@ function createBackupRestoreService({
     flushPendingDb,
     createBackupAndRotate,
     invalidateDbCache,
-    decodeDatabaseWithPersistentChatIds,
-    initChatStore,
+    prepareDatabaseProjection,
     normalizeInlayExt,
     isSafeInlayId,
     decodeDataUri,
@@ -73,7 +72,6 @@ function createBackupRestoreService({
         if (Buffer.byteLength(name, 'utf-8') > maxEntryNameBytes) {
             throw new Error(`Backup entry name too long: ${name.slice(0, 64)}`);
         }
-        if (name === 'database.risudat') return 'database/database.bin';
         if (name.startsWith('inlay_thumb/') || name.startsWith('inlay_meta/')) {
             if (isInvalidBackupPathSegment(name)) {
                 throw new Error(`Invalid backup entry name: ${name}`);
@@ -106,6 +104,9 @@ function createBackupRestoreService({
         let offset = 0;
         while (offset + 4 <= buffer.length) {
             const nameLength = buffer.readUInt32LE(offset);
+            if (nameLength === 0 || nameLength > maxEntryNameBytes) {
+                throw new Error(`Invalid backup entry name length: ${nameLength}`);
+            }
             if (offset + 4 + nameLength > buffer.length) break;
             const nameStart = offset + 4;
             const nameEnd = nameStart + nameLength;
@@ -126,15 +127,14 @@ function createBackupRestoreService({
         dataSource,
         { maxBytes = 0, totalBytes = 0, onProgress = null } = {},
     ) {
-        const BATCH_SIZE = 5000;
         let pendingChunks = [];
         let pendingTotal = 0;
         let nextEntryThreshold = 8;
-        let hasDatabase = false;
+        let databaseRaw = null;
         let assetsRestored = 0;
         let bytesReceived = 0;
-        let batchCount = 0;
         const seenEntryNames = new Set();
+        const seenStorageKeys = new Set();
         const importedInlayIds = new Set();
         const importedSidecarIds = new Set();
         const explicitSidecarMap = new Map();
@@ -142,9 +142,45 @@ function createBackupRestoreService({
 
         const stagingDir = path.join(savePath, 'inlays_import_staging');
         const backupInlayDir = path.join(savePath, 'inlays_import_backup');
+        const stagingDatabasePath = path.join(savePath, 'backup_restore_stage.sqlite');
         await fs.rm(stagingDir, { recursive: true, force: true });
         await fs.rm(backupInlayDir, { recursive: true, force: true });
+        await fs.rm(stagingDatabasePath, { force: true });
+        await fs.rm(`${stagingDatabasePath}-journal`, { force: true });
+        await fs.rm(`${stagingDatabasePath}-wal`, { force: true });
+        await fs.rm(`${stagingDatabasePath}-shm`, { force: true });
         await fs.mkdir(stagingDir, { recursive: true });
+        let stagingDb = null;
+        let stageKv;
+        let getStagedKv;
+        let iterateStagedKv;
+        let liveInlaysMoved = false;
+        let stagedInlaysPromoted = false;
+        let restoreCommitted = false;
+
+        async function restorePreviousInlays() {
+            if (stagedInlaysPromoted) {
+                await fs.rm(inlayDir, { recursive: true, force: true }).catch(() => {});
+            }
+            let previousInlaysRestored = !liveInlaysMoved;
+            if (liveInlaysMoved && fsSync.existsSync(backupInlayDir)) {
+                try {
+                    await fs.rename(backupInlayDir, inlayDir);
+                    previousInlaysRestored = true;
+                } catch (restoreError) {
+                    // Keep the backup directory recoverable when an OS/filesystem
+                    // error prevents the automatic rollback.
+                    logger.error(
+                        '[Backup Import] Failed to restore previous inlay directory:',
+                        restoreError,
+                    );
+                }
+            }
+            await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+            if (previousInlaysRestored) {
+                await fs.rm(backupInlayDir, { recursive: true, force: true }).catch(() => {});
+            }
+        }
 
         const stagingInlayFilePath = (id, ext) =>
             path.join(stagingDir, `${id}.${normalizeInlayExt(ext)}`);
@@ -170,22 +206,29 @@ function createBackupRestoreService({
             }));
         }
 
-        await flushPendingDb();
-        createBackupAndRotate();
-        sqliteDb.pragma('synchronous = OFF');
-        sqliteDb.exec('BEGIN');
-        kvDelPrefix('assets/');
-        kvDelPrefix('inlay/');
-        kvDelPrefix('inlay_thumb/');
-        kvDelPrefix('inlay_meta/');
-        kvDelPrefix('inlay_info/');
-        kvDelPrefix('coldstorage/');
-        kvDelPrefix('drafts/');
-        kvDelPrefix('remotes/');
-        kvDel(remoteMigrationMarkerKey);
-        clearEntities();
-
         try {
+            stagingDb = new Database(stagingDatabasePath);
+            // The staging file is disposable and never canonical. Disabling its
+            // journal avoids doubling a potentially multi-gigabyte backup while the
+            // live database keeps its normal durability settings.
+            stagingDb.pragma('journal_mode = OFF');
+            stagingDb.pragma('synchronous = OFF');
+            stagingDb.exec(`
+                CREATE TABLE entries (
+                    key TEXT PRIMARY KEY,
+                    value BLOB NOT NULL
+                )
+            `);
+            stageKv = stagingDb.prepare(
+                'INSERT INTO entries(key, value) VALUES (?, ?)',
+            );
+            getStagedKv = stagingDb.prepare(
+                'SELECT value FROM entries WHERE key = ?',
+            );
+            iterateStagedKv = stagingDb.prepare(
+                'SELECT key, value FROM entries ORDER BY rowid',
+            );
+            await flushPendingDb();
             for await (const chunk of dataSource) {
                 bytesReceived += chunk.length;
                 if (maxBytes > 0 && bytesReceived > maxBytes) {
@@ -294,6 +337,8 @@ function createBackupRestoreService({
                         if (importedInlayIds.has(id) && !importedSidecarIds.has(id)) {
                             writeStagingSidecarSync(id, legacyInlayInfoMap.get(id));
                         }
+                    } else if (name === 'database.risudat') {
+                        databaseRaw = Buffer.from(data);
                     } else if (!name.startsWith('inlay_thumb/')) {
                         const storageKey = resolveBackupStorageKey(name);
                         const storageValue = storageKey.startsWith('coldstorage/')
@@ -305,16 +350,12 @@ function createBackupRestoreService({
                                 ).coldData,
                             )
                             : data;
-                        kvSet(storageKey, storageValue);
-                        if (storageKey === 'database/database.bin') hasDatabase = true;
-                        else assetsRestored += 1;
-                    }
-
-                    batchCount++;
-                    if (batchCount >= BATCH_SIZE) {
-                        sqliteDb.exec('COMMIT');
-                        sqliteDb.exec('BEGIN');
-                        batchCount = 0;
+                        if (seenStorageKeys.has(storageKey)) {
+                            throw new Error(`Duplicate backup storage key: ${storageKey}`);
+                        }
+                        seenStorageKeys.add(storageKey);
+                        stageKv.run(storageKey, Buffer.from(storageValue));
+                        assetsRestored += 1;
                     }
                 });
 
@@ -341,7 +382,7 @@ function createBackupRestoreService({
             if (pendingTotal > 0) {
                 throw new Error('Backup stream ended with incomplete entry');
             }
-            if (!hasDatabase) {
+            if (databaseRaw === null) {
                 throw new Error('Backup does not contain database.risudat');
             }
             for (const [id, info] of legacyInlayInfoMap.entries()) {
@@ -349,59 +390,105 @@ function createBackupRestoreService({
                     writeStagingSidecarSync(id, info);
                 }
             }
-            sqliteDb.exec('COMMIT');
-        } catch (error) {
-            try { sqliteDb.exec('ROLLBACK'); } catch (_) {}
-            await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+            if (typeof prepareDatabaseProjection !== 'function') {
+                throw new TypeError('prepareDatabaseProjection must be a function');
+            }
+            // Two-phase hook contract: preparation may decode/normalize
+            // asynchronously but must not mutate live state. It returns a
+            // synchronous install() that replaces relational app/bookmark rows
+            // inside the outer transaction below. Imported cold-storage/REMOTE
+            // data is available only through this staged, read-only accessor.
+            const preparedDatabase = await prepareDatabaseProjection(databaseRaw, {
+                getStagedValue(key) {
+                    const row = getStagedKv.get(key);
+                    return row ? Buffer.from(row.value) : null;
+                },
+            });
+            if (!preparedDatabase || typeof preparedDatabase.install !== 'function') {
+                throw new TypeError(
+                    'prepareDatabaseProjection must resolve to an object with install()',
+                );
+            }
+            if (preparedDatabase.install.constructor?.name === 'AsyncFunction') {
+                throw new TypeError('prepared database install() must be synchronous');
+            }
+
+            // Snapshot only after the complete backup and its database projection
+            // have been validated. A malformed upload must not rotate backups or
+            // touch any live storage.
+            createBackupAndRotate();
+
+            // Promote the fully-staged inlay tree immediately before the SQLite
+            // commit. If the database transaction fails, restore the prior tree.
+            await ensureInlayDir();
+            if (fsSync.existsSync(inlayDir)) {
+                await fs.rename(inlayDir, backupInlayDir);
+                liveInlaysMoved = true;
+            }
+            await fs.rename(stagingDir, inlayDir);
+            stagedInlaysPromoted = true;
+            await fs.writeFile(inlayMigrationMarker, new Date().toISOString(), 'utf-8');
+
+            let installResult;
+            const replaceLiveState = sqliteDb.transaction(() => {
+                kvDelPrefix('assets/');
+                kvDelPrefix('inlay/');
+                kvDelPrefix('inlay_thumb/');
+                kvDelPrefix('inlay_meta/');
+                kvDelPrefix('inlay_info/');
+                kvDelPrefix('coldstorage/');
+                kvDelPrefix('drafts/');
+                kvDelPrefix('remotes/');
+                kvDel(remoteMigrationMarkerKey);
+                // The compatibility projection is import input only. Remove a
+                // pre-migration live blob/manifest instead of retaining it in KV.
+                kvDel('database/database.bin');
+                clearEntities();
+                for (const row of iterateStagedKv.iterate()) {
+                    kvSet(row.key, row.value);
+                }
+                installResult = preparedDatabase.install();
+                if (installResult && typeof installResult.then === 'function') {
+                    throw new TypeError('prepared database install() must be synchronous');
+                }
+            });
+            replaceLiveState();
+            restoreCommitted = true;
             await fs.rm(backupInlayDir, { recursive: true, force: true }).catch(() => {});
+
+            invalidateDbCache();
+
+            const coldStorageFailed = Number(
+                installResult?.coldStorageFailed
+                    ?? preparedDatabase.coldStorageFailed
+                    ?? 0,
+            ) || 0;
+
+            try {
+                checkpointWal('TRUNCATE');
+            } catch (checkpointError) {
+                logger.warn('[Backup Import] WAL checkpoint after import failed:', checkpointError);
+            }
+            logger.info(
+                `[Backup Import] Complete: ${assetsRestored} assets restored, ` +
+                `${(bytesReceived / 1024 / 1024).toFixed(1)}MB processed`,
+            );
+            if (coldStorageFailed > 0) {
+                logger.error(
+                    `[Backup Import] ${coldStorageFailed} cold storage character(s) could not be restored`,
+                );
+            }
+            return { assetsRestored, bytesReceived, coldStorageFailed };
+        } catch (error) {
+            if (!restoreCommitted) await restorePreviousInlays();
             throw error;
         } finally {
-            sqliteDb.pragma('synchronous = NORMAL');
+            try { stagingDb?.close(); } catch (_) {}
+            await fs.rm(stagingDatabasePath, { force: true }).catch(() => {});
+            await fs.rm(`${stagingDatabasePath}-journal`, { force: true }).catch(() => {});
+            await fs.rm(`${stagingDatabasePath}-wal`, { force: true }).catch(() => {});
+            await fs.rm(`${stagingDatabasePath}-shm`, { force: true }).catch(() => {});
         }
-
-        await ensureInlayDir();
-        try {
-            if (fsSync.existsSync(inlayDir)) await fs.rename(inlayDir, backupInlayDir);
-            await fs.rename(stagingDir, inlayDir);
-            await fs.writeFile(inlayMigrationMarker, new Date().toISOString(), 'utf-8');
-            await fs.rm(backupInlayDir, { recursive: true, force: true }).catch(() => {});
-        } catch (swapError) {
-            if (fsSync.existsSync(backupInlayDir)) {
-                await fs.rm(inlayDir, { recursive: true, force: true }).catch(() => {});
-                await fs.rename(backupInlayDir, inlayDir).catch(() => {});
-            }
-            await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
-            throw swapError;
-        }
-
-        invalidateDbCache();
-        const dbRaw = kvGet('database/database.bin');
-        let coldStorageFailed = 0;
-        if (dbRaw) {
-            const migration = {};
-            const dbObj = await decodeDatabaseWithPersistentChatIds(dbRaw, {
-                createBackup: false,
-                migrationResult: migration,
-            });
-            coldStorageFailed = migration.coldStorageFailed || 0;
-            initChatStore(dbObj);
-        }
-
-        try {
-            checkpointWal('TRUNCATE');
-        } catch (checkpointError) {
-            logger.warn('[Backup Import] WAL checkpoint after import failed:', checkpointError);
-        }
-        logger.info(
-            `[Backup Import] Complete: ${assetsRestored} assets restored, ` +
-            `${(bytesReceived / 1024 / 1024).toFixed(1)}MB processed`,
-        );
-        if (coldStorageFailed > 0) {
-            logger.error(
-                `[Backup Import] ${coldStorageFailed} cold storage character(s) could not be restored`,
-            );
-        }
-        return { assetsRestored, bytesReceived, coldStorageFailed };
     }
 
     return {

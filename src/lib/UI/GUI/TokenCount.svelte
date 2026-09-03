@@ -29,4 +29,4 @@
     });
 </script>
 
-<span class="block text-sm text-textcolor2 {className}">{tokens} {language.tokens}</span>
+<span class="block text-sm text-subtext {className}">{tokens} {language.tokens}</span>

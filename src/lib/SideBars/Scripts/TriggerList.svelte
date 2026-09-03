@@ -46,7 +46,7 @@
     {/if}
     <div class="flex items-center gap-2" class:ml-auto={!!header}>
     {#if v1Enabled || DBState.db.showDeprecatedTriggerV1 }
-        <button class="border bg-bgcolor py-1 rounded-md text-sm px-2 text-textcolor {v1Enabled ? 'border-primary' : 'border-darkborderc'}" onclick={(async (e) => {
+        <button class="border bg-lightbg py-1 rounded-md text-sm px-2 text-maintext {v1Enabled ? 'border-primary' : 'border-darkborderc'}" onclick={(async (e) => {
             e.stopPropagation()
             const codeType = value?.[0]?.effect?.[0]?.type
             if(codeType === 'triggercode' || codeType === 'triggerlua' || codeType === 'v2Header'){
@@ -58,7 +58,7 @@
             }
         })}>V1</button>
     {/if}
-    <button class="border bg-bgcolor py-1 rounded-md text-sm px-2 text-textcolor {triggerMode === 'v2' ? 'border-primary' : 'border-darkborderc'}" onclick={(async (e) => {
+    <button class="border bg-lightbg py-1 rounded-md text-sm px-2 text-maintext {triggerMode === 'v2' ? 'border-primary' : 'border-darkborderc'}" onclick={(async (e) => {
         e.stopPropagation()
         const codeType = value?.[0]?.effect?.[0]?.type
         if(codeType !== 'v2Header'){
@@ -83,7 +83,7 @@
             }]
         }
     })}>V2</button>
-    <button class="border bg-bgcolor py-1 rounded-md text-sm px-2 text-textcolor {triggerMode === 'lua' ? 'border-primary' : 'border-darkborderc'}" onclick={(async (e) => {
+    <button class="border bg-lightbg py-1 rounded-md text-sm px-2 text-maintext {triggerMode === 'lua' ? 'border-primary' : 'border-darkborderc'}" onclick={(async (e) => {
         e.stopPropagation()
         if(value?.[0]?.effect?.[0]?.type !== 'triggerlua'){
             if(value && value.length > 0){
@@ -106,19 +106,19 @@
     </div>
 </div>
 {#if v1Enabled}
-    <span class="text-xs text-draculared">{language.triggerV1Warning}</span>
+    <span class="text-xs text-danger">{language.triggerV1Warning}</span>
 {/if}
 {#if triggerMode === 'lua'}
     <TextAreaInput margin="both" autocomplete="off" bind:value={(value[0].effect[0] as triggerCode).code}></TextAreaInput>
 {:else if triggerMode === 'v2'}
     {#await loadTriggerV2List(triggerV2LoadRevision)}
-        <div class="mt-2 text-sm text-textcolor2">{language.loading}</div>
+        <div class="mt-2 text-sm text-subtext">{language.loading}</div>
     {:then TriggerV2List}
         <TriggerV2List bind:value={value} lowLevelAble={lowLevelAble}/>
     {:catch error}
-        <div class="mt-2 flex items-center gap-2 text-sm text-draculared">
+        <div class="mt-2 flex items-center gap-2 text-sm text-danger">
             <span>{String(error)}</span>
-            <button class="rounded-md border border-darkborderc px-2 py-1 text-textcolor risu-interactive-border" onclick={retryTriggerV2Load}>
+            <button class="rounded-md border border-darkborderc px-2 py-1 text-maintext risu-interactive-border" onclick={retryTriggerV2Load}>
                 {retryLabel}
             </button>
         </div>

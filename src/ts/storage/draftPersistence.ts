@@ -1,3 +1,5 @@
+import { INPUT_COMMIT_DEBOUNCE_MS } from 'src/ts/inputCommit'
+
 export interface DebouncedDraftWriter<T> {
     schedule: (value: T) => void
     flush: (value: T) => Promise<void>
@@ -50,7 +52,7 @@ export interface BrowserDraftStore<T> extends DebouncedDraftWriter<T> {
 /** Local-only draft storage for lightweight tool dialogs. */
 export function createBrowserDraftStore<T>(
     key: string,
-    delayMs = 250,
+    delayMs = INPUT_COMMIT_DEBOUNCE_MS,
 ): BrowserDraftStore<T> {
     const write = (value: T) => {
         globalThis.localStorage?.setItem(key, JSON.stringify(value))

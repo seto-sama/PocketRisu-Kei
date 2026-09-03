@@ -7,7 +7,7 @@
     import ShSwitch from "../../UI/GUI/ShSwitch.svelte";
     import Help from "../../Others/Help.svelte";
     import TextInput from "../../UI/GUI/TextInput.svelte";
-    import InlineNameInput from "../../UI/GUI/InlineNameInput.svelte";
+    import InlineEditableName from "../../UI/GUI/InlineEditableName.svelte";
     import NumberInput from "../../UI/GUI/NumberInput.svelte";
     import TextAreaInput from "../../UI/GUI/TextAreaInput.svelte";
     import { DBState } from "src/ts/stores.svelte";
@@ -16,6 +16,8 @@
     import IconButton from "../../UI/GUI/IconButton.svelte";
     import IconButtonGroup from "../../UI/GUI/IconButtonGroup.svelte";
     import TokenCount from "../../UI/GUI/TokenCount.svelte";
+    import InlineRenameAction from "../../UI/GUI/InlineRenameAction.svelte";
+    import { InlineEditableNameController } from "../../UI/GUI/inlineEditableNameController.svelte";
 
     interface Props {
         value: loreBook;
@@ -30,7 +32,6 @@
         isLastInContainer?: boolean;
         moduleMode?: boolean;
         openedRefs?: Set<loreBook>;
-        listEditMode?: boolean;
     }
 
     let {
@@ -46,8 +47,8 @@
         isLastInContainer = false,
         moduleMode = false,
         openedRefs = $bindable(new Set<loreBook>()),
-        listEditMode = $bindable(false),
     }: Props = $props();
+    const renameController = new InlineEditableNameController();
     
     let open = $derived(isOpen)
     const itemIconSize = 18
@@ -98,10 +99,6 @@
     }
 
     function toggleOpen(){
-        if(listEditMode && value.mode !== 'child'){
-            return
-        }
-
         if(value.mode === 'child'){
             void alertMd(language.childLoreDesc)
             return
@@ -162,6 +159,7 @@
             ? value.comment || 'Unnamed Folder'
             : value.comment || value.key || 'Unnamed Lore'}
     data-risu-idx={idx} data-risu-idgroup={idgroup}
+    inlineRenameRow
 >
     {#snippet header()}
         {#if value.mode === 'child'}
@@ -175,22 +173,39 @@
                     <FolderIcon size={itemIconSize} class="mr-2 shrink-0" />
                 {/if}
             {/if}
-            {#if listEditMode}
-                <div class="min-w-0 grow">
-                    <InlineNameInput
-                        bind:value={value.comment}
-                        onkeydown={(event) => event.stopPropagation()}
-                    />
-                </div>
-            {:else if value.mode === 'folder'}
-                <span>{value.comment.length === 0 ? "Unnamed Folder" : value.comment}</span>
-            {:else}
-                <span>{value.comment.length === 0 ? value.key.length === 0 ? "Unnamed Lore" : value.key : value.comment}</span>
-            {/if}
+            <InlineEditableName
+                controller={renameController}
+                bind:value={value.comment}
+                label={value.mode === 'folder'
+                    ? value.comment || 'Unnamed Folder'
+                    : value.comment || value.key || 'Unnamed Lore'}
+                onActivate={toggleOpen}
+            />
         {/if}
     {/snippet}
     {#snippet actions()}
         <IconButtonGroup size="default" className="ml-3 shrink-0">
+            <InlineRenameAction controller={renameController} />
+            {#if value.mode === 'folder'}
+                <IconButton
+                    aria-label={language.add}
+                    onclick={() => {
+                        externalLoreBooks.push({
+                            key: '',
+                            comment: '',
+                            content: '',
+                            mode: 'normal',
+                            insertorder: 100,
+                            alwaysActive: true,
+                            secondkey: '',
+                            selective: false,
+                            folder: value.key,
+                        })
+                    }}
+                >
+                    <PlusIcon />
+                </IconButton>
+            {/if}
             {#if value.mode !== 'child'}
                 <IconButton
                     active={value.alwaysActive || value.selective}
@@ -247,25 +262,7 @@
 
     {#if value.mode === 'folder'}
         <div class="border-0 outline-hidden w-full flex flex-col">
-            <LoreBookList externalLoreBooks={externalLoreBooks} showFolder={value.key} {moduleMode} bind:openedRefs bind:listEditMode />
-            
-            <div class="mt-2 flex">
-                <IconButton size="default" onclick={() => {
-                    externalLoreBooks.push({
-                        key: '',
-                        comment: '',
-                        content: '',
-                        mode: 'normal',
-                        insertorder: 100,
-                        alwaysActive: true,
-                        secondkey: '',
-                        selective: false,
-                        folder: value.key,
-                    })
-                }}>
-                    <PlusIcon />
-                </IconButton>
-            </div>
+            <LoreBookList externalLoreBooks={externalLoreBooks} showFolder={value.key} {moduleMode} bind:openedRefs />
         </div>
     {:else}
         <div class="border-0 outline-hidden w-full flex flex-col">
@@ -320,13 +317,13 @@
 
             {#if !value.alwaysActive && getCurrentCharacter()?.globalLore?.includes(value) && DBState.db.localActivationInGlobalLorebook}
                 <div data-disclosure-row>
-                    <span class="text-sm text-textcolor">{language.alwaysActiveInChat}</span>
+                    <span class="text-sm text-maintext">{language.alwaysActiveInChat}</span>
                     <ShSwitch checked={isLocallyActivated(value)} onCheckedChange={(checked) => toggleLocalActive(checked, value)} />
                 </div>
             {/if}
             {#if !value.alwaysActive}
                 <div data-disclosure-row>
-                    <span class="flex items-center text-sm text-textcolor">
+                    <span class="flex items-center text-sm text-maintext">
                         {language.useRegexLorebook}
                         <Help key="useRegexLorebook"/>
                     </span>

@@ -72,7 +72,7 @@
     });
 </script>
 
-<div class="w-full max-w-lg rounded-lg border border-darkborderc/50 bg-darkbg/50 p-2.5 text-textcolor shadow-lg backdrop-blur-sm">
+<div class="w-full max-w-lg rounded-lg border border-darkborderc/50 bg-darkbg/50 p-2.5 text-maintext shadow-lg backdrop-blur-sm">
     <audio
         class="hidden"
         bind:this={audioElement}
@@ -88,16 +88,16 @@
     ></audio>
 
     <div class="mb-1.5 flex min-w-0 items-baseline justify-between gap-3">
-        <div class="truncate text-sm font-semibold text-textcolor" title={title}>{title}</div>
+        <div class="truncate text-sm font-semibold text-maintext" title={title}>{title}</div>
         {#if characterName}
-            <div class="shrink-0 truncate text-[11px] text-textcolor2" title={characterName}>{characterName}</div>
+            <div class="shrink-0 truncate text-[11px] text-subtext" title={characterName}>{characterName}</div>
         {/if}
     </div>
 
     <div class="flex min-w-0 items-center gap-2">
         <button
             type="button"
-            class="flex size-7 shrink-0 items-center justify-center rounded-full border-0 bg-primary p-0 text-textcolor shadow-none transition-colors risu-interactive-primary"
+            class="flex size-7 shrink-0 items-center justify-center rounded-full border-0 bg-primary p-0 text-themewhite shadow-none transition-colors risu-interactive-primary"
             aria-label={isPlaying ? 'Pause' : 'Play'}
             title={isPlaying ? 'Pause' : 'Play'}
             onclick={togglePlayback}
@@ -122,13 +122,13 @@
         />
 
         <div class="flex shrink-0 items-center text-[10px] tabular-nums">
-            <span class="text-textcolor">{formatTime(currentTime)}</span>
-            <span class="text-textcolor2">/{formatTime(duration)}</span>
+            <span class="text-maintext">{formatTime(currentTime)}</span>
+            <span class="text-subtext">/{formatTime(duration)}</span>
         </div>
 
         <button
             type="button"
-            class="flex size-5 shrink-0 items-center justify-center border-0 bg-transparent p-0 text-textcolor shadow-none"
+            class="flex size-5 shrink-0 items-center justify-center border-0 bg-transparent p-0 text-maintext shadow-none"
             aria-label={volume > 0 ? 'Mute' : 'Unmute'}
             title={volume > 0 ? 'Mute' : 'Unmute'}
             onclick={toggleMute}
@@ -164,7 +164,7 @@
         background: linear-gradient(
             to right,
             var(--risu-theme-primary) 0 var(--audio-range-fill),
-            var(--risu-theme-bgcolor) var(--audio-range-fill) 100%
+            var(--risu-theme-lightbg) var(--audio-range-fill) 100%
         );
     }
 
@@ -174,7 +174,7 @@
         height: 0.65rem;
         border: 0;
         border-radius: 9999px;
-        background: var(--risu-theme-textcolor);
+        background: var(--risu-theme-maintext);
         transition: transform 150ms ease;
     }
 
@@ -183,7 +183,7 @@
         height: 0.65rem;
         border: 0;
         border-radius: 9999px;
-        background: var(--risu-theme-textcolor);
+        background: var(--risu-theme-maintext);
         transition: transform 150ms ease;
     }
 

@@ -79,13 +79,13 @@
 
 <div class="flex items-start justify-between gap-3 py-3 border-t border-darkborderc max-sm:flex-col">
     <div class="flex flex-col min-w-0">
-        <span class="text-sm text-textcolor flex items-center gap-1">
+        <span class="text-sm text-maintext flex items-center gap-1">
             {localizedLabel}
-            {#if schemaField.required}<span class="text-draculared">*</span>{/if}
+            {#if schemaField.required}<span class="text-danger">*</span>{/if}
         </span>
-        <span class="text-xs text-textcolor2 mt-0.5">{language.modelPresetCredentialHelp}</span>
+        <span class="text-xs text-subtext mt-0.5">{language.modelPresetCredentialHelp}</span>
         {#if localizedDescription}
-            <span class="text-xs text-textcolor2 mt-0.5">{localizedDescription}</span>
+            <span class="text-xs text-subtext mt-0.5">{localizedDescription}</span>
         {/if}
     </div>
 
@@ -107,7 +107,7 @@
     <input
         bind:this={nameInput}
         bind:value={pendingName}
-        class="risu-field-border rounded-md px-2.5 py-2 text-textcolor bg-transparent focus:outline-hidden w-full"
+        class="risu-field-border rounded-md px-2.5 py-2 text-maintext bg-transparent focus:outline-hidden w-full"
         placeholder={language.apiKeyName}
         autocomplete="off"
         onkeydown={(e) => { if (e.key === 'Enter' && !e.isComposing) confirmSave(); }}

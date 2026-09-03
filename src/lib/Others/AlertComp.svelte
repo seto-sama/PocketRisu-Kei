@@ -2,18 +2,16 @@
     import { alertGenerationInfoStore } from "../../ts/alert";
     
     import { DBState } from 'src/ts/stores.svelte';
-    import { getCharImage } from '../../ts/characters';
     import { ParseMarkdown } from '../../ts/parser/parser.svelte';
-    import BarIcon from '../SideBars/BarIcon.svelte';
-    import { ChevronRightIcon, UserIcon } from '@lucide/svelte';
-    import { hubURL, isCharacterHasAssets } from 'src/ts/characterCards';
+    import { ChevronRightIcon } from '@lucide/svelte';
+    import { isCharacterHasAssets } from 'src/ts/characterCards';
     import TextInput from '../UI/GUI/TextInput.svelte';
     import { openURL, downloadFile } from 'src/ts/globalApi.svelte';
     import ShButton from '../UI/GUI/ShButton.svelte';
     import ShDialog from '../UI/GUI/ShDialog.svelte';
     import ShAlertDialog from '../UI/GUI/ShAlertDialog.svelte';
     import ShLoadingDialog from '../UI/GUI/ShLoadingDialog.svelte';
-    import { XIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, PencilIcon, TrashIcon, EllipsisVerticalIcon, RefreshCwIcon, PlusIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
+    import { XIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, CheckIcon, TrashIcon, EllipsisVerticalIcon, RefreshCwIcon, PlusIcon, DownloadIcon, UploadIcon } from "@lucide/svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
     import OptionInput from "../UI/GUI/OptionInput.svelte";
     import { language } from 'src/lang';
@@ -29,6 +27,7 @@
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme";
     import IconButton from "../UI/GUI/IconButton.svelte";
+    import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import Help from "./Help.svelte";
     import { getCurrentCharacter, type TogglePreset, applyToggleValues, snapshotCurrentToggleValues } from "src/ts/storage/database.svelte";
     import { alertInput, alertConfirm, alertError, alertNormalWait, notifySuccess } from "src/ts/alert";
@@ -38,6 +37,9 @@
     import { PRODUCT_NAME } from "src/ts/branding";
     import RequestDiagnosticsModal from "./RequestDiagnosticsModal.svelte";
     import { overlayLayer } from 'src/ts/gui/overlayStack';
+    import InlineEditableName from "../UI/GUI/InlineEditableName.svelte";
+    import InlineRenameAction from "../UI/GUI/InlineRenameAction.svelte";
+    import { InlineEditableNameController } from "../UI/GUI/inlineEditableNameController.svelte";
 
     let showDetails = $state(false);
     let translatedStackTrace = $state('');
@@ -79,6 +81,28 @@
 
     function closeTogglePresets() {
         togglePresetsOpenStore.set(false)
+    }
+
+    async function applyTogglePreset(preset: TogglePreset) {
+        const name = preset.name
+        const currentPromptPresetName = DBState.db.botPresets[DBState.db.botPresetsId]?.name
+        const isMismatch = preset.promptPresetName !== currentPromptPresetName
+        const msg = isMismatch ? language.togglePresetMismatchConfirm : language.togglePresetApplyConfirm
+        const confirmed = await alertConfirm(msg)
+        if (!confirmed) return
+        applyToggleValues(preset.values)
+        notifySuccess((language.togglePresetApplied as any)(name))
+        closeTogglePresets()
+    }
+
+    function renameTogglePreset(index: number, value: string) {
+        const name = value.trim()
+        const preset = DBState.db.togglePresets?.[index]
+        if (!name || !preset || name === preset.name) return
+        const oldName = preset.name
+        preset.name = name
+        DBState.db.togglePresets = [...DBState.db.togglePresets!]
+        notifySuccess((language.togglePresetRenamed as any)(oldName, name))
     }
 
     function submitAlertInput(restoreFocus = true) {
@@ -171,17 +195,6 @@
 
 </script>
 
-<svelte:window onmessage={async (e) => {
-    if(e.origin.startsWith("https://sv.risuai.xyz") || e.origin.startsWith("https://nightly.sv.risuai.xyz") || e.origin.startsWith("http://127.0.0.1") || e.origin === window.location.origin){
-        if(e.data.msg?.data?.vaild && $alertStore.type === 'login'){
-            $alertStore = {
-                type: 'none',
-                msg: JSON.stringify(e.data.msg)
-            }
-        }
-    }
-}}></svelte:window>
-
 <RequestDiagnosticsModal
     open={$alertStore.type === 'requestdata'}
     info={$alertGenerationInfoStore}
@@ -192,52 +205,7 @@
     }}
 />
 
-{#if $alertStore.type !== 'none' && $alertStore.type !== 'requestdata' &&  $alertStore.type !== 'cardexport' && $alertStore.type !== 'selectModule' && $alertStore.type !== 'pukmakkurit' && $alertStore.type !== 'error' && $alertStore.type !== 'normal' && $alertStore.type !== 'markdown' && $alertStore.type !== 'ask' && $alertStore.type !== 'pluginconfirm' && $alertStore.type !== 'tos' && $alertStore.type !== 'input' && $alertStore.type !== 'select' && $alertStore.type !== 'wait' && $alertStore.type !== 'wait2' && $alertStore.type !== 'progress' && $alertStore.type !== 'confirmMulti' && $alertStore.type !== 'addchar'}
-    <div use:overlayLayer class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
-        <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
-            {#if $alertStore.type === 'selectChar'}
-                <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">Select</h2>
-            {/if}
-            <span class="text-gray-300 whitespace-pre-wrap">{$alertStore.msg}</span>
-            {#if $alertStore.submsg}
-                <span class="text-gray-500 text-sm">{$alertStore.submsg}</span>
-            {/if}
-
-            {#if $alertStore.type === 'login'}
-                <div use:overlayLayer class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
-                    <iframe src={hubURL + '/hub/login'} title="login" class="w-full h-full">
-                    </iframe>
-                </div>
-            {:else if $alertStore.type === 'selectChar'}
-                <div class="flex w-full items-start flex-wrap gap-2 justify-start">
-                    {#each DBState.db.characters as char, i}
-                        {#if char.image}
-                            {#await getCharImage(DBState.db.characters[i].image, 'css')}
-                                <BarIcon onClick={() => {
-                                    alertStore.set({type: 'none',msg: char.chaId})
-                                }}>
-                                    <UserIcon/>
-                                </BarIcon>
-                            {:then im} 
-                                <BarIcon onClick={() => {
-                                    alertStore.set({type: 'none',msg: char.chaId})
-                                }} additionalStyle={im} />
-                                
-                            {/await}
-                        {:else}
-                            <BarIcon onClick={() => {
-                                alertStore.set({type: 'none',msg: char.chaId})
-                            }}>
-                            <UserIcon/>
-                            </BarIcon>
-                        {/if}
-                    {/each}
-                </div>
-            {/if}
-        </div>
-    </div>
-
-{:else if $alertStore.type === 'cardexport'}
+{#if $alertStore.type === 'cardexport'}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div use:overlayLayer class="risu-modal-backdrop risu-layer-overlay flex flex-col items-center justify-center" role="button" tabindex="0" onclick={cancelCardExport}>
         <div class="bg-darkbg rounded-md p-4 max-w-full flex flex-col w-2xl" role="button" tabindex="0" onclick={(e) => {
@@ -251,42 +219,42 @@
                     <XIcon />
                 </IconButton>
             </h1>
-            <span class="text-textcolor mt-4">{language.type}</span>
+            <span class="text-maintext mt-4">{language.type}</span>
             {#if cardExportType === ''}
                 {#if $alertStore.submsg === 'module'}
-                    <span class="text-textcolor2 text-sm">{language.risuMDesc}</span>
+                    <span class="text-subtext text-sm">{language.risuMDesc}</span>
                 {:else if $alertStore.submsg === 'preset'}
-                    <span class="text-textcolor2 text-sm">{language.risupresetDesc}</span>
+                    <span class="text-subtext text-sm">{language.risupresetDesc}</span>
                     {#if cardExportType2 === 'preset' && (DBState.db.botPresets[DBState.db.botPresetsId].image || DBState.db.botPresets[DBState.db.botPresetsId].regex?.length > 0)}
-                        <span class="text-draculared text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
+                        <span class="text-danger text-sm">Use RisuRealm to share the preset. Preset with image or regexes cannot be exported for now.</span>
                     {/if}
                 {:else}
-                    <span class="text-textcolor2 text-sm">{language.ccv3Desc}</span>
+                    <span class="text-subtext text-sm">{language.ccv3Desc}</span>
                     {#if cardExportType2 !== 'charx' && cardExportType2 !== 'charxJpeg' && isCharacterHasAssets(DBState.db.characters[$selectedCharID])}
-                        <span class="text-draculared text-sm">{language.notCharxWarn}</span>
+                        <span class="text-danger text-sm">{language.notCharxWarn}</span>
                     {/if}
                 {/if}
             {:else if cardExportType === 'json'}
-                <span class="text-textcolor2 text-sm">{language.jsonDesc}</span>
+                <span class="text-subtext text-sm">{language.jsonDesc}</span>
             {:else if cardExportType === 'ccv2'}
-                <span class="text-textcolor2 text-sm">{language.ccv2Desc}</span>
-                <span class="text-draculared text-sm">{language.v2Warning}</span>
+                <span class="text-subtext text-sm">{language.ccv2Desc}</span>
+                <span class="text-danger text-sm">{language.v2Warning}</span>
             {/if}
             <div class="flex items-center flex-wrap mt-2">
                 {#if $alertStore.submsg === 'preset'}
-                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>Risupreset</ShButton>
+                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-subtext'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>Risupreset</ShButton>
                 {:else if $alertStore.submsg === 'module'}
-                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>RisuM</ShButton>
+                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-subtext'}" aria-pressed={cardExportType === ''} onclick={() => {cardExportType = ''}}>RisuM</ShButton>
                 {:else}
-                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === ''} onclick={() => {
+                    <ShButton variant={cardExportType === '' ? 'primary' : 'outline'} className="h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === '' ? '' : 'text-subtext'}" aria-pressed={cardExportType === ''} onclick={() => {
                         cardExportType = ''
                         cardExportType2 = 'charxJpeg'
                     }}>Character Card V3</ShButton>
-                    <ShButton variant={cardExportType === 'ccv2' ? 'primary' : 'outline'} className="ml-2 h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === 'ccv2' ? '' : 'text-textcolor2'}" aria-pressed={cardExportType === 'ccv2'} onclick={() => {cardExportType = 'ccv2'}}>Character Card V2</ShButton>
+                    <ShButton variant={cardExportType === 'ccv2' ? 'primary' : 'outline'} className="ml-2 h-auto min-h-14 flex-1 px-2 py-4 {cardExportType === 'ccv2' ? '' : 'text-subtext'}" aria-pressed={cardExportType === 'ccv2'} onclick={() => {cardExportType = 'ccv2'}}>Character Card V2</ShButton>
                 {/if}
             </div>
             {#if $alertStore.submsg === '' && cardExportType === ''}
-                <span class="text-textcolor mt-4">{language.format}</span>
+                <span class="text-maintext mt-4">{language.format}</span>
                 <SelectInput bind:value={cardExportType2} className="mt-2">
                     <OptionInput value="charx">CHARX</OptionInput>
                     <OptionInput value="charxJpeg">CHARX-JPEG</OptionInput>
@@ -295,8 +263,8 @@
                 </SelectInput>
                 <div class="mt-4 flex items-center justify-between gap-4">
                     <div class="flex min-w-0 flex-col">
-                        <span class="text-textcolor">{language.imageCompression}</span>
-                        <span class="text-textcolor2 text-sm">{language.help.imageCompression}</span>
+                        <span class="text-maintext">{language.imageCompression}</span>
+                        <span class="text-subtext text-sm">{language.help.imageCompression}</span>
                     </div>
                     <ShSwitch className="shrink-0" bind:checked={DBState.db.imageCompression} />
                 </div>
@@ -320,16 +288,6 @@
             msg: d
         })
     }} />
-{:else if $alertStore.type === 'pukmakkurit'}
-    <!-- Log Generator by dootaang, GPL3 -->
-    <!-- Svelte, Typescript version by Kwaroran -->
-    
-    <div use:overlayLayer class="risu-modal-backdrop risu-layer-overlay flex justify-center items-center">
-        <div class="bg-darkbg p-4 break-any rounded-md flex flex-col max-w-3xl  max-h-full overflow-y-auto">
-            <h2 class="text-green-700 mt-0 mb-2 w-40 max-w-full">{language.preview}</h2>
-
-        </div>
-    </div>
 {/if}
 
 <ShDialog
@@ -353,7 +311,7 @@
         >
             <span class="flex min-w-0 flex-col items-start text-left">
                 <span class="text-xl font-bold">{language.importFromRealm}</span>
-                <span class="text-sm text-textcolor2">{language.importFromRealmDesc}</span>
+                <span class="text-sm text-subtext">{language.importFromRealmDesc}</span>
             </span>
             <ChevronRightIcon size={20} />
         </button>
@@ -387,13 +345,13 @@
     }}
 >
     {#snippet title()}
-        <span class="text-draculared">{language.error}</span>
+        <span class="text-danger">{language.error}</span>
     {/snippet}
 
     <div class="flex flex-col gap-2">
-        <span class="text-textcolor whitespace-pre-wrap wrap-break-word">{$alertStore.msg}</span>
+        <span class="text-maintext whitespace-pre-wrap wrap-break-word">{$alertStore.msg}</span>
         {#if $alertStore.submsg}
-            <span class="text-textcolor2 text-sm">{$alertStore.submsg}</span>
+            <span class="text-subtext text-sm">{$alertStore.submsg}</span>
         {/if}
 
         {#if $alertStore.stackTrace}
@@ -443,7 +401,7 @@
     <div class="flex flex-col gap-2">
         <span class="whitespace-pre-wrap">{$alertStore.msg}</span>
         {#if $alertStore.submsg}
-            <span class="text-textcolor2 text-sm">{$alertStore.submsg}</span>
+            <span class="text-subtext text-sm">{$alertStore.submsg}</span>
         {/if}
     </div>
 
@@ -489,9 +447,9 @@
     }}
 >
     <div class="flex flex-col gap-2">
-        <span class="whitespace-pre-wrap text-textcolor">{$alertStore.msg}</span>
+        <span class="whitespace-pre-wrap text-maintext">{$alertStore.msg}</span>
         {#if $alertStore.submsg}
-            <span class="whitespace-pre-wrap text-sm text-textcolor2">{$alertStore.submsg}</span>
+            <span class="whitespace-pre-wrap text-sm text-subtext">{$alertStore.submsg}</span>
         {/if}
     </div>
     {#snippet footer()}
@@ -520,16 +478,16 @@
         {@const pluginName = mainParts[0] ?? ''}
         {@const warnings = mainParts.slice(1)}
         <div class="flex flex-col gap-3">
-            <p class="text-xl font-bold text-textcolor">{pluginName}</p>
+            <p class="text-xl font-bold text-maintext">{pluginName}</p>
             {#if warnings.length > 0}
-                <ul class="list-disc list-inside text-draculared text-sm space-y-1">
+                <ul class="list-disc list-inside text-danger text-sm space-y-1">
                     {#each warnings as warning}
                         <li>{warning}</li>
                     {/each}
                 </ul>
             {/if}
             {#if confirmMessage}
-                <p class="text-textcolor2">{confirmMessage}</p>
+                <p class="text-subtext">{confirmMessage}</p>
             {/if}
         </div>
     {/if}
@@ -557,7 +515,7 @@
         {@const options = hasDisplay ? parts.slice(1) : parts}
         <div class="flex flex-col gap-3">
             {#if prompt}
-                <p class="text-textcolor whitespace-pre-wrap">{prompt}</p>
+                <p class="text-maintext whitespace-pre-wrap">{prompt}</p>
             {/if}
             <div class="flex flex-col gap-2">
                 {#each options as label, i}
@@ -622,7 +580,7 @@
 >
     <div class="flex flex-col gap-3">
         {#if $alertStore.msg}
-            <p class="text-textcolor whitespace-pre-wrap">{$alertStore.msg}</p>
+            <p class="text-maintext whitespace-pre-wrap">{$alertStore.msg}</p>
         {/if}
         <TextInput
             bind:value={input}
@@ -682,9 +640,9 @@
 >
     <!-- svelte-ignore a11y_missing_attribute -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="text-textcolor">
+    <div class="text-maintext">
         You should accept
-        <a role="button" tabindex="0" class="text-borderc hover:underline cursor-pointer" onclick={() => openURL('https://sv.risuai.xyz/hub/tos')}>Terms of Service</a>
+        <a role="button" tabindex="0" class="text-lightborderc hover:underline cursor-pointer" onclick={() => openURL('https://sv.risuai.xyz/hub/tos')}>Terms of Service</a>
         to continue.
     </div>
     {#snippet footer()}
@@ -702,39 +660,46 @@
     {#if $togglePresetsOpenStore}
         {@const currentPromptPresetName = DBState.db.botPresets[DBState.db.botPresetsId]?.name}
         <div class="flex flex-col gap-3">
-            <label class="flex items-center gap-2 text-sm text-textcolor2 self-start cursor-pointer select-none">
+            <label class="flex items-center gap-2 text-sm text-subtext self-start cursor-pointer select-none">
                 <ShSwitch bind:checked={togglePresetShowAll} />
                 {language.togglePresetFilterShowAll}
             </label>
 
             {#if !DBState.db.togglePresets?.length}
-                <p class="text-textcolor2 text-sm">{language.togglePresetEmpty}</p>
+                <p class="text-subtext text-sm">{language.togglePresetEmpty}</p>
             {:else}
                 {@const filteredPresets = togglePresetShowAll
                     ? DBState.db.togglePresets.map((p, i) => ({preset: p, index: i}))
                     : DBState.db.togglePresets.map((p, i) => ({preset: p, index: i})).filter(({preset}) => preset.promptPresetName === currentPromptPresetName)}
                 {#if filteredPresets.length === 0}
-                    <p class="text-textcolor2 text-sm">{language.togglePresetEmptyFiltered}</p>
+                    <p class="text-subtext text-sm">{language.togglePresetEmptyFiltered}</p>
                 {:else}
                     <div class="flex flex-col gap-1">
                         {#each filteredPresets as {preset, index: i}}
-                            <div class="flex items-center border border-darkborderc rounded-md hover:ring-1 hover:ring-borderc/50 transition-shadow">
-                                <button class="flex-1 min-w-0 p-2 text-left cursor-pointer text-textcolor truncate risu-interactive-surface rounded-l-md transition-colors" onclick={async () => {
-                                    const name = preset.name
-                                    const isMismatch = preset.promptPresetName !== currentPromptPresetName
-                                    const msg = isMismatch ? language.togglePresetMismatchConfirm : language.togglePresetApplyConfirm
-                                    const confirmed = await alertConfirm(msg)
-                                    if (!confirmed) return
-                                    applyToggleValues(preset.values)
-                                    notifySuccess((language.togglePresetApplied as any)(name))
-                                    closeTogglePresets()
-                                }}>
-                                    <div class="text-xs text-textcolor2 leading-tight">{preset.promptPresetName ?? language.togglePresetNoPromptPreset}</div>
-                                    {preset.name}
-                                </button>
-                                <div class="flex items-center shrink-0 pr-1 gap-0.5">
+                            {@const renameController = new InlineEditableNameController()}
+                            <div data-inline-rename-row class="flex items-center border border-darkborderc rounded-md hover:ring-1 hover:ring-lightborderc/50 transition-shadow">
+                                <div
+                                    role="button"
+                                    tabindex="0"
+                                    class="flex-1 min-w-0 p-2 text-left cursor-pointer text-maintext risu-interactive-surface rounded-l-md transition-colors"
+                                    onclick={() => { void applyTogglePreset(preset) }}
+                                    onkeydown={(event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') void applyTogglePreset(preset)
+                                    }}
+                                >
+                                    <div class="text-xs text-subtext leading-tight">{preset.promptPresetName ?? language.togglePresetNoPromptPreset}</div>
+                                    <InlineEditableName
+                                        controller={renameController}
+                                        value={preset.name}
+                                        label={preset.name}
+                                        onActivate={() => { void applyTogglePreset(preset) }}
+                                        onCommit={(value) => renameTogglePreset(i, value)}
+                                    />
+                                </div>
+                                <IconButtonGroup className="shrink-0 pr-1" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+                                    <InlineRenameAction controller={renameController} />
                                     {#if togglePresetShowAll}
-                                        <ShButton variant="ghost" size="icon-xs" onclick={() => {
+                                        <IconButton onclick={() => {
                                             if (i > 0) {
                                                 const presets = DBState.db.togglePresets!;
                                                 [presets[i - 1], presets[i]] = [presets[i], presets[i - 1]];
@@ -742,8 +707,8 @@
                                             }
                                         }}>
                                             <ChevronUpIcon />
-                                        </ShButton>
-                                        <ShButton variant="ghost" size="icon-xs" onclick={() => {
+                                        </IconButton>
+                                        <IconButton onclick={() => {
                                             const presets = DBState.db.togglePresets!;
                                             if (i < presets.length - 1) {
                                                 [presets[i], presets[i + 1]] = [presets[i + 1], presets[i]];
@@ -751,14 +716,14 @@
                                             }
                                         }}>
                                             <ChevronDownIcon />
-                                        </ShButton>
+                                        </IconButton>
                                     {/if}
                                     <ShDropdownMenu>
                                         <ShDropdownMenuTrigger>
                                             {#snippet child({ props })}
-                                                <ShButton {...props} variant="ghost" size="icon-xs">
+                                                <IconButton {...props}>
                                                     <EllipsisVerticalIcon />
-                                                </ShButton>
+                                                </IconButton>
                                             {/snippet}
                                         </ShDropdownMenuTrigger>
                                         <ShDropdownMenuContent class="min-w-40" align="end">
@@ -776,19 +741,6 @@
                                             }}>
                                                 <RefreshCwIcon size={12} />
                                                 {language.togglePresetMenuOverwrite}
-                                            </ShDropdownMenuItem>
-                                            <ShDropdownMenuItem onSelect={async () => {
-                                                const idx = i
-                                                const oldName = DBState.db.togglePresets![idx].name
-                                                const name = await alertInput(language.togglePresetRename, [], oldName)
-                                                if (name && name !== oldName) {
-                                                    DBState.db.togglePresets![idx].name = name
-                                                    DBState.db.togglePresets = [...DBState.db.togglePresets!]
-                                                    notifySuccess((language.togglePresetRenamed as any)(oldName, name))
-                                                }
-                                            }}>
-                                                <PencilIcon size={12} />
-                                                {language.togglePresetMenuRename}
                                             </ShDropdownMenuItem>
                                             <ShDropdownMenuItem onSelect={() => {
                                                 const copy = $state.snapshot(preset);
@@ -824,7 +776,7 @@
                                             </ShDropdownMenuItem>
                                         </ShDropdownMenuContent>
                                     </ShDropdownMenu>
-                                </div>
+                                </IconButtonGroup>
                             </div>
                         {/each}
                     </div>
@@ -899,11 +851,6 @@
 </ShDialog>
 
 <style>
-    .break-any{
-        word-break: normal;
-        overflow-wrap: anywhere;
-    }
-
     .add-character-option {
         display: flex;
         width: 100%;
@@ -915,7 +862,7 @@
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 0.5rem;
         background-color: transparent;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
         transition:
             background-color 150ms ease,
             color 150ms ease;
@@ -927,7 +874,7 @@
 
     .add-character-option :global(svg) {
         flex: none;
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
         transition: color 150ms ease;
     }
 
@@ -943,8 +890,8 @@
     }
 
     .stack-trace {
-        background-color: var(--risu-theme-bgcolor);
-        color: var(--risu-theme-textcolor2);
+        background-color: var(--risu-theme-lightbg);
+        color: var(--risu-theme-subtext);
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 0.25rem;
         padding: 0.75rem 2.75rem 0.75rem 0.75rem;
@@ -968,13 +915,13 @@
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 0.375rem;
         background-color: var(--risu-theme-darkbg);
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
         transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
     }
 
     .stack-trace-copy:is(:hover, :focus-visible) {
-        background-color: var(--risu-theme-bgcolor);
-        color: var(--risu-theme-textcolor);
+        background-color: var(--risu-theme-lightbg);
+        color: var(--risu-theme-maintext);
     }
 
 </style>

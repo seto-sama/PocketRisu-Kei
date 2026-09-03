@@ -6,8 +6,8 @@ const mocks = vi.hoisted(() => ({
     putBookmark: vi.fn(),
     patchBookmark: vi.fn(),
     deleteBookmark: vi.fn(),
-    replaceBookmarkFolders: vi.fn(),
-    mergeBookmarkFolders: vi.fn(),
+    replaceBookmarkTags: vi.fn(),
+    mergeBookmarkTags: vi.fn(),
     fetchBookmarkCompatibility: vi.fn(),
 }))
 
@@ -20,17 +20,17 @@ const service = await import('./bookmarkService')
 
 const catalog = {
     revision: 1,
-    folders: [],
+    tags: [],
     entries: [{
         characterId: 'character-1', chatId: 'room-1', messageId: 'message-1',
-        name: 'Saved', preview: 'Body', sortOrder: 0,
+        name: 'Saved', preview: 'Body', sortOrder: 0, tagIds: [],
     }],
 }
 
 describe('server bookmark client', () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        service.bookmarkCatalog.set({ revision: 0, folders: [], entries: [] })
+        service.bookmarkCatalog.set({ revision: 0, tags: [], entries: [] })
         service.bookmarkCatalogLoaded.set(false)
     })
 
@@ -80,7 +80,7 @@ describe('server bookmark client', () => {
                     bookmarkNames: { 'message-1': 'Saved' },
                 },
             }],
-            folders: [{ id: 'folder-1', name: 'Folder' }],
+            tags: [{ id: 'tag-1', name: 'Tag' }],
         })
         const source = {
             id: 'room-1', name: 'Room', note: '', localLore: [],
@@ -94,7 +94,7 @@ describe('server bookmark client', () => {
         ])
         expect(result.chats[0].bookmarks).toEqual(['message-1'])
         expect(result.chats[0].bookmarkNames).toEqual({ 'message-1': 'Saved' })
-        expect(result.folders).toEqual([{ id: 'folder-1', name: 'Folder' }])
+        expect(result.tags).toEqual([{ id: 'tag-1', name: 'Tag' }])
         expect(source.bookmarks).toBeUndefined()
     })
 })

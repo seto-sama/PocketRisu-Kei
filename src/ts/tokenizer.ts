@@ -1,12 +1,11 @@
 import type { Tiktoken } from "@dqbd/tiktoken";
-import type { Tokenizer } from "@mlc-ai/web-tokenizers";
+import type { Tokenizer } from "@huggingface/tokenizers";
 import { type character, type Chat, getCurrentCharacter } from "./storage/database.svelte";
 import type { MultiModal, OpenAIChat } from "./process/index.svelte";
 import { supportsInlayImage } from "./process/files/inlays";
 import { risuChatParser } from "./parser/parser.svelte";
 import { getGenerationModelPreset, getModelPresetTokenizer } from "./process/models/modelString";
 import type { RegistryTokenizer } from "./preset/types";
-import type { GemmaTokenizer } from "@huggingface/transformers";
 import { LRUMap } from 'mnemonist';
 import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "./storage/persistentKv";
 
@@ -24,20 +23,13 @@ function getHash(
 
 export const tokenizerList = [
     ['tik', 'Tiktoken (OpenAI)'],
-    ['mistral', 'Mistral'],
-    ['novelai', 'NovelAI'],
     ['claude', 'Claude'],
-    ['llama', 'Llama'],
     ['llama3', 'Llama3'],
-    ['novellist', 'Novellist'],
     ['gemma', 'Gemma'],
-    ['cohere', 'Cohere'],
     ['deepseek', 'DeepSeek'],
 ] as const
 
-type RevenantTokenizer = typeof tokenizerList[number][0]
-
-function getEffectiveRevenantTokenizer(): RevenantTokenizer {
+function getEffectiveRevenantTokenizer(): RegistryTokenizer {
     return getModelPresetTokenizer(getGenerationModelPreset('model'))
 }
 
@@ -45,24 +37,21 @@ export async function encodeWithTokenizer(data: string, tokenizerType: string): 
     switch (tokenizerType) {
         case 'tik':
             return await tikJS(data, 'cl100k_base');
-        case 'mistral':
-            return await tokenizeWebTokenizers(data, 'mistral');
-        case 'novelai':
-            return await tokenizeWebTokenizers(data, 'novelai');
         case 'claude':
-            return await tokenizeWebTokenizers(data, 'claude');
-        case 'llama':
-            return await tokenizeWebTokenizers(data, 'llama');
+            return await tokenizeJson(data, 'claude');
         case 'llama3':
-            return await tokenizeWebTokenizers(data, 'llama3');
-        case 'novellist':
-            return await tokenizeWebTokenizers(data, 'novellist');
+            return await tokenizeJson(data, 'llama3');
         case 'gemma':
-            return await gemmaTokenize(data);
-        case 'cohere':
-            return await tokenizeWebTokenizers(data, 'cohere');
+            return await tokenizeJson(data, 'gemma');
         case 'deepseek':
-            return await tokenizeWebTokenizers(data, 'DeepSeek');
+            return await tokenizeJson(data, 'deepseek');
+        // Preserve imported legacy presets without retaining the 4.7 MB WASM
+        // runtime needed to read their SentencePiece .model files.
+        case 'mistral':
+        case 'novelai':
+        case 'llama':
+        case 'novellist':
+            return await tikJS(data, 'cl100k_base');
         default:
             return await tikJS(data, 'cl100k_base');
     }
@@ -82,21 +71,10 @@ export async function encode(data:string):Promise<(number[]|Uint32Array|Int32Arr
     return result;
 }
 
-type tokenizerType = 'novellist'|'claude'|'novelai'|'llama'|'mistral'|'llama3'|'gemma'|'cohere'|'googleCloud'|'DeepSeek'
+type JsonTokenizerType = 'claude'|'llama3'|'gemma'|'deepseek'
 
 const tikParsers = new Map<string, Promise<Tiktoken>>()
-const tokenizersByType = new Map<tokenizerType, Promise<Tokenizer>>()
-
-let gemmaTokenizer:GemmaTokenizer = null
-async function gemmaTokenize(text:string) {
-    if(!gemmaTokenizer){
-        const {GemmaTokenizer} = await import('@huggingface/transformers')
-        gemmaTokenizer = new GemmaTokenizer(
-            await (await fetch("/token/llama/llama3.json")
-        ).json(), {})
-    }
-    return gemmaTokenizer.encode(text)
-}
+const tokenizersByType = new Map<JsonTokenizerType, Promise<Tokenizer>>()
 
 async function tikJS(text:string, model='cl100k_base') {
     let parserPromise = tikParsers.get(model)
@@ -130,51 +108,28 @@ async function tikJS(text:string, model='cl100k_base') {
     return (await parserPromise).encode(text)
 }
 
-async function tokenizeWebTokenizers(text:string, type:tokenizerType) {
+async function tokenizeJson(text:string, type:JsonTokenizerType) {
     let tokenizerPromise = tokenizersByType.get(type)
     if(!tokenizerPromise){
         tokenizerPromise = (async () => {
-            const webTokenizer = await import('@mlc-ai/web-tokenizers')
+            const { Tokenizer } = await import('@huggingface/tokenizers')
+            let path: string
             switch(type){
-                case "novellist":
-                    return await webTokenizer.Tokenizer.fromSentencePiece(
-                        await (await fetch("/token/trin/spiece.model")
-                    ).arrayBuffer())
                 case "claude":
-                    return await webTokenizer.Tokenizer.fromJSON(
-                        await (await fetch("/token/claude/claude.json")
-                    ).arrayBuffer())
+                    path = "/token/claude/claude.json"
+                    break
                 case 'llama3':
-                    return await webTokenizer.Tokenizer.fromJSON(
-                        await (await fetch("/token/llama/llama3.json")
-                    ).arrayBuffer())
-                case 'cohere':
-                    return await webTokenizer.Tokenizer.fromJSON(
-                        await (await fetch("/token/cohere/tokenizer.json")
-                    ).arrayBuffer())
-                case 'novelai':
-                    return await webTokenizer.Tokenizer.fromSentencePiece(
-                        await (await fetch("/token/nai/nerdstash_v2.model")
-                    ).arrayBuffer())
-                case 'llama':
-                    return await webTokenizer.Tokenizer.fromSentencePiece(
-                        await (await fetch("/token/llama/llama.model")
-                    ).arrayBuffer())
-                case 'mistral':
-                    return await webTokenizer.Tokenizer.fromSentencePiece(
-                        await (await fetch("/token/mistral/tokenizer.model")
-                    ).arrayBuffer())
+                    path = "/token/llama/llama3.json"
+                    break
                 case 'gemma':
-                    return await webTokenizer.Tokenizer.fromSentencePiece(
-                        await (await fetch("/token/gemma/tokenizer.model")
-                    ).arrayBuffer())
-                case 'DeepSeek':
-                    return await webTokenizer.Tokenizer.fromJSON(
-                        await (await fetch("/token/deepseek/tokenizer.json")
-                    ).arrayBuffer())
-
+                    path = "/token/gemma/tokenizer.json"
+                    break
+                case 'deepseek':
+                    path = "/token/deepseek/tokenizer.json"
+                    break
             }
-            throw new Error(`Unknown tokenizer type: ${type}`)
+            const config = await (await fetch(path)).json()
+            return new Tokenizer(config, {})
         })()
         tokenizersByType.set(type, tokenizerPromise)
         tokenizerPromise.catch(() => {
@@ -183,7 +138,7 @@ async function tokenizeWebTokenizers(text:string, type:tokenizerType) {
             }
         })
     }
-    return (await tokenizerPromise).encode(text)
+    return (await tokenizerPromise).encode(text, { add_special_tokens: false }).ids
 }
 
 export async function tokenizerChar(char:character) {

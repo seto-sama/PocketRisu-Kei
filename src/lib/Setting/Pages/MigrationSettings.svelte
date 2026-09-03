@@ -20,7 +20,7 @@
 </script>
 
 <SettingPage title={language.migration}>
-    <p class="text-textcolor2 text-sm leading-relaxed mb-4">{language.migrationDesc}</p>
+    <p class="text-subtext text-sm leading-relaxed mb-4">{language.migrationDesc}</p>
 
     <ShAlert variant="info" className="mb-4">
         {#snippet icon()}<InfoIcon />{/snippet}
@@ -54,7 +54,7 @@
     <!-- Legacy backup options (collapsed by default) ──────────────────── -->
     <div class="mt-6">
         <ShAccordion name={language.migrationLegacyAccordion} variant="card">
-            <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.migrationLegacyDesc}</p>
+            <p class="text-subtext text-sm leading-relaxed mb-3">{language.migrationLegacyDesc}</p>
             <div class="flex flex-col gap-2">
                 <ShButton
                     onclick={async () => {

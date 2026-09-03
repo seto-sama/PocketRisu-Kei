@@ -1,6 +1,11 @@
 
 import type { SettingItem } from './types';
 import { loadPlugins } from '../plugins/plugins.svelte';
+import { GENERATION_COUNT_MAX, GENERATION_COUNT_MIN } from '../process/automaticReroll';
+import {
+    OUTPUT_REPETITION_MAX,
+    OUTPUT_REPETITION_MIN,
+} from '../process/request/repetitionDetector';
 export const advancedSettingsItems: SettingItem[] = [
     { type: 'header', id: 'adv.warn', labelKey: 'advancedSettingsWarn', options: { level: 'warning' } },
 
@@ -30,12 +35,21 @@ export const advancedSettingsItems: SettingItem[] = [
     },
     // Request Settings
     {
+        id: 'adv.genTime', type: 'number', labelKey: 'genTimes', bindKey: 'genTime',
+        helpKey: 'genTimes', options: { min: GENERATION_COUNT_MIN, max: GENERATION_COUNT_MAX }
+    },
+    {
         id: 'adv.retries', type: 'number', labelKey: 'requestretrys', bindKey: 'requestRetrys',
         helpKey: 'requestretrys', options: { min: 0, max: 20 }
     },
     {
-        id: 'adv.genTime', type: 'number', labelKey: 'genTimes', bindKey: 'genTime',
-        helpKey: 'genTimes', options: { min: 0, max: 4096 }
+        id: 'adv.outputRepetition', type: 'number', labelKey: 'outputRepetitionDetection',
+        bindKey: 'outputRepetitionLimit', helpKey: 'outputRepetitionDetection',
+        options: {
+            min: OUTPUT_REPETITION_MIN,
+            max: OUTPUT_REPETITION_MAX,
+            disableable: true,
+        }
     },
     // Request Location (Non-Node/Tauri)
     {
@@ -73,10 +87,6 @@ export const advancedSettingsItems: SettingItem[] = [
     {
         id: 'adv.promptInfo', type: 'check', labelKey: 'promptInfoInsideChat', bindKey: 'promptInfoInsideChat',
         helpKey: 'promptInfoInsideChatDesc'
-    },
-    {
-        id: 'adv.promptTextInfo', type: 'check', labelKey: 'promptTextInfoInsideChat', bindKey: 'promptTextInfoInsideChat',
-        condition: (ctx) => ctx.db.promptInfoInsideChat, helpKey: 'promptTextInfoInsideChat'
     },
     { id: 'adv.allowExt', type: 'check', labelKey: 'allowAllExtentionFiles', bindKey: 'allowAllExtentionFiles', helpKey: 'allowAllExtentionFiles' },
     // Remote saving removed — incompatible with NodeOnly server

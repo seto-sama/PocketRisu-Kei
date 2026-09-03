@@ -11,6 +11,7 @@
     import OverlayPortal from 'src/lib/UI/GUI/OverlayPortal.svelte';
     import { isMobile } from 'src/ts/platform';
     import { layerZIndexes } from 'src/ts/gui/layers';
+    import { getVisualViewportBounds } from 'src/ts/gui/visualViewport';
     import {
         findAllOriginalRangesFromHtml,
         findAllOriginalRangesFromText,
@@ -265,10 +266,13 @@
 
         const width = button.offsetWidth || PARTIAL_EDIT_BUTTON_CELL_SIZE * 2 + PARTIAL_EDIT_BUTTON_GAP * 2;
         const height = button.offsetHeight || PARTIAL_EDIT_BUTTON_CELL_SIZE + paddingTop;
-        const maxLeft = Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, window.innerWidth - width - PARTIAL_EDIT_VIEWPORT_GUTTER);
-        const maxTop = Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, window.innerHeight - height - PARTIAL_EDIT_VIEWPORT_GUTTER);
+        const viewport = getVisualViewportBounds();
+        const minLeft = viewport.left + PARTIAL_EDIT_VIEWPORT_GUTTER;
+        const minTop = viewport.top + PARTIAL_EDIT_VIEWPORT_GUTTER;
+        const maxLeft = Math.max(minLeft, viewport.right - width - PARTIAL_EDIT_VIEWPORT_GUTTER);
+        const maxTop = Math.max(minTop, viewport.bottom - height - PARTIAL_EDIT_VIEWPORT_GUTTER);
 
-        return { width, height, maxLeft, maxTop };
+        return { width, height, minLeft, minTop, maxLeft, maxTop };
     }
 
     function applyEditButtonPosition(
@@ -281,8 +285,8 @@
         if (left > layout.maxLeft) left = anchor.right - layout.width;
         if (top > layout.maxTop) top = anchor.top - layout.height;
 
-        button.style.left = `${Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, Math.min(left, layout.maxLeft))}px`;
-        button.style.top = `${Math.max(PARTIAL_EDIT_VIEWPORT_GUTTER, Math.min(top, layout.maxTop))}px`;
+        button.style.left = `${Math.max(layout.minLeft, Math.min(left, layout.maxLeft))}px`;
+        button.style.top = `${Math.max(layout.minTop, Math.min(top, layout.maxTop))}px`;
     }
 
     function positionBlockButtons(anchor: DOMRect, button: HTMLElement) {
@@ -660,12 +664,16 @@
             document.addEventListener('mousedown', handleMouseDown);
         }
         document.addEventListener('scroll', handleScroll, true);
+        window.visualViewport?.addEventListener('resize', handleScroll);
+        window.visualViewport?.addEventListener('scroll', handleScroll);
         screenRoot.addEventListener('mouseleave', handleScreenLeave);
         return () => {
             document.removeEventListener('mousemove', handleMove);
             document.removeEventListener('selectionchange', handleSelectionChange);
             document.removeEventListener('mousedown', handleMouseDown);
             document.removeEventListener('scroll', handleScroll, true);
+            window.visualViewport?.removeEventListener('resize', handleScroll);
+            window.visualViewport?.removeEventListener('scroll', handleScroll);
             screenRoot.removeEventListener('mouseleave', handleScreenLeave);
             resetInteraction(true);
         };
@@ -835,7 +843,7 @@
                 fullwidth
                 size="sm"
                 actionBar={false}
-                optimaizedInput={false}
+                commitMode="input"
             />
         </div>
         {#snippet footer()}
@@ -877,13 +885,13 @@
         width: var(--partial-edit-cell-size);
         height: var(--partial-edit-cell-size);
         padding: 0;
-        background: var(--risu-theme-textcolor);
-        border: 1px solid var(--risu-theme-textcolor);
+        background: var(--risu-theme-maintext);
+        border: 1px solid var(--risu-theme-maintext);
         border-radius: 6px;
         cursor: pointer;
-        box-shadow: 0 2px 8px color-mix(in srgb, var(--risu-theme-textcolor) 15%, transparent);
+        box-shadow: 0 2px 8px color-mix(in srgb, var(--risu-theme-maintext) 15%, transparent);
         transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
-        color: var(--risu-theme-bgcolor);
+        color: var(--risu-theme-lightbg);
     }
 
     :global(.partial-edit-btn svg) {
@@ -892,19 +900,19 @@
     }
 
     :global(.partial-edit-btn-edit:is(:hover, :focus-visible)) {
-        background: color-mix(in srgb, var(--risu-theme-primary) 15%, var(--risu-theme-textcolor));
+        background: color-mix(in srgb, var(--risu-theme-primary) 15%, var(--risu-theme-maintext));
         border-color: var(--risu-theme-primary);
         color: var(--risu-theme-primary);
     }
 
     :global(.partial-edit-btn-delete:is(:hover, :focus-visible)) {
-        background: color-mix(in srgb, var(--risu-theme-draculared) 15%, var(--risu-theme-textcolor));
-        border-color: var(--risu-theme-draculared);
-        color: var(--risu-theme-draculared);
+        background: color-mix(in srgb, var(--risu-theme-danger) 15%, var(--risu-theme-maintext));
+        border-color: var(--risu-theme-danger);
+        color: var(--risu-theme-danger);
     }
 
     .partial-match-failed-modal {
-        background: var(--risu-theme-bgcolor);
+        background: var(--risu-theme-lightbg);
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 6px;
         padding: 16px;
@@ -925,18 +933,18 @@
     .partial-match-failed-title {
         font-weight: 600;
         font-size: 16px;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
     }
 
     .partial-match-failed-message {
         font-size: 14px;
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
         margin: 0;
         line-height: 1.5;
     }
 
     .partial-delete-modal {
-        background: var(--risu-theme-bgcolor);
+        background: var(--risu-theme-lightbg);
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 6px;
         padding: 16px;
@@ -957,12 +965,12 @@
     .partial-delete-title {
         font-weight: 600;
         font-size: 16px;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
     }
 
     .partial-delete-message {
         font-size: 14px;
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
         margin: 0;
     }
 
@@ -972,7 +980,7 @@
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 8px;
         font-size: 13px;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
         max-height: 100px;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -984,6 +992,7 @@
         left: 0;
         right: 0;
         bottom: 0;
+        height: 100dvh;
         background: color-mix(in srgb, var(--risu-theme-darkbg) 60%, transparent);
         display: flex;
         align-items: center;
@@ -1039,9 +1048,9 @@
     }
 
     .partial-match-confidence.low-confidence {
-        background: color-mix(in srgb, var(--risu-theme-draculared) 20%, var(--risu-theme-darkbg));
-        border-color: color-mix(in srgb, var(--risu-theme-draculared) 45%, var(--risu-theme-darkborderc));
-        color: var(--risu-theme-draculared);
+        background: color-mix(in srgb, var(--risu-theme-danger) 20%, var(--risu-theme-darkbg));
+        border-color: color-mix(in srgb, var(--risu-theme-danger) 45%, var(--risu-theme-darkborderc));
+        color: var(--risu-theme-danger);
     }
 
     .partial-edit-buttons {
@@ -1052,13 +1061,13 @@
 
     /* Match Selection Modal */
     .partial-match-selection-modal {
-        background: var(--risu-theme-bgcolor);
+        background: var(--risu-theme-lightbg);
         border: 1px solid var(--risu-theme-darkborderc);
         border-radius: 6px;
         padding: 16px;
         width: calc(100vw - 32px);
         max-width: 768px;
-        max-height: 80vh;
+        max-height: calc(100% - 32px);
         display: flex;
         flex-direction: column;
         gap: 16px;
@@ -1076,7 +1085,7 @@
     .match-selection-title {
         font-weight: 600;
         font-size: 16px;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
     }
 
     .match-count {
@@ -1085,7 +1094,7 @@
         padding: 4px 10px;
         border-radius: 12px;
         background: var(--risu-theme-darkbg);
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
     }
 
     .match-list {
@@ -1093,7 +1102,7 @@
         flex-direction: column;
         gap: 12px;
         overflow-y: auto;
-        max-height: calc(80vh - 160px);
+        max-height: calc(100% - 160px);
         padding: 4px;
     }
 
@@ -1110,8 +1119,8 @@
     }
 
     .match-item:is(:hover, :focus-visible) {
-        background: var(--risu-theme-bgcolor);
-        border-color: var(--risu-theme-borderc);
+        background: var(--risu-theme-lightbg);
+        border-color: var(--risu-theme-lightborderc);
         box-shadow: 0 2px 8px color-mix(in srgb, var(--risu-theme-primary) 20%, transparent);
         transform: translateY(-1px);
     }
@@ -1126,8 +1135,8 @@
     .match-line {
         font-size: 12px;
         font-weight: 500;
-        color: var(--risu-theme-textcolor);
-        background: var(--risu-theme-bgcolor);
+        color: var(--risu-theme-maintext);
+        background: var(--risu-theme-lightbg);
         padding: 2px 8px;
         border-radius: 4px;
     }
@@ -1153,17 +1162,17 @@
     }
 
     .match-confidence.low-confidence {
-        background: color-mix(in srgb, var(--risu-theme-draculared) 20%, var(--risu-theme-darkbg));
-        border-color: color-mix(in srgb, var(--risu-theme-draculared) 45%, var(--risu-theme-darkborderc));
-        color: var(--risu-theme-draculared);
+        background: color-mix(in srgb, var(--risu-theme-danger) 20%, var(--risu-theme-darkbg));
+        border-color: color-mix(in srgb, var(--risu-theme-danger) 45%, var(--risu-theme-darkborderc));
+        color: var(--risu-theme-danger);
     }
 
     .match-context-before,
     .match-context-after {
         font-size: 12px;
-        color: var(--risu-theme-textcolor2);
+        color: var(--risu-theme-subtext);
         padding: 8px 12px;
-        background: var(--risu-theme-bgcolor);
+        background: var(--risu-theme-lightbg);
         border-radius: 6px;
         border-left: 3px solid var(--risu-theme-darkborderc);
         line-height: 1.5;
@@ -1173,9 +1182,9 @@
 
     .match-text {
         font-size: 13px;
-        color: var(--risu-theme-textcolor);
+        color: var(--risu-theme-maintext);
         padding: 10px 12px;
-        background: var(--risu-theme-bgcolor);
+        background: var(--risu-theme-lightbg);
         border-radius: 6px;
         border-left: 3px solid var(--risu-theme-primary);
         line-height: 1.5;

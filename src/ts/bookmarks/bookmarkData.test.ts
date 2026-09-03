@@ -3,7 +3,7 @@ import type { Chat, Database } from '../storage/database.svelte'
 import {
     applyBookmarkCompatibility,
     collectGlobalBookmarks,
-    remapBookmarkFolders,
+    remapBookmarkTags,
     stripBookmarkCompatibility,
 } from './bookmarkData'
 import type { BookmarkCatalog } from './bookmarkTypes'
@@ -26,10 +26,10 @@ describe('server bookmark catalog projection', () => {
         } as unknown as Database
         const catalog: BookmarkCatalog = {
             revision: 1,
-            folders: [],
+            tags: [],
             entries: [{
                 characterId: 'character-1', chatId: 'room-1', messageId: 'message-1',
-                name: 'Saved', preview: 'Body', sortOrder: 0,
+                name: 'Saved', preview: 'Body', sortOrder: 0, tagIds: [],
             }],
         }
 
@@ -44,34 +44,34 @@ describe('server bookmark catalog projection', () => {
         const compatible = applyBookmarkCompatibility(source, {
             bookmarks: ['message-1'],
             bookmarkNames: { 'message-1': 'Saved' },
-            bookmarkFolderIds: { 'message-1': 'folder-1' },
+            bookmarkTagIds: { 'message-1': ['tag-1'] },
         })
 
         expect(compatible.bookmarks).toEqual(['message-1'])
         expect(compatible.bookmarkNames).toEqual({ 'message-1': 'Saved' })
-        expect(compatible.bookmarkFolderIds).toEqual({ 'message-1': 'folder-1' })
+        expect(compatible.bookmarkTagIds).toEqual({ 'message-1': ['tag-1'] })
         expect(source.bookmarks).toBeUndefined()
     })
 
-    it('remaps imported folder collisions without changing message ids', () => {
+    it('remaps imported tag collisions without changing message ids', () => {
         const value = chat({
             bookmarks: ['message-1'],
-            bookmarkFolderIds: { 'message-1': 'old-folder' },
+            bookmarkTagIds: { 'message-1': ['old-tag', 'stable-tag'] },
         })
-        remapBookmarkFolders(value, { 'old-folder': 'new-folder' })
+        remapBookmarkTags(value, { 'old-tag': 'new-tag', 'stable-tag': 'stable-tag' })
         expect(value.bookmarks).toEqual(['message-1'])
-        expect(value.bookmarkFolderIds).toEqual({ 'message-1': 'new-folder' })
+        expect(value.bookmarkTagIds).toEqual({ 'message-1': ['new-tag', 'stable-tag'] })
     })
 
     it('removes import-only compatibility fields after server ingestion', () => {
         const value = chat({
             bookmarks: ['message-1'],
             bookmarkNames: { 'message-1': 'Saved' },
-            bookmarkFolderIds: { 'message-1': 'folder-1' },
+            bookmarkTagIds: { 'message-1': ['tag-1'] },
         })
         stripBookmarkCompatibility(value)
         expect(value.bookmarks).toBeUndefined()
         expect(value.bookmarkNames).toBeUndefined()
-        expect(value.bookmarkFolderIds).toBeUndefined()
+        expect(value.bookmarkTagIds).toBeUndefined()
     })
 })

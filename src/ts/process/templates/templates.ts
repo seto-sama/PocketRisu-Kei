@@ -399,7 +399,6 @@ export const prebuiltPresets: Record<string, botPreset> = {
         "only": [],
         "ignore": []
     },
-    "useInstructPrompt": false,
     "customPromptTemplateToggle": "",
     "templateDefaultVariables": ""
   } satisfies botPreset,

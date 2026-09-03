@@ -25,7 +25,7 @@
 </script>
 
 {#if withSectionLabel}
-    <span class="text-textcolor {item.classes ?? 'mt-4'}">
+    <span class="text-maintext {item.classes ?? 'mt-4'}">
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>

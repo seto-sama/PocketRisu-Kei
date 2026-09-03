@@ -33,7 +33,7 @@
 
 <div class="w-full flex flex-col pt-2 mt-2 border-t border-t-selected first:pt-0 first:mt-0 first:border-0" data-risu-idx2={idx}>
     <div class="flex items-center transition-colors w-full ">
-        <button class="endflex valuer border-borderc risu-interactive-accent" onclick={() => {
+        <button class="endflex valuer border-lightborderc risu-interactive-accent" onclick={() => {
             open = !open
             if(open){
                 onOpen()
@@ -58,9 +58,9 @@
     </div>
     {#if open}
         <div class="seperator p-2">
-            <span class="text-textcolor mt-6">{language.name}</span>
+            <span class="text-maintext mt-6">{language.name}</span>
             <TextInput size="sm" bind:value={value.comment} />
-            <span class="text-textcolor mt-4">{language.type}</span>
+            <span class="text-maintext mt-4">{language.type}</span>
             <SelectInput bind:value={value.type}>
                 <OptionInput value="start">{language.triggerStart}</OptionInput>
                 <OptionInput value="output">{language.triggerOutput}</OptionInput>
@@ -68,8 +68,8 @@
                 <OptionInput value="manual">{language.triggerManual}</OptionInput>
             </SelectInput>
             
-            <span class="text-textcolor mt-4">Conditions
-                <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 risu-interactive-accent" onclick={() => {
+            <span class="text-maintext mt-4">Conditions
+                <button aria-labelledby="Add Conditions" class="float-right text-subtext risu-interactive-accent" onclick={() => {
                     value.conditions.push({
                         type: 'value',
                         value: '',
@@ -82,14 +82,14 @@
             </span>
             <div class="flex flex-col px-2 py-4 border border-selected rounded-md">
                 {#if value.conditions.length === 0}
-                    <span class="text-textcolor2 text-sm">{language.always}</span>
+                    <span class="text-subtext text-sm">{language.always}</span>
                 {/if}
                 {#each value.conditions as cond,i}
                     {#if i > 0}
                         <hr class="border-selected my-4" />
                     {/if}
-                    <span class="text-textcolor2 text-sm">{language.type}
-                        <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 risu-interactive-danger" onclick={() => {
+                    <span class="text-subtext text-sm">{language.type}
+                        <button aria-labelledby="Add Conditions" class="float-right text-subtext risu-interactive-danger" onclick={() => {
                             value.conditions.splice(i, 1)
                             value.conditions = value.conditions
         
@@ -133,21 +133,21 @@
                             <OptionInput value="strict">{language.triggerMatchStrict}</OptionInput>
                             <OptionInput value="regex">{language.triggerMatchRegex}</OptionInput>
                         </SelectInput>
-                        <span  class="text-textcolor2 text-sm">{language.value}</span>
+                        <span  class="text-subtext text-sm">{language.value}</span>
                         <TextAreaInput bind:value={cond.value} />
 
-                        <span  class="text-textcolor2 text-sm">{language.searchDepth}</span>
+                        <span  class="text-subtext text-sm">{language.searchDepth}</span>
                         <NumberInput size="sm" bind:value={cond.depth} />
                     {/if}
                     {#if cond.type === 'var' || cond.type === 'chatindex' || cond.type === 'value'}
                         {#if cond.type === 'var'}
-                            <span class="text-textcolor2 text-sm">{language.varableName}</span>
+                            <span class="text-subtext text-sm">{language.varableName}</span>
                             <TextInput size="sm" bind:value={cond.var} />
                         {/if}
                         {#if cond.type === 'value'}
                             <TextAreaInput size="sm" bind:value={cond.var} />
                         {/if}
-                        <span  class="text-textcolor2 text-sm">{language.value}</span>
+                        <span  class="text-subtext text-sm">{language.value}</span>
                         <SelectInput bind:value={cond.operator} size="sm">
                             <OptionInput value="true">{language.truthy}</OptionInput>
                             <OptionInput value="=">{language.equal}</OptionInput>
@@ -166,8 +166,8 @@
                 {/each}
             </div>
 
-            <span class="text-textcolor mt-4">Effects
-                <button aria-labelledby="Add Effects" class="float-right text-textcolor2 risu-interactive-accent" onclick={() => {
+            <span class="text-maintext mt-4">Effects
+                <button aria-labelledby="Add Effects" class="float-right text-subtext risu-interactive-accent" onclick={() => {
                     if(value.type === 'start'){
                         value.effect.push({
                             type: 'systemprompt',
@@ -190,14 +190,14 @@
 
             <div class="flex flex-col px-2 py-4 border border-selected rounded-md">
                 {#if value.effect.length === 0}
-                    <span class="text-textcolor2 text-sm">{language.noEffect}</span>
+                    <span class="text-subtext text-sm">{language.noEffect}</span>
                 {/if}
                 {#each value.effect as effect,i}
                     {#if i > 0}
                         <hr class="border-selected my-4" />
                     {/if}
-                    <span class="text-textcolor2 text-sm">{language.type}
-                        <button aria-labelledby="Add Conditions" class="float-right text-textcolor2 risu-interactive-danger" onclick={() => {
+                    <span class="text-subtext text-sm">{language.type}
+                        <button aria-labelledby="Add Conditions" class="float-right text-subtext risu-interactive-danger" onclick={() => {
                             value.effect.splice(i, 1)
                             value.effect = value.effect
         
@@ -332,7 +332,7 @@
                         (value.type !== 'start' && (effect.type === 'systemprompt' || effect.type === 'stop')) ||
                         (value.type !== 'output' && effect.type === 'sendAIprompt')
                     }
-                        <span class="text-draculared text-sm">{language.invaildTriggerEffect}</span>
+                        <span class="text-danger text-sm">{language.invaildTriggerEffect}</span>
                     {/if}
                     {#if
                         !lowLevelAble && (
@@ -345,24 +345,24 @@
                             effect.type === 'runAxLLM'
                         )
                     }
-                        <span class="text-draculared text-sm">{language.triggerLowLevelOnly}</span>
+                        <span class="text-danger text-sm">{language.triggerLowLevelOnly}</span>
 
                     {/if}
 
                     {#if effect.type === 'systemprompt'}
-                        <span class="text-textcolor2 text-sm">{language.location}</span>
+                        <span class="text-subtext text-sm">{language.location}</span>
                         <SelectInput bind:value={effect.location}>
                             <OptionInput value="start">{language.promptstart}</OptionInput>
                             <OptionInput value="historyend">{language.historyend}</OptionInput>
                             <OptionInput value="promptend">{language.promptend}</OptionInput>
                         </SelectInput>
-                        <span class="text-textcolor2 text-sm">{language.value}</span>
+                        <span class="text-subtext text-sm">{language.value}</span>
                         <TextAreaInput bind:value={effect.value} />
                     {/if}
                     {#if effect.type === 'setvar'}
-                        <span class="text-textcolor2 text-sm">{language.varableName}</span>
+                        <span class="text-subtext text-sm">{language.varableName}</span>
                         <TextInput bind:value={effect.var} />
-                        <span class="text-textcolor2 text-sm">{language.operator}</span>
+                        <span class="text-subtext text-sm">{language.operator}</span>
                         <SelectInput bind:value={effect.operator} >
                             <OptionInput value="=">{language.TriggerSetToVar}</OptionInput>
                             <OptionInput value="+=">{language.TriggerAddToVar}</OptionInput>
@@ -370,37 +370,37 @@
                             <OptionInput value="*=">{language.TriggerMulToVar}</OptionInput>
                             <OptionInput value="/=">{language.TriggerDivToVar}</OptionInput>
                         </SelectInput>
-                        <span class="text-textcolor2 text-sm">{language.value}</span>
+                        <span class="text-subtext text-sm">{language.value}</span>
                         <TextAreaInput bind:value={effect.value} />
                     {/if}
 
                     {#if effect.type === 'runtrigger'}
-                        <span class="text-textcolor2 text-sm">{language.name}</span>
+                        <span class="text-subtext text-sm">{language.name}</span>
                         <TextInput size="sm" bind:value={effect.value} />
                     {/if}
                     {#if effect.type === 'command'}
-                        <span class="text-textcolor2 text-sm">{language.value}</span>
+                        <span class="text-subtext text-sm">{language.value}</span>
                         <TextAreaInput bind:value={effect.value} />
                     {/if}
                     {#if effect.type === 'runLLM'}
-                        <span class="text-textcolor2 text-sm">{language.prompt}<Help key="triggerLLMPrompt" /></span>
+                        <span class="text-subtext text-sm">{language.prompt}<Help key="triggerLLMPrompt" /></span>
                         <TextAreaInput bind:value={effect.value} />
 
-                        <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
+                        <span class="text-subtext text-sm">{language.resultStoredVar}</span>
                         <TextInput bind:value={effect.inputVar} />
                     {/if}
                     {#if effect.type === 'checkSimilarity'}
-                        <span class="text-textcolor2 text-sm">{language.prompt}</span>
+                        <span class="text-subtext text-sm">{language.prompt}</span>
                         <TextAreaInput bind:value={effect.source} />
 
-                        <span class="text-textcolor2 text-sm">{language.value}</span>
+                        <span class="text-subtext text-sm">{language.value}</span>
                         <TextAreaInput bind:value={effect.value} />
 
-                        <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
+                        <span class="text-subtext text-sm">{language.resultStoredVar}</span>
                         <TextInput bind:value={effect.inputVar} />
                     {/if}
                     {#if effect.type === 'showAlert'}
-                        <span class="text-textcolor2 text-sm">{language.type}</span>
+                        <span class="text-subtext text-sm">{language.type}</span>
                         <SelectInput bind:value={effect.alertType}>
                             <OptionInput value="normal">{language.normal}</OptionInput>
                             <OptionInput value="error">{language.error}</OptionInput>
@@ -408,72 +408,72 @@
                             <OptionInput value="select">{language.select}</OptionInput>
                         </SelectInput>
 
-                        <span class="text-textcolor2 text-sm">{language.value}</span>
+                        <span class="text-subtext text-sm">{language.value}</span>
                         <TextAreaInput bind:value={effect.value} />
 
-                        <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
+                        <span class="text-subtext text-sm">{language.resultStoredVar}</span>
                         <TextInput bind:value={effect.inputVar} />
                     {/if}
                     {#if effect.type === 'impersonate'}
-                        <span class="text-textcolor2 text-sm">{language.role}</span>
+                        <span class="text-subtext text-sm">{language.role}</span>
                         <SelectInput bind:value={effect.role} size="sm">
                             <OptionInput value="user">{language.user}</OptionInput>
                             <OptionInput value="char">{language.character}</OptionInput>
                         </SelectInput>
-                        <span class="text-textcolor2 text-sm">{language.value}</span>
+                        <span class="text-subtext text-sm">{language.value}</span>
                         <TextAreaInput bind:value={effect.value} />
                     {/if}
 
                     {#if effect.type === 'extractRegex'}
-                        <span class="text-textcolor2 text-sm">{language.value}</span>
+                        <span class="text-subtext text-sm">{language.value}</span>
                         <TextAreaInput bind:value={effect.value} />
 
-                        <span class="text-textcolor2 text-sm">{language.regex}</span>
+                        <span class="text-subtext text-sm">{language.regex}</span>
                         <TextInput bind:value={effect.regex} />
 
-                        <span class="text-textcolor2 text-sm">{language.flags}</span>
+                        <span class="text-subtext text-sm">{language.flags}</span>
                         <TextInput bind:value={effect.flags} />
 
-                        <span class="text-textcolor2 text-sm">{language.resultFormat}</span>
+                        <span class="text-subtext text-sm">{language.resultFormat}</span>
                         <TextInput bind:value={effect.result} />
 
-                        <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
+                        <span class="text-subtext text-sm">{language.resultStoredVar}</span>
                         <TextInput bind:value={effect.inputVar} />
                     {/if}
 
                     {#if effect.type === 'runImgGen'}
-                        <span class="text-textcolor2 text-sm">{language.prompt}</span>
+                        <span class="text-subtext text-sm">{language.prompt}</span>
                         <TextAreaInput bind:value={effect.value} />
 
-                        <span class="text-textcolor2 text-sm">{language.negPrompt}</span>
+                        <span class="text-subtext text-sm">{language.negPrompt}</span>
                         <TextAreaInput bind:value={effect.negValue} />
 
-                        <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
+                        <span class="text-subtext text-sm">{language.resultStoredVar}</span>
                         <TextInput bind:value={effect.inputVar} />
                     {/if}
 
                     {#if effect.type === 'cutchat'}
-                        <span class="text-textcolor2 text-sm">{language.start}</span>
+                        <span class="text-subtext text-sm">{language.start}</span>
                         <TextInput bind:value={effect.start} />
 
-                        <span class="text-textcolor2 text-sm">{language.end}</span>
+                        <span class="text-subtext text-sm">{language.end}</span>
                         <TextInput bind:value={effect.end} />
                     {/if}
 
                     {#if effect.type === 'modifychat'}
-                        <span class="text-textcolor2 text-sm">{language.index}</span>
+                        <span class="text-subtext text-sm">{language.index}</span>
                         <TextInput bind:value={effect.index} />
 
-                        <span class="text-textcolor2 text-sm">{language.value}</span>
+                        <span class="text-subtext text-sm">{language.value}</span>
                         <TextAreaInput bind:value={effect.value} />
                     
                     {/if}
 
                     {#if effect.type === 'runAxLLM'}
-                    <span class="text-textcolor2 text-sm">{language.prompt}<Help key="triggerLLMPrompt" /></span>
+                    <span class="text-subtext text-sm">{language.prompt}<Help key="triggerLLMPrompt" /></span>
                     <TextAreaInput bind:value={effect.value} />
 
-                    <span class="text-textcolor2 text-sm">{language.resultStoredVar}</span>
+                    <span class="text-subtext text-sm">{language.resultStoredVar}</span>
                     <TextInput bind:value={effect.inputVar} />
                     {/if}
                 {/each}

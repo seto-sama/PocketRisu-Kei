@@ -16,7 +16,7 @@ import type {
 } from '../bookmarks/bookmarkTypes'
 
 const BOOKMARKS_API_PATH = '/api/bookmarks'
-const BOOKMARK_FOLDERS_API_PATH = '/api/bookmark-folders'
+const BOOKMARK_TAGS_API_PATH = '/api/bookmark-tags'
 
 // Custom error class for database conflict detection
 export class ConflictError extends Error {
@@ -40,10 +40,17 @@ export interface PersistWarning {
 export interface PatchItemResult {
     success: boolean
     etag?: string
+    revision?: number
     conflict?: boolean
     persistWarning?: PersistWarning
     /** Set when the server's chat-internal-field guard rejected the patch. */
     chatGuardRejected?: boolean
+}
+
+export interface DatabaseProjection<T = unknown> {
+    database: T | null
+    etag: string
+    revision: number
 }
 
 export interface ExportBackupOptions {
@@ -71,6 +78,7 @@ export class NodeStorage{
         crypto?.randomUUID?.() ?? (Date.now().toString(36) + Math.random().toString(36).slice(2))
 
     _lastDbEtag: string | null = null
+    _lastDbRevision: number | null = null
     private chatEtags = new Map<string, string>()
     authChecked = false
     private cachedJwt: { token: string; expiresAt: number } | null = null
@@ -262,6 +270,23 @@ export class NodeStorage{
             this._lastDbEtag = nextEtag
         }
     }
+
+    async encodeInlayWebp(value: Uint8Array, options: { lossy: boolean; quality: number }): Promise<Blob> {
+        const response = await this.authFetch('/api/inlays/encode-webp', {
+            method: 'POST',
+            body: value as any,
+            headers: {
+                'content-type': 'application/octet-stream',
+                'x-inlay-lossy': options.lossy ? '1' : '0',
+                'x-inlay-quality': String(options.quality),
+            },
+        })
+        if (!response.ok) {
+            throw new Error(`Inlay WebP encoding failed (${response.status})`)
+        }
+        return new Blob([await response.arrayBuffer()], { type: 'image/webp' })
+    }
+
     async getItem(key:string):Promise<Buffer> {
         const headers: Record<string, string> = {
             'file-path': Buffer.from(key, 'utf-8').toString('hex')
@@ -404,26 +429,108 @@ export class NodeStorage{
         this._lastDbEtag = etag
     }
 
+    /** Set the revision associated with the cached database projection. */
+    setDbRevision(revision: number | null) {
+        this._lastDbRevision = revision
+    }
+
+    /** Load the relational database's client projection as JSON. */
+    async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
+        const response = await this.authFetch('/api/database', {
+            method: 'GET',
+            headers: { accept: 'application/json' },
+        })
+        if (!response.ok) {
+            const body = await response.text().catch(() => '')
+            throw new Error(`Database projection read failed (${response.status})${body ? `: ${body}` : ''}`)
+        }
+
+        const data = await response.json() as DatabaseProjection<T>
+        this._lastDbEtag = data.etag ?? null
+        this._lastDbRevision = Number.isSafeInteger(data.revision) ? data.revision : null
+        return data
+    }
+
+    /**
+     * Initialize a brand-new relational database. The server only accepts this
+     * while revision 0 is still current, so two first-run clients cannot replace
+     * one another's initialized state.
+     */
+    async initializeDatabase<T>(database: T, expectedRevision = 0): Promise<PatchItemResult> {
+        const response = await this.authFetch('/api/database', {
+            method: 'PUT',
+            body: JSON.stringify({ database, expectedRevision }),
+            headers: { 'content-type': 'application/json' },
+        })
+        const data = await response.json().catch(() => ({})) as {
+            error?: string
+            etag?: string
+            currentEtag?: string
+            revision?: number
+            currentRevision?: number
+            persistWarning?: PersistWarning
+        }
+        const etag = data.etag ?? data.currentEtag
+        const revision = data.revision ?? data.currentRevision
+        if (etag) this._lastDbEtag = etag
+        if (Number.isSafeInteger(revision)) this._lastDbRevision = revision as number
+
+        if (response.status === 409) {
+            return { success: false, conflict: true, etag, revision }
+        }
+        if (!response.ok || data.error) {
+            throw new Error(data.error ?? `Database initialization failed (${response.status})`)
+        }
+        return {
+            success: true,
+            etag,
+            revision,
+            persistWarning: data.persistWarning,
+        }
+    }
+
+    /** Apply metadata changes to the relational database projection. */
+    async patchDatabase(patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
+        return this.sendPatch('/api/database', patchData, true, undefined, 'PATCH')
+    }
+
     async patchItem(key: string, patchData: { patch: any[], expectedHash: string }): Promise<PatchItemResult> {
+        return this.sendPatch('/api/patch', patchData, key === 'database/database.bin', key)
+    }
+
+    private async sendPatch(
+        endpoint: string,
+        patchData: { patch: any[], expectedHash: string },
+        tracksDatabase: boolean,
+        key?: string,
+        method: 'POST' | 'PATCH' = 'POST',
+    ): Promise<PatchItemResult> {
         // An empty JSON Patch is the identity operation. It has no write intent,
         // so it must not enter the network/CAS lane with a potentially stale
         // hash while a server-owned generation commit is advancing the DB.
         if (patchData.patch.length === 0) return { success: true }
 
-        const da = await this.authFetch('/api/patch', {
-            method: "POST",
+        const headers: Record<string, string> = {
+            'content-type': 'application/json',
+        }
+        if (key) {
+            headers['file-path'] = Buffer.from(key, 'utf-8').toString('hex')
+        }
+        const da = await this.authFetch(endpoint, {
+            method,
             body: JSON.stringify(patchData),
-            headers: {
-                'content-type': 'application/json',
-                'file-path': Buffer.from(key, 'utf-8').toString('hex')
-            }
+            headers,
         })
 
         if (da.status === 409) {
             const data = await da.json()
             const currentEtag = data.currentEtag as string | undefined
-            if (key === 'database/database.bin' && currentEtag) {
+            const currentRevision = data.currentRevision as number | undefined
+            if (tracksDatabase && currentEtag) {
                 this._lastDbEtag = currentEtag
+            }
+            if (tracksDatabase && Number.isSafeInteger(currentRevision)) {
+                this._lastDbRevision = currentRevision as number
             }
             // Server signals chat-guard rejection via explicit fields. The
             // error string fallback is kept for forward-compat with deployed
@@ -434,6 +541,7 @@ export class NodeStorage{
             return {
                 success: false,
                 etag: currentEtag,
+                revision: currentRevision,
                 conflict: !rejectedByChatGuard,
                 chatGuardRejected: rejectedByChatGuard,
             }
@@ -448,11 +556,15 @@ export class NodeStorage{
             return { success: false }
         }
         const nextEtag = data.etag as string | undefined
-        if (key === 'database/database.bin' && nextEtag) {
+        const nextRevision = data.revision as number | undefined
+        if (tracksDatabase && nextEtag) {
             this._lastDbEtag = nextEtag
         }
+        if (tracksDatabase && Number.isSafeInteger(nextRevision)) {
+            this._lastDbRevision = nextRevision as number
+        }
         const persistWarning = data.persistWarning as PersistWarning | undefined
-        return { success: true, etag: nextEtag, persistWarning }
+        return { success: true, etag: nextEtag, revision: nextRevision, persistWarning }
     }
 
     // ── Bulk asset operations (3-2-B) ──────────────────────────────────────────
@@ -620,6 +732,7 @@ export class NodeStorage{
     // ── Server-side backup ─────────────────────────────────────────────────────
 
     async saveServerBackup(
+        note = '',
         onProgress?: (current: number, total: number, bytes: number, totalBytes: number) => void
     ): Promise<{ok: boolean, filename: string, size: number}> {
         const da = await this.authFetch('/api/backup/server/save', {
@@ -628,7 +741,7 @@ export class NodeStorage{
                 'content-type': 'application/json',
                 'x-sync-client-id': NodeStorage.sessionId,
             },
-            body: JSON.stringify({}),
+            body: JSON.stringify({ note }),
         })
         if (da.status < 200 || da.status >= 300) {
             const body = await da.json().catch(() => ({}))
@@ -662,7 +775,7 @@ export class NodeStorage{
         return result
     }
 
-    async listServerBackups(): Promise<{backups: Array<{filename: string, size: number, createdAt: number}>}> {
+    async listServerBackups(): Promise<{backups: Array<{filename: string, size: number, createdAt: number, note?: string}>}> {
         const da = await this.authFetch('/api/backup/server/list')
         if (da.status < 200 || da.status >= 300) throw new Error(`server backup list error: ${da.status}`)
         return da.json()
@@ -803,7 +916,7 @@ export class NodeStorage{
         return await da.json() as BookmarkCatalog
     }
 
-    async putBookmark(entry: BookmarkTarget & { name: string, folderId?: string }): Promise<BookmarkCatalog> {
+    async putBookmark(entry: BookmarkTarget & { name: string, tagIds?: string[] }): Promise<BookmarkCatalog> {
         const da = await this.authFetch(BOOKMARKS_API_PATH, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
@@ -815,7 +928,7 @@ export class NodeStorage{
 
     async patchBookmark(
         target: BookmarkTarget,
-        patch: { name?: string, folderId?: string | null },
+        patch: { name?: string, tagIds?: string[] },
     ): Promise<BookmarkCatalog> {
         const da = await this.authFetch(BOOKMARKS_API_PATH, {
             method: 'PATCH',
@@ -836,23 +949,23 @@ export class NodeStorage{
         return await da.json() as BookmarkCatalog
     }
 
-    async replaceBookmarkFolders(folders: { id: string, name: string }[]): Promise<BookmarkCatalog> {
-        const da = await this.authFetch(BOOKMARK_FOLDERS_API_PATH, {
+    async replaceBookmarkTags(tags: { id: string, name: string }[]): Promise<BookmarkCatalog> {
+        const da = await this.authFetch(BOOKMARK_TAGS_API_PATH, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ folders }),
+            body: JSON.stringify({ tags }),
         })
-        if (da.status < 200 || da.status >= 300) throw new Error(`bookmarkFolders error: ${da.status}`)
+        if (da.status < 200 || da.status >= 300) throw new Error(`bookmarkTags error: ${da.status}`)
         return await da.json() as BookmarkCatalog
     }
 
-    async mergeBookmarkFolders(folders: unknown): Promise<{ idMap: Record<string, string>, catalog: BookmarkCatalog }> {
-        const da = await this.authFetch(`${BOOKMARK_FOLDERS_API_PATH}/merge`, {
+    async mergeBookmarkTags(tags: unknown): Promise<{ idMap: Record<string, string>, catalog: BookmarkCatalog }> {
+        const da = await this.authFetch(`${BOOKMARK_TAGS_API_PATH}/merge`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ folders }),
+            body: JSON.stringify({ tags }),
         })
-        if (da.status < 200 || da.status >= 300) throw new Error(`mergeBookmarkFolders error: ${da.status}`)
+        if (da.status < 200 || da.status >= 300) throw new Error(`mergeBookmarkTags error: ${da.status}`)
         return await da.json()
     }
 

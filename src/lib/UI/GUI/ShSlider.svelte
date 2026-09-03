@@ -167,7 +167,7 @@
         {#snippet children({ thumbItems })}
             <span
                 data-slot="slider-track"
-                class="bg-darkbutton relative h-2 grow overflow-hidden rounded-full"
+                class="bg-button relative h-2 grow overflow-hidden rounded-full"
             >
                 <SliderPrimitive.Range
                     data-slot="slider-range"
@@ -179,7 +179,7 @@
                     data-slot="slider-thumb"
                     index={thumb.index}
                     class={
-                        'block size-4 shrink-0 rounded-full border-2 border-primary bg-white shadow-sm ' +
+                        'block size-4 shrink-0 rounded-full border-2 border-primary bg-themewhite shadow-sm ' +
                         'transition-[box-shadow,transform] cursor-grab active:cursor-grabbing hover:scale-110 ' +
                         'disabled:pointer-events-none disabled:opacity-50'
                     }
@@ -188,7 +188,7 @@
         {/snippet}
     </SliderPrimitive.Root>
     {#if format}
-        <span class={cn('shrink-0 text-sm text-textcolor2 text-right tabular-nums', inputWidth)}>
+        <span class={cn('shrink-0 text-sm text-subtext text-right tabular-nums', inputWidth)}>
             {format(value ?? min)}
         </span>
     {:else if showInput}
@@ -204,7 +204,7 @@
             placeholder={inputPlaceholder}
             class={cn(
                 'risu-field-border shrink-0 numinput rounded-md bg-transparent ' +
-                'h-8 px-2 py-1 text-sm text-textcolor text-right ' +
+                'h-8 px-2 py-1 text-sm text-maintext text-right ' +
                 'placeholder:text-xs ' +
                 'disabled:opacity-50 disabled:cursor-not-allowed',
                 inputWidth

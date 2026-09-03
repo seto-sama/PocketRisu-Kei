@@ -161,32 +161,4 @@ describe('external prompt preset import', () => {
         expect(DBState.db.botPresets[0].temperature).toBeCloseTo(55)
     })
 
-    test('combines SillyTavern instruct and context files into one preset', async () => {
-        const instruct = {
-            name: 'ST instruct',
-            input_sequence: '<user>',
-            output_sequence: '<assistant>',
-        }
-        const context = {
-            story_string: 'System: {{system}}',
-            chat_start: '\nChat:',
-        }
-
-        await importPreset([{
-            name: 'instruct.json',
-            data: new TextEncoder().encode(JSON.stringify(instruct)),
-        }, {
-            name: 'context.json',
-            data: new TextEncoder().encode(JSON.stringify(context)),
-        }])
-
-        expect(DBState.db.botPresets).toHaveLength(1)
-        expect(DBState.db.botPresets[0]).toMatchObject({
-            name: 'ST instruct',
-            instructChatTemplate: 'jinja',
-            useInstructPrompt: true,
-        })
-        expect(DBState.db.botPresets[0].JinjaTemplate).toContain('<user>{{ message.content }}')
-        expect(DBState.db.botPresets[0].JinjaTemplate).not.toContain('undefined')
-    })
 })

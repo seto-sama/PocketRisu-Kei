@@ -82,13 +82,19 @@ describe('ShCombobox', () => {
         await tick()
 
         const listbox = document.querySelector<HTMLElement>('[role="listbox"]')!
+        Object.defineProperty(listbox, 'scrollHeight', { configurable: true, value: 200 })
+        window.dispatchEvent(new Event('resize'))
+        await tick()
+        await tick()
         const left = Number.parseFloat(listbox.style.left)
         const top = Number.parseFloat(listbox.style.top)
         const width = Number.parseFloat(listbox.style.width)
+        const maxHeight = Number.parseFloat(listbox.style.maxHeight)
 
         expect(left).toBe(inputBounds.left)
         expect(width).toBe(inputBounds.width)
         expect(top).toBeGreaterThanOrEqual(inputBounds.bottom)
         expect(top).toBeLessThanOrEqual(window.innerHeight)
+        expect(maxHeight).toBe(window.innerHeight - inputBounds.bottom - 10)
     })
 })

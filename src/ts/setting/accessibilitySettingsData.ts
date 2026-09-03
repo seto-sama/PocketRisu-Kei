@@ -35,38 +35,6 @@ export const accessibilitySettingsItems: SettingItem[] = [
         keywords: ['previous', 'chat', 'swipe', 'alternate', 'greeting', 'message']
     },
     {
-        id: 'acc.sendKeyPC',
-        type: 'radio',
-        labelKey: 'sendKeyPC',
-        bindKey: 'sendKeyPC',
-        helpKey: 'sendKeyPC',
-        options: {
-            selectOptions: [
-                { value: 'enter', labelKey: 'sendKeyEnter' },
-                { value: 'ctrl-enter', labelKey: 'sendKeyCtrlEnter' },
-                { value: 'shift-enter', labelKey: 'sendKeyShiftEnter' },
-                { value: 'button', labelKey: 'sendKeyButton' },
-            ],
-        },
-        keywords: ['send', 'enter', 'keyboard', 'submit', 'pc', 'desktop']
-    },
-    {
-        id: 'acc.sendKeyMobile',
-        type: 'radio',
-        labelKey: 'sendKeyMobile',
-        bindKey: 'sendKeyMobile',
-        helpKey: 'sendKeyMobile',
-        options: {
-            selectOptions: [
-                { value: 'enter', labelKey: 'sendKeyEnter' },
-                { value: 'ctrl-enter', labelKey: 'sendKeyCtrlEnter' },
-                { value: 'shift-enter', labelKey: 'sendKeyShiftEnter' },
-                { value: 'button', labelKey: 'sendKeyButton' },
-            ],
-        },
-        keywords: ['send', 'enter', 'keyboard', 'submit', 'mobile']
-    },
-    {
         id: 'acc.fixedChatTextarea',
         type: 'check',
         labelKey: 'fixedChatTextarea',
@@ -145,14 +113,6 @@ export const accessibilitySettingsItems: SettingItem[] = [
         bindKey: 'sideMenuRerollButton',
         helpKey: 'sideMenuRerollButton',
         keywords: ['side', 'menu', 'reroll', 'button']
-    },
-    {
-        id: 'acc.inlayErrorResponse',
-        type: 'check',
-        labelKey: 'inlayErrorResponse',
-        bindKey: 'inlayErrorResponse',
-        helpKey: 'inlayErrorResponse',
-        keywords: ['inlay', 'error', 'response']
     },
     {
         id: 'acc.autoScrollToNewMessage',
@@ -336,9 +296,6 @@ export const accessibilityEditingItems = pick([
     'acc.confirmReroll',
     'acc.confirmMessageDelete',
     'acc.showPreviousChatSwipeButtons',
-    'acc.sendKeyPC',
-    'acc.sendKeyMobile',
-    'acc.fixedChatTextarea',
     'acc.clickToEdit',
     'acc.enableBlockPartialEdit',
     'acc.enableDragPartialEdit',
@@ -351,6 +308,7 @@ export const accessibilityScrollItems = pick([
     'acc.newMessageButtonStyle',
     'acc.nodeOnlyScrollButtonType',
     'acc.stickyChatToolbar',
+    'acc.fixedChatTextarea',
     'acc.chatLoadInitialPages',
     'acc.chatLoadAdditionalPages',
 ]);
@@ -377,7 +335,6 @@ export const accessibilityOtherItems = pick([
     'acc.botSettingAtStart',
     'acc.goCharacterOnImport',
     'acc.createFolderOnBranch',
-    'acc.inlayErrorResponse',
     'acc.keepSessionAlive',
     'acc.disableMobileBackNavigation',
     'acc.disableMobileDragDrop',

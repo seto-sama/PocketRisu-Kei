@@ -1,7 +1,6 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-
 const LEGACY_MIGRATION_KEY = 'legacy-chat-bookmarks-v1';
 
 function normalizePreview(value, messageId) {
@@ -9,51 +8,38 @@ function normalizePreview(value, messageId) {
     if (!compact) return messageId;
     return compact.length > 50 ? `${compact.slice(0, 50)}…` : compact;
 }
-
+function normalizeTagIds(value) {
+    return [...new Set((Array.isArray(value) ? value : [])
+        .filter(id => typeof id === 'string').map(id => id.trim()).filter(Boolean))];
+}
 function readChatCompatibility(chat, options = {}) {
     if (!chat || typeof chat !== 'object') return null;
-    const includeFolderData = options.includeFolderData !== false;
-    const hadFields = Object.prototype.hasOwnProperty.call(chat, 'bookmarks')
-        || Object.prototype.hasOwnProperty.call(chat, 'bookmarkNames')
-        || (includeFolderData
-            && Object.prototype.hasOwnProperty.call(chat, 'bookmarkFolderIds'));
-    if (!hadFields) return null;
-
-    const messages = new Map(
-        (Array.isArray(chat.message) ? chat.message : [])
-            .filter(message => typeof message?.chatId === 'string' && message.chatId)
-            .map(message => [message.chatId, message]),
-    );
+    const includeTagData = options.includeTagData !== false;
+    const present = ['bookmarks', 'bookmarkNames'].some(key =>
+        Object.prototype.hasOwnProperty.call(chat, key))
+        || (includeTagData && Object.prototype.hasOwnProperty.call(chat, 'bookmarkTagIds'));
+    if (!present) return null;
+    const messages = new Map((Array.isArray(chat.message) ? chat.message : [])
+        .filter(message => typeof message?.chatId === 'string' && message.chatId)
+        .map(message => [message.chatId, message]));
     const seen = new Set();
-    const bookmarks = [];
-    for (const messageId of Array.isArray(chat.bookmarks) ? chat.bookmarks : []) {
-        if (typeof messageId !== 'string' || !messageId || seen.has(messageId)) continue;
-        const message = messages.get(messageId);
-        if (!message) continue;
+    return (Array.isArray(chat.bookmarks) ? chat.bookmarks : []).flatMap(messageId => {
+        if (typeof messageId !== 'string' || !messageId || seen.has(messageId)
+            || !messages.has(messageId)) return [];
         seen.add(messageId);
-        const customName = typeof chat.bookmarkNames?.[messageId] === 'string'
-            && chat.bookmarkNames[messageId]
-            ? chat.bookmarkNames[messageId]
-            : null;
-        const folderId = includeFolderData
-            && typeof chat.bookmarkFolderIds?.[messageId] === 'string'
-            && chat.bookmarkFolderIds[messageId]
-            ? chat.bookmarkFolderIds[messageId]
-            : null;
-        bookmarks.push({
+        return [{
             messageId,
-            customName,
-            preview: normalizePreview(message.data, messageId),
-            folderId,
-        });
-    }
-    return bookmarks;
+            customName: typeof chat.bookmarkNames?.[messageId] === 'string'
+                && chat.bookmarkNames[messageId] ? chat.bookmarkNames[messageId] : null,
+            preview: normalizePreview(messages.get(messageId).data, messageId),
+            tagIds: includeTagData ? normalizeTagIds(chat.bookmarkTagIds?.[messageId]) : [],
+        }];
+    });
 }
-
 function stripChatCompatibility(chat) {
     if (!chat || typeof chat !== 'object') return false;
     let changed = false;
-    for (const key of ['bookmarks', 'bookmarkNames', 'bookmarkFolderIds']) {
+    for (const key of ['bookmarks', 'bookmarkNames', 'bookmarkTagIds']) {
         if (Object.prototype.hasOwnProperty.call(chat, key)) {
             delete chat[key];
             changed = true;
@@ -64,560 +50,355 @@ function stripChatCompatibility(chat) {
 
 function createBookmarkStore(db) {
     db.exec(`
-        CREATE TABLE IF NOT EXISTS bookmark_meta (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS bookmark_folders (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            sort_order INTEGER NOT NULL
+        CREATE TABLE IF NOT EXISTS bookmark_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS bookmark_tags (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS bookmarks (
-            character_id TEXT NOT NULL,
-            chat_id TEXT NOT NULL,
-            message_id TEXT NOT NULL,
-            sort_order INTEGER NOT NULL,
-            custom_name TEXT,
-            preview TEXT NOT NULL,
-            folder_id TEXT,
+            character_id TEXT NOT NULL, chat_id TEXT NOT NULL, message_id TEXT NOT NULL,
+            sort_order INTEGER NOT NULL, custom_name TEXT, preview TEXT NOT NULL,
             PRIMARY KEY (character_id, chat_id, message_id)
         );
+        CREATE TABLE IF NOT EXISTS bookmark_tag_bindings (
+            character_id TEXT NOT NULL, chat_id TEXT NOT NULL, message_id TEXT NOT NULL,
+            tag_id TEXT NOT NULL,
+            PRIMARY KEY (character_id, chat_id, message_id, tag_id)
+        );
         CREATE TABLE IF NOT EXISTS bookmark_snapshots (
-            snapshot_key TEXT PRIMARY KEY,
-            catalog_json TEXT NOT NULL
+            snapshot_key TEXT PRIMARY KEY, catalog_json TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_bookmarks_chat
             ON bookmarks(character_id, chat_id, sort_order);
-        CREATE INDEX IF NOT EXISTS idx_bookmarks_folder
-            ON bookmarks(folder_id);
-        DROP INDEX IF EXISTS idx_bookmarks_catalog;
+        CREATE INDEX IF NOT EXISTS idx_bookmark_tag_bindings_tag
+            ON bookmark_tag_bindings(tag_id);
     `);
-
-    const getMeta = db.prepare('SELECT value FROM bookmark_meta WHERE key = ?');
-    const setMeta = db.prepare(`
-        INSERT INTO bookmark_meta(key, value) VALUES (?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `);
-    const listFoldersStatement = db.prepare(
-        'SELECT id, name FROM bookmark_folders ORDER BY sort_order, rowid',
-    );
-    const listBookmarksStatement = db.prepare(`
-        SELECT character_id AS characterId, chat_id AS chatId,
-               message_id AS messageId, custom_name AS customName,
-               preview, folder_id AS folderId, sort_order AS sortOrder
-        FROM bookmarks
-        ORDER BY rowid
-    `);
-    const listChatBookmarksStatement = db.prepare(`
-        SELECT message_id AS messageId, custom_name AS customName,
-               preview, folder_id AS folderId, sort_order AS sortOrder
-        FROM bookmarks
-        WHERE character_id = ? AND chat_id = ?
-        ORDER BY sort_order, rowid
-    `);
-    const deleteChatBookmarks = db.prepare(
-        'DELETE FROM bookmarks WHERE character_id = ? AND chat_id = ?',
-    );
-    const insertBookmark = db.prepare(`
-        INSERT INTO bookmarks(
-            character_id, chat_id, message_id, sort_order,
-            custom_name, preview, folder_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(character_id, chat_id, message_id) DO UPDATE SET
-            sort_order = excluded.sort_order,
-            custom_name = excluded.custom_name,
-            preview = excluded.preview,
-            folder_id = excluded.folder_id
-    `);
-    const deleteBookmarkStatement = db.prepare(`
-        DELETE FROM bookmarks
-        WHERE character_id = ? AND chat_id = ? AND message_id = ?
-    `);
-    const getBookmarkStatement = db.prepare(`
-        SELECT character_id AS characterId, chat_id AS chatId,
-               message_id AS messageId, custom_name AS customName,
-               preview, folder_id AS folderId, sort_order AS sortOrder
-        FROM bookmarks
-        WHERE character_id = ? AND chat_id = ? AND message_id = ?
-    `);
-    const nextBookmarkOrderStatement = db.prepare(
-        'SELECT COALESCE(MAX(sort_order) + 1, 0) AS value FROM bookmarks',
-    );
-    const getFolderStatement = db.prepare('SELECT 1 FROM bookmark_folders WHERE id = ?');
-    const clearBookmarksStatement = db.prepare('DELETE FROM bookmarks');
-    const clearFoldersStatement = db.prepare('DELETE FROM bookmark_folders');
-    const clearBookmarkFolderStatement = db.prepare(
-        'UPDATE bookmarks SET folder_id = NULL WHERE folder_id = ?',
-    );
-    const deleteFolderStatement = db.prepare('DELETE FROM bookmark_folders WHERE id = ?');
-    const upsertFolderStatement = db.prepare(`
-        INSERT INTO bookmark_folders(id, name, sort_order) VALUES (?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order
-    `);
-    const insertFolderStatement = db.prepare(
-        'INSERT INTO bookmark_folders(id, name, sort_order) VALUES (?, ?, ?)',
-    );
-    const saveSnapshotStatement = db.prepare(`
-        INSERT INTO bookmark_snapshots(snapshot_key, catalog_json) VALUES (?, ?)
-        ON CONFLICT(snapshot_key) DO UPDATE SET catalog_json = excluded.catalog_json
-    `);
-    const getSnapshotStatement = db.prepare(
-        'SELECT catalog_json AS catalogJson FROM bookmark_snapshots WHERE snapshot_key = ?',
-    );
-    const deleteSnapshotStatement = db.prepare(
-        'DELETE FROM bookmark_snapshots WHERE snapshot_key = ?',
-    );
-
-    function revision() {
-        return Number(getMeta.get('revision')?.value ?? 0) || 0;
+    const q = {
+        getMeta: db.prepare('SELECT value FROM bookmark_meta WHERE key = ?'),
+        setMeta: db.prepare(`INSERT INTO bookmark_meta(key,value) VALUES (?,?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value`),
+        tags: db.prepare('SELECT id,name FROM bookmark_tags ORDER BY sort_order,rowid'),
+        all: db.prepare(`SELECT character_id characterId,chat_id chatId,message_id messageId,
+            custom_name customName,preview,sort_order sortOrder FROM bookmarks ORDER BY rowid`),
+        chat: db.prepare(`SELECT character_id characterId,chat_id chatId,message_id messageId,
+            custom_name customName,preview,sort_order sortOrder FROM bookmarks
+            WHERE character_id=? AND chat_id=? ORDER BY sort_order,rowid`),
+        bindings: db.prepare(`SELECT character_id characterId,chat_id chatId,
+            message_id messageId,tag_id tagId FROM bookmark_tag_bindings ORDER BY rowid`),
+        chatBindings: db.prepare(`SELECT character_id characterId,chat_id chatId,
+            message_id messageId,tag_id tagId FROM bookmark_tag_bindings
+            WHERE character_id=? AND chat_id=? ORDER BY rowid`),
+        get: db.prepare(`SELECT character_id characterId,chat_id chatId,message_id messageId,
+            custom_name customName,preview,sort_order sortOrder FROM bookmarks
+            WHERE character_id=? AND chat_id=? AND message_id=?`),
+        next: db.prepare('SELECT COALESCE(MAX(sort_order)+1,0) value FROM bookmarks'),
+        put: db.prepare(`INSERT INTO bookmarks(character_id,chat_id,message_id,sort_order,custom_name,preview)
+            VALUES (?,?,?,?,?,?) ON CONFLICT(character_id,chat_id,message_id) DO UPDATE SET
+            sort_order=excluded.sort_order,custom_name=excluded.custom_name,preview=excluded.preview`),
+        del: db.prepare('DELETE FROM bookmarks WHERE character_id=? AND chat_id=? AND message_id=?'),
+        delChat: db.prepare('DELETE FROM bookmarks WHERE character_id=? AND chat_id=?'),
+        clear: db.prepare('DELETE FROM bookmarks'),
+        bind: db.prepare(`INSERT OR IGNORE INTO bookmark_tag_bindings
+            (character_id,chat_id,message_id,tag_id) VALUES (?,?,?,?)`),
+        delBindings: db.prepare(`DELETE FROM bookmark_tag_bindings
+            WHERE character_id=? AND chat_id=? AND message_id=?`),
+        delChatBindings: db.prepare(`DELETE FROM bookmark_tag_bindings
+            WHERE character_id=? AND chat_id=?`),
+        clearBindings: db.prepare('DELETE FROM bookmark_tag_bindings'),
+        hasTag: db.prepare('SELECT 1 FROM bookmark_tags WHERE id=?'),
+        putTag: db.prepare(`INSERT INTO bookmark_tags(id,name,sort_order) VALUES (?,?,?)
+            ON CONFLICT(id) DO UPDATE SET name=excluded.name,sort_order=excluded.sort_order`),
+        insertTag: db.prepare('INSERT INTO bookmark_tags(id,name,sort_order) VALUES (?,?,?)'),
+        delTag: db.prepare('DELETE FROM bookmark_tags WHERE id=?'),
+        delTagBindings: db.prepare('DELETE FROM bookmark_tag_bindings WHERE tag_id=?'),
+        clearTags: db.prepare('DELETE FROM bookmark_tags'),
+        saveSnapshot: db.prepare(`INSERT INTO bookmark_snapshots(snapshot_key,catalog_json)
+            VALUES (?,?) ON CONFLICT(snapshot_key) DO UPDATE SET catalog_json=excluded.catalog_json`),
+        snapshot: db.prepare('SELECT catalog_json catalogJson FROM bookmark_snapshots WHERE snapshot_key=?'),
+        delSnapshot: db.prepare('DELETE FROM bookmark_snapshots WHERE snapshot_key=?'),
+    };
+    const key = row => `${row.characterId}\0${row.chatId}\0${row.messageId}`;
+    const revision = () => Number(q.getMeta.get('revision')?.value ?? 0) || 0;
+    const bump = () => q.setMeta.run('revision', String(revision() + 1));
+    function normalizeTags(value) {
+        const seen = new Set();
+        return (Array.isArray(value) ? value : []).flatMap(tag => {
+            const id = typeof tag?.id === 'string' ? tag.id.trim() : '';
+            const name = typeof tag?.name === 'string' ? tag.name.trim() : '';
+            if (!id || !name || seen.has(id)) return [];
+            seen.add(id);
+            return [{ id, name }];
+        });
     }
-
-    function bumpRevision() {
-        const next = revision() + 1;
-        setMeta.run('revision', String(next));
-        return next;
+    const validTagIds = ids => normalizeTagIds(ids).filter(id => q.hasTag.get(id));
+    function withTags(rows, bindings) {
+        const map = new Map(rows.map(row => [key(row), row]));
+        rows.forEach(row => { row.tagIds = []; });
+        bindings.forEach(binding => map.get(key(binding))?.tagIds.push(binding.tagId));
+        return rows;
     }
-
+    const chatRows = (characterId, chatId) =>
+        withTags(q.chat.all(characterId, chatId), q.chatBindings.all(characterId, chatId));
     function catalog() {
         return {
             revision: revision(),
-            folders: listFoldersStatement.all(),
-            entries: listBookmarksStatement.all().map(entry => ({
-                ...entry,
-                name: entry.customName || entry.preview || entry.messageId,
+            tags: q.tags.all(),
+            entries: withTags(q.all.all(), q.bindings.all()).map(row => ({
+                ...row, name: row.customName || row.preview || row.messageId,
             })),
         };
     }
-
-    function normalizeFolders(folders) {
-        const normalized = [];
-        const ids = new Set();
-        for (const folder of Array.isArray(folders) ? folders : []) {
-            const id = typeof folder?.id === 'string' ? folder.id.trim() : '';
-            const name = typeof folder?.name === 'string' ? folder.name.trim() : '';
-            if (!id || !name || ids.has(id)) continue;
-            ids.add(id);
-            normalized.push({ id, name });
-        }
-        return normalized;
+    function replaceBindings(entry, ids) {
+        q.delBindings.run(entry.characterId, entry.chatId, entry.messageId);
+        validTagIds(ids).forEach(id =>
+            q.bind.run(entry.characterId, entry.chatId, entry.messageId, id));
     }
-
-    function validFolderId(folderId) {
-        return typeof folderId === 'string' && folderId && getFolderStatement.get(folderId)
-            ? folderId
-            : null;
-    }
-
-    const replaceChat = db.transaction((characterId, chatId, bookmarks) => {
-        const normalized = bookmarks.map((bookmark, index) => ({
-            messageId: bookmark.messageId,
-            customName: bookmark.customName ?? null,
-            preview: normalizePreview(bookmark.preview, bookmark.messageId),
-            folderId: validFolderId(bookmark.folderId),
-            sortOrder: index,
+    const replaceChatTx = db.transaction((characterId, chatId, rows) => {
+        const normalized = rows.map((row, index) => ({
+            messageId: row.messageId, customName: row.customName ?? null,
+            preview: normalizePreview(row.preview, row.messageId), sortOrder: index,
+            tagIds: validTagIds(row.tagIds),
         }));
-        const current = listChatBookmarksStatement.all(characterId, chatId);
+        const current = chatRows(characterId, chatId)
+            .map(({ characterId: _c, chatId: _h, ...row }) => row);
         if (JSON.stringify(current) === JSON.stringify(normalized)) return false;
-        deleteChatBookmarks.run(characterId, chatId);
-        for (const bookmark of normalized) {
-            insertBookmark.run(
-                characterId,
-                chatId,
-                bookmark.messageId,
-                bookmark.sortOrder,
-                bookmark.customName,
-                bookmark.preview,
-                bookmark.folderId,
-            );
-        }
-        bumpRevision();
+        q.delChatBindings.run(characterId, chatId);
+        q.delChat.run(characterId, chatId);
+        normalized.forEach(row => {
+            q.put.run(characterId, chatId, row.messageId, row.sortOrder, row.customName, row.preview);
+            replaceBindings({ characterId, chatId, messageId: row.messageId }, row.tagIds);
+        });
+        bump();
         return true;
     });
-
-    function replaceChatCompatibility(characterId, chatId, bookmarks) {
-        if (!characterId || !chatId || !Array.isArray(bookmarks)) return false;
-        return replaceChat(characterId, chatId, bookmarks);
-    }
-
-    const upsertBookmarkTransaction = db.transaction((entry) => {
-        const current = getBookmarkStatement.get(
-            entry.characterId,
-            entry.chatId,
-            entry.messageId,
-        );
-        const nextOrder = current?.sortOrder ?? nextBookmarkOrderStatement.get().value;
-        insertBookmark.run(
-            entry.characterId,
-            entry.chatId,
-            entry.messageId,
-            nextOrder,
-            entry.name || null,
-            entry.preview || entry.messageId,
-            validFolderId(entry.folderId),
-        );
-        bumpRevision();
+    const replaceChatCompatibility = (characterId, chatId, rows) =>
+        Boolean(characterId && chatId && Array.isArray(rows)
+            && replaceChatTx(characterId, chatId, rows));
+    const upsertTx = db.transaction(entry => {
+        const current = q.get.get(entry.characterId, entry.chatId, entry.messageId);
+        q.put.run(entry.characterId, entry.chatId, entry.messageId,
+            current?.sortOrder ?? q.next.get().value, entry.name || null,
+            normalizePreview(entry.preview, entry.messageId));
+        replaceBindings(entry, entry.tagIds);
+        bump();
     });
-
     function upsertBookmarkEntry(entry) {
         if (!entry?.characterId || !entry.chatId || !entry.messageId) return false;
-        upsertBookmarkTransaction(entry);
-        return true;
+        upsertTx(entry); return true;
     }
-
-    const patchBookmarkTransaction = db.transaction((target, patch) => {
-        const current = getBookmarkStatement.get(
-            target.characterId,
-            target.chatId,
-            target.messageId,
-        );
-        if (!current) return false;
-        insertBookmark.run(
-            current.characterId,
-            current.chatId,
-            current.messageId,
-            current.sortOrder,
-            Object.prototype.hasOwnProperty.call(patch, 'name')
-                ? (patch.name || null)
-                : current.customName,
-            current.preview,
-            Object.prototype.hasOwnProperty.call(patch, 'folderId')
-                ? validFolderId(patch.folderId)
-                : current.folderId,
-        );
-        bumpRevision();
-        return true;
+    const patchTx = db.transaction((target, patch) => {
+        const row = q.get.get(target.characterId, target.chatId, target.messageId);
+        if (!row) return false;
+        q.put.run(row.characterId, row.chatId, row.messageId, row.sortOrder,
+            Object.hasOwn(patch, 'name') ? patch.name || null : row.customName, row.preview);
+        if (Object.hasOwn(patch, 'tagIds')) replaceBindings(row, patch.tagIds);
+        bump(); return true;
     });
-
-    function patchBookmarkEntry(target, patch) {
-        return patchBookmarkTransaction(target, patch ?? {});
-    }
-
-    const removeBookmarkTransaction = db.transaction((target) => {
-        const result = deleteBookmarkStatement.run(
-            target.characterId,
-            target.chatId,
-            target.messageId,
-        );
-        if (result.changes > 0) bumpRevision();
-        return result.changes > 0;
+    const patchBookmarkEntry = (target, patch) => patchTx(target, patch ?? {});
+    const removeTx = db.transaction(target => {
+        q.delBindings.run(target.characterId, target.chatId, target.messageId);
+        const changed = q.del.run(target.characterId, target.chatId, target.messageId).changes > 0;
+        if (changed) bump();
+        return changed;
     });
-
-    function removeBookmarkEntry(target) {
-        if (!target?.characterId || !target.chatId || !target.messageId) return false;
-        return removeBookmarkTransaction(target);
-    }
-
-    const replaceFoldersTransaction = db.transaction((folders) => {
-        const currentFolders = listFoldersStatement.all();
-        if (JSON.stringify(currentFolders) === JSON.stringify(folders)) return false;
-        const incomingIds = new Set(folders.map(folder => folder.id));
-        for (const current of currentFolders) {
-            if (!incomingIds.has(current.id)) {
-                clearBookmarkFolderStatement.run(current.id);
-                deleteFolderStatement.run(current.id);
-            }
-        }
-        folders.forEach((folder, index) => upsertFolderStatement.run(folder.id, folder.name, index));
-        bumpRevision();
-        return true;
+    const removeBookmarkEntry = target => Boolean(target?.characterId && target.chatId
+        && target.messageId && removeTx(target));
+    const replaceTagsTx = db.transaction(tags => {
+        const current = q.tags.all();
+        if (JSON.stringify(current) === JSON.stringify(tags)) return false;
+        const ids = new Set(tags.map(tag => tag.id));
+        current.filter(tag => !ids.has(tag.id)).forEach(tag => {
+            q.delTagBindings.run(tag.id); q.delTag.run(tag.id);
+        });
+        tags.forEach((tag, index) => q.putTag.run(tag.id, tag.name, index));
+        bump(); return true;
     });
-
-    function replaceFolders(folders) {
-        const normalized = normalizeFolders(folders);
-        replaceFoldersTransaction(normalized);
+    function replaceTags(tags) {
+        const normalized = normalizeTags(tags);
+        replaceTagsTx(normalized);
         return normalized;
     }
-
-    const mergeFoldersTransaction = db.transaction((incoming) => {
-        const folders = listFoldersStatement.all();
-        const byId = new Map(folders.map(folder => [folder.id, folder]));
+    const mergeTagsTx = db.transaction(incoming => {
+        const existing = q.tags.all();
+        const byId = new Map(existing.map(tag => [tag.id, tag]));
         const idMap = {};
-        let sortOrder = folders.length;
+        let order = existing.length;
         let changed = false;
-        for (const value of normalizeFolders(incoming)) {
-            const originalId = value.id;
-            const name = value.name;
-            const current = byId.get(originalId);
-            if (!current || current.name === name) {
-                if (!current) {
-                    const folder = { id: originalId, name };
-                    insertFolderStatement.run(folder.id, folder.name, sortOrder++);
-                    byId.set(folder.id, folder);
-                    changed = true;
-                }
-                idMap[originalId] = originalId;
-                continue;
+        normalizeTags(incoming).forEach(tag => {
+            let id = tag.id;
+            if (byId.has(id) && byId.get(id).name !== tag.name) {
+                do { id = randomUUID(); } while (byId.has(id));
             }
-            let nextId = randomUUID();
-            while (byId.has(nextId)) nextId = randomUUID();
-            insertFolderStatement.run(nextId, name, sortOrder++);
-            byId.set(nextId, { id: nextId, name });
-            idMap[originalId] = nextId;
-            changed = true;
-        }
-        if (changed) bumpRevision();
+            if (!byId.has(id)) {
+                q.insertTag.run(id, tag.name, order++);
+                byId.set(id, { id, name: tag.name });
+                changed = true;
+            }
+            idMap[tag.id] = id;
+        });
+        if (changed) bump();
         return idMap;
     });
-
-    function mergeFolders(incoming) {
-        return mergeFoldersTransaction(incoming);
-    }
-
+    const mergeTags = tags => mergeTagsTx(tags);
     function compatibilityForTargets(targets) {
         const entries = [];
-        const referencedFolderIds = new Set();
-        for (const target of Array.isArray(targets) ? targets : []) {
-            if (!target?.characterId || !target.chatId) continue;
-            const rows = listChatBookmarksStatement.all(target.characterId, target.chatId);
+        const used = new Set();
+        (Array.isArray(targets) ? targets : []).forEach(target => {
+            if (!target?.characterId || !target.chatId) return;
+            const rows = chatRows(target.characterId, target.chatId);
             const bookmarkNames = {};
-            const bookmarkFolderIds = {};
-            for (const row of rows) {
+            const bookmarkTagIds = {};
+            rows.forEach(row => {
                 if (row.customName) bookmarkNames[row.messageId] = row.customName;
-                if (row.folderId) {
-                    bookmarkFolderIds[row.messageId] = row.folderId;
-                    referencedFolderIds.add(row.folderId);
+                if (row.tagIds.length) {
+                    bookmarkTagIds[row.messageId] = row.tagIds;
+                    row.tagIds.forEach(id => used.add(id));
                 }
-            }
-            entries.push({
-                characterId: target.characterId,
-                chatId: target.chatId,
-                data: {
-                    bookmarks: rows.map(row => row.messageId),
-                    ...(Object.keys(bookmarkNames).length > 0 ? { bookmarkNames } : {}),
-                    ...(Object.keys(bookmarkFolderIds).length > 0 ? { bookmarkFolderIds } : {}),
-                },
             });
-        }
-        return {
-            entries,
-            folders: listFoldersStatement.all().filter(folder => referencedFolderIds.has(folder.id)),
-        };
+            entries.push({ characterId: target.characterId, chatId: target.chatId, data: {
+                bookmarks: rows.map(row => row.messageId),
+                ...(Object.keys(bookmarkNames).length ? { bookmarkNames } : {}),
+                ...(Object.keys(bookmarkTagIds).length ? { bookmarkTagIds } : {}),
+            } });
+        });
+        return { entries, tags: q.tags.all().filter(tag => used.has(tag.id)) };
     }
-
-    function projectDatabaseCompatibility(database) {
+    function projectCatalogCompatibility(database, value) {
         if (!database || typeof database !== 'object') return database;
-        database.bookmarkFolders = listFoldersStatement.all();
-        for (const character of Array.isArray(database.characters) ? database.characters : []) {
-            if (!character?.chaId) continue;
-            for (const chat of Array.isArray(character.chats) ? character.chats : []) {
-                if (!chat?.id) continue;
+        database.bookmarkTags = normalizeTags(value?.tags);
+        const byChat = new Map();
+        (Array.isArray(value?.entries) ? value.entries : []).forEach(row => {
+            if (!row?.characterId || !row.chatId || !row.messageId) return;
+            const id = `${row.characterId}\0${row.chatId}`;
+            byChat.set(id, [...(byChat.get(id) ?? []), row]);
+        });
+        (Array.isArray(database.characters) ? database.characters : []).forEach(character =>
+            (Array.isArray(character?.chats) ? character.chats : []).forEach(chat => {
                 stripChatCompatibility(chat);
-                const rows = listChatBookmarksStatement.all(character.chaId, chat.id);
-                if (rows.length === 0) continue;
+                const rows = byChat.get(`${character.chaId}\0${chat.id}`) ?? [];
+                if (!rows.length) return;
                 chat.bookmarks = rows.map(row => row.messageId);
-                const bookmarkNames = {};
-                const bookmarkFolderIds = {};
-                for (const row of rows) {
-                    if (row.customName) bookmarkNames[row.messageId] = row.customName;
-                    if (row.folderId) bookmarkFolderIds[row.messageId] = row.folderId;
-                }
-                if (Object.keys(bookmarkNames).length > 0) chat.bookmarkNames = bookmarkNames;
-                if (Object.keys(bookmarkFolderIds).length > 0) {
-                    chat.bookmarkFolderIds = bookmarkFolderIds;
-                }
-            }
-        }
+                const names = {}, tagIds = {};
+                rows.forEach(row => {
+                    if (row.customName) names[row.messageId] = row.customName;
+                    const ids = normalizeTagIds(row.tagIds);
+                    if (ids.length) tagIds[row.messageId] = ids;
+                });
+                if (Object.keys(names).length) chat.bookmarkNames = names;
+                if (Object.keys(tagIds).length) chat.bookmarkTagIds = tagIds;
+            }));
         return database;
     }
-
-    const pruneInvalidTransaction = db.transaction((isValid) => {
+    const projectDatabaseCompatibility = database => projectCatalogCompatibility(database, catalog());
+    function projectSnapshotDatabaseCompatibility(snapshotKey, database) {
+        const value = q.snapshot.get(snapshotKey)?.catalogJson;
+        if (!value) return false;
+        try { projectCatalogCompatibility(database, JSON.parse(value)); return true; }
+        catch { return false; }
+    }
+    const pruneTx = db.transaction(isValid => {
         let removed = 0;
-        for (const entry of listBookmarksStatement.all()) {
-            if (isValid(entry)) continue;
-            removed += deleteBookmarkStatement.run(
-                entry.characterId,
-                entry.chatId,
-                entry.messageId,
-            ).changes;
-        }
-        if (removed > 0) bumpRevision();
+        q.all.all().forEach(row => {
+            if (isValid(row)) return;
+            q.delBindings.run(row.characterId, row.chatId, row.messageId);
+            removed += q.del.run(row.characterId, row.chatId, row.messageId).changes;
+        });
+        if (removed) bump();
         return removed;
     });
-
-    function pruneInvalid(isValid) {
-        return typeof isValid === 'function' ? pruneInvalidTransaction(isValid) : 0;
-    }
-
-    const pruneChatMessagesTransaction = db.transaction((characterId, chatId, messageIds) => {
+    const pruneInvalid = fn => typeof fn === 'function' ? pruneTx(fn) : 0;
+    const pruneChatTx = db.transaction((characterId, chatId, ids) => {
         let removed = 0;
-        for (const entry of listChatBookmarksStatement.all(characterId, chatId)) {
-            if (messageIds.has(entry.messageId)) continue;
-            removed += deleteBookmarkStatement.run(characterId, chatId, entry.messageId).changes;
-        }
-        if (removed > 0) bumpRevision();
+        chatRows(characterId, chatId).forEach(row => {
+            if (ids.has(row.messageId)) return;
+            q.delBindings.run(characterId, chatId, row.messageId);
+            removed += q.del.run(characterId, chatId, row.messageId).changes;
+        });
+        if (removed) bump();
         return removed;
     });
-
-    function pruneChatMessages(characterId, chatId, messageIds) {
-        if (!characterId || !chatId || !(messageIds instanceof Set)) return 0;
-        return pruneChatMessagesTransaction(characterId, chatId, messageIds);
-    }
-
+    const pruneChatMessages = (characterId, chatId, ids) =>
+        characterId && chatId && ids instanceof Set ? pruneChatTx(characterId, chatId, ids) : 0;
     function stripDatabaseCompatibility(database) {
         let changed = false;
-        if (Object.prototype.hasOwnProperty.call(database ?? {}, 'bookmarkFolders')) {
-            delete database.bookmarkFolders;
-            changed = true;
+        if (Object.hasOwn(database ?? {}, 'bookmarkTags')) {
+            delete database.bookmarkTags; changed = true;
         }
-        for (const character of Array.isArray(database?.characters) ? database.characters : []) {
-            for (const chat of Array.isArray(character?.chats) ? character.chats : []) {
+        (Array.isArray(database?.characters) ? database.characters : []).forEach(character =>
+            (Array.isArray(character?.chats) ? character.chats : []).forEach(chat => {
                 changed = stripChatCompatibility(chat) || changed;
-            }
-        }
+            }));
         return changed;
     }
-
-    function ingestDatabaseCompatibility(database, options = {}) {
-        const replaceExisting = options.replaceExisting === true;
-        const includeFolderData = options.includeFolderData === true;
+    function ingest(database, { replaceExisting = false, includeTagData = false } = {}) {
         if (replaceExisting) {
-            clearBookmarksStatement.run();
-            clearFoldersStatement.run();
+            q.clearBindings.run(); q.clear.run(); q.clearTags.run();
         }
-        if (includeFolderData) {
-            const folders = normalizeFolders(database?.bookmarkFolders);
-            if (replaceExisting || listFoldersStatement.all().length === 0) {
-                folders.forEach((folder, index) => {
-                    upsertFolderStatement.run(folder.id, folder.name, index);
-                });
-            }
+        if (includeTagData && (replaceExisting || !q.tags.all().length)) {
+            normalizeTags(database?.bookmarkTags).forEach((tag, i) => q.putTag.run(tag.id, tag.name, i));
         }
         let importedChats = 0;
-        for (const character of Array.isArray(database?.characters) ? database.characters : []) {
-            if (!character?.chaId) continue;
-            for (const chat of Array.isArray(character.chats) ? character.chats : []) {
-                if (!chat?.id) continue;
-                const compatibility = readChatCompatibility(chat, { includeFolderData });
-                if (!compatibility) continue;
-                deleteChatBookmarks.run(character.chaId, chat.id);
-                compatibility.forEach((bookmark, index) => insertBookmark.run(
-                    character.chaId,
-                    chat.id,
-                    bookmark.messageId,
-                    index,
-                    bookmark.customName,
-                    bookmark.preview,
-                    validFolderId(bookmark.folderId),
-                ));
-                importedChats += 1;
-            }
-        }
+        (Array.isArray(database?.characters) ? database.characters : []).forEach(character =>
+            (Array.isArray(character?.chats) ? character.chats : []).forEach(chat => {
+                const rows = readChatCompatibility(chat, { includeTagData });
+                if (!character?.chaId || !chat?.id || !rows) return;
+                q.delChatBindings.run(character.chaId, chat.id);
+                q.delChat.run(character.chaId, chat.id);
+                rows.forEach((row, i) => {
+                    const entry = { characterId: character.chaId, chatId: chat.id, messageId: row.messageId };
+                    q.put.run(entry.characterId, entry.chatId, entry.messageId, i, row.customName, row.preview);
+                    replaceBindings(entry, row.tagIds);
+                });
+                importedChats++;
+            }));
         return importedChats;
     }
-
-    const migrateTransaction = db.transaction((database) => {
-        const migrationComplete = getMeta.get(LEGACY_MIGRATION_KEY)?.value === '1';
-        if (!migrationComplete) {
-            // Only the upstream legacy bookmark fields were ever released.
-            // The experimental folder fields were not, so startup migration
-            // deliberately imports bookmarks/names without folder metadata.
-            ingestDatabaseCompatibility(database, {
-                replaceExisting: false,
-                includeFolderData: false,
-            });
-            setMeta.run(LEGACY_MIGRATION_KEY, '1');
-            bumpRevision();
+    const migrateTx = db.transaction(database => {
+        const complete = q.getMeta.get(LEGACY_MIGRATION_KEY)?.value === '1';
+        if (!complete) {
+            ingest(database);
+            q.setMeta.run(LEGACY_MIGRATION_KEY, '1');
+            bump();
         }
-        const changed = stripDatabaseCompatibility(database);
-        return { changed, migrated: !migrationComplete };
+        return { changed: stripDatabaseCompatibility(database), migrated: !complete };
     });
-
-    function migrateLegacyDatabase(database) {
-        return migrateTransaction(database);
-    }
-
-    const replaceDatabaseTransaction = db.transaction((database) => {
-        const importedChats = ingestDatabaseCompatibility(database, {
-            replaceExisting: true,
-            includeFolderData: true,
+    const migrateLegacyDatabase = database => migrateTx(database);
+    const needsLegacyMigration = () => q.getMeta.get(LEGACY_MIGRATION_KEY)?.value !== '1';
+    const replaceDatabaseTx = db.transaction(database => {
+        const importedChats = ingest(database, { replaceExisting: true, includeTagData: true });
+        q.setMeta.run(LEGACY_MIGRATION_KEY, '1'); bump();
+        return { changed: stripDatabaseCompatibility(database), migrated: true, importedChats };
+    });
+    const replaceDatabaseCompatibility = database => replaceDatabaseTx(database);
+    const replaceCatalogTx = db.transaction(value => {
+        q.clearBindings.run(); q.clear.run(); q.clearTags.run();
+        normalizeTags(value?.tags).forEach((tag, i) => q.insertTag.run(tag.id, tag.name, i));
+        (Array.isArray(value?.entries) ? value.entries : []).forEach((row, i) => {
+            if (!row?.characterId || !row.chatId || !row.messageId) return;
+            q.put.run(row.characterId, row.chatId, row.messageId,
+                Number.isFinite(row.sortOrder) ? row.sortOrder : i,
+                typeof row.customName === 'string' && row.customName ? row.customName : null,
+                normalizePreview(row.preview, row.messageId));
+            replaceBindings(row, row.tagIds);
         });
-        setMeta.run(LEGACY_MIGRATION_KEY, '1');
-        bumpRevision();
-        return {
-            changed: stripDatabaseCompatibility(database),
-            migrated: true,
-            importedChats,
-        };
+        bump();
     });
-
-    function replaceDatabaseCompatibility(database) {
-        return replaceDatabaseTransaction(database);
+    function saveSnapshot(key) {
+        if (typeof key !== 'string' || !key || needsLegacyMigration()) return false;
+        q.saveSnapshot.run(key, JSON.stringify(catalog())); return true;
     }
-
-    const replaceCatalogTransaction = db.transaction((value) => {
-        clearBookmarksStatement.run();
-        clearFoldersStatement.run();
-        const folders = normalizeFolders(value?.folders);
-        folders.forEach((folder, index) => {
-            insertFolderStatement.run(folder.id, folder.name, index);
-        });
-        let sortOrder = 0;
-        for (const entry of Array.isArray(value?.entries) ? value.entries : []) {
-            if (!entry?.characterId || !entry.chatId || !entry.messageId) continue;
-            insertBookmark.run(
-                entry.characterId,
-                entry.chatId,
-                entry.messageId,
-                Number.isFinite(entry.sortOrder) ? entry.sortOrder : sortOrder,
-                typeof entry.customName === 'string' && entry.customName
-                    ? entry.customName
-                    : null,
-                normalizePreview(entry.preview, entry.messageId),
-                validFolderId(entry.folderId),
-            );
-            sortOrder += 1;
-        }
-        bumpRevision();
-    });
-
-    function saveSnapshot(snapshotKey) {
-        if (typeof snapshotKey !== 'string' || !snapshotKey) return false;
-        // Before the one-time migration finishes, the raw snapshot still owns
-        // its compatible bookmark fields. Let restore fall back to those.
-        if (getMeta.get(LEGACY_MIGRATION_KEY)?.value !== '1') return false;
-        saveSnapshotStatement.run(snapshotKey, JSON.stringify(catalog()));
-        return true;
+    function restoreSnapshot(key) {
+        const value = q.snapshot.get(key)?.catalogJson;
+        if (!value) return false;
+        try { replaceCatalogTx(JSON.parse(value)); return true; } catch { return false; }
     }
-
-    function restoreSnapshot(snapshotKey) {
-        const serialized = getSnapshotStatement.get(snapshotKey)?.catalogJson;
-        if (!serialized) return false;
-        try {
-            replaceCatalogTransaction(JSON.parse(serialized));
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    function deleteSnapshot(snapshotKey) {
-        return deleteSnapshotStatement.run(snapshotKey).changes > 0;
-    }
-
-    return {
-        catalog,
-        upsertBookmarkEntry,
-        patchBookmarkEntry,
-        removeBookmarkEntry,
-        replaceChatCompatibility,
-        replaceFolders,
-        mergeFolders,
-        compatibilityForTargets,
-        projectDatabaseCompatibility,
-        pruneInvalid,
-        pruneChatMessages,
-        migrateLegacyDatabase,
-        replaceDatabaseCompatibility,
-        saveSnapshot,
-        restoreSnapshot,
-        deleteSnapshot,
-    };
+    const deleteSnapshot = key => q.delSnapshot.run(key).changes > 0;
+    return { catalog, upsertBookmarkEntry, patchBookmarkEntry, removeBookmarkEntry,
+        replaceChatCompatibility, replaceTags, mergeTags, compatibilityForTargets,
+        projectDatabaseCompatibility, projectSnapshotDatabaseCompatibility, pruneInvalid,
+        pruneChatMessages, stripDatabaseCompatibility, needsLegacyMigration,
+        migrateLegacyDatabase, replaceDatabaseCompatibility, saveSnapshot, restoreSnapshot,
+        deleteSnapshot };
 }
 
-module.exports = {
-    createBookmarkStore,
-    normalizePreview,
-    readChatCompatibility,
-    stripChatCompatibility,
-};
+module.exports = { createBookmarkStore, normalizePreview, normalizeTagIds,
+    readChatCompatibility, stripChatCompatibility };

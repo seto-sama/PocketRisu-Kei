@@ -14,7 +14,7 @@
   onclick={onClick}
   class="flex h-[56px] w-[56px] cursor-pointer select-none items-center justify-center
    border border-dashed border-darkborderc bg-transparent
-   text-textcolor2 opacity-75 transition-[background-color,opacity]
+   text-subtext opacity-75 transition-[background-color,opacity]
    risu-interactive-surface risu-interactive-reveal
    {isDisabled ? 'cursor-not-allowed!' : ''}"
   class:rounded-md={!rounded}

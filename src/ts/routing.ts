@@ -32,6 +32,7 @@ export const SettingsRoute = {
     System: 22 as const,
     InlayImageGallery: 23 as const,
     AdminAndStats: 24 as const,
+    Hotkeys: 25 as const,
     DevPanel: 99 as const,
 } as const;
 
@@ -61,8 +62,7 @@ export const AccessibilityTab = {
     Editing: 0 as const,
     Scroll: 1 as const,
     Sidebar: 2 as const,
-    Hotkeys: 3 as const,
-    Others: 4 as const,
+    Others: 3 as const,
 } as const;
 
 export type AccessibilityTabValue = (typeof AccessibilityTab)[keyof typeof AccessibilityTab];

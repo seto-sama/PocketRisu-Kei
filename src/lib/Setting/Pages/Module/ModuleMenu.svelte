@@ -5,7 +5,7 @@
     import LoreBookList from "src/lib/SideBars/LoreBook/LoreBookList.svelte";
     import { type CCLorebook, convertExternalLorebook } from "src/ts/process/lorebook.svelte";
     import type { RisuModule } from "src/ts/process/modules";
-    import { DownloadIcon, FolderPlusIcon, UploadIcon, PencilIcon, PlusIcon } from "@lucide/svelte";
+    import { DownloadIcon, FolderPlusIcon, UploadIcon, PlusIcon } from "@lucide/svelte";
     import RegexList from "src/lib/SideBars/Scripts/RegexList.svelte";
     import TriggerList from "src/lib/SideBars/Scripts/TriggerList.svelte";
     import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
@@ -22,7 +22,6 @@
     import { v4 } from "uuid";
 
     let submenu = $state('basic')
-    let loreListEditMode = $state(false)
     interface Props {
         currentModule: RisuModule;
     }
@@ -164,8 +163,8 @@
     options={[
         { value: 'basic', label: language.basicInfo },
         { value: 'lorebook', label: language.loreBook },
-        { value: 'regex', label: language.regexScript },
-        { value: 'trigger', label: language.triggerScript },
+        { value: 'regex', label: language.moduleRegexLabel },
+        { value: 'trigger', label: language.moduleTriggerLuaLabel },
         { value: 'assets', label: language.additionalAssets },
     ]}
     activeColor="selected"
@@ -183,14 +182,14 @@
     <span class="mt-4">{language.namespace}<Help key="namespace" /></span>
     <TextInput commitMode="blur" bind:value={currentModule.namespace} className="mt-2"/>
     <span class="mt-4">{language.customPromptTemplateToggle}<Help key='customPromptTemplateToggle' /></span>
-    <TextAreaInput commitMode="blur" className="mt-2 mb-4" bind:value={currentModule.customModuleToggle}/>
+    <TextAreaInput commitMode="debounce" className="mt-2 mb-4" bind:value={currentModule.customModuleToggle}/>
     <div class="mt-2 flex min-h-10 w-full items-center justify-between gap-2 px-1">
-        <span class="min-w-0 text-textcolor">{language.hideChatIcon}<Help key="moduleHideChatIcon" /></span>
+        <span class="min-w-0 text-maintext">{language.hideChatIcon}<Help key="moduleHideChatIcon" /></span>
         <ShSwitch bind:checked={currentModule.hideIcon}/>
     </div>
 {/if}
 {#if submenu === 'lorebook' && (Array.isArray(currentModule.lorebook))}
-    <LoreBookList externalLoreBooks={currentModule.lorebook} moduleMode bind:listEditMode={loreListEditMode} />
+    <LoreBookList externalLoreBooks={currentModule.lorebook} moduleMode />
     <IconButtonGroup size="default" className="mt-2 w-full">
         <IconButton onclick={() => {addLorebook()}}>
             <PlusIcon />
@@ -200,16 +199,6 @@
         </IconButton>
         <IconButton onclick={() => {importLoreBook()}}>
             <UploadIcon />
-        </IconButton>
-        <IconButton
-            active={loreListEditMode}
-            activeColor="primary"
-            aria-label={language.changeFolderName}
-            onclick={() => {
-                loreListEditMode = !loreListEditMode
-            }}
-        >
-            <PencilIcon />
         </IconButton>
         <IconButton className="ml-auto" onclick={() => {
             addLorebookFolder()
@@ -221,8 +210,8 @@
 
 {#if submenu === 'regex' && (Array.isArray(currentModule.regex))}
     <span class="mt-2 flex items-center">{language.backgroundHTML}<Help key="moduleBackgroundEmbedding" /></span>
-    <TextAreaInput commitMode="blur" bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
-    <span class="mt-4 flex items-center">{language.regexScript}<Help key="moduleRegexList" /></span>
+    <TextAreaInput commitMode="debounce" bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
+    <span class="mt-4 flex items-center">{language.moduleRegexLabel}<Help key="moduleRegexList" /></span>
     <RegexList bind:value={currentModule.regex} actionIconSize="default"/>
     <IconButtonGroup size="default" className="mt-2">
         <IconButton onclick={() => {
@@ -249,7 +238,7 @@
 
 {#if submenu === 'trigger' && (Array.isArray(currentModule.trigger))}
     <div class="mt-2 flex min-h-10 w-full items-center justify-between gap-2 px-1">
-        <span class="min-w-0 text-textcolor">{language.lowLevelAccess}<Help key="lowLevelAccess" name={language.lowLevelAccess}/></span>
+        <span class="min-w-0 text-maintext">{language.lowLevelAccess}<Help key="lowLevelAccess" name={language.lowLevelAccess}/></span>
         <ShSwitch bind:checked={currentModule.lowLevelAccess}/>
     </div>
 

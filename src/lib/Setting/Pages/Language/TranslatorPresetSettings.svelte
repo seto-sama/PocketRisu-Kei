@@ -5,27 +5,27 @@
     import PresetHeader from "src/lib/UI/GUI/PresetHeader.svelte";
     import SettingRenderer from "../../SettingRenderer.svelte";
     import type { SettingItem } from "src/ts/setting/types";
-    import InlineNameInput from "src/lib/UI/GUI/InlineNameInput.svelte";
+    import InlineEditableName from "src/lib/UI/GUI/InlineEditableName.svelte";
     import { alertConfirm, alertError, notifyError, notifySuccess } from "src/ts/alert";
     import { downloadFile } from "src/ts/globalApi.svelte";
     import { DBState } from "src/ts/stores.svelte";
     import {
         createTranslatorPreset, decodeTranslatorPresetFile, defaultTranslatorPrompt,
         encodeTranslatorPresetFile, getTranslatorPresetDownloadName,
-        normalizeTranslatorPresetState, syncCurrentTranslatorPresetToLegacyFields,
+        syncCurrentTranslatorPresetToLegacyFields,
         translatorPresetImportExtensions,
     } from "src/ts/translator/presets";
     import { selectSingleFile } from "src/ts/util";
     import { v4 as uuidv4 } from "uuid";
+    import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
 
     let pickerOpen = $state(false);
-    let editMode = $state(false);
     let selectedFolder = $state("all");
     let searchQuery = $state("");
     let visibleItemIndexes = $state<number[]>([]);
     let emptyMessage = $state("");
 
-    const folders = $derived(DBState.db.translatorPresetFolders ?? []);
+    const tags = $derived(DBState.db.translatorPresetTags ?? []);
     const activePreset = $derived(DBState.db.translatorPresets?.[DBState.db.translatorPresetId]);
     const activePresetItems = $derived.by((): SettingItem[] => activePreset ? [
         {
@@ -70,10 +70,10 @@
 
     function addPreset() {
         const preset = createTranslatorPreset();
-        preset.folderId = undefined;
+        preset.tagIds = undefined;
         DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
         DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
-        normalizeTranslatorPresetState(DBState.db);
+        sync();
     }
 
     function duplicatePreset(index: number) {
@@ -82,7 +82,7 @@
         preset.name = `${preset.name} Copy`;
         DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
         DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
-        normalizeTranslatorPresetState(DBState.db);
+        sync();
         notifySuccess(language.presetDuplicated);
     }
 
@@ -95,7 +95,7 @@
         if (!await alertConfirm(`${language.removeConfirm}${preset.name}`)) return;
         DBState.db.translatorPresets = DBState.db.translatorPresets.filter((_, i) => i !== index);
         DBState.db.translatorPresetId = Math.min(DBState.db.translatorPresetId, DBState.db.translatorPresets.length - 1);
-        normalizeTranslatorPresetState(DBState.db);
+        sync();
     }
 
     async function exportPreset(index: number) {
@@ -116,7 +116,7 @@
             preset.id = uuidv4();
             DBState.db.translatorPresets = [...DBState.db.translatorPresets, preset];
             DBState.db.translatorPresetId = DBState.db.translatorPresets.length - 1;
-            normalizeTranslatorPresetState(DBState.db);
+            sync();
             notifySuccess(language.successImport);
         } catch (error) {
             alertError(`${error}`);
@@ -126,8 +126,8 @@
 
 <div class="flex items-center justify-between gap-3 py-3 border-t border-darkborderc">
     <div class="flex flex-col gap-0.5 min-w-0">
-        <span class="text-sm text-textcolor">{language.presets}</span>
-        <span class="text-xs text-textcolor2">{language.help.translatorPreset}</span>
+        <span class="text-sm text-maintext">{language.presets}</span>
+        <span class="text-xs text-subtext">{language.help.translatorPreset}</span>
     </div>
     <PresetHeader
         compact
@@ -144,42 +144,43 @@
 {#if pickerOpen}
     <PresetPickerLayout
         title={`${language.translate} ${language.presets}`}
-        {folders}
-        itemFolderIds={DBState.db.translatorPresets.map(preset => preset.folderId)}
+        folders={tags}
+        itemFolderIds={DBState.db.translatorPresets.map(preset => preset.tagIds)}
+        organizationKind="tag"
         itemNames={DBState.db.translatorPresets.map(preset => preset.name)}
         itemDragDataKey="translatorPresetIndex"
         bind:selectedFolder bind:searchQuery bind:visibleItemIndexes bind:emptyMessage
         close={() => pickerOpen = false}
-        onFoldersChange={(next) => DBState.db.translatorPresetFolders = next}
-        onAssignItem={(index, folderId) => {
+        onFoldersChange={(next) => DBState.db.translatorPresetTags = next}
+        onAssignItem={(index, tagId) => {
             const preset = DBState.db.translatorPresets[index];
-            preset.folderId = folderId;
+            preset.tagIds = togglePresetTag(preset.tagIds, tagId);
             DBState.db.translatorPresets = [...DBState.db.translatorPresets];
         }}
-        onDeleteFolder={(folderId) => {
+        onDeleteFolder={(tagId) => {
             DBState.db.translatorPresets = DBState.db.translatorPresets.map(preset =>
-                preset.folderId === folderId ? { ...preset, folderId: undefined } : preset);
+                ({ ...preset, tagIds: removePresetTag(preset.tagIds, tagId) }));
         }}
         selectedItemIndex={DBState.db.translatorPresetId}
-        itemEditMode={editMode}
         onMoveItem={movePreset}
         onSelectItem={selectPreset}
         onDuplicateItem={duplicatePreset}
         onExportItem={exportPreset}
         onDeleteItem={removePreset}
+        itemRenameable
     >
-        {#snippet itemContent(index)}
-                {@const preset = DBState.db.translatorPresets[index]}
-                {#if editMode}
-                    <div class="min-w-0 grow"><InlineNameInput bind:value={DBState.db.translatorPresets[index].name} size="default" placeholder="string" /></div>
-                {:else}
-                    <span class="grow min-w-0 truncate">{preset.name}</span>
-                {/if}
+        {#snippet itemContent(index, renameController)}
+                <InlineEditableName
+                    controller={renameController}
+                    bind:value={DBState.db.translatorPresets[index].name}
+                    size="default"
+                    placeholder="string"
+                    onActivate={() => selectPreset(index)}
+                />
         {/snippet}
         <PresetPickerActions
             onCreate={addPreset}
             onImport={importPreset}
-            onRename={() => { editMode = !editMode }}
         />
     </PresetPickerLayout>
 {/if}

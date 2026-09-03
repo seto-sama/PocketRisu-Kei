@@ -45,6 +45,25 @@ describe('buffered inputs', () => {
         expect(onCommit).toHaveBeenCalledWith(1024)
     })
 
+    it('commits an empty optional number as undefined', async () => {
+        const onCommit = vi.fn()
+        const root = target()
+        mounted.push(mount(NumberInput, {
+            target: root,
+            props: { value: 42, allowEmpty: true, commitMode: 'input', onCommit },
+        }))
+        await tick()
+
+        const input = root.querySelector<HTMLInputElement>('input')!
+        input.value = ''
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await tick()
+
+        expect(input.value).toBe('')
+        expect(onCommit).toHaveBeenCalledOnce()
+        expect(onCommit).toHaveBeenCalledWith(undefined)
+    })
+
     it('buffers persisted text fields until blur', async () => {
         const oncommit = vi.fn()
         const root = target()

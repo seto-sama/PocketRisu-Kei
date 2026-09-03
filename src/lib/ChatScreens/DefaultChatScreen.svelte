@@ -1,6 +1,6 @@
 <script lang="ts">
 
-    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, LaughIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, StepForwardIcon, XIcon, BrainIcon, ArrowDownIcon, ZapIcon, Maximize2Icon, Minimize2Icon, WandSparklesIcon } from "@lucide/svelte";
+    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, ChevronsUpIcon, ChevronsDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, MenuIcon, MicOffIcon, PackageIcon, RefreshCcwIcon, SendIcon, StepForwardIcon, XIcon, BrainIcon, ArrowDownIcon, ZapIcon, Maximize2Icon, WandSparklesIcon } from "@lucide/svelte";
     import ShDropdownMenu from 'src/lib/UI/GUI/ShDropdownMenu.svelte';
     import ShDropdownMenuTrigger from 'src/lib/UI/GUI/ShDropdownMenuTrigger.svelte';
     import ShDropdownMenuContent from 'src/lib/UI/GUI/ShDropdownMenuContent.svelte';
@@ -12,23 +12,22 @@
     import { getAdditionalChatLoadPages, getInitialChatLoadPages } from 'src/ts/chatLoadPages';
     import { type Chat as ChatData, type Message, type character } from "../../ts/storage/database.svelte";
     import { ensureMessageId } from 'src/ts/storage/messageIdentity';
-    import { DBState, invalidateChatMessageRender } from 'src/ts/stores.svelte';
+    import { DBState, invalidateChatMessageRender, showPopupEditor } from 'src/ts/stores.svelte';
     import { getCharImage } from "../../ts/characters";
     import { chatProcessStage, doingChat, recoverRevenantGenerationsForChat, sendChat } from "../../ts/process/index.svelte";
     import { ensureCurrentChatReady, flushDirtyChatToServer } from "../../ts/storage/chatStorage";
-    import { sleep } from "../../ts/util";
+    import { createFrameScheduler, sleep } from "../../ts/util";
     import { language } from "../../lang";
     import { isExpTranslator, recoverAuxiliaryTranslationJobs, translate } from "../../ts/translator/translator";
-    import { alertError, alertWait, notifySuccess, notifyError } from "../../ts/alert";
+    import { alertConfirm, alertError, alertWait, notifySuccess, notifyError } from "../../ts/alert";
     import { playNotificationSound } from '../../ts/notificationSound'
 import { isMobile } from 'src/ts/platform'
     import { processScript } from "src/ts/process/scripts";
     import CreatorQuote from "./CreatorQuote.svelte";
     import { stopTTS } from "src/ts/process/tts";
     import MainMenu from '../UI/MainMenu.svelte';
-    import AssetInput from './AssetInput.svelte';
     import { CHAT_HISTORY_LOAD_THRESHOLD, createChatScrollController, isChatNearBottom, type ChatScrollController } from './chatScroll';
-    import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile } from 'src/ts/globalApi.svelte';
+    import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile, requestImmediateSave } from 'src/ts/globalApi.svelte';
     import { isRevenantGenerationLocallyObserved } from 'src/ts/process/revenant/transport';
     import { listRecoverableAuxiliaryGenerations } from 'src/ts/process/revenant/auxiliary';
     import type { RevenantRerollSnapshot } from 'src/ts/process/revenant';
@@ -42,8 +41,9 @@ import { isMobile } from 'src/ts/platform'
     import { runTrigger } from 'src/ts/process/triggers';
     import { v4 } from 'uuid';
     import { processMultiCommand } from 'src/ts/process/command';
+    import { runAutomaticRerolls, type AutomaticRerollResult } from 'src/ts/process/automaticReroll';
     import { postChatFile } from 'src/ts/process/files/multisend';
-    import { getInlayAsset, getInlayMeta } from 'src/ts/process/files/inlays';
+    import { getInlayAsset, getInlayAssetUrl, getInlayExplorerItemsBatch, getInlayMeta, type InlayExplorerItem } from 'src/ts/process/files/inlays';
     import { quickMenu } from 'src/ts/hotkey';
     import { loadChatDraft, scheduleSaveChatDraft, flushChatDraft, removeChatDraft } from 'src/ts/storage/chatDraft';
     import {
@@ -63,11 +63,23 @@ import { isMobile } from 'src/ts/platform'
     import ShButton from '../UI/GUI/ShButton.svelte';
     import PluginDefinedIcon from '../Others/PluginDefinedIcon.svelte';
     import Portal from '../UI/GUI/Portal.svelte';
-    import OverlayPortal from '../UI/GUI/OverlayPortal.svelte';
     import ImageGenerationDialog from './ImageGenerationDialog.svelte';
     import TranslationDialog from './TranslationDialog.svelte';
     import { generateAIImageInlay } from 'src/ts/process/stableDiff';
-    import { floorCssLengthToPhysicalPixel } from 'src/ts/gui/physicalPixel';
+    import { getCurrentImageGenerationPreset } from 'src/ts/imageGeneration/presets';
+    import { canonicalizeInlayTokens, INLAY_VIEWER_ID_ATTRIBUTE } from 'src/ts/util/inlayTokens';
+    import { isChatImagePreloadingEnabled, preloadInlayAssets } from 'src/ts/parser/parser.svelte';
+    import AssetViewerActions from 'src/lib/UI/GUI/AssetViewerActions.svelte';
+    import FullscreenImageViewer from 'src/lib/UI/GUI/FullscreenImageViewer.svelte';
+    import InlayViewerMetadata from 'src/lib/UI/GUI/InlayViewerMetadata.svelte';
+    import { copyInlayReference, downloadInlayAsset } from 'src/lib/UI/inlayViewerActions';
+    import {
+        collectChatInlayViewerEntries,
+        isEmptyChatInlayMessage,
+        removeChatInlayOccurrence,
+        removeCurrentEmptyInlaySwipe,
+        type ChatInlayViewerEntry,
+    } from './chatInlayViewer';
 
     // Whether an Enter keydown should send (vs insert a newline), based on the
     // per-platform send-key mode. Mobile uses sendKeyMobile, desktop sendKeyPC.
@@ -87,6 +99,7 @@ import { isMobile } from 'src/ts/platform'
         openModuleList?: boolean;
         openChatList?: boolean;
         customStyle?: string;
+        portalTarget?: HTMLElement | null;
     }
 
     let messageInput:string = $state('')
@@ -97,7 +110,6 @@ import { isMobile } from 'src/ts/platform'
     let imageRerollingTarget = $state.raw<{ roomId: string, messageId: string } | null>(null)
     let loadPages = $state(getInitialChatLoadPages(DBState.db))
     let doingChatInputTranslate = false
-    let toggleStickers:boolean = $state(false)
     let fileInput:string[] = $state([])
     let showNewMessageButton = $state(false)
     let showScrollNav = $state(false)
@@ -105,13 +117,17 @@ import { isMobile } from 'src/ts/platform'
     let chatsInstance: any = $state()
     let chatScreenRoot: HTMLDivElement | null = $state(null)
     let composerHeight = $state(0)
-    let composerToolbarOffset = $state(0)
     let fixedComposerLeft = $state(0)
     let fixedComposerWidth = $state(0)
     let chatScrollController: ChatScrollController | null = null
     let isScrollingToMessage = $state(false)
-    let historyLoadInFlight = false
-    let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '' }: Props = $props();
+    let historyLoadToken: symbol | null = null
+    let historyInlayPreload: {
+        roomKey: string
+        loadPages: number
+        promise: Promise<void>
+    } | null = null
+    let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '', portalTarget }: Props = $props();
     let currentCharacter = $derived(DBState.db.characters[$selectedCharID])
     let currentChatSlot = $derived(currentCharacter?.chats[currentCharacter.chatPage])
     let currentChatReady = $derived(!!currentChatSlot && !currentChatSlot._placeholder)
@@ -120,26 +136,197 @@ import { isMobile } from 'src/ts/platform'
     let loadPagesRoomKey = $state('')
     let currentChatRoomKey = $derived(`${$selectedCharID}:${currentCharacter?.chatPage ?? -1}:${currentChatSlot?.id ?? ''}`)
     let currentRoomHasImageReroll = $derived(imageRerollingTarget?.roomId === currentChatSlot?.id)
+    let inlayViewerOpen = $state(false)
+    let inlayViewerEntries: ChatInlayViewerEntry[] = $state([])
+    let inlayViewerItems: Record<string, InlayExplorerItem> = $state({})
+    let inlayViewerIndex = $state(-1)
+    let inlayViewerRoomKey = $state('')
+    let inlayViewerRequest = 0
+    let inlayViewerDeleting = false
+    let currentInlayViewerEntry = $derived(inlayViewerEntries[inlayViewerIndex] ?? null)
+    let inlayViewerId = $derived(currentInlayViewerEntry?.id ?? '')
+    let currentInlayViewerItem = $derived(inlayViewerItems[inlayViewerId] ?? null)
+    let inlayViewerSrc = $derived(inlayViewerId ? getInlayAssetUrl(inlayViewerId) : '')
+
+    function getDisplayedFirstMessage(): string {
+        if (!currentCharacter) return ''
+        return currentChatFmIndex === -1
+            ? currentCharacter.firstMessage
+            : (currentCharacter.alternateGreetings[currentChatFmIndex] ?? '')
+    }
+
+    function collectCurrentRoomInlayEntries(): ChatInlayViewerEntry[] {
+        return collectChatInlayViewerEntries(getDisplayedFirstMessage(), currentChat)
+    }
+
+    function refreshInlayViewerEntries(fallbackIndex: number): ChatInlayViewerEntry | null {
+        const imageEntries = collectCurrentRoomInlayEntries().filter(entry =>
+            (inlayViewerItems[entry.id]?.type ?? 'image') === 'image')
+        if (imageEntries.length === 0) {
+            closeInlayViewer()
+            return null
+        }
+        inlayViewerEntries = imageEntries
+        inlayViewerIndex = Math.min(Math.max(0, fallbackIndex), imageEntries.length - 1)
+        return imageEntries[inlayViewerIndex] ?? null
+    }
+
+    async function loadInlayViewerEntries(
+        target: ChatInlayViewerEntry | null,
+        fallbackIndex = 0,
+    ) {
+        const request = ++inlayViewerRequest
+        const roomKey = currentChatRoomKey
+        const roomEntries = collectCurrentRoomInlayEntries()
+        const roomIds = [...new Set(roomEntries.map(entry => entry.id))]
+        try {
+            const items = await getInlayExplorerItemsBatch(roomIds)
+            if (request !== inlayViewerRequest || roomKey !== currentChatRoomKey) return
+            const imageEntries = roomEntries.filter(entry => items[entry.id]?.type === 'image')
+            if (imageEntries.length === 0) {
+                closeInlayViewer()
+                return
+            }
+            inlayViewerItems = items
+            inlayViewerEntries = imageEntries
+            const targetIndex = target
+                ? imageEntries.findIndex(entry => entry.id === target.id
+                    && entry.messageIndex === target.messageIndex
+                    && entry.occurrence === target.occurrence)
+                : -1
+            inlayViewerIndex = targetIndex >= 0
+                ? targetIndex
+                : Math.min(Math.max(0, fallbackIndex), imageEntries.length - 1)
+        } catch (error) {
+            console.warn('[InlayViewer] Failed to resolve room assets', error)
+            if (request === inlayViewerRequest && roomKey === currentChatRoomKey) {
+                inlayViewerEntries = roomEntries
+                inlayViewerIndex = Math.min(Math.max(0, fallbackIndex), roomEntries.length - 1)
+            }
+        }
+    }
+
+    function openInlayViewer(target: ChatInlayViewerEntry) {
+        inlayViewerEntries = [target]
+        inlayViewerIndex = 0
+        inlayViewerRoomKey = currentChatRoomKey
+        inlayViewerOpen = true
+        void loadInlayViewerEntries(target)
+    }
+
+    function getInlayViewerTarget(event: Event): ChatInlayViewerEntry | null {
+        const target = event.target
+        if (!(target instanceof HTMLImageElement)) return null
+        const container = target.closest<HTMLElement>(`[${INLAY_VIEWER_ID_ATTRIBUTE}]`)
+        const chat = target.closest<HTMLElement>('[data-chat-index]')
+        const id = container?.getAttribute(INLAY_VIEWER_ID_ATTRIBUTE)
+        const messageIndex = Number(chat?.dataset.chatIndex)
+        if (!container || !id || !Number.isInteger(messageIndex)) return null
+        const matchingContainers = Array.from(
+            chat?.querySelectorAll<HTMLElement>(`[${INLAY_VIEWER_ID_ATTRIBUTE}]`) ?? [],
+        ).filter(element => element.getAttribute(INLAY_VIEWER_ID_ATTRIBUTE) === id)
+        const occurrence = matchingContainers.indexOf(container)
+        if (occurrence < 0) return null
+        return { id, messageIndex, occurrence }
+    }
+
+    function handleInlayViewerClick(event: MouseEvent) {
+        const target = getInlayViewerTarget(event)
+        if (!target) return
+        event.preventDefault()
+        event.stopPropagation()
+        openInlayViewer(target)
+    }
+
+    function handleInlayViewerKeydown(event: KeyboardEvent) {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        const target = getInlayViewerTarget(event)
+        if (!target) return
+        event.preventDefault()
+        event.stopPropagation()
+        openInlayViewer(target)
+    }
+
+    function closeInlayViewer() {
+        inlayViewerRequest += 1
+        inlayViewerOpen = false
+        inlayViewerEntries = []
+        inlayViewerItems = {}
+        inlayViewerIndex = -1
+        inlayViewerRoomKey = ''
+    }
+
+    function moveInlayViewer(direction: -1 | 1) {
+        const nextIndex = inlayViewerIndex + direction
+        if (nextIndex < 0 || nextIndex >= inlayViewerEntries.length) return
+        inlayViewerIndex = nextIndex
+    }
+
+    async function copyCurrentInlayReference() {
+        if (!inlayViewerId) return
+        await copyInlayReference(inlayViewerId)
+    }
+
+    async function downloadCurrentInlay() {
+        const item = currentInlayViewerItem
+        if (!item) return
+        await downloadInlayAsset(item.id)
+    }
+
+    async function deleteCurrentInlayReference() {
+        const entry = currentInlayViewerEntry
+        const item = currentInlayViewerItem
+        if (!entry || entry.messageIndex < 0 || inlayViewerDeleting) return
+        inlayViewerDeleting = true
+        const deletedViewerIndex = inlayViewerIndex
+        try {
+            if (!(await alertConfirm(language.inlayGallery.inlayDeleteConfirm.replace('{name}', item?.name ?? entry.id)))) return
+            const message = currentChatSlot?.message?.[entry.messageIndex]
+            if (!message) return
+            const next = removeChatInlayOccurrence(message.data, entry)
+            if (!isEmptyChatInlayMessage(next)) {
+                message.data = next
+                if (message.swipes && message.swipeId !== undefined) {
+                    message.swipes[message.swipeId] = next
+                }
+                invalidateChatMessageRender(entry.messageIndex)
+            } else if (removeCurrentEmptyInlaySwipe(message)) {
+                invalidateSwipeMessage(message, entry.messageIndex)
+            } else if (currentChatSlot) {
+                currentChatSlot.message = currentChatSlot.message.filter((_, index) => index !== entry.messageIndex)
+                currentCharacter.reloadKeys += 1
+            }
+            void requestImmediateSave()
+            const nextEntry = refreshInlayViewerEntries(deletedViewerIndex)
+            if (nextEntry) {
+                await loadInlayViewerEntries(nextEntry, inlayViewerIndex)
+            }
+        } finally {
+            inlayViewerDeleting = false
+        }
+    }
+
+    $effect(() => {
+        if (inlayViewerOpen && inlayViewerRoomKey !== currentChatRoomKey) closeInlayViewer()
+    })
 
     function trackComposerMetrics(node: HTMLElement) {
         const update = () => {
-            composerHeight = node.offsetHeight
-            composerToolbarOffset = floorCssLengthToPhysicalPixel(
-                node.getBoundingClientRect().height,
-                globalThis.devicePixelRatio,
-            )
+            composerHeight = node.getBoundingClientRect().height
         }
+        const scheduler = createFrameScheduler(update)
         const resizeObserver = typeof ResizeObserver === 'undefined'
             ? null
-            : new ResizeObserver(update)
+            : new ResizeObserver(scheduler.schedule)
         resizeObserver?.observe(node)
-        window.addEventListener('resize', update)
+        window.addEventListener('resize', scheduler.schedule)
         update()
 
         return {
             destroy() {
                 resizeObserver?.disconnect()
-                window.removeEventListener('resize', update)
+                window.removeEventListener('resize', scheduler.schedule)
+                scheduler.cancel()
             },
         }
     }
@@ -150,6 +337,7 @@ import { isMobile } from 'src/ts/platform'
             if (bounds.left !== fixedComposerLeft) fixedComposerLeft = bounds.left
             if (bounds.width !== fixedComposerWidth) fixedComposerWidth = bounds.width
         }
+        const scheduler = createFrameScheduler(update)
         const observedElements: Element[] = []
         for (let current: Element | null = node; current; current = current.parentElement) {
             observedElements.push(current)
@@ -161,7 +349,7 @@ import { isMobile } from 'src/ts/platform'
             if (tracking) return
             tracking = true
             if (typeof ResizeObserver === 'undefined') {
-                window.addEventListener('resize', update)
+                window.addEventListener('resize', scheduler.schedule)
             }
             else {
                 const observedWidths = new WeakMap<Element, number>()
@@ -174,7 +362,7 @@ import { isMobile } from 'src/ts/platform'
                             horizontalLayoutChanged = true
                         }
                     }
-                    if (horizontalLayoutChanged) update()
+                    if (horizontalLayoutChanged) scheduler.schedule()
                 })
                 for (const element of observedElements) {
                     observedWidths.set(element, element.getBoundingClientRect().width)
@@ -188,7 +376,8 @@ import { isMobile } from 'src/ts/platform'
             tracking = false
             resizeObserver?.disconnect()
             resizeObserver = null
-            window.removeEventListener('resize', update)
+            window.removeEventListener('resize', scheduler.schedule)
+            scheduler.cancel()
         }
 
         if (enabled) start()
@@ -236,7 +425,7 @@ import { isMobile } from 'src/ts/platform'
             || currentCharacter?.type !== 'character'
             || !currentChatSlot?.id
         ) return
-        if(!DBState.db.sdProvider) {
+        if(!getCurrentImageGenerationPreset(DBState.db).settings.sdProvider) {
             notifyError(language.imageProviderNotConfigured)
             return
         }
@@ -268,8 +457,13 @@ import { isMobile } from 'src/ts/platform'
             target.data = reference
             target.time = Date.now()
             character.reloadKeys += 1
+            const targetIndex = chat.message.indexOf(target)
+            if (targetIndex >= 0) invalidateChatMessageRender(targetIndex)
             await tick()
-            if(currentChatSlot?.id === chat.id) scrollToBottom()
+            const isLastActiveMessage = chat.message.findLast(
+                item => !item.isComment && !item.disabled,
+            )?.chatId === messageId
+            if(currentChatSlot?.id === chat.id && isLastActiveMessage) scrollToBottom()
         }
         catch(error) {
             notifyError(`${error}`)
@@ -298,6 +492,8 @@ import { isMobile } from 'src/ts/platform'
         if (loadPagesRoomKey === currentChatRoomKey) return
         loadPagesRoomKey = currentChatRoomKey
         loadPages = getInitialChatLoadPages(DBState.db)
+        historyLoadToken = null
+        historyInlayPreload = null
     })
 
     let currentRevenantWorkflow = $derived($activeRevenantWorkflows.find(workflow =>
@@ -319,6 +515,11 @@ import { isMobile } from 'src/ts/platform'
             roomId: string
         }
     }
+    const failedGenerationAttempt = (): AutomaticRerollResult => ({
+        generated: false,
+        toolExecuted: false,
+        detached: false,
+    })
 
     let foregroundGenerationContexts = $state.raw<ForegroundGenerationContext[]>([])
     let currentRoomForegroundGeneration = $derived(
@@ -569,23 +770,77 @@ import { isMobile } from 'src/ts/platform'
     }
 
     async function loadMoreHistory() {
-        if (historyLoadInFlight || currentChat.length <= loadPages) return
-        historyLoadInFlight = true
-        const release = chatScrollController?.preserveViewportPosition()
+        if (historyLoadToken || currentChat.length <= loadPages) return
+        const loadToken = Symbol('history-load')
+        historyLoadToken = loadToken
         try {
-            loadPages = Math.min(
-                currentChat.length,
-                loadPages + getAdditionalChatLoadPages(DBState.db),
-            )
-            // Chats mounts stable message wrappers in the first tick; the
-            // second lets their child components publish initial layout.
-            await tick()
-            await tick()
+            const roomKey = currentChatRoomKey
+            const previousLoadPages = loadPages
+            await preloadNextHistoryPage()
+            if (currentChatRoomKey !== roomKey || loadPages !== previousLoadPages) return
+
+            const release = chatScrollController?.preserveViewportPosition({ followLayout: true })
+            try {
+                loadPages = Math.min(
+                    currentChat.length,
+                    loadPages + getAdditionalChatLoadPages(DBState.db),
+                )
+                // Chats mounts stable message wrappers in the first tick; the
+                // second lets their child components publish initial layout.
+                await tick()
+                await tick()
+            }
+            finally {
+                release?.()
+            }
         }
         finally {
-            release?.()
-            historyLoadInFlight = false
+            if (historyLoadToken === loadToken) historyLoadToken = null
         }
+    }
+
+    function getLoadedHistoryRange(pageCount: number): { start: number, end: number } {
+        const foldedIndex = chatFoldedStateMessageIndex.index
+        if (foldedIndex === -1) {
+            return {
+                start: Math.max(0, currentChat.length - pageCount),
+                end: currentChat.length,
+            }
+        }
+
+        return {
+            start: Math.max(0, foldedIndex - pageCount),
+            end: Math.min(currentChat.length, foldedIndex + 1),
+        }
+    }
+
+    function getHistoryInlaySources(start: number, end: number): string[] {
+        const sources: string[] = []
+        for (let index = start; index < end; index += 1) {
+            const message = currentChat[index]
+            const source = message?.recoveryDisplayData ?? message?.data
+            if (typeof source === 'string') sources.push(source)
+        }
+        return sources
+    }
+
+    function preloadNextHistoryPage(): Promise<void> {
+        if (!isChatImagePreloadingEnabled()) return Promise.resolve()
+        const roomKey = currentChatRoomKey
+        const previousLoadPages = loadPages
+        if (historyInlayPreload?.roomKey === roomKey
+            && historyInlayPreload.loadPages === previousLoadPages) {
+            return historyInlayPreload.promise
+        }
+
+        const { start: currentStart } = getLoadedHistoryRange(previousLoadPages)
+        const nextStart = Math.max(
+            0,
+            currentStart - getAdditionalChatLoadPages(DBState.db),
+        )
+        const promise = preloadInlayAssets(getHistoryInlaySources(nextStart, currentStart))
+        historyInlayPreload = { roomKey, loadPages: previousLoadPages, promise }
+        return promise
     }
     $effect(() => {
         if(ScrollToMessageStore.value !== -1){
@@ -769,7 +1024,7 @@ import { isMobile } from 'src/ts/platform'
 
                     cha.push(ensureMessageId({
                         role: 'user',
-                        data: await processScript(char,submittedMessageInput,'editinput'),
+                        data: canonicalizeInlayTokens(await processScript(char,submittedMessageInput,'editinput')),
                         time: Date.now(),
                         name: null
                     }))
@@ -777,7 +1032,7 @@ import { isMobile } from 'src/ts/platform'
                 else{
                     cha.push(ensureMessageId({
                         role: 'user',
-                        data: submittedMessageInput,
+                        data: canonicalizeInlayTokens(submittedMessageInput),
                         time: Date.now(),
                         name: null
                     }))
@@ -791,12 +1046,24 @@ import { isMobile } from 'src/ts/platform'
             await sleep(10)
             updateInputSizeAll()
             foregroundHandedOff = true
-            await sendChatMain(
+            const initialResult = await sendChatMain(
                 continueResponse,
                 undefined,
                 generationTarget,
                 foregroundContext,
             )
+            if (
+                initialResult.generated
+                && !initialResult.detached
+                && !initialResult.toolExecuted
+                && !continueResponse
+                && !DBState.db.outputImageModal
+            ) {
+                await runAutomaticRerolls(
+                    DBState.db.genTime,
+                    () => reroll(undefined, true),
+                )
+            }
         } finally {
             if(!foregroundHandedOff){
                 releaseForegroundGeneration(foregroundContext)
@@ -804,29 +1071,20 @@ import { isMobile } from 'src/ts/platform'
         }
     }
 
-    // Fullscreen compose mode: the same messageInput, just shown in a full-screen
-    // editor. Enter inserts a newline (no send); sending is via the Send button.
-    let composerFullscreen = $state(false)
-    let fullscreenEle:HTMLTextAreaElement = $state()
-    $effect(() => {
-        if (composerFullscreen && fullscreenEle) {
-            const el = fullscreenEle
-            requestAnimationFrame(() => {
-                el.focus()
-                el.selectionStart = el.selectionEnd = el.value.length
-            })
-        }
-    })
-    async function exitFullscreen(){
-        composerFullscreen = false
-        persistDraftNow()   // checkpoint the draft on return from the expanded composer
-        await tick()   // let the inline composer re-measure with the latest text
-        updateInputSizeAll()
-        updateInputTransateMessage(false)
-    }
-    function sendFullscreen(){
-        composerFullscreen = false
-        send()
+    function openMessageInputPopupEditor() {
+        showPopupEditor({
+            value: messageInput,
+            title: language.chatInputExpandTitle,
+            mode: 'cbs',
+            onSave: async (nextValue) => {
+                messageInput = nextValue
+                persistDraftNow()
+                await tick()
+                updateInputSizeAll()
+                updateInputTransateMessage(false)
+                return true
+            },
+        })
     }
 
     // With an empty input (and no attachments) and the last message being the
@@ -853,8 +1111,9 @@ import { isMobile } from 'src/ts/platform'
     function getSwipeTargetMsg(idx?: number) {
         const msgs = DBState.db.characters[$selectedCharID]?.chats[DBState.db.characters[$selectedCharID].chatPage]?.message
         if (idx === undefined) return getLastCharMsg()
-        if (!DBState.db.showPreviousChatSwipeButtons || !msgs?.[idx]) return null
+        if (!msgs?.[idx]) return null
         const msg = msgs[idx]
+        if (!DBState.db.showPreviousChatSwipeButtons && msg.kind !== 'imageGeneration') return null
         if (msg.role !== 'char' || msg.isComment) return null
         return msg
     }
@@ -864,17 +1123,22 @@ import { isMobile } from 'src/ts/platform'
         invalidateChatMessageRender(idx ?? currentChat.indexOf(message))
     }
 
-    async function reroll() {
-        if(currentRoomHasMainGeneration) return
-        const activeMessage = getLastActiveMessage()
+    async function reroll(idx?: number, automatic = false): Promise<AutomaticRerollResult> {
+        if(currentRoomHasMainGeneration || currentRoomHasImageReroll) {
+            return failedGenerationAttempt()
+        }
+        const activeMessage = idx === undefined ? getLastActiveMessage() : currentChat[idx]
         if(activeMessage?.kind === 'imageGeneration') {
             await rerollGeneratedImage(activeMessage)
-            return
+            return failedGenerationAttempt()
         }
+        // Historical rerolls are intentionally image-only. Text generation must
+        // continue to target the latest active response.
+        if(idx !== undefined) return failedGenerationAttempt()
         const selectedChar = $selectedCharID
         const rerollCharacter = DBState.db.characters[selectedChar]
         const rerollChat = rerollCharacter?.chats?.[rerollCharacter.chatPage]
-        if (!rerollCharacter?.chaId || !rerollChat?.id) return
+        if (!rerollCharacter?.chaId || !rerollChat?.id) return failedGenerationAttempt()
         // Let the edit effect pin its canonical base, then settle that edit
         // before the reroll swaps the live body for a temporary placeholder.
         // Otherwise the pending autosave can persist the projection and make
@@ -888,14 +1152,14 @@ import { isMobile } from 'src/ts/platform'
             )
         } catch (error) {
             alertError(error)
-            return
+            return failedGenerationAttempt()
         }
         const generationTarget = {
             characterId: rerollCharacter.chaId,
             roomId: rerollChat.id,
         }
         const prepared = prepareChatReroll(rerollCharacter.chaId, rerollChat)
-        if (!prepared) return
+        if (!prepared) return failedGenerationAttempt()
         const messageChatId = v4()
         openMenu = false
         const foregroundContext = beginForegroundGeneration(generationTarget)
@@ -909,17 +1173,18 @@ import { isMobile } from 'src/ts/platform'
             rerollSnapshot: prepared.rerollSnapshot,
         })
         rerollCharacter.reloadKeys += 1
-        const generated = await sendChatMain(
+        const attempt = await sendChatMain(
             false,
             prepared.rerollSnapshot,
             generationTarget,
             foregroundContext,
             prepared.durableInputCommit,
             messageChatId,
+            automatic,
         )
 
         // A user-triggered cancel keeps the partial reroll as the active swipe.
-        if (!generated) {
+        if (!attempt.generated) {
             if (
                 foregroundContext.abortRequested
                 && applyCancelledRerollSession(
@@ -928,13 +1193,13 @@ import { isMobile } from 'src/ts/platform'
                     foregroundContext.rerollSession,
                 )
             ) {
-                return
+                return { ...attempt, generated: false }
             }
             // Once a server workflow exists, its terminal materializer owns
             // cancellation. Keep the local placeholder instead of briefly
             // restoring the old branch before canonical sync arrives.
             if (shouldRetainRerollProjectionForCanonical(foregroundContext)) {
-                return
+                return attempt
             }
             const failedCharacter = DBState.db.characters.find(character =>
                 character?.chaId === generationTarget.characterId)
@@ -944,8 +1209,9 @@ import { isMobile } from 'src/ts/platform'
                 failedChat.message = prepared.originalMessages
                 failedChat.isStreaming = false
             }
-            return
+            return attempt
         }
+        return attempt
     }
 
     async function unReroll(idx?: number) {
@@ -1020,7 +1286,8 @@ import { isMobile } from 'src/ts/platform'
         preparedContext?: ForegroundGenerationContext,
         durableInputCommit?: PreparedChatReroll['durableInputCommit'],
         messageChatId?: string,
-    ) {
+        automatic = false,
+    ): Promise<AutomaticRerollResult> {
 
         const origin = generationTarget ?? (
             currentCharacter?.chaId && currentChatSlot?.id
@@ -1030,11 +1297,12 @@ import { isMobile } from 'src/ts/platform'
                 }
                 : null
         )
-        if(!origin) return false
+        if(!origin) return failedGenerationAttempt()
         const foregroundContext = preparedContext ?? beginForegroundGeneration(origin)
         const detachController = foregroundContext.detachController
         let generated = false
         let detached = false
+        let toolExecuted = false
         try {
             generated = await sendChat(-1, {
                 signal:foregroundContext.abortController.signal,
@@ -1043,6 +1311,10 @@ import { isMobile } from 'src/ts/platform'
                 onWorkflowStarted: workflowId => {
                     foregroundContext.workflowId = workflowId
                 },
+                onMainRequestResult: result => {
+                    toolExecuted ||= result.toolExecuted
+                },
+                suppressTts: automatic,
                 continue:continued,
                 rerollSnapshot,
                 durableInputCommit,
@@ -1062,7 +1334,11 @@ import { isMobile } from 'src/ts/platform'
         }
         // A detached generation is still owned by its Revenant workflow. Treat
         // it as retained so reroll cleanup does not restore the old branch.
-        return detached ? true : generated
+        return {
+            generated: detached ? true : generated,
+            toolExecuted,
+            detached,
+        }
     }
 
     async function abortChat(){
@@ -1117,7 +1393,6 @@ import { isMobile } from 'src/ts/platform'
     })
 
     let inputHeight = $state("44px")
-    let multiline = $state(false)
     let inputOverflow = $state(false)
     let inputEle:HTMLTextAreaElement = $state()
     let inputTranslateHeight = $state("44px")
@@ -1144,6 +1419,21 @@ import { isMobile } from 'src/ts/platform'
         updateInputTranslateSize()
     }
 
+    async function appendTranslationToMessageInput(translation: string) {
+        const addition = messageInput
+            ? `${messageInput.endsWith('\n') ? '' : '\n'}${translation}`
+            : translation
+
+        // Insert as one native edit transaction so Ctrl+Z removes the appended
+        // translation before continuing through the user's earlier typing.
+        inputEle.focus({ preventScroll: true })
+        const end = inputEle.value.length
+        inputEle.setSelectionRange(end, end)
+        document.execCommand('insertText', false, addition)
+        await tick()
+        updateInputSizeAll()
+    }
+
     function updateInputTranslateSize() {
         if(inputTranslateEle) {
             inputTranslateEle.style.height = "0";
@@ -1162,10 +1452,8 @@ import { isMobile } from 'src/ts/platform'
         return h
     }
 
-    // Width the textarea would have on a single inline row (pill content minus the
-    // icon buttons and gaps). Computed from layout-independent sizes — the pill is
-    // always full width and the icons are fixed-size — so it does NOT depend on the
-    // current `multiline` state. That's what stops the 1↔2 line flip-flop.
+    // Width available between the fixed action buttons. The textarea keeps this
+    // column at every height so multiline input does not create an empty toolbar row.
     function inlineColWidth():number {
         const pill = inputEle.parentElement
         if(!pill) return 0
@@ -1185,19 +1473,9 @@ import { isMobile } from 'src/ts/platform'
         if(inputEle){
             const col = inlineColWidth()
             const ref = col > 0 ? col + "px" : ""
-            // Gemini-style hysteresis: once the text grows past one line it stays
-            // multiline until the input is fully cleared. Reflow is therefore a
-            // one-way latch (cleared only on empty), so the layout toggle can never
-            // feed back into the width measurement and flip-flop 1↔2 lines.
-            if(messageInput === ''){
-                multiline = false
-            } else if(!multiline && measureHeightAt(ref) > 50){
-                multiline = true
-            }
-            // Height for the width that will actually be shown.
-            const sh = measureHeightAt(multiline ? "100%" : ref)
+            const sh = measureHeightAt(ref)
             // Cap the composer at ~60% of the viewport; beyond that it scrolls.
-            const maxH = Math.round(window.innerHeight * 0.6)
+            const maxH = Math.round((window.visualViewport?.height ?? window.innerHeight) * 0.6)
             inputHeight = Math.min(sh, maxH) + "px"
             inputEle.style.height = inputHeight
             inputOverflow = sh > maxH
@@ -1286,7 +1564,7 @@ import { isMobile } from 'src/ts/platform'
                 mergedCanvas.height = totalHeight;
             }
 
-            mergedCtx.fillStyle = 'var(--risu-theme-bgcolor)'
+            mergedCtx.fillStyle = 'var(--risu-theme-lightbg)'
             mergedCtx.fillRect(0, 0, maxWidth, totalHeight);
             let indh = 0
             for(let i = 0; i < canvases.length; i++) {
@@ -1315,7 +1593,9 @@ import { isMobile } from 'src/ts/platform'
 
 <div
     class="w-full h-full relative"
+    class:nodeonly-standard-chat-surface={DBState.db.theme === '' && $selectedCharID >= 0}
     style={customStyle}
+    style:--chat-fixed-composer-height={DBState.db.fixedChatTextarea ? `${composerHeight}px` : '0px'}
     use:trackFixedComposerBounds={DBState.db.fixedChatTextarea}
 >
     {#if currentCharacter?.type === 'character'}
@@ -1325,18 +1605,21 @@ import { isMobile } from 'src/ts/platform'
             onGenerated={insertGeneratedImage}
         />
     {/if}
-    <TranslationDialog bind:open={translationOpen} />
+    <TranslationDialog
+        bind:open={translationOpen}
+        onConfirm={appendTranslationToMessageInput}
+    />
     
     {#if DBState.db.nodeOnlyScrollButtonType !== 'off' && currentChat.length > 0}
         <Portal>
         <div
-            class="chat-side-navigation risu-layer-sticky fixed right-3 flex flex-col rounded-lg bg-bgcolor/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
+            class="chat-side-navigation risu-layer-sticky fixed right-3 flex flex-col rounded-lg bg-lightbg/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
             class:opacity-0={!showScrollNav}
             class:pointer-events-none={!showScrollNav}
         >
             {#if DBState.db.nodeOnlyScrollButtonType === 'four'}
                 <button
-                    class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                    class="w-9 h-9 text-subtext risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                     onclick={() => { bumpScrollNav(); scrollToLoadedTop() }}
                 >
                     <ChevronsUpIcon size={18} />
@@ -1344,14 +1627,14 @@ import { isMobile } from 'src/ts/platform'
                 <div class="border-t border-darkborderc border-opacity-30"></div>
             {/if}
             <button
-                class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                class="w-9 h-9 text-subtext risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                 onclick={() => { bumpScrollNav(); navigateMessage('prev') }}
             >
                 <ChevronUpIcon size={18} />
             </button>
             <div class="border-t border-darkborderc border-opacity-30"></div>
             <button
-                class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                class="w-9 h-9 text-subtext risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                 onclick={() => { bumpScrollNav(); navigateMessage('next') }}
             >
                 <ChevronDownIcon size={18} />
@@ -1359,7 +1642,7 @@ import { isMobile } from 'src/ts/platform'
             {#if DBState.db.nodeOnlyScrollButtonType === 'four'}
                 <div class="border-t border-darkborderc border-opacity-30"></div>
                 <button
-                    class="w-9 h-9 text-textcolor2 risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                    class="w-9 h-9 text-subtext risu-interactive-foreground hover:bg-darkbg/50 flex items-center justify-center transition-colors"
                     onclick={() => { bumpScrollNav(); scrollToLoadedBottom() }}
                 >
                     <ChevronsDownIcon size={18} />
@@ -1371,62 +1654,62 @@ import { isMobile } from 'src/ts/platform'
 
     {#if showNewMessageButton && DBState.db.newMessageButtonStyle !== 'off'}
         {#if (DBState.db.newMessageButtonStyle === 'bottom-center' || !DBState.db.newMessageButtonStyle)}
-            <button class="risu-layer-chrome absolute bottom-16 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
+            <button class="risu-layer-chrome absolute bottom-16 left-1/2 -translate-x-1/2 bg-primary text-themewhite px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDownIcon size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-right'}
-            <button class="risu-layer-chrome absolute bottom-20 right-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
+            <button class="risu-layer-chrome absolute bottom-20 right-4 bg-primary text-themewhite px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDownIcon size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-left'}
-            <button class="risu-layer-chrome absolute bottom-20 left-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
+            <button class="risu-layer-chrome absolute bottom-20 left-4 bg-primary text-themewhite px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDownIcon size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'floating-circle'}
-            <button class="risu-layer-chrome absolute bottom-36 right-4 bg-primary text-white w-12 h-12 rounded-full shadow-lg flex items-center justify-center risu-interactive-primary transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
+            <button class="risu-layer-chrome absolute bottom-36 right-4 bg-primary text-themewhite w-12 h-12 rounded-full shadow-lg flex items-center justify-center risu-interactive-primary transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
                 <ArrowDownIcon size={20} />
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'right-center'}
-            <button class="risu-layer-chrome absolute top-1/2 right-2 -translate-y-1/2 bg-primary text-white px-2 py-3 rounded-l-lg shadow-lg flex flex-col items-center gap-1 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
+            <button class="risu-layer-chrome absolute top-1/2 right-2 -translate-y-1/2 bg-primary text-themewhite px-2 py-3 rounded-l-lg shadow-lg flex flex-col items-center gap-1 risu-interactive-primary transition-colors" onclick={scrollToBottom}>
                 <ArrowDownIcon size={12} />
                 <span class="text-xs writing-mode-vertical">{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'top-bar'}
-            <button class="risu-layer-chrome absolute top-2 left-1/2 -translate-x-1/2 bg-primary text-white px-6 py-1.5 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors text-sm" onclick={scrollToBottom}>
+            <button class="risu-layer-chrome absolute top-2 left-1/2 -translate-x-1/2 bg-primary text-themewhite px-6 py-1.5 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors text-sm" onclick={scrollToBottom}>
                 <ArrowDownIcon size={12} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
     {/if}
     {#if isScrollingToMessage}
-        <div class="risu-layer-chrome absolute inset-0 flex items-center justify-center bg-black/50 text-white text-xl font-bold backdrop-blur-sm">
+        <div class="risu-layer-chrome absolute inset-0 flex items-center justify-center bg-themeblack/50 text-themewhite text-xl font-bold backdrop-blur-sm">
             Loading...
         </div>
     {/if}
     {#if $selectedCharID < 0}
         <MainMenu />
     {:else if $chatDeselected}
-        <div class="h-full w-full flex items-center justify-center text-textcolor2">
+        <div class="h-full w-full flex items-center justify-center text-subtext">
             <span>{language.selectChatToView}</span>
         </div>
     {:else}
         {#snippet composerCluster()}
             <div
-                    class="{DBState.db.fixedChatTextarea ? 'chat-composer-fixed-layer fixed risu-layer-composer pt-2 pb-2 bottom-0 bg-bgcolor' : 'mt-2 mb-2'} w-full"
-                    class:nodeonly-standard-composer={DBState.db.fixedChatTextarea && DBState.db.theme === ''}
+                    class="{DBState.db.fixedChatTextarea ? 'chat-composer-fixed-layer fixed risu-layer-composer pt-2 pb-2 bottom-0 bg-transparent' : 'mt-2 mb-2'} w-full"
+                    class:chat-composer-sticky-backdrop={DBState.db.fixedChatTextarea && DBState.db.stickyChatToolbar && DBState.db.theme === ''}
                     style:left={DBState.db.fixedChatTextarea ? `${fixedComposerLeft}px` : undefined}
                     style:width={DBState.db.fixedChatTextarea ? `${fixedComposerWidth}px` : undefined}
                     use:trackComposerMetrics
@@ -1436,18 +1719,18 @@ import { isMobile } from 'src/ts/platform'
                      plugins that locate the composer via div[class*="items-stretch"] (e.g. gemini-cache-keeper)
                      relied on the pre-redesign container class. Keep it so they can still find/anchor their UI,
                      and it scopes the timer re-flow rules in <style> below. -->
-                <IconButtonGroup size="lg" className="risu-field-border flex-wrap gap-1 rounded-3xl bg-bgcolor px-2 py-1.5 plugin-compat-items-stretch">
+                <IconButtonGroup size="lg" className="risu-field-border items-end gap-1 rounded-3xl bg-lightbg px-2 py-1.5 plugin-compat-items-stretch">
                     <ShDropdownMenu bind:open={openMenu}>
                         <ShDropdownMenuTrigger>
                             {#snippet child({ props })}
                                 <button {...props}
                                         aria-label="menu"
-                                        class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors">
+                                        class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-maintext risu-interactive-primary-soft transition-colors">
                                     <MenuIcon />
                                 </button>
                             {/snippet}
                         </ShDropdownMenuTrigger>
-                        <ShDropdownMenuContent side="top" align="start" class="min-w-48 max-h-[70vh] overflow-y-auto">
+                        <ShDropdownMenuContent side="top" align="start" class="min-w-48">
                             <IconButtonGroup size="sm" direction="vertical" className="w-full items-stretch">
                                 {#if DBState.db.ttsEnabled && (DBState.db.characters[$selectedCharID].ttsMode === 'webspeech' || DBState.db.characters[$selectedCharID].ttsMode === 'elevenlab')}
                                     <ShDropdownMenuItem onSelect={() => stopTTS()}>
@@ -1498,6 +1781,9 @@ import { isMobile } from 'src/ts/platform'
                                 }}>
                                     <PackageIcon /><span>{language.modules}</span>
                                 </ShDropdownMenuItem>
+                                <ShDropdownMenuItem onSelect={openMessageInputPopupEditor}>
+                                    <Maximize2Icon /><span>{language.chatInputPopupEditor}</span>
+                                </ShDropdownMenuItem>
                                 {#if DBState.db.sideMenuRerollButton}
                                     <ShDropdownMenuItem onSelect={() => { reroll() }}>
                                         <RefreshCcwIcon /><span>{language.reroll}</span>
@@ -1505,19 +1791,9 @@ import { isMobile } from 'src/ts/platform'
                                 {/if}
                             </IconButtonGroup>
                         </ShDropdownMenuContent>
-                    </ShDropdownMenu>
+                </ShDropdownMenu>
 
-                {#if DBState.db.useChatSticker}
-                    <button type="button" onclick={()=>{toggleStickers = !toggleStickers}}
-                         class={"shrink-0 flex justify-center items-center w-9 h-9 rounded-full border-0 bg-transparent p-0 appearance-none font-inherit risu-interactive-primary-soft transition-colors cursor-pointer "+(toggleStickers ? 'text-green-500':'text-textcolor')}>
-                        <LaughIcon />
-                    </button>
-                {/if}
-
-                <textarea class="text-input-area outline-hidden text-textcolor px-2 py-1.5 min-w-0 bg-transparent input-text text-base resize-none overflow-x-hidden max-w-full"
-                          class:flex-1={!multiline}
-                          class:basis-full={multiline}
-                          class:order-first={multiline}
+                <textarea class="text-input-area outline-hidden text-maintext px-2 py-1.5 min-w-0 flex-1 bg-transparent input-text text-base resize-none overflow-x-hidden max-w-full"
                           class:overflow-y-auto={inputOverflow}
                           class:overflow-y-hidden={!inputOverflow}
                           placeholder={willResend ? language.resendLastMessage : language.enterMessageToPersona(activePersonaName)}
@@ -1579,20 +1855,11 @@ import { isMobile } from 'src/ts/platform'
                           style:height={inputHeight}
                 ></textarea>
 
-                <button
-                        onclick={() => composerFullscreen = true}
-                        aria-label={language.chatInputExpandTitle}
-                        class="composer-expand-btn order-1 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors"
-                        class:ml-auto={multiline}
-                >
-                    <Maximize2Icon />
-                </button>
-
                 {#if currentRoomHasMainGeneration || doingChatInputTranslate}
                     <button
                             aria-labelledby="cancel"
                             disabled={workflowCancelInFlight}
-                            class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors disabled:opacity-50" onclick={abortChat}
+                            class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-maintext risu-interactive-primary-soft transition-colors disabled:opacity-50" onclick={abortChat}
                     >
                         <div class="loadmove chat-process-stage-{$chatProcessStage}"></div>
                     </button>
@@ -1600,7 +1867,7 @@ import { isMobile } from 'src/ts/platform'
                     <button
                             onclick={send}
                             aria-label={willResend ? language.reroll : language.send}
-                            class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full bg-primary text-white hover:bg-primary/80 transition-colors button-icon-send"
+                            class="order-2 shrink-0 flex justify-center items-center w-9 h-9 rounded-full bg-primary text-themewhite hover:bg-primary/80 transition-colors button-icon-send"
                     >
                         {#if willResend}
                             <RefreshCcwIcon />
@@ -1614,10 +1881,10 @@ import { isMobile } from 'src/ts/platform'
             </div>
             {#if DBState.db.useAutoTranslateInput}
                 <div class="flex items-center mt-2 mb-2">
-                    <label for='messageInputTranslate' class="text-textcolor ml-4">
+                    <label for='messageInputTranslate' class="text-maintext ml-4">
                         <LanguagesIcon size={20} />
                     </label>
-                    <textarea id = 'messageInputTranslate' class="risu-field-border text-textcolor rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 resize-none outline-hidden overflow-y-hidden overflow-x-hidden max-w-full"
+                    <textarea id = 'messageInputTranslate' class="risu-field-border text-maintext rounded-md p-2 min-w-0 bg-transparent input-text text-xl grow ml-4 mr-2 resize-none outline-hidden overflow-y-hidden overflow-x-hidden max-w-full"
                               bind:value={messageInputTranslate}
                               bind:this={inputTranslateEle}
                               onkeydown={(e) => {
@@ -1660,7 +1927,7 @@ import { isMobile } from 'src/ts/platform'
                                 {:else}
                                     <div class="max-w-24 max-h-24">{file}</div>
                                 {/if}
-                                <button class="absolute -right-1 -top-1 p-1 bg-darkbg text-textcolor rounded-md transition-colors risu-interactive-danger" onclick={() => {
+                                <button class="absolute -right-1 -top-1 p-1 bg-darkbg text-maintext rounded-md transition-colors risu-interactive-danger" onclick={() => {
                                     fileInput.splice(i, 1)
                                     updateInputSizeAll()
                                 }}>
@@ -1673,28 +1940,12 @@ import { isMobile } from 'src/ts/platform'
 
             {/if}
 
-            {#if toggleStickers}
-                <div class="ml-4 flex flex-wrap">
-                    <AssetInput currentCharacter={currentCharacter} onSelect={(additionalAsset)=>{
-                        let fileType = 'img'
-                        if(additionalAsset.length > 2 && additionalAsset[2]) {
-                            const fileExtension = additionalAsset[2]
-                            if(fileExtension === 'mp4' || fileExtension === 'webm')
-                                fileType = 'video'
-                            else if(fileExtension === 'mp3' || fileExtension === 'wav')
-                                fileType = 'audio'
-                        }
-                        messageInput += `<span class='notranslate' translate='no'>{{${fileType}::${additionalAsset[0]}}}</span> *${additionalAsset[0]} added*`
-                        updateInputSizeAll()
-                    }}/>
-                </div>
-            {/if}
-
         {/snippet}
 
-        <div class="h-full w-full flex flex-col overflow-y-auto overscroll-y-contain relative default-chat-screen"
+        <div class="h-full w-full flex flex-col overflow-y-auto overscroll-y-contain relative default-chat-screen" data-chat-scroll-root
             bind:this={chatScreenRoot}
-            style:--chat-composer-sticky-height={DBState.db.fixedChatTextarea ? `${composerToolbarOffset}px` : '0px'}
+            onclickcapture={handleInlayViewerClick}
+            onkeydowncapture={handleInlayViewerKeydown}
             class:nodeonly-standard={DBState.db.theme === ''}
             class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
             class:no-chat-width-full={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'full'}
@@ -1703,7 +1954,11 @@ import { isMobile } from 'src/ts/platform'
                 bumpScrollNav()
             }
             const chatTarget = e.currentTarget as HTMLElement;
-            if(chatTarget.scrollTop < CHAT_HISTORY_LOAD_THRESHOLD && currentChat.length > loadPages){
+            const hasMoreHistory = currentChat.length > loadPages
+            if(hasMoreHistory && chatTarget.scrollTop < chatTarget.clientHeight){
+                void preloadNextHistoryPage()
+            }
+            if(hasMoreHistory && chatTarget.scrollTop < CHAT_HISTORY_LOAD_THRESHOLD){
                 void loadMoreHistory()
             }
             if(isChatNearBottom(
@@ -1717,7 +1972,7 @@ import { isMobile } from 'src/ts/platform'
             <div class="chat-scroll-phase" data-chat-scroll-phase aria-hidden="true"></div>
 
             {#if !currentChatReady}
-                <div class="w-full flex justify-center text-textcolor2 italic mb-12">
+                <div class="w-full flex justify-center text-subtext italic mb-12">
                     {language.loadingChatData}
                 </div>
             {:else}
@@ -1748,7 +2003,7 @@ import { isMobile } from 'src/ts/platform'
 
             {#if currentChat.length <= loadPages}
                 {#if (aiLawApplies() && DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length === 0)}
-                    <div class="generated-by-ai-disclaimer ml-auto mr-auto mt-4 text-textcolor2 italic max-w-2/3 wrap-break-word text-center">
+                    <div class="generated-by-ai-disclaimer ml-auto mr-auto mt-4 text-subtext italic max-w-2/3 wrap-break-word text-center">
                         {language.generatedByAIDisclaimer}
                     </div>
                 {/if}
@@ -1812,7 +2067,10 @@ import { isMobile } from 'src/ts/platform'
                 userIcon={userIcon}
                 chatRoomId={currentChatSlot?.id ?? ''}
                 roomIsStreaming={currentChatSlot?.isStreaming ?? false}
-                roomIsResponding={currentRoomHasMainGeneration || currentRoomHasImageReroll}
+                roomIsResponding={currentRoomHasMainGeneration}
+                imageRerollingMessageId={imageRerollingTarget?.roomId === currentChatSlot?.id
+                    ? imageRerollingTarget.messageId
+                    : null}
                 userIconPortrait={userIconPortrait}
                 bind:hasNewUnreadMessage={showNewMessageButton}
             />
@@ -1822,7 +2080,7 @@ import { isMobile } from 'src/ts/platform'
             {#if chatPanelStore.length > 0}
                 <div class="mx-4 my-2 flex flex-col gap-2">
                     {#each chatPanelStore as panel (panel.id)}
-                        <section class={`rounded-md border border-darkborderc bg-darkbg/80 p-3 text-textcolor ${panel.className ?? ''}`} data-plugin-chat-panel={panel.id}>
+                        <section class={`rounded-md border border-darkborderc bg-darkbg/80 p-3 text-maintext ${panel.className ?? ''}`} data-plugin-chat-panel={panel.id}>
                             {@html panel.html}
                         </section>
                     {/each}
@@ -1844,7 +2102,7 @@ import { isMobile } from 'src/ts/platform'
         </div>
 
         {#if DBState.db.fixedChatTextarea}
-            <Portal>
+            <Portal target={portalTarget ?? undefined}>
                 {@render composerCluster()}
             </Portal>
         {/if}
@@ -1856,7 +2114,7 @@ import { isMobile } from 'src/ts/platform'
     <Portal>
     <div class="risu-layer-chrome fixed top-4 right-4 flex flex-col gap-3">
         {#each additionalFloatingActionButtons as button}
-            <button class="bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={() => {
+            <button class="bg-primary text-themewhite px-4 py-2 rounded-full shadow-lg flex items-center gap-2 risu-interactive-primary transition-colors" onclick={() => {
                 button.callback()
             }}>
                 <PluginDefinedIcon ico={button} />
@@ -1866,37 +2124,50 @@ import { isMobile } from 'src/ts/platform'
     </Portal>
 {/if}
 
-{#if composerFullscreen}
-    <OverlayPortal>
-    <div class="risu-layer-overlay fixed inset-0 bg-bgcolor flex flex-col p-4">
-        <div class="mx-auto w-full max-w-3xl flex flex-col flex-1 min-h-0">
-            <div class="flex items-center justify-between mb-2">
-                <span class="text-textcolor text-sm">{language.chatInputExpandTitle}</span>
-                <button onclick={exitFullscreen} aria-label="minimize"
-                        class="shrink-0 flex justify-center items-center w-9 h-9 rounded-full text-textcolor risu-interactive-primary-soft transition-colors">
-                    <Minimize2Icon size={18} />
-                </button>
-            </div>
-            <textarea
-                    bind:value={messageInput}
-                    bind:this={fullscreenEle}
-                    onblur={persistDraftNow}
-                    placeholder={language.enterMessageToPersona(activePersonaName)}
-                    class="risu-field-border flex-1 min-h-0 w-full resize-none rounded-md bg-transparent p-3 text-textcolor text-base outline-hidden overflow-y-auto"
-            ></textarea>
-            <div class="flex justify-end mt-3">
-                <button onclick={sendFullscreen} aria-label="send"
-                        class="flex items-center gap-1 px-4 h-10 rounded-full bg-primary text-white hover:bg-primary/80 transition-colors">
-                    <SendIcon size={18} />
-                    <span>{language.send}</span>
-                </button>
-            </div>
-        </div>
-    </div>
-    </OverlayPortal>
-{/if}
+<FullscreenImageViewer
+    open={inlayViewerOpen}
+    src={inlayViewerSrc}
+    alt={inlayViewerId}
+    title={currentInlayViewerItem?.name ?? inlayViewerId}
+    subtitle={inlayViewerId}
+    position={inlayViewerIndex}
+    total={inlayViewerEntries.length}
+    canGoPrev={inlayViewerIndex > 0}
+    canGoNext={inlayViewerIndex >= 0 && inlayViewerIndex < inlayViewerEntries.length - 1}
+    metadataLabel={language.inlayGallery.inlayInfo}
+    closeLabel={language.goback}
+    onClose={closeInlayViewer}
+    onPrev={() => moveInlayViewer(-1)}
+    onNext={() => moveInlayViewer(1)}
+    onDelete={(currentInlayViewerEntry?.messageIndex ?? -1) >= 0 ? deleteCurrentInlayReference : undefined}
+    onDownload={downloadCurrentInlay}
+>
+    {#snippet actions()}
+        {#if currentInlayViewerItem}
+            <AssetViewerActions
+                onCopy={copyCurrentInlayReference}
+                onDownload={downloadCurrentInlay}
+                onDelete={(currentInlayViewerEntry?.messageIndex ?? -1) >= 0 ? deleteCurrentInlayReference : undefined}
+            />
+        {/if}
+    {/snippet}
+
+    {#snippet metadataOverlay()}
+        {#if currentInlayViewerItem}
+            <InlayViewerMetadata
+                item={currentInlayViewerItem}
+                characterName={currentCharacter?.name ?? null}
+                chatName={currentChatSlot?.name ?? null}
+            />
+        {/if}
+    {/snippet}
+</FullscreenImageViewer>
 
 <style>
+    .chat-composer-sticky-backdrop {
+        background: var(--no-chat-background, var(--risu-theme-darkbg));
+    }
+
     .chat-side-navigation {
         bottom: calc(10rem + env(safe-area-inset-bottom, 0px));
     }
@@ -1937,8 +2208,8 @@ import { isMobile } from 'src/ts/platform'
     }
 
     .chat-process-stage-2{
-        border-top-color: var(--risu-theme-draculared);
-        border-left-color: var(--risu-theme-draculared);
+        border-top-color: var(--risu-theme-danger);
+        border-left-color: var(--risu-theme-danger);
     }
 
     .chat-process-stage-3{
@@ -1960,18 +2231,11 @@ import { isMobile } from 'src/ts/platform'
 
     /* gemini-cache-keeper compat: the plugin injects #gck-cache-timer into the composer
        (found via the .plugin-compat-items-stretch hook) and absolutely positions it over
-       the send button — which now overlaps the expand button and floats at the composer's
-       vertical center. Re-flow it as an in-line flex item: order:0 (default, appended last)
-       places it just left of the expand button (order-1) and send button (order-2). */
+       the send button. Re-flow it as an in-line flex item immediately before send. */
     :global(.plugin-compat-items-stretch #gck-cache-timer) {
         position: relative !important;  /* stay a positioned ancestor so the popup still anchors to it */
         inset: auto !important;         /* clear the plugin's top/right offsets */
         transform: none !important;     /* clear translateY(-50%) */
-        margin-left: auto;              /* right-align the trailing cluster when the composer wraps (multiline) */
-    }
-    /* when the timer is present it owns the auto margin, so drop the expand button's own
-       ml-auto to avoid a double gap splitting the timer away from the buttons */
-    :global(.plugin-compat-items-stretch:has(#gck-cache-timer) .composer-expand-btn) {
-        margin-left: 0;
+        margin-left: auto;              /* keep the injected timer adjacent to the send button */
     }
 </style>

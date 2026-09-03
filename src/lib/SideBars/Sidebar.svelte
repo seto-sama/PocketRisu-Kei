@@ -8,6 +8,7 @@
     settingsOpen,
     sideBarClosing,
     sideBarStore,
+    sidebarDevTool,
     OpenRealmStore,
 
     QuickSettings,
@@ -74,6 +75,9 @@
     import IconButtonGroup from "../UI/GUI/IconButtonGroup.svelte";
     import IconButton from "../UI/GUI/IconButton.svelte";
     import ShInput from "../UI/GUI/ShInput.svelte";
+    import CharacterMasonryIcon from "../UI/CharacterMasonryIcon.svelte";
+    import HorizontalMasonry from "../UI/HorizontalMasonry.svelte";
+    import { createIncrementalList } from "../UI/incrementalList.svelte";
     import {
       DEFAULT_SIDEBAR_MENU_ORDER,
       SIDEBAR_MENU_BOOKMARKS,
@@ -82,6 +86,7 @@
       SIDEBAR_MENU_SETTINGS,
       appendNewPluginMenuItems,
       dividerSidebarMenuKey,
+      getSidebarMenuDisplayOrder,
       getVisibleSidebarMenuOrder,
       isSidebarMenuDivider,
       mergeVisibleSidebarMenuOrder,
@@ -93,13 +98,13 @@
   let sideBarMode = $state(0);
   let editMode = $state(false);
   let menuMode = $state(0);
-  let devTool = $state(false)
-
   function reseter() {
     onNavigate();
     menuMode = 0;
     sideBarMode = 0;
     editMode = false;
+    sidebarDevTool.set(false);
+    QuickSettings.open = false;
     settingsOpen.set(false);
     CharEmotion.set({});
   }
@@ -116,9 +121,13 @@
       .filter((c) => c.lastInteraction > 0)
       .sort((a, b) => b.lastInteraction - a.lastInteraction)
   );
-  // Progressive reveal: render `recentVisible` items, "Load more" adds 10.
-  // Avoids mounting hundreds of avatar components at once (no list virtualization).
-  let recentVisible = $state(10);
+  let sidebarScrollElement: HTMLDivElement | null = $state(null);
+  const recentChatsIncrementalList = createIncrementalList({
+    pageSize: 12,
+    rootMargin: '160px 0px',
+    getRoot: () => sidebarScrollElement,
+  });
+  const observeRecentChatsSentinel = recentChatsIncrementalList.observeSentinel;
   let recentSearchQuery = $state("");
   let filteredRecentChars = $derived.by(() => {
     const query = recentSearchQuery.trim().toLocaleLowerCase();
@@ -126,6 +135,13 @@
     return recentChars.filter((character) =>
       (character.name ?? "").toLocaleLowerCase().includes(query)
     );
+  });
+  let displayedRecentChars = $derived(recentChatsIncrementalList.slice(filteredRecentChars));
+  let hasMoreRecentChars = $derived(recentChatsIncrementalList.hasMore(filteredRecentChars.length));
+
+  $effect(() => {
+    recentSearchQuery;
+    recentChatsIncrementalList.reset();
   });
   let IconRounded = $state(false)
   let sidebarMenuOrder = $derived(DBState.db.sidebarMenuOrder ?? DEFAULT_SIDEBAR_MENU_ORDER)
@@ -138,7 +154,11 @@
   let visibleSidebarMenuOrder = $derived(
     getVisibleSidebarMenuOrder(sidebarMenuOrder, sidebarMenuPluginKeys, editMode, sidebarMenuHidden)
   )
+  let displayedSidebarMenuOrder = $derived(
+    getSidebarMenuDisplayOrder(visibleSidebarMenuOrder, !!DBState.db.hamburgerButtonBottom)
+  )
   let openFolders:string[] = $state([])
+  let characterListElement: HTMLDivElement | undefined = $state()
   let sidebarSortElement: HTMLDivElement | undefined = $state()
   let mergeTargetId: string | null = $state(null)
   let folderDropTargetId: string | null = $state(null)
@@ -222,7 +242,8 @@
   }
 
   function reorderSidebarMenu(orderedKeys: string[]) {
-    DBState.db.sidebarMenuOrder = mergeVisibleSidebarMenuOrder(sidebarMenuOrder, orderedKeys)
+    const storedDirection = getSidebarMenuDisplayOrder(orderedKeys, !!DBState.db.hamburgerButtonBottom)
+    DBState.db.sidebarMenuOrder = mergeVisibleSidebarMenuOrder(sidebarMenuOrder, storedDirection)
   }
 
   function addSidebarMenuDivider() {
@@ -309,6 +330,7 @@
 
   onDestroy(() => {
     sidebarDragController.destroy()
+    sidebarDevTool.set(false)
   })
 
   function scrollToActiveCharacter() {
@@ -338,11 +360,16 @@
     }
     
     setTimeout(() => {
-      const activeElement = document.querySelector(`[data-char-id="${characterId}"]`)
-      if (activeElement) {
-        activeElement.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'start' 
+      const activeElement = characterListElement?.querySelector<HTMLElement>(`[data-char-id="${characterId}"]`)
+      if (characterListElement && activeElement) {
+        const listRect = characterListElement.getBoundingClientRect()
+        const activeRect = activeElement.getBoundingClientRect()
+
+        // Keep the scroll confined to the character list. scrollIntoView() can
+        // also scroll page-level ancestors and displace the chat input layout.
+        characterListElement.scrollTo({
+          top: characterListElement.scrollTop + activeRect.top - listRect.top,
+          behavior: 'smooth'
         })
       }
     }, 100)
@@ -387,13 +414,13 @@
 >
 {#if DBState.db.menuSideBar}
 <div
-  class="risu-layer-chrome h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative rs-sidebar"
+  class="risu-layer-chrome h-full w-20 min-w-20 flex-col items-center bg-lightbg text-maintext shadow-lg relative rs-sidebar"
   class:flex={!hidden}
 >
 <IconButtonGroup size="xl" direction="vertical" className="mt-4 w-full">
 <button
   class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-textcolor2={!(
+  class:text-subtext={!(
     $selectedCharID < 0 &&
     !$settingsOpen
   )}
@@ -408,7 +435,7 @@
 </button>
 <button
   class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-textcolor2={!(
+  class:text-subtext={!(
     $selectedCharID >= 0
   )}
   onclick={() => {
@@ -432,7 +459,7 @@
 </button>
 <button
   class="flex items-center justify-center py-2 flex-col gap-1 w-full"
-  class:text-textcolor2={!$settingsOpen}
+  class:text-subtext={!$settingsOpen}
   onclick={() => {
     if ($settingsOpen) {
       reseter();
@@ -450,7 +477,7 @@
 </div>
 {:else}
 <div
-  class="h-full w-20 min-w-20 flex-col items-center bg-bgcolor text-textcolor shadow-lg relative rs-sidebar"
+  class="h-full w-20 min-w-20 flex-col items-center bg-lightbg text-maintext shadow-lg relative rs-sidebar"
   class:risu-layer-chrome={!editMode}
   class:sidebar-menu-bottom={DBState.db.hamburgerButtonBottom}
   class:max-xs:hidden={$leftBarCollapsed}
@@ -459,11 +486,11 @@
   <div
     class="sidebar-controls"
     class:risu-layer-blocking={editMode}
-    class:bg-bgcolor={editMode}
+    class:bg-lightbg={editMode}
   >
     <IconButtonGroup size="xl" direction="vertical" className="sidebar-control-buttons w-full">
       <button
-        class="flex h-8 min-h-8 w-14 min-w-14 text-white items-center justify-center rounded-md bg-textcolor2 transition-colors hover:bg-primary"
+        class="flex h-8 min-h-8 w-14 min-w-14 text-themewhite items-center justify-center rounded-md bg-subtext transition-colors hover:bg-lightborderc"
         class:cursor-pointer={!editMode}
         class:cursor-default={editMode}
         class:max-xs:hidden={$leftBarCollapsed}
@@ -479,23 +506,27 @@
 
       {#if !DBState.db.hideLeftBarCollapseButton}
         <button
-          class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer items-center justify-center rounded-md border border-borderc text-textcolor transition-colors hover:border-primary risu-interactive-accent"
+          class="hidden max-xs:flex h-8 min-h-8 w-14 min-w-14 cursor-pointer items-center justify-center rounded-md border border-darkborderc text-maintext transition-colors risu-interactive-border"
           aria-label="Collapse sidebar"
           onclick={() => leftBarCollapsed.set(true)}
         >
           <ChevronsLeftIcon />
         </button>
       {/if}
+    </IconButtonGroup>
+  </div>
 
-      {#if menuMode === 1}
-        <ShSortableList
-          disabled={!editMode}
-          className="absolute left-0 w-20 min-w-20 flex bg-bgcolor flex-col items-center gap-2 z-20 py-4 max-h-[calc(100dvh-4rem)] overflow-x-hidden overflow-y-auto hamburger-menu"
-          draggable="[data-sidebar-menu-key]"
-          dataAttribute="data-sidebar-menu-key"
-          onReorder={reorderSidebarMenu}
-        >
-          {#each visibleSidebarMenuOrder as menuKey (menuKey)}
+  <div class="sidebar-content relative flex min-h-0 w-full flex-1">
+
+    {#if menuMode === 1}
+      <ShSortableList
+        disabled={!editMode}
+        className="absolute left-0 w-20 min-w-20 flex max-h-full bg-lightbg flex-col items-center gap-2 z-20 py-4 overflow-x-hidden overflow-y-auto hamburger-menu"
+        draggable="[data-sidebar-menu-key]"
+        dataAttribute="data-sidebar-menu-key"
+        onReorder={reorderSidebarMenu}
+      >
+          {#each displayedSidebarMenuOrder as menuKey (menuKey)}
             {#if isSidebarMenuDivider(menuKey)}
               <div
                 class="flex h-3 min-h-3 w-full shrink-0 items-center justify-center"
@@ -571,15 +602,15 @@
               </IconButton>
             </div>
           {/if}
-        </ShSortableList>
-      {/if}
-    </IconButtonGroup>
-  </div>
-  <div
-    class="character-list flex grow w-full flex-col items-center overflow-x-hidden overflow-y-auto pr-0"
-    class:max-xs:hidden={$leftBarCollapsed}
-    role="list"
-  >
+      </ShSortableList>
+    {/if}
+
+    <div
+      bind:this={characterListElement}
+      class="character-list flex min-h-0 w-full grow flex-col items-center overflow-x-hidden overflow-y-auto pr-0"
+      class:max-xs:hidden={$leftBarCollapsed}
+      role="list"
+    >
     <ShSortableList
       bind:element={sidebarSortElement}
       disabled={sidebarSortingDisabled}
@@ -819,12 +850,14 @@
         <PlusIcon size={20} />
       </BaseRoundedButton>
     </div>
+    </div>
   </div>
 </div>
 {/if}
 
 <div
-  class="setting-area risu-layer-chrome h-full max-xs:relative flex-col overflow-y-auto overflow-x-hidden bg-darkbg py-6 text-textcolor max-h-full"
+  class="setting-area risu-layer-chrome h-full max-xs:relative flex-col overflow-y-auto overflow-x-hidden bg-darkbg py-6 text-maintext max-h-full"
+  bind:this={sidebarScrollElement}
   class:w-96={$sideBarSize === 0}
   class:w-110={$sideBarSize === 1}
   class:w-124={$sideBarSize === 2}
@@ -839,7 +872,7 @@
   class:flex={!hidden}
 >
   <button
-    class="flex w-full justify-end text-textcolor"
+    class="flex w-full justify-end text-maintext"
     onclick={async () => {
       if($sideBarClosing){
         return
@@ -847,11 +880,11 @@
       $sideBarClosing = true;
     }}
   >
-    <!-- <button class="border-none bg-transparent p-0 text-textcolor"><X /></button> -->
+    <!-- <button class="border-none bg-transparent p-0 text-maintext"><X /></button> -->
   </button>
   {#if $leftBarCollapsed}
     <button
-      class="hidden max-xs:flex absolute top-3 left-0 h-12 w-12 border-r border-b border-t border-darkborderc rounded-r-md bg-darkbg risu-interactive-border transition-colors items-center justify-center text-textcolor opacity-50 hover:opacity-90 z-20"
+      class="hidden max-xs:flex absolute top-3 left-0 h-12 w-12 border-r border-b border-t border-darkborderc rounded-r-md bg-darkbg risu-interactive-border transition-colors items-center justify-center text-maintext opacity-50 hover:opacity-90 z-20"
       aria-label="Expand sidebar"
       onclick={() => leftBarCollapsed.set(false)}
     >
@@ -860,9 +893,9 @@
   {/if}
   {#if sideBarMode === 0}
     {#if $selectedCharID < 0 || $settingsOpen}
-      <span class="block text-base font-semibold text-textcolor mt-2">{language.recentChatsTitle}</span>
+      <span class="block text-base font-semibold text-maintext mt-2">{language.recentChatsTitle}</span>
       <div class="flex items-center justify-between gap-2 mt-2">
-        <span class="text-sm text-textcolor2">{language.hideRecentChats}</span>
+        <span class="text-sm text-subtext">{language.hideRecentChats}</span>
         <ShSwitch
           checked={!!DBState.db.nodeOnlyHideRecentChats}
           onCheckedChange={(v) => (DBState.db.nodeOnlyHideRecentChats = v)}
@@ -871,10 +904,10 @@
       {#if DBState.db.nodeOnlyHideRecentChats}
         <!-- list hidden by user preference -->
       {:else if recentChars.length === 0}
-        <span class="block text-sm text-textcolor2 mt-2">{language.noRecentChatsDesc}</span>
+        <span class="block text-sm text-subtext mt-2">{language.noRecentChatsDesc}</span>
       {:else}
         <div class="relative mt-2">
-          <SearchIcon class="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-textcolor2" />
+          <SearchIcon class="pointer-events-none absolute left-2.5 top-1/2 z-10 size-4 -translate-y-1/2 text-subtext" />
           <ShInput
             bind:value={recentSearchQuery}
             type="search"
@@ -885,40 +918,26 @@
           />
         </div>
         {#if filteredRecentChars.length === 0}
-          <span class="block text-sm text-textcolor2 mt-2">{language.noRecentChatsSearchResults}</span>
+          <span class="block text-sm text-subtext mt-2">{language.noRecentChatsSearchResults}</span>
         {:else}
-        <div class="flex flex-col gap-1.5 mt-2">
-          {#each filteredRecentChars.slice(0, recentVisible) as rc (rc.index)}
-            <button
-              type="button"
-              class="group flex items-center gap-2.5 rounded-md border border-borderc/10 bg-darkbg p-2 text-left transition-colors risu-interactive-border-subtle risu-interactive-surface-strong"
+        <HorizontalMasonry itemCount={displayedRecentChars.length} className="mt-2">
+          {#snippet children(index)}
+            {@const rc = displayedRecentChars[index]}
+            <CharacterMasonryIcon
+              src={rc.image ? getCharImage(rc.image, "plain") : ""}
+              name={rc.name || "Unnamed"}
+              subtitle={makeAgoText(rc.lastInteraction)}
               onclick={() => changeChar(rc.index, {reseter})}
-            >
-              <div class="shrink-0">
-                <SidebarAvatar
-                  src={rc.image ? getCharImage(rc.image, "plain") : ""}
-                  size="36"
-                  rounded={IconRounded}
-                  name={rc.name}
-                  chaId={DBState.db.characters[rc.index]?.chaId}
-                />
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-semibold text-textcolor leading-tight truncate">{rc.name || "Unnamed"}</div>
-                <div class="text-xs text-textcolor2 leading-tight truncate">{makeAgoText(rc.lastInteraction)}</div>
-              </div>
-            </button>
-          {/each}
-          {#if recentVisible < filteredRecentChars.length}
-            <button
-              type="button"
-              class="w-full rounded-md border border-borderc/10 bg-darkbg p-2 text-center text-sm text-textcolor2 transition-colors risu-interactive-border-subtle risu-interactive-surface-strong risu-interactive-foreground"
-              onclick={() => recentVisible += 10}
-            >
-              {language.loadMore}
-            </button>
-          {/if}
-        </div>
+            />
+          {/snippet}
+        </HorizontalMasonry>
+        {#if hasMoreRecentChars}
+          <div
+            class="h-px w-full"
+            aria-hidden="true"
+            use:observeRecentChatsSentinel={filteredRecentChars.length}
+          ></div>
+        {/if}
         {/if}
       {/if}
     {:else}
@@ -927,10 +946,11 @@
         <button
           type="button"
           class="sidebar-mode-button sidebar-mode-tab"
-          class:active={!$botMakerMode && !devTool}
-          aria-current={!$botMakerMode && !devTool ? "page" : undefined}
+          class:active={!$botMakerMode && !$sidebarDevTool}
+          aria-current={!$botMakerMode && !$sidebarDevTool ? "page" : undefined}
           onclick={() => {
-            devTool = false
+            $sidebarDevTool = false
+            QuickSettings.open = false
             botMakerMode.set(false)
           }}
         >
@@ -943,7 +963,7 @@
           class:active={$botMakerMode}
           aria-current={$botMakerMode ? "page" : undefined}
           onclick={() => {
-            devTool = false
+            $sidebarDevTool = false
             botMakerMode.set(true)
           }}
         >
@@ -952,18 +972,17 @@
         </button>
         </IconButtonGroup>
       </nav>
-      {#if QuickSettings.open}
+      {#if $botMakerMode && QuickSettings.open}
         <QuickSettingsGui />
-      {:else if $botMakerMode || devTool}
+      {:else if $botMakerMode || $sidebarDevTool}
         <CharConfigHeader
-          {devTool}
+          devTool={$sidebarDevTool}
           onDevToolChange={(active) => {
-            devTool = active
+            $sidebarDevTool = active
             if(active) botMakerMode.set(true)
           }}
         />
-        {#if devTool}
-          <h2 class="mb-2 mt-2 text-2xl font-bold">{language.devTools}</h2>
+        {#if $sidebarDevTool}
           <DevTool />
         {:else}
           <CharConfig />
@@ -1052,7 +1071,7 @@
     gap: 0.4rem;
     padding: 0 0.5rem;
     border: 0;
-    color: var(--risu-theme-textcolor2);
+    color: var(--risu-theme-subtext);
     font-size: 0.8rem;
     font-weight: 500;
     line-height: 1;
@@ -1061,11 +1080,11 @@
   }
 
   .sidebar-mode-button:is(:hover, :focus-visible):not(.active) {
-    color: var(--risu-theme-textcolor);
+    color: var(--risu-theme-maintext);
   }
 
   .sidebar-mode-button.active {
-    color: var(--risu-theme-textcolor);
+    color: var(--risu-theme-maintext);
     background: linear-gradient(
       to top,
       color-mix(in srgb, var(--risu-theme-primary) 16%, transparent) 0%,
@@ -1230,10 +1249,14 @@
     opacity: 0;
   }
   :global(.hamburger-menu) {
-    top: calc(100% - var(--sidebar-control-scroll-gap));
+    top: 0;
     border-radius: 0 0 0.375rem 0.375rem;
     scrollbar-width: none;
     overscroll-behavior: none;
+  }
+  .rs-sidebar:not(.sidebar-menu-bottom) :global(.hamburger-menu),
+  .rs-sidebar:not(.sidebar-menu-bottom) :global(.sidebar-character-root) {
+    padding-top: 0;
   }
   :global(.sidebar-menu-edit-item) {
     cursor: grab;
@@ -1244,17 +1267,18 @@
   .sidebar-controls {
     --sidebar-control-edge-gap: 0.5rem;
     --sidebar-control-button-gap: 0.5rem;
-    --sidebar-control-scroll-gap: 1rem;
-    position: relative;
     display: flex;
+    flex-shrink: 0;
     width: 100%;
     flex-direction: column;
     align-items: center;
-    padding: var(--sidebar-control-edge-gap) 0 var(--sidebar-control-scroll-gap);
+    margin-bottom: 1rem;
+    padding: var(--sidebar-control-edge-gap) 0 0;
   }
   .sidebar-menu-bottom .sidebar-controls {
     order: 9999;
-    padding: var(--sidebar-control-scroll-gap) 0 var(--sidebar-control-edge-gap);
+    margin: 1rem 0 0;
+    padding: 0 0 var(--sidebar-control-edge-gap);
   }
   :global(.sidebar-control-buttons) {
     gap: var(--sidebar-control-button-gap);
@@ -1264,11 +1288,15 @@
   }
   .sidebar-menu-bottom :global(.hamburger-menu) {
     top: auto;
-    bottom: calc(100% - var(--sidebar-control-scroll-gap));
+    bottom: 0;
+    padding-bottom: 0;
     border-radius: 0.375rem 0.375rem 0 0;
   }
-  .rs-sidebar:not(.sidebar-menu-bottom) :global(.sidebar-character-root) {
-    padding-top: 0;
+  .sidebar-menu-bottom :global(.sidebar-character-root) {
+    padding-bottom: 0;
+  }
+  :global(.sidebar-character-root:empty) {
+    padding-block: 0;
   }
   :global(.hamburger-menu::-webkit-scrollbar) {
     display: none;

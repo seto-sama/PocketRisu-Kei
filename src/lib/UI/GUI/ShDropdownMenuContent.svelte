@@ -25,7 +25,8 @@
         {align}
         style={styleProp}
         class={cn(
-            'risu-layer-overlay min-w-32 rounded-md border border-darkborderc bg-darkbg text-textcolor p-1 shadow-md outline-none ' +
+            'risu-layer-overlay min-w-32 rounded-md border border-darkborderc bg-darkbg text-maintext p-1 shadow-md outline-none ' +
+            'max-h-[var(--bits-dropdown-menu-content-available-height)] overflow-y-auto ' +
             'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 ' +
             'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 ' +

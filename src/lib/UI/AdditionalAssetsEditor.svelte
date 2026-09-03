@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { CopyIcon, DownloadIcon, FileIcon, FileMusicIcon, FileVideoIcon, ImageIcon, ImageOffIcon, PlusIcon, TrashIcon } from '@lucide/svelte';
+    import { FileIcon, FileMusicIcon, FileVideoIcon, ImageIcon, ImageOffIcon, PlusIcon, TrashIcon } from '@lucide/svelte';
     import { language } from 'src/lang';
     import { alertConfirm, notifyError, notifySuccess } from 'src/ts/alert';
     import { downloadFile, getFileSrc, saveAsset } from 'src/ts/globalApi.svelte';
@@ -7,6 +7,7 @@
     import { selectMultipleFile } from 'src/ts/util';
     import { onDestroy } from 'svelte';
     import FullscreenImageViewer from './GUI/FullscreenImageViewer.svelte';
+    import AssetViewerActions from './GUI/AssetViewerActions.svelte';
     import IconButton from './GUI/IconButton.svelte';
     import IconButtonGroup from './GUI/IconButtonGroup.svelte';
     import ShInput from './GUI/ShInput.svelte';
@@ -44,13 +45,14 @@
     let assetFilePaths = $state<Record<string, string>>({});
     let assetImageDimensions = $state<Record<string, { width: number, height: number }>>({});
     let previewIndex = $state(-1);
+    let deletingAsset = false;
     const incrementalList = createIncrementalList({ pageSize: 40, rootMargin: '400px 0px' });
     const observePagingSentinel = incrementalList.observeSentinel;
 
     const extensionOf = (asset: AdditionalAsset) => (asset[2] || asset[1].split('.').pop() || '').toLowerCase();
     let previewIndexes = $derived.by(() => assets
         .map((asset, index) => ({ asset, index }))
-        .filter(({ asset }) => (previewAllAsImages || previewableImageExtensions.includes(extensionOf(asset))) && !!assetFilePaths[asset[1]])
+        .filter(({ asset }) => previewAllAsImages || previewableImageExtensions.includes(extensionOf(asset)))
         .map(({ index }) => index));
     let previewPosition = $derived(previewIndexes.indexOf(previewIndex));
     let previewAsset = $derived(previewIndex >= 0 ? assets[previewIndex] ?? null : null);
@@ -132,6 +134,12 @@
         }
     });
 
+    $effect(() => {
+        if(previewAsset){
+            loadAssetPreview(previewAsset[1]);
+        }
+    });
+
     async function addAssets() {
         const files = await selectMultipleFile(acceptedExtensions);
         if(!files){
@@ -197,31 +205,39 @@
     }
 
     async function deleteAsset(index: number, confirm = false) {
+        if(deletingAsset){
+            return;
+        }
         const asset = assets[index];
         if(!asset){
             return;
         }
-        if(confirm && !(await alertConfirm(`${language.removeConfirm}${asset[0]}`))){
-            return;
-        }
+        deletingAsset = true;
+        try {
+            if(confirm && !(await alertConfirm(`${language.removeConfirm}${asset[0]}`))){
+                return;
+            }
 
-        const currentPreviewPosition = previewIndexes.indexOf(index);
-        const neighborIndex = currentPreviewPosition >= 0
-            ? previewIndexes[currentPreviewPosition + 1] ?? previewIndexes[currentPreviewPosition - 1]
-            : undefined;
+            const currentPreviewPosition = previewIndexes.indexOf(index);
+            const neighborIndex = currentPreviewPosition >= 0
+                ? previewIndexes[currentPreviewPosition + 1] ?? previewIndexes[currentPreviewPosition - 1]
+                : undefined;
 
-        onChange(assets.filter((_, assetIndex) => assetIndex !== index));
-        onDelete?.(asset, index);
-        if(excludedPaths.includes(asset[1])){
-            onExcludedPathsChange?.(excludedPaths.filter((path) => path !== asset[1]));
-        }
-        delete assetImageDimensions[asset[1]];
+            onChange(assets.filter((_, assetIndex) => assetIndex !== index));
+            onDelete?.(asset, index);
+            if(excludedPaths.includes(asset[1])){
+                onExcludedPathsChange?.(excludedPaths.filter((path) => path !== asset[1]));
+            }
+            delete assetImageDimensions[asset[1]];
 
-        if(previewIndex === index){
-            previewIndex = neighborIndex === undefined ? -1 : neighborIndex > index ? neighborIndex - 1 : neighborIndex;
-        }
-        else if(previewIndex > index){
-            previewIndex -= 1;
+            if(previewIndex === index){
+                previewIndex = neighborIndex === undefined ? -1 : neighborIndex > index ? neighborIndex - 1 : neighborIndex;
+            }
+            else if(previewIndex > index){
+                previewIndex -= 1;
+            }
+        } finally {
+            deletingAsset = false;
         }
     }
 
@@ -245,15 +261,15 @@
 
 <div class="w-full max-w-full max-h-full overflow-x-hidden overflow-y-auto border border-selected rounded-md mt-2">
     {#if assets.length === 0}
-        <div class="min-h-20 flex items-center justify-center px-3 py-4 text-sm text-textcolor2">
+        <div class="min-h-20 flex items-center justify-center px-3 py-4 text-sm text-subtext">
             {language.noData}
         </div>
     {:else}
         {#each displayedAssets as asset, i}
             {@const extension = extensionOf(asset)}
-            <div class="flex min-w-0 items-center gap-2 p-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
+            <div class="flex min-w-0 items-start gap-2 p-2 {i > 0 ? 'border-t border-darkborderc/20' : ''}">
                 <div
-                    class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-textcolor2"
+                    class="w-14 h-14 shrink-0 overflow-hidden rounded-md border border-darkborderc bg-darkbg flex items-center justify-center text-subtext"
                     use:lazyLoadAssetPreview={{ path: asset[1], enabled: DBState.db.useAdditionalAssetsPreview }}
                 >
                     {#if assetFilePaths[asset[1]] && DBState.db.useAdditionalAssetsPreview}
@@ -290,17 +306,18 @@
                     {/if}
                 </div>
 
-                <div class="min-w-0 flex-1">
+                <div class="h-14 min-w-0 flex-1 overflow-hidden">
                     <ShInput
                         autocomplete="off"
                         value={asset[0]}
                         oninput={(event) => renameAsset(i, event.currentTarget.value)}
                         placeholder="..."
+                        className="h-9 min-h-9"
                     />
-                    <span class="mt-1 block truncate text-[10px] uppercase text-textcolor2">{extension}</span>
+                    <span class="mt-1 block truncate text-[10px] leading-3 uppercase text-subtext">{extension}</span>
                 </div>
 
-                <IconButtonGroup direction="vertical" size="sm">
+                <IconButtonGroup direction="vertical" size="sm" className="self-center">
                     {#if showExclusionToggle}
                         <IconButton onclick={() => toggleExcluded(asset[1])}>
                             {#if excludedPaths.includes(asset[1])}
@@ -328,7 +345,7 @@
 </div>
 
 <FullscreenImageViewer
-    open={previewIndex >= 0 && !!previewAsset && !!previewPath}
+    open={previewIndex >= 0 && !!previewAsset}
     src={previewPath}
     alt={previewAsset?.[0] ?? ''}
     title={previewAsset?.[0] ?? ''}
@@ -337,31 +354,32 @@
     total={previewIndexes.length}
     canGoPrev={previewPosition >= 0 && previewIndexes.length > 1}
     canGoNext={previewPosition >= 0 && previewIndexes.length > 1}
+    loading={!previewPath}
+    loadingLabel={language.inlayGallery.inlayLoadingOriginal}
     metadataLabel={language.inlayGallery.inlayInfo}
     closeLabel={language.goback}
     onClose={() => (previewIndex = -1)}
     onPrev={() => goToPreviewNeighbor(-1)}
     onNext={() => goToPreviewNeighbor(1)}
+    onDelete={() => deleteAsset(previewIndex, true)}
+    onDownload={downloadPreview}
 >
     {#snippet actions()}
         {#if previewAsset}
-            <IconButton onclick={() => copyRawReference(previewAsset[0])} title={language.copy} aria-label={language.copy} className="text-textcolor">
-                <CopyIcon />
-            </IconButton>
-            <IconButton onclick={downloadPreview} title={language.download} aria-label={language.download} className="text-textcolor">
-                <DownloadIcon />
-            </IconButton>
-            <IconButton tone="destructive" onclick={() => deleteAsset(previewIndex, true)} title={language.remove} aria-label={language.remove} className="text-textcolor">
-                <TrashIcon />
-            </IconButton>
+            <AssetViewerActions
+                onCopy={() => copyRawReference(previewAsset[0])}
+                onDownload={downloadPreview}
+                onDelete={() => deleteAsset(previewIndex, true)}
+                deleteLabel={language.remove}
+            />
         {/if}
     {/snippet}
 
     {#snippet metadataOverlay()}
         {#if previewAsset}
             <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-                <dt class="text-textcolor2">{language.extensionInfo}</dt>
-                <dd class="text-textcolor">
+                <dt class="text-subtext">{language.extensionInfo}</dt>
+                <dd class="text-maintext">
                     {previewAsset[2]?.toUpperCase() ?? ''}{#if previewAsset[2] && previewDimensions}{', '}{/if}{#if previewDimensions}{previewDimensions.width} × {previewDimensions.height}px{/if}
                 </dd>
             </dl>

@@ -7,6 +7,7 @@ import {
     SIDEBAR_MENU_SETTINGS,
     appendNewPluginMenuItems,
     dividerSidebarMenuKey,
+    getSidebarMenuDisplayOrder,
     getVisibleSidebarMenuOrder,
     mergeVisibleSidebarMenuOrder,
     normalizeSidebarMenuOrder,
@@ -86,5 +87,15 @@ describe('sidebar menu ordering', () => {
             SIDEBAR_MENU_SETTINGS,
         ])
         expect(getVisibleSidebarMenuOrder(stored, [], true, [SIDEBAR_MENU_CHARACTERS])).toEqual(stored)
+    })
+
+    it('reverses bottom-aligned menus without mutating their stored order', () => {
+        const stored = [SIDEBAR_MENU_HOME, SIDEBAR_MENU_CHARACTERS, SIDEBAR_MENU_BOOKMARKS, SIDEBAR_MENU_SETTINGS]
+        const displayed = getSidebarMenuDisplayOrder(stored, true)
+
+        expect(displayed).toEqual([...stored].reverse())
+        expect(stored).toEqual([SIDEBAR_MENU_HOME, SIDEBAR_MENU_CHARACTERS, SIDEBAR_MENU_BOOKMARKS, SIDEBAR_MENU_SETTINGS])
+        expect(getSidebarMenuDisplayOrder(displayed, true)).toEqual(stored)
+        expect(getSidebarMenuDisplayOrder(stored, false)).toBe(stored)
     })
 })

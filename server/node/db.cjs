@@ -141,6 +141,13 @@ function kvSet(key, value) {
     }
 }
 
+// Explicit large-value path for compatibility projections such as rotated
+// snapshots. The live application database no longer uses this opaque store,
+// but export artifacts can still exceed SQLite's single-value comfort zone.
+function kvSetChunked(key, value) {
+    chunkStore.putValue(key, value);
+}
+
 function kvDel(key) {
     // Route through the chunk store so a chunked key (the DB blob or a chunked
     // snapshot, e.g. a rotated dbbackup-*) also drops its manifest — otherwise
@@ -236,6 +243,10 @@ function reclaimableChunkBytes() {
     return chunkStore.reclaimableBytes();
 }
 
+function chunkStorageStats() {
+    return chunkStore.stats();
+}
+
 // Whether the live DB blob is actually stored chunked right now (marker-backed),
 // not merely that a manifest row exists.
 function isDbBlobChunked() {
@@ -245,8 +256,16 @@ function isDbBlobChunked() {
 // Marginal disk cost of a snapshot key vs the live DB blob (chunks it uniquely
 // keeps alive). Use this to size snapshots for the disk limit — kvSize/LENGTH
 // would report a chunked snapshot's shared logical size and over-trim.
-function snapshotFootprint(key) {
-    return chunkStore.snapshotCost(key, DB_BLOB_KEY);
+function snapshotFootprint(key, baseKey = null) {
+    return chunkStore.snapshotCost(key, baseKey);
+}
+
+// Aggregate physical value bytes retained by a snapshot collection. Unlike
+// summing snapshotFootprint(key), this charges a chunk shared by two or more
+// snapshots only once while still charging each snapshot's own kv marker/raw
+// row. This is the appropriate quota measure for a complete snapshot set.
+function snapshotSetFootprint(keys) {
+    return chunkStore.keySetPhysicalCost(keys);
 }
 
 function clearEntities() {
@@ -261,13 +280,15 @@ function clearEntities() {
 module.exports = {
     db,
     // KV
-    kvGet, kvSet, kvDel, kvList, kvCount, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue,
+    kvGet, kvSet, kvSetChunked, kvDel, kvList, kvCount, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue,
     clearEntities,
     checkpointWal,
     estimateVacuumRequiredBytes,
     vacuumDatabase,
     gcChunks,
     reclaimableChunkBytes,
+    chunkStorageStats,
     isDbBlobChunked,
     snapshotFootprint,
+    snapshotSetFootprint,
 };

@@ -11,7 +11,7 @@ import { sleep } from "src/ts/util";
 import { alertConfirm, alertError, alertNormal } from "src/ts/alert";
 import { language } from "src/lang";
 import { checkCharOrder, forageStorage, getFetchLogs } from "src/ts/globalApi.svelte";
-import { changeColorScheme, updateColorScheme, updateTextThemeAndCSS, type ColorScheme } from "src/ts/gui/colorscheme";
+import { changeColorScheme, normalizeColorScheme, updateColorScheme, updateTextThemeAndCSS, withLegacyColorSchemeAliases, type ColorScheme, type LegacyColorScheme } from "src/ts/gui/colorscheme";
 import { layerZIndexes } from "src/ts/gui/layers";
 import { get } from "svelte/store";
 import { registerMCPModule, unregisterMCPModule } from "src/ts/process/mcp/pluginmcp";
@@ -923,26 +923,21 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         changeColorScheme: (name: string) => {
             changeColorScheme(name)
         },
-        setColorScheme: (scheme: ColorScheme) => {
-            const requiredKeys = ['bgcolor','darkbg','borderc','selected','draculared','textcolor','textcolor2','darkBorderc','darkbutton','type'] as const
-            for (const key of requiredKeys) {
-                if (typeof (scheme as any)[key] !== 'string') {
-                    throw new Error(`Invalid color scheme: missing or invalid '${key}'`)
-                }
-            }
-            if (scheme.type !== 'light' && scheme.type !== 'dark') {
-                throw new Error('Invalid color scheme type: must be "light" or "dark"')
+        setColorScheme: (scheme: ColorScheme | LegacyColorScheme) => {
+            const normalizedScheme = normalizeColorScheme(scheme)
+            if(normalizedScheme == null){
+                throw new Error('Invalid color scheme')
             }
             const db = DBState.db
             db.colorSchemeName = 'custom'
-            db.colorScheme = scheme
+            db.colorScheme = normalizedScheme
             updateColorScheme()
         },
         getColorScheme: () => {
             const db = DBState.db
             return {
                 name: db.colorSchemeName,
-                scheme: $state.snapshot(db.colorScheme)
+                scheme: withLegacyColorSchemeAliases($state.snapshot(db.colorScheme))
             }
         },
 

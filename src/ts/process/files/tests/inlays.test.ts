@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { InlayAsset } from '../inlays'
 import {
     fitInlayImageSize,
+    buildInlayReference,
     getInlayAsset,
+    getInlayAssetUrl,
     getInlayAssetBlob,
+    getInlayDownloadFileName,
     getCharacterChatIndex,
     INLAY_AUDIO_EXTENSIONS,
     INLAY_IMAGE_MAX_PIXELS,
@@ -16,6 +19,19 @@ import {
     writeInlayImage,
     __resetInlayStorageForTest,
 } from '../inlays'
+
+describe('inlay viewer helpers', () => {
+    test('builds canonical references and direct asset URLs', () => {
+        expect(buildInlayReference('asset-id')).toBe('{{inlayed::asset-id}}')
+        expect(getInlayAssetUrl('asset-id')).toBe('/api/asset/696e6c61792f61737365742d6964')
+    })
+
+    test('normalizes download names and replaces unsafe characters', () => {
+        expect(getInlayDownloadFileName('image.jpg', 'png')).toBe('image.png')
+        expect(getInlayDownloadFileName('bad/name', 'webp')).toBe('bad_name.webp')
+        expect(getInlayDownloadFileName('', 'png')).toBe('inlay-asset.png')
+    })
+})
 
 //#region module mocks
 
@@ -55,6 +71,9 @@ vi.mock('src/ts/storage/nodeStorage', () => {
         authChecked = true
         async setItem(key: string, value: Uint8Array) {
             nodeStorageMap.set(key, value)
+        }
+        async encodeInlayWebp() {
+            return new Blob([new Uint8Array([0x52, 0x49, 0x46, 0x46])], { type: 'image/webp' })
         }
         async getItem(key: string) {
             return nodeStorageMap.get(key) ?? null
@@ -106,7 +125,14 @@ vi.mock('uuid', () => ({
 }))
 
 const { getDatabaseMock } = vi.hoisted(() => ({
-    getDatabaseMock: vi.fn<() => any>(() => ({ characters: [] })),
+    getDatabaseMock: vi.fn<() => any>(() => ({
+        characters: [],
+        inlayImageCompression: true,
+        inlayImageSize: '1k',
+        inlayImageFormat: 'webp',
+        inlayImageLossy: true,
+        inlayImageQuality: 0.85,
+    })),
 }))
 
 vi.mock(import('src/ts/storage/database.svelte'), () => ({
@@ -146,7 +172,14 @@ beforeEach(() => {
     vi.clearAllMocks()
     nodeStorageMap.clear()
     inlayMetaMap.clear()
-    getDatabaseMock.mockReturnValue({ characters: [] })
+    getDatabaseMock.mockReturnValue({
+        characters: [],
+        inlayImageCompression: true,
+        inlayImageSize: '1k',
+        inlayImageFormat: 'webp',
+        inlayImageLossy: true,
+        inlayImageQuality: 0.85,
+    })
     __resetInlayStorageForTest()
 })
 
@@ -391,6 +424,13 @@ describe('fitInlayImageSize', () => {
             },
         ))
     })
+
+    test('keeps the 1216 x 832 NAI default inside the 1K pixel budget', () => {
+        expect(fitInlayImageSize(1216, 832, INLAY_IMAGE_MAX_PIXELS)).toEqual({
+            width: 1216,
+            height: 832,
+        })
+    })
 })
 
 describe('writeInlayImage', () => {
@@ -416,8 +456,8 @@ describe('writeInlayImage', () => {
         })
     })
 
-    test('stores image as lossless PNG when inlayImageLossless is true', async () => {
-        getDatabaseMock.mockReturnValue({ characters: [], inlayImageLossless: true })
+    test('stores the original-size image as PNG when compression is disabled', async () => {
+        getDatabaseMock.mockReturnValue({ characters: [], inlayImageCompression: false })
         const imgObj = makeImage(200, 100)
 
         const result = await writeInlayImage(imgObj, {
@@ -437,6 +477,24 @@ describe('writeInlayImage', () => {
             type: 'image',
             width: 200,
         })
+    })
+
+    test('uses the configured PNG format and 2K size budget', async () => {
+        getDatabaseMock.mockReturnValue({
+            characters: [],
+            inlayImageCompression: true,
+            inlayImageSize: '2k',
+            inlayImageFormat: 'png',
+            inlayImageLossy: true,
+            inlayImageQuality: 0.85,
+        })
+        const imgObj = makeImage(3000, 2000)
+
+        await writeInlayImage(imgObj, { id: 'png-2k' })
+
+        const stored = await getInlayAssetBlob('png-2k')
+        expect(stored).toMatchObject({ ext: 'png', type: 'image' })
+        expect(stored!.width! * stored!.height!).toBeLessThanOrEqual(2048 * 2048)
     })
 
     test('generates uuid when no id is provided', async () => {

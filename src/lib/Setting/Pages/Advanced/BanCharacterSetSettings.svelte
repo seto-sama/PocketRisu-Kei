@@ -26,7 +26,7 @@
     <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
         {#each characterSets as set}
             <ShButton
-                className={`w-full justify-start whitespace-normal${DBState.db.banCharacterset.includes(set) ? '' : ' text-textcolor2'}`}
+                className={`w-full justify-start whitespace-normal${DBState.db.banCharacterset.includes(set) ? '' : ' text-subtext'}`}
                 size="sm"
                 variant={DBState.db.banCharacterset.includes(set) ? 'primary' : "outline"}
                 onclick={() => {

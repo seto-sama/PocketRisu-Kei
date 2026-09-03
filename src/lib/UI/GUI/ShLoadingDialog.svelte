@@ -42,29 +42,29 @@
     contentClass={cn('p-6', contentClass)}
     bodyClass="w-full flex flex-col gap-4 items-center"
 >
-    <LoaderCircleIcon class="size-8 text-borderc animate-spin shrink-0" />
+    <LoaderCircleIcon class="size-8 text-primary animate-spin shrink-0" />
 
     {#if message}
-        <div class="text-textcolor text-center whitespace-pre-wrap break-words">
+        <div class="text-maintext text-center whitespace-pre-wrap break-words">
             {message}
         </div>
     {/if}
 
     {#if submessage}
-        <div class="text-textcolor2 text-sm text-center whitespace-pre-wrap break-words">
+        <div class="text-subtext text-sm text-center whitespace-pre-wrap break-words">
             {submessage}
         </div>
     {/if}
 
     {#if clampedProgress != null}
         <div class="w-full flex flex-col gap-2 mt-2">
-            <div class="w-full h-2 bg-bgcolor border border-darkborderc rounded-md overflow-hidden">
+            <div class="w-full h-2 bg-lightbg border border-darkborderc rounded-md overflow-hidden">
                 <div
                     class="h-full bg-linear-to-r risu-saving-gradient saving-animation transition-[width]"
                     style:width={clampedProgress + '%'}
                 ></div>
             </div>
-            <div class="text-textcolor2 text-sm text-center">
+            <div class="text-subtext text-sm text-center">
                 {clampedProgress.toFixed(0)}%
             </div>
         </div>

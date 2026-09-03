@@ -45,19 +45,19 @@
 
 <SettingLayout variant="panel">
     <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
-        <div class="flex items-center gap-2 text-textcolor">
+        <div class="flex items-center gap-2 text-maintext">
             <ImageOffIcon size={16} />
             <span class="font-medium">{language.storageOrphan}</span>
         </div>
         {#if orphan.available}
-            <span class="text-textcolor2 text-sm tabular-nums">
+            <span class="text-subtext text-sm tabular-nums">
                 {language.storageOrphanHeader(orphan.count, orphan.totalSize)}
             </span>
         {/if}
     </div>
 
-    <p class="text-textcolor2 text-sm leading-relaxed mb-2">{language.storageOrphanWhat}</p>
-    <p class="text-textcolor2 text-sm leading-relaxed mb-3">{language.storageOrphanWhen}</p>
+    <p class="text-subtext text-sm leading-relaxed mb-2">{language.storageOrphanWhat}</p>
+    <p class="text-subtext text-sm leading-relaxed mb-3">{language.storageOrphanWhen}</p>
 
     {#if !orphan.available}
         <ShAlert variant="default">
@@ -68,8 +68,8 @@
 
     <div class="flex items-center justify-between gap-3 mb-3">
         <div class="min-w-0">
-            <div class="text-textcolor text-sm">{language.storageOrphanAutoClean}</div>
-            <div class="text-textcolor2 text-xs leading-relaxed">{language.storageOrphanAutoCleanDesc}</div>
+            <div class="text-maintext text-sm">{language.storageOrphanAutoClean}</div>
+            <div class="text-subtext text-xs leading-relaxed">{language.storageOrphanAutoCleanDesc}</div>
         </div>
         <ShSwitch bind:checked={DBState.db.nodeOnlyAutoCleanAssets} />
     </div>

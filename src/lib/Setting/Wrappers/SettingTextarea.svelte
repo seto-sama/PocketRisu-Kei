@@ -36,16 +36,16 @@
     <!-- Multiline stays stacked (input below), but the label matches row styling:
          14px label + inline help text, consistent with select/slider rows. -->
     <div class="py-3 border-t border-darkborderc" data-setting-id={item.id}>
-        <span class="text-sm text-textcolor">{getLabel(item)}</span>
+        <span class="text-sm text-maintext">{getLabel(item)}</span>
         {#if item.helpKey && (language.help as any)[item.helpKey]}
-            <p class="text-xs text-textcolor2 mt-0.5">{(language.help as any)[item.helpKey]}</p>
+            <p class="text-xs text-subtext mt-0.5">{(language.help as any)[item.helpKey]}</p>
         {/if}
         <TextAreaInput
             className="mt-2"
             bind:value={localValue}
             placeholder={item.options?.placeholder}
             popupTitle={getLabel(item)}
-            commitMode={item.options?.commitMode ?? 'blur'}
+            commitMode={item.options?.commitMode ?? 'debounce'}
             debounceMs={item.options?.debounceMs}
             oncommit={commitValue}
             ondraft={(value) => draftValue = value}
@@ -55,7 +55,7 @@
         {/if}
     </div>
 {:else}
-    <span class="text-textcolor {item.classes ?? ''}" data-setting-id={item.id}>
+    <span class="text-maintext {item.classes ?? ''}" data-setting-id={item.id}>
         {getLabel(item)}
         {#if item.helpKey}<Help key={item.helpKey as any}/>{/if}
     </span>
@@ -64,7 +64,7 @@
         bind:value={localValue}
         placeholder={item.options?.placeholder}
         popupTitle={getLabel(item)}
-        commitMode={item.options?.commitMode ?? 'blur'}
+        commitMode={item.options?.commitMode ?? 'debounce'}
         debounceMs={item.options?.debounceMs}
         oncommit={commitValue}
         ondraft={(value) => draftValue = value}

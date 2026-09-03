@@ -29,7 +29,7 @@
     provideOverlayLayer(() => open)
 
     const contentClass = $derived(cn(
-        'risu-layer-overlay max-w-96 max-h-80 overflow-y-auto break-keep bg-darkbg border border-darkborderc rounded-md px-3 py-2 text-xs text-textcolor shadow-lg leading-relaxed',
+        'risu-layer-overlay max-w-96 max-h-80 overflow-y-auto break-keep bg-darkbg border border-darkborderc rounded-md px-3 py-2 text-xs text-maintext shadow-lg leading-relaxed',
         className,
     ))
 </script>

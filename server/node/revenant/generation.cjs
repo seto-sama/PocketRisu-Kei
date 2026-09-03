@@ -25,7 +25,7 @@ const REMOTE_HYPA_MODELS = new Set([
 ]);
 const SERVER_TOKENIZERS = new Set([
     'tik', 'mistral', 'novelai', 'claude', 'llama', 'llama3',
-    'novellist', 'gemma', 'cohere', 'deepseek',
+    'novellist', 'gemma', 'deepseek',
 ]);
 const MAX_WORKFLOW_CONTEXT_BYTES = 8 * 1024 * 1024;
 

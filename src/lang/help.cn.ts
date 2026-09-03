@@ -54,7 +54,7 @@ export const helpCn = {
         "useExperimental": "激活后，将显示部分实验性功能。",
         "chainOfThought": "激活后，将在提示词中添加思维链（CoT）提示。",
         "gptVisionQuality": "设置图像输入使用的细节级别或媒体分辨率。质量越高，越能识别细节，但会使用更多输入 Token，并可能增加延迟。",
-        "genTimes": "此设置支持模型上的重滚（reroll）回应数量。除第一则回应外，其他回应将作为缓存使用，以降低成本。但若未多次重滚回应，可能增加成本。",
+        "genTimes": "主回复生成的总次数。首次回复后会按顺序自动执行普通的重新生成操作。任一生成调用工具时会停止剩余的自动重新生成，自动重新生成也不会播放 TTS。数值越高，请求次数和费用越高。",
         "requestretrys": "此选项用于设置请求失败时的重试次数。",
         "emotionPrompt": "此选项用于设置情绪检测的提示词。留空将使用默认提示词。",
         "additionalParams": "此选项允许将附加的参数添加到请求主体（Request body）中。若要排除某些参数，可以将值设为 `{{none}}`。若要添加包头（Request header）而非主体，可以在键前加上 `header::`，如 `header::Authorization`。若要将值作为 JSON，可以在值前加上 `json::`，如 `json::{\"key\":\"value\"}`。其他情况下，系统将自动判定值的类型。",
@@ -70,7 +70,6 @@ export const helpCn = {
         "defaultVariables": "可在此处设置自定义默认变量。使用 `<variable name>=<variable value>` 格式，每行一个。例如：`name=叡苏`，可在触发式和 CBS 变量中使用，如：`{{getvar::A}}`、`{{setvar::A::B}}` 或 `{{? $A + 1}}`。若提示词模板的默认变量与角色的默认变量名称相同，系统将使用角色的默认变量。",
         "lowLevelAccess": "激活后，将开放需要高计算能力的功能，并允许通过角色中的触发式执行 AI 模型。除非确实需要这些功能，否则不要激活此选项。",
         "triggerLLMPrompt": "这是将发送到模型的提示词。你可以使用 `@@role user`、`@@role system`、`@@role assistant` 来设置多轮对话及角色。例如：\n```\n@@role system\nrespond as hello\n@@role assistant\nhello\n@@role user\nhi\n```",
-        "legacyTranslation": "激活后，将使用旧版翻译方法，在翻译前对 Markdown 和引号进行预处理，而非在翻译后处理。",
         "luaHelp": "可使用 Lua 作为触发式，并可定义 onInput、onOutput 和 onStart 函数。当用户发送消息时，调用 onInput；当角色发送消息时，调用 onOutput；当对话开始时，调用 onStart。详情请参阅说明文档。",
         "claudeCachingExperimental": "Claude 缓存是实验性功能，可减少模型成本。但若在不使用重滚（reroll）回应的情况下激活，则可能增加成本。实验性功能可能不稳定，且未来可能会有所变动。",
         "urllora": "可使用模型文档的直接下载链接。通过类似 https://sites.google.com/site/gdocs2direct/ 的网站，从 Google Drive 等平台产生直接连接。或者使用 Civitai URL，复制 AIR（格式如 `urn:air:flux1:lora:civitai:180891@776656` 或 `civitai:180891@776656`），并粘贴。",
@@ -112,5 +111,4 @@ export const helpCn = {
         "openRouterProviderIgnore": "忽略此列表中的提供商，若所有提供商都被忽略，请求将会失败。详见 https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers",
         "hideAllImagesDesc": "隐藏机器人图标、机器人图片资源和RisuRealm封面图片。",
         "embedding": "嵌入模型用于多个功能中的相似度搜索：\n\n- **长期记忆**: HypaV2, HypaV3, Hanurai Memory 和 SupaMemory (启用 HypaMemory 时)\n- **附加文本**: 基于上下文匹配角色附加信息\n- **动态资产**: 当未找到精确匹配时查找相似的资产名称\n- **情感图片**: 当情感方式设置为 'embedding' 时\n- **触发脚本**: 触发脚本中的相似度条件\n- **文件附件**: 在 PDF/TXT/XML 附件中搜索",
-        "enableScrollToActiveChar": "如果启用，在拖动角色时按下热键或按住 Ctrl 键将滚动到当前活跃的角色。如果文件夹已关闭，将自动打开。"
     }

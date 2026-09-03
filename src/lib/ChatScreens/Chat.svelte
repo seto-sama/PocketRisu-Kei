@@ -43,7 +43,7 @@
 </script>
 
 <script lang="ts">
-    import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, MessageSquareOffIcon, MessageSquarePlusIcon, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, PencilIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
+    import { ArrowLeftIcon, ArrowLeftRightIcon, ArrowRightIcon, BookmarkIcon, BotIcon, CircleQuestionMarkIcon, CopyIcon, ImagePlusIcon, MessageSquareOffIcon, MessageSquarePlusIcon, HamburgerIcon, LanguagesIcon, LinkIcon, MenuIcon, SquarePenIcon, RefreshCcwIcon, SplitIcon, TrashIcon, Volume2Icon, ScissorsIcon, EyeOffIcon } from "@lucide/svelte"
     import { aiLawApplies, changeChatTo, foldChatToMessage, getFileSrc, createPersistedChatCopy, requestImmediateSave } from "src/ts/globalApi.svelte"
     import { ColorSchemeTypeStore } from "src/ts/gui/colorscheme"
     import { DEFAULT_TEXT_SCREEN_COLOR } from "src/ts/gui/textOutline"
@@ -67,6 +67,8 @@
     import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
     import TextAreaInput from "../UI/GUI/TextAreaInput.svelte"
     import ChatBody from './ChatBody.svelte'
+    import { getParsedGuiHtml } from './guiHtmlRenderCache'
+    import { observeWithinChatViewport } from 'src/ts/chatViewportObserver'
     import PopupButton from "../UI/PopupButton.svelte";
     import { createRevenantChatTranslationRecovery, type RevenantChatTranslationRecoveryContext, type RevenantChatTranslationRecoveryScope } from "src/ts/process/revenant/recovery";
     import { resolveRequestDiagnosticContext } from "src/ts/requestDiagnostics";
@@ -80,6 +82,7 @@
     import ChatAdaptiveAction from "./ChatAdaptiveAction.svelte";
     import ShDropdownMenuItem from "../UI/GUI/ShDropdownMenuItem.svelte";
     import ShTooltip from "../UI/GUI/ShTooltip.svelte";
+    import AvatarFallback from "../UI/AvatarFallback.svelte";
     import {
         bookmarkKey,
         bookmarkKeys,
@@ -87,6 +90,8 @@
         deleteBookmark,
         ensureBookmarkCatalog,
     } from "src/ts/bookmarks/bookmarkService";
+    import { canonicalizeInlayTokens } from "src/ts/util/inlayTokens";
+    import { addGeneratedInlayToCharacter, GeneratedInlayAssetError, type GeneratedImageAssetTarget } from "src/ts/imageGeneration/addInlayToCharacter";
 
     let translating = $state(false)
     let editMode = $state(false)
@@ -108,7 +113,7 @@
     const floatingToolbarBackground = $derived(
         DBState.db.theme === 'waifu'
             ? `${DBState.db.textScreenColor ?? DEFAULT_TEXT_SCREEN_COLOR}80`
-            : 'color-mix(in srgb, var(--risu-theme-bgcolor) 72%, transparent)'
+            : 'color-mix(in srgb, var(--risu-theme-lightbg) 72%, transparent)'
     )
     let activeTranslationTasks = 0
     let cancelTranslationRequest: (() => void) | null = $state(null)
@@ -145,6 +150,9 @@
         translationRecoveryScope?: RevenantChatTranslationRecoveryScope | null;
         translationRecoveryTarget?: RevenantChatMessageTranslationTarget | null;
         getScrollController?: () => ChatScrollController | null;
+        adjacentSwipeMessages?: readonly string[];
+        isImageGeneration?: boolean;
+        isLastMessage?: boolean;
     }
 
     let {
@@ -177,6 +185,9 @@
         translationRecoveryScope,
         translationRecoveryTarget,
         getScrollController = () => null,
+        adjacentSwipeMessages = [],
+        isImageGeneration = false,
+        isLastMessage = false,
     }: Props = $props();
 
     function toggleMessageRole() {
@@ -187,8 +198,49 @@
         invalidateChatMessageRender(idx)
     }
 
+    let addingImageGenerationAsset = $state(false)
+
+    async function addImageGenerationAsset() {
+        if (addingImageGenerationAsset) return
+        const currentCharacter = DBState.db.characters[selIdState.selId]
+        if (currentCharacter?.type !== 'character') return
+        const currentMessage = currentCharacter.chats[currentCharacter.chatPage]?.message?.[idx]
+        if (!currentMessage || currentMessage.kind !== 'imageGeneration') return
+
+        addingImageGenerationAsset = true
+        try {
+            const actions: { id: GeneratedImageAssetTarget, label: string }[] = [
+                { id: 'icon', label: language.charIcon },
+                { id: 'emotion', label: language.emotionImage },
+                { id: 'additional', label: language.additionalAssets },
+            ]
+            const selected = await alertConfirmMulti(language.addInlayImagePrompt, actions)
+            if (selected < 0 || !actions[selected]) return
+
+            await addGeneratedInlayToCharacter(currentMessage.data, currentCharacter, actions[selected].id)
+            currentCharacter.reloadKeys = (currentCharacter.reloadKeys ?? 0) + 1
+            await requestImmediateSave({ characterIds: [currentCharacter.chaId] })
+            notifySuccess(language.inlayImageAddedToAssets)
+        }
+        catch (error) {
+            alertError(error instanceof GeneratedInlayAssetError
+                ? language.inlayGallery.inlayMissing
+                : error)
+        }
+        finally {
+            addingImageGenerationAsset = false
+        }
+    }
+
     let msgDisplay = $state('')
     let translated = $state(false)
+    const lastOutputAutoTranslationCandidate = $derived(
+        DBState.db.autoTranslate === true
+        && DBState.db.autoTranslateLastOutputOnly === true
+        && !isStreamingDisplay
+        && role === 'char'
+        && isLastMessage
+    )
     const showFloatingToolbarDetails = $derived(Boolean(
         messageGenerationInfo && (DBState.db.requestInfoInsideChat || aiLawApplies())
         || DBState.db.translatorType === 'llm' && ((editMode && originalEditTranslationKey !== null) || translated)
@@ -272,9 +324,10 @@
 
     async function edit(nextMessage:string){
         const msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
-        msg.data = nextMessage
+        const canonicalMessage = canonicalizeInlayTokens(nextMessage)
+        msg.data = canonicalMessage
         if (msg.swipes && msg.swipeId !== undefined) {
-            msg.swipes[msg.swipeId] = nextMessage
+            msg.swipes[msg.swipeId] = canonicalMessage
         }
     }
 
@@ -390,10 +443,7 @@
         if(DBState.db.translateBeforeHTMLFormatting){
             return source
         }
-        if(!DBState.db.legacyTranslation){
-            return await ParseMarkdown(source, character, 'pretranslate', idx, getCbsCondition())
-        }
-        return await ParseMarkdown(source, character, 'notrim', idx, getCbsCondition())
+        return await ParseMarkdown(source, character, 'pretranslate', idx, getCbsCondition())
     }
 
     function getTranslationTarget(): RevenantChatMessageTranslationTarget | null {
@@ -707,11 +757,26 @@
         }
     })
 
+    $effect(() => {
+        const element = partialEditRoot
+        if (!element || DBState.db.theme !== 'customHTML') return
+        if (typeof IntersectionObserver === 'undefined') return
+
+        // Keep content ready until the observer supplies its first result.
+        element.dataset.risuCustomHtmlVisible = 'true'
+        const stopObserving = observeWithinChatViewport([element], (_target, visible) => {
+            element.dataset.risuCustomHtmlVisible = visible ? 'true' : 'false'
+        }, { once: false })
+        return () => {
+            stopObserving()
+            delete element.dataset.risuCustomHtmlVisible
+        }
+    })
+
     function RenderGUIHtml(html:string){
         try {
-            const parser = new DOMParser()
-            const doc = parser.parseFromString(risuChatParser(html ?? '', {cbsConditions: getCbsCondition()}), 'text/html')
-            return doc.body   
+            const expandedHtml = risuChatParser(html ?? '', {cbsConditions: getCbsCondition()})
+            return getParsedGuiHtml(expandedHtml)
         } catch (error) {
             const placeholder = document.createElement('div')
             return placeholder
@@ -934,7 +999,6 @@
     <div
         class="chat-toolbar-sticky-layer chat-toolbar-sticky-footer-layer"
         class:chat-toolbar-above-fixed-composer={DBState.db.fixedChatTextarea}
-        class:chat-toolbar-streaming-layer={isStreamingDisplay}
     >
         <div class="chat-toolbar-sticky-footer">
             <div class="chat-toolbar-sticky-footer-content">
@@ -951,16 +1015,16 @@
 
 {#snippet textBox()}
     {#if editTranslationMode}
-        <TextAreaInput bind:value={editTranslationText} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
+        <TextAreaInput bind:value={editTranslationText} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             saveTranslationEdit()
         }} />
     {:else if editMode}
-        <TextAreaInput bind:value={editDraft} autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
+        <TextAreaInput bind:value={editDraft} commitMode="input" autoResize actionBar={false} fullwidth padding={false} contentClassName="p-2 message-edit-area" style={messageEditTextAreaStyle} onLongPress={() => {
             void cancelOriginalEdit()
         }} />
     {:else if isComment}
         <div class={{
-            "flex justify-center text-textcolor2 italic": true,
+            "flex justify-center text-subtext italic": true,
             "branched-from-comment-text": isBranchedFromComment,
             "min-w-0 text-sm leading-5": isBranchedFromComment,
             "w-full mb-12": !isBranchedFromComment,
@@ -985,7 +1049,7 @@
             {/if}
         </div>
     {:else if blankMessage}
-        <div class="w-full flex justify-center text-textcolor2 italic mb-12">
+        <div class="w-full flex justify-center text-subtext italic mb-12">
             {language.noMessage}
         </div>
     {:else}
@@ -1023,6 +1087,8 @@
                 {revenantTranslationRecoverySnapshot}
                 {translationPending}
                 {autoTranslationSuppressed}
+                {lastOutputAutoTranslationCandidate}
+                {adjacentSwipeMessages}
                 modelShortName={
                     messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
                 }
@@ -1048,7 +1114,7 @@
 {/snippet}
 
 {#snippet iconButtons(options:{applyTextColors?:boolean; grow?:boolean; compactComment?:boolean} = {})}
-    <div class="flex items-center justify-end" class:grow={options.grow !== false} class:text-textcolor2={options.applyTextColors !== false}>
+    <div class="flex items-center justify-end" class:grow={options.grow !== false} class:text-subtext={options.applyTextColors !== false}>
         {#if isComment}
             <IconButton
                 size={options.compactComment ? "default" : "lg"}
@@ -1089,7 +1155,7 @@
                     {/if}
                 {/if}
                 {#if firstMessage}
-                    <IconButton className={disabled === true ? 'text-draculared' : ''} onclick={async () => {
+                    <IconButton className={disabled === true ? 'text-danger' : ''} onclick={async () => {
                         await sleep(1)
                         const chat = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage]
                         if(chat.firstMessageDisabled){
@@ -1298,18 +1364,18 @@
                     }
                 }
                 
-                const html = `<div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; color: ${root.style.getPropertyValue('--risu-theme-textcolor')}; line-height: 1.6; max-width: 600px; margin: 1rem auto; background: ${root.style.getPropertyValue('--risu-theme-bgcolor')}; border-radius: 12px; overflow: hidden;">
+                const html = `<div style="font-family: 'Segoe UI', Roboto, Arial, sans-serif; color: ${root.style.getPropertyValue('--risu-theme-maintext')}; line-height: 1.6; max-width: 600px; margin: 1rem auto; background: ${root.style.getPropertyValue('--risu-theme-lightbg')}; border-radius: 12px; overflow: hidden;">
 <div style="padding: 20px;">
 <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 1rem; text-align: center;">
     ${finalHasValidImage ? `<img style="width: 80px; height: 80px; border-radius: 50%; border: 3px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')}; margin-bottom: 0.75rem; object-fit: cover;" src="${finalIconDataUrl}" alt="profile">` : ''}
-    <h3 style="color: ${root.style.getPropertyValue('--risu-theme-textcolor')}; font-weight: 600; font-size: 1.5rem; margin: 0 0 0.5rem 0;">${displayName}</h3>
-    ${!isUserMessage ? `<span style="display: inline-block; border-radius: 16px; font-size: 0.8rem; padding: 0.25rem 0.75rem; background: ${root.style.getPropertyValue('--risu-theme-darkbg')}; color: ${root.style.getPropertyValue('--risu-theme-textcolor')}; border: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')};">${modelInfo}</span>` : ''}
+    <h3 style="color: ${root.style.getPropertyValue('--risu-theme-maintext')}; font-weight: 600; font-size: 1.5rem; margin: 0 0 0.5rem 0;">${displayName}</h3>
+    ${!isUserMessage ? `<span style="display: inline-block; border-radius: 16px; font-size: 0.8rem; padding: 0.25rem 0.75rem; background: ${root.style.getPropertyValue('--risu-theme-darkbg')}; color: ${root.style.getPropertyValue('--risu-theme-maintext')}; border: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')};">${modelInfo}</span>` : ''}
 </div>
 <div style="border-top: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')}; padding-top: 1rem;">
     ${doc.body.innerHTML}
 </div>
 <div style="text-align: center; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid ${root.style.getPropertyValue('--risu-theme-darkborderc')};">
-    <span style="font-size: 0.75rem; color: ${root.style.getPropertyValue('--risu-theme-textcolor2')}; opacity: 0.7;">From ${PRODUCT_NAME}</span>
+    <span style="font-size: 0.75rem; color: ${root.style.getPropertyValue('--risu-theme-subtext')}; opacity: 0.7;">From ${PRODUCT_NAME}</span>
 </div>
 </div>
 </div>`
@@ -1398,7 +1464,7 @@
             title={translated && DBState.db.translatorType === 'llm' ? language.editTranslation : language.edit}
             onclick={toggleCurrentTextEdit}
             oncontextmenu={editOppositeText}>
-            <PencilIcon />
+            <SquarePenIcon />
 
             {#if showNames}
                 <span class="ml-1">{language.edit}</span>
@@ -1416,7 +1482,7 @@
                 <ArrowLeftIcon />
             </IconButton>
             {#if !DBState.db.hideMessagePageCount}
-                <span class="flex items-center text-xs text-textcolor2 shrink overflow-hidden whitespace-nowrap min-w-0">{currentPage}/{totalPages}</span>
+                <span class="flex items-center text-xs text-subtext shrink overflow-hidden whitespace-nowrap min-w-0">{currentPage}/{totalPages}</span>
             {/if}
             <IconButton size="lg" className="button-icon-reroll" onclick={() => changeSwipe(onReroll)}>
                 <ArrowRightIcon />
@@ -1435,7 +1501,7 @@
                 <ArrowLeftIcon />
             </IconButton>
             {#if !DBState.db.hideMessagePageCount}
-                <span class="flex items-center text-xs text-textcolor2 shrink overflow-hidden whitespace-nowrap min-w-0" class:dyna-icon={rerollIcon === 'dynamic' || rerollIcon === 'force'} class:force-show={rerollIcon === 'force'}>{currentPage}/{totalPages}</span>
+                <span class="flex items-center text-xs text-subtext shrink overflow-hidden whitespace-nowrap min-w-0" class:dyna-icon={rerollIcon === 'dynamic' || rerollIcon === 'force'} class:force-show={rerollIcon === 'force'}>{currentPage}/{totalPages}</span>
             {/if}
             <IconButton size="lg" className={'button-icon-reroll ' + ((rerollIcon === 'dynamic' || rerollIcon === 'force') ? 'dyna-icon ' : '') + (rerollIcon === 'force' ? 'force-show' : '')} onclick={async () => {
                 if (swipeNavigationOnly) {
@@ -1462,10 +1528,17 @@
 
 {#snippet minorMenuItems()}
     {#if idx > -1}
-        <ShDropdownMenuItem disabled={generationOwned} onSelect={toggleMessageRole}>
-            <ArrowLeftRightIcon />
-            <span>{language.changeMessageRole}</span>
-        </ShDropdownMenuItem>
+        {#if isImageGeneration}
+            <ShDropdownMenuItem disabled={generationOwned || addingImageGenerationAsset} onSelect={addImageGenerationAsset}>
+                <ImagePlusIcon />
+                <span>{language.addInlayImageToAssets}</span>
+            </ShDropdownMenuItem>
+        {:else}
+            <ShDropdownMenuItem disabled={generationOwned} onSelect={toggleMessageRole}>
+                <ArrowLeftRightIcon />
+                <span>{language.changeMessageRole}</span>
+            </ShDropdownMenuItem>
+        {/if}
 
         <ShDropdownMenuItem disabled={generationOwned} class={isBookmarked ? 'button-icon-bookmark text-primary' : 'button-icon-bookmark'} onSelect={toggleBookmark}>
             <BookmarkIcon />
@@ -1534,7 +1607,7 @@
                 <button
                     {...props}
                     type="button"
-                    class="ml-auto inline-flex items-center border-0 bg-transparent p-0 text-textcolor2"
+                    class="ml-auto inline-flex items-center border-0 bg-transparent p-0 text-subtext"
                     tabindex="-1"
                     aria-label={language.disableAboveHelp}
                     onpointerdown={(event) => {
@@ -1555,14 +1628,20 @@
 {#snippet senderIcon(options:{rounded?:boolean,styleFix?:string} = {})}
     {#if !blankMessage && !$HideIconStore && !hideSender}
         {#await img}
-            <div class="shadow-lg bg-textcolor2" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
+            <div class="shadow-lg bg-button" style={options?.styleFix ??`height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
             class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
         {:then m}
-            {#if largePortrait && (!options?.rounded)}
-                <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100 / 0.75}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
+            {#if !m}
+                <AvatarFallback
+                    className="shadow-lg {options?.rounded ? 'rounded-full' : 'rounded-md'}"
+                    style={options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`}
+                    iconSize={DBState.db.iconsize * 0.3}
+                />
+            {:else if largePortrait && (!options?.rounded)}
+                <div class="shadow-lg bg-subtext" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100 / 0.75}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
                 class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
             {:else}
-                <div class="shadow-lg bg-textcolor2" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
+                <div class="shadow-lg bg-subtext" style={m + (options?.styleFix ?? `height:${DBState.db.iconsize * 3.5 / 100}rem;width:${DBState.db.iconsize * 3.5 / 100}rem;min-width:${DBState.db.iconsize * 3.5 / 100}rem`)}
                 class:rounded-md={!options?.rounded} class:rounded-full={options?.rounded}></div>
             {/if}
         {/await}
@@ -1723,13 +1802,13 @@
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      onclickcapture={handleButtonTriggerWithin}>
     <div
-        class="text-textcolor grow max-w-full sm:px-4"
+        class="text-maintext grow max-w-full sm:px-4"
         class:py-2={isBranchedFromComment}
         class:py-4={!isBranchedFromComment}
     >
         {#if !blankMessage}
             <div
-                class="chat-message-shell flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto bg-bgcolor sm:rounded-lg"
+                class="chat-message-shell flex flex-col w-full min-w-0 {nodeOnlyWidthClass} mx-auto bg-lightbg sm:rounded-lg"
                 class:chat-message-shell-sticky={DBState.db.stickyChatToolbar}
             >
                 {#if !hideSender}
@@ -1737,7 +1816,7 @@
                     <div class="flex items-center gap-3 mb-4">
                         {@render senderIcon({rounded: DBState.db.roundIcons})}
                         {#if !$HideIconStore}
-                            <span class="text-lg sm:text-xl text-textcolor">{name}</span>
+                            <span class="text-lg sm:text-xl text-maintext">{name}</span>
                         {/if}
                     </div>
                 {/if}
@@ -1749,7 +1828,7 @@
                 {#if DBState.db.stickyChatToolbar}
                     {@render stickyChatFooter()}
                 {:else}
-                    <div class="flex flex-wrap items-center justify-between pt-2 border-t border-darkborderc border-opacity-30 text-textcolor2 gap-2">
+                    <div class="flex flex-wrap items-center justify-between pt-2 border-t border-darkborderc border-opacity-30 text-subtext gap-2">
                         <div class="min-w-0">
                             {@render genInfo()}
                         </div>
@@ -1783,23 +1862,23 @@
      data-partial-edit-translated={translated && DBState.db.translatorType === 'llm'}
      onclickcapture={handleButtonTriggerWithin}>
     <div
-        class="text-textcolor mt-1 ml-4 mr-4 mb-1 px-2 bg-transparent grow border-t-gray-900 border-opacity/30 border-transparent flexium items-start max-w-full"
+        class="text-maintext mt-1 ml-4 mr-4 mb-1 px-2 bg-transparent grow flexium items-start max-w-full"
         class:py-1={isBranchedFromComment}
         class:py-2={!isBranchedFromComment}
     >
         {#if DBState.db.theme === 'mobilechat' && !blankMessage}
             <div class={role === 'user' ? "flex items-start w-full justify-end" : "flex items-start"}>
                 {#if role !== 'user'}
-                    {@render senderIcon({rounded: true})}
+                    {@render senderIcon({rounded: DBState.db.roundIcons})}
                 {/if}
                 <div
                     class="bg-darkbg rounded-lg p-3 max-w-[70%] mx-2"
                     class:rounded-tl-none={role !== 'user'}
                     class:rounded-tr-none={role === 'user'}
                 >
-                    <p class="text-textcolor">{@render textBox()}</p>
+                    <p class="text-maintext">{@render textBox()}</p>
                     {#if DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.time}
-                        <span class="text-xs text-textcolor2 mt-1 block">
+                        <span class="text-xs text-subtext mt-1 block">
                             {new Intl.DateTimeFormat(undefined, {
                                 hour: '2-digit',
                                 minute: '2-digit',
@@ -1812,33 +1891,8 @@
                     {/if}
                 </div>
                 {#if role === 'user'}
-                    {@render senderIcon({rounded: true})}
+                    {@render senderIcon({rounded: DBState.db.roundIcons})}
                 {/if}
-            </div>
-        {:else if DBState.db.theme === 'cardboard' && !blankMessage}
-            <div class="w-full flex flex-col px-0 sm:px-4 py-4 relative">
-                <div class="bg-linear-to-b from-bgcolor to-darkbg rounded-lg shadow-lg border-darkborderc border p-4 flex flex-col">
-                    <div class="flex gap-4 mt-2 flex-col sm:flex-row">
-                        {#if !hideSender}
-                            <div class="flex flex-col items-center">
-                                <div class="sm:h-96 sm:w-72 sm:min-w-72 w-48 h-64">
-                                    {@render senderIcon({rounded: false, styleFix:'height:100%;width:100%;'})}
-                                </div>
-                                <h2 class="text-base font-bold text-textcolor2 text-center mt-2 max-w-full text-ellipsis">{name}</h2>
-                            </div>
-                        {/if}
-                        {#if editMode}
-                            <textarea class="grow h-138 sm:h-96 overflow-y-auto bg-transparent text-textcolor p-2 mb-2 resize-none message-edit-area" bind:value={editDraft}></textarea>
-                        {:else}
-                            <div class="grow h-138 sm:h-96 overflow-y-auto p-2 mb-2 sm:mb-0">
-                                {@render textBox()}
-                            </div>
-                        {/if}
-                    </div>
-                </div>
-                <div class="absolute bottom-0 right-0 bg-darkbg p-2 rounded-md border border-darkborderc text-textcolor2">
-                    {@render iconButtons({applyTextColors: false})}
-                </div>
             </div>
         {:else if DBState.db.theme === 'customHTML' && !blankMessage && renderedGuiHtml}
             {@render renderGuiHtmlPart(renderedGuiHtml)}
@@ -1850,7 +1904,7 @@
             >
                 <div class="chat-message-title flexium items-center chat-width">
                     {#if !$HideIconStore && !hideSender}
-                        <div class="chat-width text-xl unmargin text-textcolor flex items-center">
+                        <div class="chat-width text-xl unmargin text-maintext flex items-center">
                             <span>{name}</span>
                         </div>
                     {/if}
@@ -1877,7 +1931,7 @@
             <span class="flex flex-col ml-4 w-full max-w-full min-w-0">
                 <div class="flexium items-center chat-width">
                     {#if !blankMessage && !$HideIconStore && !hideSender}
-                        <div class="chat-width text-xl unmargin text-textcolor flex items-center">
+                        <div class="chat-width text-xl unmargin text-maintext flex items-center">
                             <span>{name}</span>
                         </div>
                     {/if}
@@ -1919,17 +1973,13 @@
         width: calc(100% + var(--chat-shell-inline-padding) + var(--chat-shell-inline-padding));
         max-width: none;
         margin: 0 calc(0px - var(--chat-shell-inline-padding));
-        margin-top: 0.25rem;
+        /* Keep the footer on one compositor surface in Firefox so its
+           one-pixel separator retains the same raster phase after scrolling. */
+        transform: translateZ(0);
     }
 
     .chat-toolbar-sticky-footer-layer.chat-toolbar-above-fixed-composer {
-        bottom: var(--chat-composer-sticky-height, 0px);
-    }
-
-    /* Keep the actively streaming sticky footer on one compositor surface so
-       its one-pixel separator does not follow fractional scroll raster phases. */
-    .chat-toolbar-sticky-footer-layer.chat-toolbar-streaming-layer {
-        transform: translateZ(0);
+        bottom: var(--chat-fixed-composer-height, 0px);
     }
 
     .chat-toolbar-message {
@@ -1974,7 +2024,7 @@
         position: absolute;
         inset: -0.25rem -0.375rem;
         z-index: -1;
-        border: 1px solid color-mix(in srgb, var(--risu-theme-borderc) 50%, transparent);
+        border: 1px solid color-mix(in srgb, var(--risu-theme-lightborderc) 50%, transparent);
         border-radius: 0.5rem;
         background: var(--chat-toolbar-floating-bg);
         box-shadow: 0 0.375rem 1.25rem color-mix(in srgb, var(--risu-theme-darkbg) 40%, transparent);
@@ -2000,8 +2050,8 @@
         width: 100%;
         max-width: 100%;
         padding: 0 var(--chat-shell-inline-padding) var(--chat-shell-block-padding);
-        background: var(--risu-theme-bgcolor);
-        color: var(--risu-theme-textcolor2);
+        background: var(--risu-theme-lightbg);
+        color: var(--risu-theme-subtext);
         pointer-events: auto;
     }
 

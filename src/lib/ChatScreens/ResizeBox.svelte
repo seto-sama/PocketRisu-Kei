@@ -35,7 +35,7 @@
         const deltaY = clientY - initialY;
 
         const newWidth = Math.min(initialWidth + deltaX, window.innerWidth * 0.8);
-        const newHeight = Math.min(initialHeight + deltaY, window.innerHeight * 0.8);
+        const newHeight = Math.min(initialHeight + deltaY, (window.visualViewport?.height ?? window.innerHeight) * 0.8);
 
         ViewBoxsize.set({
             width: newWidth,
@@ -63,8 +63,8 @@
         position: absolute;
         right: 0px;
         top: 0px;
-        border-bottom: 1px solid var(--risu-theme-borderc);
-        border-left: 1px solid var(--risu-theme-borderc);
+        border-bottom: 1px solid var(--risu-theme-lightborderc);
+        border-left: 1px solid var(--risu-theme-lightborderc);
         width: 12rem;
         height: 12rem;
         z-index: 5;
@@ -74,8 +74,8 @@
         position: absolute;
         width: 16px;
         height: 16px;
-        border-top: 1px solid var(--risu-theme-borderc);
-        border-right: 1px solid var(--risu-theme-borderc);
+        border-top: 1px solid var(--risu-theme-lightborderc);
+        border-right: 1px solid var(--risu-theme-lightborderc);
         cursor: sw-resize;
         bottom: 0;
         left: 0;

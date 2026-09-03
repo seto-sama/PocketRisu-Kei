@@ -9,7 +9,7 @@
     import PresetPickerLayout from "src/lib/UI/PresetPickerLayout.svelte";
     import ModuleMenu from "src/lib/Setting/Pages/Module/ModuleMenu.svelte";
     import { exportModule, exportModuleLegacy, importModule, refreshModules, type RisuModule } from "src/ts/process/modules";
-    import { BotIcon, DownloadIcon, FolderCogIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
+    import { BotIcon, DownloadIcon, TagsIcon, TrashIcon, GlobeIcon, PlusIcon, UploadIcon, Undo2Icon, UserRoundIcon, WaypointsIcon } from "@lucide/svelte";
     import { v4 } from "uuid";
     import { alertConfirm, alertSelect, notifySuccess } from "src/ts/alert";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
@@ -27,6 +27,8 @@
     import ShSelect from "src/lib/UI/GUI/ShSelect.svelte";
     import OptionInput from "src/lib/UI/GUI/OptionInput.svelte";
     import ModuleChatMenu from "src/lib/Setting/Pages/Module/ModuleChatMenu.svelte";
+    import AvatarFallback from "src/lib/UI/AvatarFallback.svelte";
+    import { removePresetTag, togglePresetTag } from "src/ts/preset/tags";
     let tempModule:RisuModule = $state({
         name: '',
         description: '',
@@ -46,7 +48,7 @@
     let mcpImportSource = $state<string>(builtInMCPIds[0])
     let customMCPAddress = $state('')
     let mcpImporting = $state(false)
-    const personaFolders = $derived(DBState.db.personaFolders ?? [])
+    const personaTags = $derived(DBState.db.personaTags ?? [])
     const selectedMCPAddress = $derived(
         mcpImportSource === 'custom' ? customMCPAddress.trim() : mcpImportSource
     )
@@ -100,7 +102,7 @@
         if (hasPersonaEnabledModule(rmodule.id)) return "cursor-pointer text-scoped"
         if (DBState.db.enabledModules.includes(rmodule.id)) return "cursor-pointer text-primary"
         if (isModuleIntegrated(rmodule)) return "text-highlight risu-interactive-accent cursor-pointer"
-        return "text-textcolor2 risu-interactive-accent cursor-pointer"
+        return "text-subtext risu-interactive-accent cursor-pointer"
     }
 
     function setModuleModelBinding(moduleId: string, presetId: string) {
@@ -320,7 +322,7 @@
                 <UploadIcon />
             </IconButton>
             <IconButton
-                className={modelBindingMode ? 'text-primary' : 'text-textcolor2'}
+                className={modelBindingMode ? 'text-primary' : 'text-subtext'}
                 title={language.moduleModelBindingEnable}
                 aria-label={language.moduleModelBindingEnable}
                 onclick={() => {
@@ -330,11 +332,11 @@
                 <BotIcon />
             </IconButton>
             <IconButton
-                title={language.moduleFolderManagement}
-                aria-label={language.moduleFolderManagement}
+                title={language.moduleTagManagement}
+                aria-label={language.moduleTagManagement}
                 onclick={() => (moduleFolderManagementOpen = true)}
             >
-                <FolderCogIcon />
+                <TagsIcon />
             </IconButton>
         {:else}
             <IconButton title={language.mcpImport.title} onclick={openMCPImportDialog}>
@@ -350,16 +352,16 @@
         onReorder={reorderModules}
     >
         {#if managedModuleCount === 0}
-            <div class="text-textcolor2 text-sm text-center py-8">{view === 'mcp' ? language.noData : language.noModules}</div>
+            <div class="text-subtext text-sm text-center py-8">{view === 'mcp' ? language.noData : language.noModules}</div>
         {:else}
             {#if visibleModules.length === 0}
-                <div class="text-textcolor2 text-sm text-center py-8">{language.noData}</div>
+                <div class="text-subtext text-sm text-center py-8">{language.noData}</div>
             {/if}
             {#each visibleModules as { rmodule, index } (rmodule.id)}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
                     data-sortable-key={rmodule.id}
-                    class={`mt-2 flex ${modelBindingMode ? 'flex-wrap' : ''} items-center text-textcolor border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing`}
+                    class={`mt-2 flex ${modelBindingMode ? 'flex-wrap' : ''} items-center text-maintext border border-darkborderc rounded-md p-3 risu-interactive-surface transition-colors text-left cursor-grab active:cursor-grabbing`}
                     role="button"
                     tabindex="0"
                     onclick={() => editModule(rmodule)}
@@ -370,13 +372,13 @@
                     }}
                 >
                     <div class={`flex flex-col min-w-0 grow ${modelBindingMode ? 'basis-full sm:basis-0' : ''}`}>
-                        <span class="text-sm text-textcolor truncate flex items-center gap-1.5">
+                        <span class="text-sm text-maintext truncate flex items-center gap-1.5">
                             {#if rmodule.mcp}
-                                <WaypointsIcon size={16} class="shrink-0 text-textcolor2" />
+                                <WaypointsIcon size={16} class="shrink-0 text-subtext" />
                             {/if}
                             <span class="truncate">{rmodule.name}</span>
                         </span>
-                        <span class="text-xs text-textcolor2 truncate">{rmodule.description || 'No description provided'}</span>
+                        <span class="text-xs text-subtext truncate">{rmodule.description || 'No description provided'}</span>
                     </div>
                     <div
                         role="toolbar"
@@ -438,8 +440,9 @@
         <PresetPickerLayout
             title={language.personaModuleBinding}
             titleHelp={language.help.personaModuleBinding}
-            folders={personaFolders}
-            itemFolderIds={DBState.db.personas.map(persona => persona.folderId)}
+            folders={personaTags}
+            itemFolderIds={DBState.db.personas.map(persona => persona.tagIds)}
+            organizationKind="tag"
             itemNames={DBState.db.personas.map(persona => persona.name ?? '')}
             itemSearchTexts={DBState.db.personas.map(persona => `${persona.name ?? ''}\n${persona.note ?? ''}`)}
             searchPlaceholder={language.personaSearch}
@@ -452,19 +455,19 @@
             close={closePersonaModuleModal}
             onSelectItem={togglePersonaModuleSelection}
             onFoldersChange={(next) => {
-                DBState.db.personaFolders = next
+                DBState.db.personaTags = next
                 void requestImmediateSave()
             }}
-            onAssignItem={(index, folderId) => {
+            onAssignItem={(index, tagId) => {
                 const persona = DBState.db.personas[index]
                 if (!persona) return
-                persona.folderId = folderId
+                persona.tagIds = togglePresetTag(persona.tagIds, tagId)
                 DBState.db.personas = [...DBState.db.personas]
                 void requestImmediateSave()
             }}
-            onDeleteFolder={(folderId) => {
+            onDeleteFolder={(tagId) => {
                 DBState.db.personas = DBState.db.personas.map(persona =>
-                    persona.folderId === folderId ? { ...persona, folderId: undefined } : persona
+                    ({ ...persona, tagIds: removePresetTag(persona.tagIds, tagId) })
                 )
                 void requestImmediateSave()
             }}
@@ -472,16 +475,18 @@
         >
             {#snippet itemContent(index)}
                 {@const persona = DBState.db.personas[index]}
-                <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md bg-textcolor2">
+                <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md">
                     {#if persona.icon}
                         {#await getCharImage(persona.icon, 'css') then imageStyle}
                             <div class="h-full w-full bg-cover bg-center" style={imageStyle}></div>
                         {/await}
+                    {:else}
+                        <AvatarFallback className="h-full w-full" iconSize={16} />
                     {/if}
                 </div>
                 <div class="min-w-0 grow truncate">
                     <span>{persona.name}</span>
-                    {#if persona.note}<span class="text-textcolor2"> / {persona.note}</span>{/if}
+                    {#if persona.note}<span class="text-subtext"> / {persona.note}</span>{/if}
                 </div>
                 <ShSwitch
                     checked={!!persona.id && personaModuleSelection.includes(persona.id)}
@@ -519,7 +524,7 @@
         <IconButtonGroup size="xl">
             {#if tempModule.name !== ''}
                 <IconButton
-                    className="text-textcolor2"
+                    className="text-subtext"
                     title={language.convertToCharacter}
                     aria-label={language.convertToCharacter}
                     onclick={async () => {
@@ -535,7 +540,7 @@
                 </IconButton>
             {/if}
             <IconButton
-                className="text-textcolor2"
+                className="text-subtext"
                 title={language.backToList}
                 aria-label={language.backToList}
                 onclick={finishEditingModule}
@@ -554,7 +559,7 @@
 
     <div class="flex flex-col gap-4">
         <div class="flex flex-col gap-1.5">
-            <span class="text-sm text-textcolor2">{language.mcpImport.source}</span>
+            <span class="text-sm text-subtext">{language.mcpImport.source}</span>
             <ShSelect bind:value={mcpImportSource}>
                 {#each builtInMCPIds as id}
                     <OptionInput value={id}>{builtInMCPLabel(id)} ({id})</OptionInput>
@@ -565,7 +570,7 @@
 
         {#if mcpImportSource === 'custom'}
             <label class="flex flex-col gap-1.5">
-                <span class="text-sm text-textcolor2">{language.mcpImport.address}</span>
+                <span class="text-sm text-subtext">{language.mcpImport.address}</span>
                 <TextInput
                     bind:value={customMCPAddress}
                     placeholder={language.mcpImport.addressPlaceholder}
