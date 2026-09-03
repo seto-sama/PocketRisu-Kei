@@ -1,7 +1,7 @@
 import { getDatabase, saveImage, setDatabase } from "./storage/database.svelte"
 import { selectSingleFile, sleep } from "./util"
-import { alertError, alertStore, notifySuccess, notifyError } from "./alert"
-import { AppendableBuffer, downloadFile } from "./globalApi.svelte"
+import { alertConfirm, alertError, alertStore, notifySuccess, notifyError } from "./alert"
+import { AppendableBuffer, downloadFile, requestImmediateSave } from "./globalApi.svelte"
 import { language } from "src/lang"
 import { reencodeImage } from "./process/files/inlays"
 import { PngChunk } from "./pngChunk"
@@ -48,6 +48,62 @@ export function changeUserPersona(id: number, save: 'save' | 'noSave' = 'save') 
     db.selectedPersona = id
 }
 
+export function createUserPersona() {
+    const db = getDatabase()
+    db.personas = [...db.personas, {
+        id: v4(),
+        name: language.newPersona,
+        icon: '',
+        personaPrompt: '',
+        note: '',
+        tagIds: undefined,
+    }]
+    changeUserPersona(db.personas.length - 1)
+    void requestImmediateSave()
+}
+
+export function reorderUserPersonas(orderedIndexes: number[]) {
+    const db = getDatabase()
+    if (orderedIndexes.length !== db.personas.length) return
+    const uniqueIndexes = new Set(orderedIndexes)
+    if (uniqueIndexes.size !== db.personas.length
+        || orderedIndexes.some(index => !Number.isInteger(index) || index < 0 || index >= db.personas.length)) return
+
+    saveUserPersona()
+    const selected = db.personas[db.selectedPersona]
+    db.personas = orderedIndexes.map(index => db.personas[index])
+    changeUserPersona(Math.max(0, db.personas.indexOf(selected)), 'noSave')
+    void requestImmediateSave()
+}
+
+export function moveUserPersona(fromIndex: number, toIndex: number) {
+    const personaCount = getDatabase().personas.length
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0
+        || fromIndex >= personaCount || toIndex > personaCount) return
+
+    const orderedIndexes = Array.from({ length: personaCount }, (_, index) => index)
+    const [movedIndex] = orderedIndexes.splice(fromIndex, 1)
+    const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
+    orderedIndexes.splice(adjustedToIndex, 0, movedIndex)
+    reorderUserPersonas(orderedIndexes)
+}
+
+export async function deleteUserPersona(index: number) {
+    const db = getDatabase()
+    const persona = db.personas[index]
+    if (!persona || db.personas.length === 1) return
+    if (!await alertConfirm(`${language.removeConfirm}${persona.name}`)) return
+
+    saveUserPersona()
+    const deletingSelected = index === db.selectedPersona
+    const selected = db.personas[db.selectedPersona]
+    const next = db.personas.filter((_, personaIndex) => personaIndex !== index)
+    db.personas = next
+    const selectedIndex = deletingSelected ? Math.max(0, index - 1) : next.indexOf(selected)
+    changeUserPersona(selectedIndex >= 0 ? selectedIndex : 0, 'noSave')
+    void requestImmediateSave()
+}
+
 interface PersonaCard {
     name: string
     personaPrompt: string
@@ -55,6 +111,9 @@ interface PersonaCard {
 }
 
 export async function exportUserPersona(personaIndex?: number) {
+    if (personaIndex !== undefined && getDatabase().selectedPersona === personaIndex) {
+        saveUserPersona()
+    }
     let db = getDatabase({ snapshot: true })
     const persona = personaIndex === undefined
         ? {
@@ -65,7 +124,7 @@ export async function exportUserPersona(personaIndex?: number) {
         }
         : db.personas[personaIndex]
     if (!persona || !persona.name || !persona.personaPrompt) {
-        notifyError("username or persona prompt is empty")
+        notifyError(language.personaExportEmpty)
         return
     }
 

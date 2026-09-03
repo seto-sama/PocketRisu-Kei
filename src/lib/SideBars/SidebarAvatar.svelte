@@ -16,6 +16,8 @@
     children?: import('svelte').Snippet;
     selected?: boolean;
     mergeTarget?: boolean;
+    interactive?: boolean;
+    showTooltip?: boolean;
     oncontextmenu?: (event: MouseEvent & {
         currentTarget: EventTarget & HTMLDivElement;
     }) => any
@@ -34,6 +36,8 @@
     children,
     selected = false,
     mergeTarget = false,
+    interactive = true,
+    showTooltip = true,
     oncontextmenu,
     chaId
   }: Props = $props();
@@ -51,13 +55,14 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex: role and tabindex are both omitted for noninteractive avatar reuse -->
 <span class="flex shrink-0 items-center justify-center avatar avatar-state-border sidebar-touch-target"
       class:rounded-md={!rounded}
       class:rounded-full={rounded}
-      oncontextmenu={handleContextMenu}
-      onclick={onClick} use:tooltipRight={name}
-      role="button"
-      tabindex="0"
+      oncontextmenu={interactive ? handleContextMenu : undefined}
+      onclick={interactive ? onClick : undefined} use:tooltipRight={showTooltip ? name : ''}
+      role={interactive ? "button" : undefined}
+      tabindex={interactive ? 0 : undefined}
       data-char-id={chaId}
       data-selected={selected}
       data-merge-target={mergeTarget}
