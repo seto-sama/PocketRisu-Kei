@@ -32,6 +32,7 @@
     import PopupEditor from './lib/Others/PopupEditor.svelte';
     import UpdatePopup from './lib/Others/UpdatePopup.svelte';
     import BootBackupPrompt from './lib/Others/BootBackupPrompt.svelte';
+    import PluginMemoryPrompt from './lib/Others/PluginMemoryPrompt.svelte';
     import PopupList from './lib/UI/PopupList.svelte';
     import LoadingOverlay from './lib/Others/LoadingOverlay.svelte';
     import Toaster from './lib/UI/components/Toaster.svelte';
@@ -233,6 +234,7 @@
     <LoadingOverlay />
     <UpdatePopup />
     <BootBackupPrompt />
+    <PluginMemoryPrompt />
     {#if popupStore.children}
         <PopupList />
     {/if}

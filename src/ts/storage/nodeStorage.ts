@@ -60,6 +60,22 @@ export interface DatabaseProjection<T = unknown> {
     revision: number
 }
 
+export interface PluginStorageStartupStats {
+    totalBytes: number
+    unclassifiedBytes: number
+    plugins: Array<{
+        name: string
+        displayName: string
+        bytes: number
+    }>
+}
+
+export interface PluginStorageExclusion {
+    all?: boolean
+    pluginNames?: string[]
+    unclassified?: boolean
+}
+
 export interface ExportBackupOptions {
     target?: 'upstream'
     mode?: 'settings'
@@ -93,6 +109,7 @@ export class NodeStorage{
     private static sessionPending: Promise<void> | null = null
     private refreshPending: Promise<string> | null = null
     private authPending: Promise<void> | null = null
+    private pluginStorageExclusionHeader = ''
 
     static getSessionId() {
         return NodeStorage.sessionId
@@ -441,11 +458,46 @@ export class NodeStorage{
         this._lastDbRevision = revision
     }
 
-    /** Load the relational database's client projection as JSON. */
-    async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
-        const response = await this.authFetch('/api/database', {
+    setPluginStorageExclusion(exclusion: PluginStorageExclusion | null) {
+        if (!exclusion) {
+            this.pluginStorageExclusionHeader = ''
+            return
+        }
+        if (exclusion.all) {
+            this.pluginStorageExclusionHeader = 'all'
+            return
+        }
+        const pluginNames = [...new Set(exclusion.pluginNames ?? [])]
+        if (pluginNames.length === 0 && !exclusion.unclassified) {
+            this.pluginStorageExclusionHeader = ''
+            return
+        }
+        this.pluginStorageExclusionHeader = Buffer.from(JSON.stringify({
+            plugins: pluginNames,
+            unclassified: exclusion.unclassified === true,
+        }), 'utf8').toString('base64')
+    }
+
+    async getPluginStorageStartupStats(): Promise<PluginStorageStartupStats> {
+        const response = await this.authFetch('/api/plugin-storage/startup-stats', {
             method: 'GET',
             headers: { accept: 'application/json' },
+        })
+        if (!response.ok) {
+            throw new Error(`Plugin storage startup stats failed (${response.status})`)
+        }
+        return await response.json() as PluginStorageStartupStats
+    }
+
+    /** Load the relational database's client projection as JSON. */
+    async getDatabaseProjection<T = unknown>(): Promise<DatabaseProjection<T>> {
+        const headers:Record<string, string> = { accept: 'application/json' }
+        if (this.pluginStorageExclusionHeader) {
+            headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
+        }
+        const response = await this.authFetch('/api/database', {
+            method: 'GET',
+            headers,
         })
         if (!response.ok) {
             const body = await response.text().catch(() => '')
@@ -519,6 +571,9 @@ export class NodeStorage{
 
         const headers: Record<string, string> = {
             'content-type': 'application/json',
+        }
+        if (tracksDatabase && this.pluginStorageExclusionHeader) {
+            headers['x-risu-plugin-storage-exclusion'] = this.pluginStorageExclusionHeader
         }
         if (key) {
             headers['file-path'] = Buffer.from(key, 'utf-8').toString('hex')

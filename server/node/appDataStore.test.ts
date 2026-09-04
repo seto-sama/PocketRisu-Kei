@@ -103,6 +103,35 @@ describe('relational app data projection', () => {
         expect(sqlite.pragma('integrity_check', { simple: true })).toBe('ok')
     })
 
+    it('reports plugin storage size by known V3 owner without decoding all values', () => {
+        const { store } = createStore()
+        const source:any = sampleDatabase()
+        source.plugins.push(
+            { name: 'small-v3', displayName: 'Small V3', version: '3.0' },
+            { name: 'memory-v3', displayName: 'Memory V3', version: '3.0' },
+        )
+        source.pluginCustomStorage.empty = 'x'
+        source.pluginCustomStorage.nested = 'x'.repeat(1_000)
+        source.pluginStorageMeta = {
+            nested: { plugin: 'memory-v3', updatedAt: 1 },
+            empty: { plugin: 'small-v3', updatedAt: 1 },
+            zero: { plugin: 'missing-plugin', updatedAt: 1 },
+        }
+        store.replaceFromProjection(source)
+
+        const stats = store.pluginStorageFootprint()
+
+        expect(stats.plugins).toEqual([
+            expect.objectContaining({ name: 'memory-v3', displayName: 'Memory V3' }),
+            expect.objectContaining({ name: 'small-v3', displayName: 'Small V3' }),
+        ])
+        expect(stats.plugins[0].bytes).toBeGreaterThan(stats.plugins[1].bytes)
+        expect(stats.unclassifiedBytes).toBeGreaterThan(0)
+        expect(stats.totalBytes).toBe(
+            stats.plugins[0].bytes + stats.plugins[1].bytes + stats.unclassifiedBytes,
+        )
+    })
+
     it('exports a startup projection containing chat stubs but no messages', () => {
         const { store } = createStore()
         store.replaceFromProjection(sampleDatabase())

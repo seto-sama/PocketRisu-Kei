@@ -11,6 +11,7 @@ import { checkCodeSafety } from "./pluginSafety";
 import { SafeDocument, SafeIdbFactory, SafeLocalStorage } from "./pluginSafeClass";
 import { loadV3Plugins, reloadV3Plugin } from "./apiV3/v3.svelte";
 import { pluginCodeTranspiler } from "./apiV3/transpiler";
+import { pluginDisabledForMemorySession } from "./pluginMemorySafety";
 
 export const customProviderStore = writable([] as string[])
 
@@ -438,7 +439,7 @@ export async function importPlugin(code:string|null = null, argu:{
         setDatabaseLite(db)
         void requestImmediateSave()
 
-        if(isUpdate && oldPlugin?.version === '3.0' && pluginData.version === '3.0'){
+        if(isUpdate && oldPlugin?.version === '3.0' && pluginData.version === '3.0' && !pluginDisabledForMemorySession(pluginData)){
             await reloadV3Plugin(pluginData)
         }
         else{
@@ -480,7 +481,9 @@ export async function loadPlugins() {
     // plugins cannot leave duplicate or stale models in either model picker.
     customProviderStore.set([])
 
-    const enabledPlugins = safeStructuredClone(db.plugins ?? []).filter((p: RisuPlugin) => p.enabled)
+    const enabledPlugins = safeStructuredClone(db.plugins ?? []).filter((p: RisuPlugin) => (
+        p.enabled && !pluginDisabledForMemorySession(p)
+    ))
     const pluginV2 = enabledPlugins.filter(isLegacyV2Plugin)
     const pluginV3 = enabledPlugins.filter((a: RisuPlugin) => a.version === '3.0')
 

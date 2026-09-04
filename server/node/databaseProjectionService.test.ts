@@ -97,6 +97,82 @@ describe('database projection reads and initialization', () => {
         expect(result.database.characters[0].chats[0]).not.toHaveProperty('message')
     })
 
+    it('filters selected plugin storage for the session and preserves it across patches', () => {
+        const { store, service } = createService()
+        store.replaceFromProjection({
+            ...sampleDatabase(),
+            pluginCustomStorage: {
+                memory: { entries: [1, 2, 3] },
+                shared: 'kept',
+            },
+            plugins: [{ name: 'memory-v3', version: '3.0' }],
+            pluginStorageMeta: {
+                memory: { plugin: 'memory-v3', updatedAt: 1 },
+            },
+        })
+        const options = { excludedPluginNames: ['memory-v3'] }
+        const startup = service.getStartupProjection(options)
+
+        expect(startup.database.pluginCustomStorage).toEqual({ shared: 'kept' })
+        expect(startup.database.pluginStorageMeta).toEqual({})
+
+        service.patchDatabase({
+            expectedHash: expectedHash(startup.database),
+            patch: [{ op: 'replace', path: '/language', value: 'en' }],
+        }, options)
+
+        expect(store.exportProjection({ includeMessages: false })).toMatchObject({
+            language: 'en',
+            pluginCustomStorage: {
+                memory: { entries: [1, 2, 3] },
+                shared: 'kept',
+            },
+            pluginStorageMeta: {
+                memory: { plugin: 'memory-v3', updatedAt: 1 },
+            },
+        })
+    })
+
+    it('can omit and preserve the complete plugin store', () => {
+        const { store, service } = createService()
+        store.replaceFromProjection({
+            ...sampleDatabase(),
+            pluginCustomStorage: { large: 'data' },
+        })
+        const options = { excludeAllPluginStorage: true }
+        const startup = service.getStartupProjection(options)
+
+        expect(startup.database.pluginCustomStorage).toEqual({})
+        service.patchDatabase({
+            expectedHash: expectedHash(startup.database),
+            patch: [{ op: 'replace', path: '/language', value: 'en' }],
+        }, options)
+
+        expect(store.exportProjection({ includeMessages: false }).pluginCustomStorage).toEqual({ large: 'data' })
+    })
+
+    it('treats missing-owner and non-V3 storage as unclassified', () => {
+        const { store, service } = createService()
+        store.replaceFromProjection({
+            ...sampleDatabase(),
+            plugins: [{ name: 'memory-v3', version: '3.0' }],
+            pluginCustomStorage: { owned: 1, old: 2, missing: 3 },
+            pluginStorageMeta: {
+                owned: { plugin: 'memory-v3', updatedAt: 1 },
+                old: { plugin: 'removed-plugin', updatedAt: 1 },
+            },
+        })
+
+        const startup = service.getStartupProjection({
+            excludeUnclassifiedPluginStorage: true,
+        })
+
+        expect(startup.database.pluginCustomStorage).toEqual({ owned: 1 })
+        expect(startup.database.pluginStorageMeta).toEqual({
+            owned: { plugin: 'memory-v3', updatedAt: 1 },
+        })
+    })
+
     it('exports the startup projection only once per read', () => {
         const { store } = createStore()
         store.replaceFromProjection(sampleDatabase())

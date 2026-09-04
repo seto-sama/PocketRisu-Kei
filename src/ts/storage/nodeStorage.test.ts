@@ -84,6 +84,39 @@ describe('NodeStorage patch transport', () => {
         })
     })
 
+    it('keeps the same plugin-storage projection mask for reads and patches', async () => {
+        const storage = new NodeStorage()
+        const authFetch = vi.fn()
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                database: { characters: [], pluginCustomStorage: {} },
+                etag: 'masked-etag',
+                revision: 2,
+            }), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                etag: 'next-etag',
+                revision: 3,
+            }), { status: 200 }))
+        ;(storage as any).authFetch = authFetch
+        storage.setPluginStorageExclusion({
+            pluginNames: ['메모리 플러그인'],
+            unclassified: true,
+        })
+
+        await storage.getDatabaseProjection()
+        await storage.patchDatabase({
+            patch: [{ op: 'replace', path: '/language', value: 'ko' }],
+            expectedHash: 'masked-hash',
+        })
+
+        const readHeader = authFetch.mock.calls[0][1].headers['x-risu-plugin-storage-exclusion']
+        const patchHeader = authFetch.mock.calls[1][1].headers['x-risu-plugin-storage-exclusion']
+        expect(patchHeader).toBe(readHeader)
+        expect(JSON.parse(Buffer.from(readHeader, 'base64').toString('utf8'))).toEqual({
+            plugins: ['메모리 플러그인'],
+            unclassified: true,
+        })
+    })
+
     it('reports a first-run initialization race without overwriting it', async () => {
         const storage = new NodeStorage()
         const authFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({

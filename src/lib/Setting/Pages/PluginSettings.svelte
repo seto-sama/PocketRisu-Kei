@@ -18,8 +18,13 @@
     import Textarea from "../../UI/components/Textarea.svelte";
     import IconButton from "../../UI/components/IconButton.svelte";
     import IconButtonGroup from "../../UI/components/IconButtonGroup.svelte";
+    import Tooltip from "../../UI/components/Tooltip.svelte";
     import SortableList from "../../UI/components/SortableList.svelte";
     import { removePluginSidebarMenuItems } from "src/ts/sidebarMenuOrder";
+    import {
+        pluginDisabledForMemorySession,
+        pluginMemorySessionStore,
+    } from "src/ts/plugins/pluginMemorySafety";
 
     let showParams = $state<string[]>([])
     let pluginSearch = $state('')
@@ -150,8 +155,17 @@
     {/if}
     {#each visiblePlugins as { plugin, index } (plugin.name)}
         {@const legacyV2Plugin = isLegacyV2Plugin(plugin)}
-        {@const pluginPowerLocked = legacyV2Plugin && !DBState.db.allowV2Plugin}
+        {@const memoryPowerLocked = pluginDisabledForMemorySession(plugin, $pluginMemorySessionStore)}
+        {@const legacyPowerLocked = legacyV2Plugin && !DBState.db.allowV2Plugin}
+        {@const pluginPowerLocked = memoryPowerLocked || legacyPowerLocked}
         {@const pluginPoweredOn = !!plugin.enabled && !pluginPowerLocked}
+        {@const pluginPowerLabel = memoryPowerLocked
+            ? language.pluginMemoryDisabledForSession
+            : legacyPowerLocked
+                ? language.pluginV2Blocked
+                : pluginPoweredOn
+                    ? language.disablePlugin
+                    : language.enablePlugin}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
             data-sortable-key={pluginKey(plugin, index)}
@@ -224,27 +238,34 @@
                 {/await}
             {/if}
 
-            <IconButton
-                title={pluginPowerLocked ? language.allowV2Plugin : pluginPoweredOn ? language.disablePlugin : language.enablePlugin}
-                aria-label={pluginPowerLocked ? language.allowV2Plugin : pluginPoweredOn ? language.disablePlugin : language.enablePlugin}
-                active={pluginPoweredOn}
-                activeColor="primary"
-                disabled={pluginPowerLocked}
-                onclick={(e) => {
-                    e.stopPropagation()
-                    if(pluginPowerLocked) return
-                    plugin.enabled = !plugin.enabled
-                    DBState.db.plugins[index] = plugin
-                    void loadPlugins()
-                    void requestImmediateSave()
-                }}
-            >
-                {#if pluginPoweredOn}
-                    <PowerIcon />
-                {:else}
-                    <PowerOffIcon />
-                {/if}
-            </IconButton>
+            <Tooltip disabled={!pluginPowerLocked}>
+                {#snippet trigger(props)}
+                    <span {...props} class="inline-flex">
+                        <IconButton
+                            title={pluginPowerLabel}
+                            aria-label={pluginPowerLabel}
+                            active={pluginPoweredOn}
+                            activeColor="primary"
+                            disabled={pluginPowerLocked}
+                            onclick={(e) => {
+                                e.stopPropagation()
+                                if(pluginPowerLocked) return
+                                plugin.enabled = !plugin.enabled
+                                DBState.db.plugins[index] = plugin
+                                void loadPlugins()
+                                void requestImmediateSave()
+                            }}
+                        >
+                            {#if pluginPoweredOn}
+                                <PowerIcon />
+                            {:else}
+                                <PowerOffIcon />
+                            {/if}
+                        </IconButton>
+                    </span>
+                {/snippet}
+                {pluginPowerLabel}
+            </Tooltip>
 
             <IconButton
                 title={language.resetPluginPermission}
