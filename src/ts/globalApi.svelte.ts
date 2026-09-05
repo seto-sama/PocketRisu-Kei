@@ -38,6 +38,7 @@ import {
     type SyncedDatabaseOptions,
 } from './sync/databaseSync';
 import { ConflictError, getSyncClientId, type PersistWarning } from "./storage/nodeStorage";
+import { ChatSaveError, isRetryableSaveError } from './storage/storageRequest';
 import { isNodeServer, supportsPatchSync } from "./platform";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
@@ -309,16 +310,6 @@ interface ImmediateSaveOptions {
     forceFullWrite?: boolean
     characterIds?: string[]
     chatTargets?: { characterId: string, chatId: string }[]
-}
-
-class ChatSaveError extends Error {
-    constructor(
-        readonly failedChats: [string, string][],
-        readonly projectionSaved: boolean,
-    ) {
-        super(`Failed to save ${failedChats.length} chat${failedChats.length === 1 ? '' : 's'}`)
-        this.name = 'ChatSaveError'
-    }
 }
 
 let requestImmediateSaveImpl: ((options?: ImmediateSaveOptions) => Promise<void> | void) = () => {}
@@ -1024,6 +1015,7 @@ export async function saveDb() {
 
         // ── Save changed chat content to server ─────────────────────────
         const failedChats: [string, string][] = []
+        const chatErrors: unknown[] = []
         const persistChat = async (
             chaId: string,
             chatId: string,
@@ -1065,6 +1057,7 @@ export async function saveDb() {
                 }
                 console.error(`[Save] Failed to save chat ${chaId}/${chatId}:`, e)
                 failedChats.push([chaId, chatId])
+                chatErrors.push(e)
             }
         }
 
@@ -1080,7 +1073,7 @@ export async function saveDb() {
             toSave.character.length > 0
         )
         if (failedChats.length > 0 && !hasIndependentProjectionChanges) {
-            throw new ChatSaveError(failedChats, false)
+            throw new ChatSaveError(failedChats, false, chatErrors)
         }
 
         // Non-Node stores retain their existing database.bin persistence path.
@@ -1368,7 +1361,7 @@ export async function saveDb() {
         // A stale or conflicting chat body must not roll back an unrelated
         // settings/module projection that the server already accepted.
         if (failedChats.length > 0) {
-            throw new ChatSaveError(failedChats, true)
+            throw new ChatSaveError(failedChats, true, chatErrors)
         }
 
         return 'saved'
@@ -1409,7 +1402,14 @@ export async function saveDb() {
                     requeueTrackedChanges(toSave)
                 }
                 savetrys += 1
-                if (savetrys > 4) {
+                const retryable = isRetryableSaveError(error)
+                if (!retryable || savetrys > 4) {
+                    if (!retryable) {
+                        // Keep the requeued edits, but don't resend an unchanged
+                        // permanent failure on a pending debounce timer.
+                        cancelPendingSave()
+                        changed = false
+                    }
                     alertError(error)
                     savetrys = 0
                 }
