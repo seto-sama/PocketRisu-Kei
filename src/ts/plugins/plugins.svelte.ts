@@ -481,9 +481,9 @@ export async function loadPlugins() {
     // plugins cannot leave duplicate or stale models in either model picker.
     customProviderStore.set([])
 
-    const enabledPlugins = safeStructuredClone(db.plugins ?? []).filter((p: RisuPlugin) => (
+    const enabledPlugins = safeStructuredClone((db.plugins ?? []).filter((p: RisuPlugin) => (
         p.enabled && !pluginDisabledForMemorySession(p)
-    ))
+    )))
     const pluginV2 = enabledPlugins.filter(isLegacyV2Plugin)
     const pluginV3 = enabledPlugins.filter((a: RisuPlugin) => a.version === '3.0')
 

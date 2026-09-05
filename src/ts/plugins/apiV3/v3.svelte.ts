@@ -338,6 +338,7 @@ class SafeElement {
                     delay = (crypto.getRandomValues(new Uint32Array(1))[0] / 100) % 100; //0-99 ms              
                 } catch (error) {}
                 setTimeout(() => {
+                    if (!documentEventListeners.has(id)) return;
                     listener(trimEvent(event));
                 }, delay);
             }
@@ -354,8 +355,8 @@ class SafeElement {
         const entry = documentEventListeners.get(id);
         if(!entry || entry.pluginName !== this.pluginName) return;
         const realOptions = typeof options === 'boolean' ? { capture: options } : options || {};
-        document.removeEventListener(type, entry.listener, realOptions);
-        documentEventListeners.delete(id);
+        if(entry.type !== type || !!entry.options.capture !== !!realOptions.capture) return;
+        removeDocumentEventListener(id, this.pluginName);
     }
 
     public matches (selector: string): boolean {
@@ -539,15 +540,15 @@ const unloadV3Plugin = async (pluginName: string) => {
     }
     if(callbacks){
         pluginUnloadCallbacks.delete(pluginName); 
-        let promises: Promise<void>[] = [];
-        for(const callback of callbacks){
-            const result = callback();
-            if(result instanceof Promise){
-                promises.push(result);
+        const promises = callbacks.map(async callback => {
+            try {
+                await callback();
+            } catch (error) {
+                console.error(`Error unloading plugin ${pluginName}:`, error);
             }
-        }
+        });
 
-        await Promise.any([
+        await Promise.race([
             Promise.all(promises),
             sleep(1000) //timeout after 1 second
         ])
