@@ -18,7 +18,7 @@
     import { alertStore, selectedCharID, togglePresetsOpenStore } from "src/ts/stores.svelte";
     import Switch from "../UI/components/Switch.svelte";
     import * as DropdownMenu from '../UI/components/dropdown-menu';
-    import { nodeOnlyVer } from "src/ts/storage/database.svelte";
+    import { pocketKeiVer } from "src/ts/storage/database.svelte";
     import Textarea from "../UI/components/Textarea.svelte";
     import ModuleChatMenu from "../Setting/Pages/Module/ModuleChatMenu.svelte";
     import IconButton from "../UI/components/IconButton.svelte";
@@ -46,7 +46,7 @@
     const userAgent = typeof navigator === "undefined" ? "Unknown" : navigator.userAgent || "Unknown";
     const stackTraceCodeBlock = $derived.by(() => {
         const lines = [
-            `${PRODUCT_NAME} v${nodeOnlyVer}`,
+            `${PRODUCT_NAME} v${pocketKeiVer}`,
             `OS: ${osLabel}`,
             `User-Agent: ${userAgent}`,
             `Risu environment: ${risuEnvironment}`,

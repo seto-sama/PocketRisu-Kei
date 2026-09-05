@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 import markdownit from 'markdown-it'
-import { appVer, getCurrentCharacter, getDatabase, type Database, type character, type customscript, type triggerscript } from '../storage/database.svelte';
+import { pocketKeiVer, getCurrentCharacter, getDatabase, type Database, type character, type customscript, type triggerscript } from '../storage/database.svelte';
 import { CurrentTriggerIdStore, DBState, selIdState } from '../stores.svelte';
 import { aiWatermarkingLawApplies, getFileSrc } from '../globalApi.svelte';
 import { isNodeServer } from "src/ts/platform"
@@ -1700,7 +1700,7 @@ function initMatcher(){
         },
         isNodeServer: isNodeServer,
         isMobile: false,
-        appVer: appVer,
+        pocketKeiVer: pocketKeiVer,
     })
     matcherInitialized = true
 }

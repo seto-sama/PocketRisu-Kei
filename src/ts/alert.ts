@@ -2,9 +2,10 @@ import { get, writable } from "svelte/store"
 import { toast } from "svelte-sonner"
 import { sleep } from "./util"
 import { language } from "../lang"
-import { nodeOnlyVer, type MessageGenerationInfo } from "./storage/database.svelte"
+import { pocketKeiVer, type MessageGenerationInfo } from "./storage/database.svelte"
 import { alertStore as alertStoreImported, togglePresetsOpenStore } from "./stores.svelte"
 import { addLog } from "./log"
+import { PRODUCT_NAME } from "./branding"
 import { nativeConsoleError } from "./log-capture"
 import type { ButtonVariant } from "../lib/UI/components/Button.types"
 
@@ -95,7 +96,7 @@ export function alertError(msg: unknown) {
     // Use nativeConsoleError (pre-monkey-patch) so devtools still shows the error
     // but log-capture does not also persist it — alertError below calls addLog
     // explicitly with source='blocking-alert', avoiding a duplicate entry.
-    nativeConsoleError(`[NodeOnly v${nodeOnlyVer}]`, msg)
+    nativeConsoleError(`[${PRODUCT_NAME} v${pocketKeiVer}]`, msg)
     let { message: errorMessage, stack: stackTrace } = normalizeErrorMessage(msg)
     errorMessage = errorMessage.trim()
     if (!errorMessage) {

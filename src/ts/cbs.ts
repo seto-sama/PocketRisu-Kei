@@ -50,7 +50,7 @@ export const defaultCBSRegisterArg: CBSRegisterArg = {
     callInternalFunction: (args: string[]) => {return ''},
     isNodeServer: false,
     isMobile: false,
-    appVer: '0.0.0',
+    pocketKeiVer: '0.0.0',
 };
 
 export type matcherArg = {
@@ -123,7 +123,7 @@ export type CBSRegisterArg = {
     callInternalFunction: (args: string[]) => string,
     isNodeServer: boolean,
     isMobile: boolean,
-    appVer: string,
+    pocketKeiVer: string,
 }
 
 export function registerCBS(arg:CBSRegisterArg) {
@@ -151,7 +151,7 @@ export function registerCBS(arg:CBSRegisterArg) {
         getGenerationModelMetadata,
         isNodeServer,
         isMobile, 
-        appVer, 
+        pocketKeiVer,
         callInternalFunction
     } = arg;
 
@@ -1878,12 +1878,12 @@ export function registerCBS(arg:CBSRegisterArg) {
                     return isNodeServer ? '1' : '0'
                 }
                 case 'version':{
-                    return appVer
+                    return pocketKeiVer
                 }
                 case 'majorversion':
                 case 'majorver':
                 case 'major':{
-                    return appVer.split('.')[0]
+                    return pocketKeiVer.split('.')[0]
                 }
                 case 'language':
                 case 'locale':

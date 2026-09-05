@@ -13,7 +13,7 @@ const storeMocks = vi.hoisted(() => ({
 }))
 
 vi.mock(import('../../storage/database.svelte'), () => ({
-    appVer: 'test',
+    pocketKeiVer: 'test',
     getCurrentCharacter: () => null as unknown as character,
     getDatabase: () => storeMocks.DBState.db,
 }))

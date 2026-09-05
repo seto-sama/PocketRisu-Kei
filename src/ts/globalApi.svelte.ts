@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { tick } from "svelte";
 import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
-import { setDatabase, type Chat, type Database, type Message, type character, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat, normalizeChat } from "./storage/database.svelte";
+import { setDatabase, type Chat, type Database, type Message, type character, getDatabase, pocketKeiVer, getCurrentCharacter, loadTogglesFromChat, normalizeChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, ChatRoomReloadPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { loadPlugins } from "./plugins/plugins.svelte";
@@ -2378,7 +2378,7 @@ export function getLanguageCodes() {
 }
 
 export function getVersionString(): string {
-    return nodeOnlyVer
+    return pocketKeiVer
 }
 
 export function toGetter<T extends object>(

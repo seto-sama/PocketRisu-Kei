@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
     getFileSrc: vi.fn(async (path: string) => `/resolved/${path}`),
 }))
 vi.mock(import('../../storage/database.svelte'), () => ({
-    appVer: 'test', getCurrentCharacter: () => null as character, getDatabase: () => mocks.DBState.db,
+    pocketKeiVer: 'test', getCurrentCharacter: () => null as character, getDatabase: () => mocks.DBState.db,
 }))
 vi.mock(import('../../globalApi.svelte'), () => ({
     aiWatermarkingLawApplies: () => false, getFileSrc: mocks.getFileSrc,

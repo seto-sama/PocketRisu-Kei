@@ -25,6 +25,11 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Verify release version
+        shell: bash
+        run: |
+          node scripts/check-release-version.cjs
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -42,6 +47,8 @@ jobs:
             server/
             package.json
             pnpm-lock.yaml
+            pnpm-workspace.yaml
+            version.json
             update.sh
           retention-days: 1
 
@@ -264,8 +271,7 @@ jobs:
           #!/bin/bash
           SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
           cd "$SCRIPT_DIR"
-          bin/node scripts/updater.cjs
-          rm -rf .update-tmp 2>/dev/null
+          exec bin/node scripts/updater.cjs
           EOF
           chmod +x portable/start.sh portable/update.sh
 
@@ -273,7 +279,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p portable/scripts
-          cp scripts/updater.cjs portable/scripts/updater.cjs 2>/dev/null || true
+          cp scripts/updater.cjs portable/scripts/updater.cjs
           touch portable/.portable
 
       - name: Package portable (Windows)

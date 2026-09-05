@@ -3,10 +3,7 @@ import { svelte, vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 import wasm from "vite-plugin-wasm";
 import strip from '@rollup/plugin-strip';
 import tailwindcss from '@tailwindcss/vite'
-import { readFileSync } from 'fs';
 import { localFontsPlugin } from './vite.localFonts';
-
-const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
 const browserCompatibleNodeImporters = [
   '/node_modules/@browsermt/bergamot-translator/',
@@ -22,9 +19,6 @@ function isExpectedBrowserExternalization(warning: { message: string }) {
 // https://vitejs.dev/config/
 export default defineConfig(({command, mode}) => {
   return {
-    define: {
-      '__APP_VERSION__': JSON.stringify(pkg.version),
-    },
     plugins: [
       localFontsPlugin(),
       svelte({

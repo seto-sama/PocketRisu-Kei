@@ -50,6 +50,7 @@ dist.zip
 !/scripts/portable/
 !/scripts/termux/
 !/scripts/check-help-keys.mjs
+!/scripts/check-release-version.cjs
 .env
 /server/node/ssl/certificate
 /bin/

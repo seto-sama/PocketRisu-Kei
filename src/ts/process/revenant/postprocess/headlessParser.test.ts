@@ -1,3 +1,4 @@
+import { pocketKeiVer } from '../../../version'
 import { describe, expect, it } from 'vitest'
 import type { RevenantPostprocessRecipe } from '../types'
 import { renderRevenantTemplate } from './headlessParser'
@@ -74,4 +75,10 @@ describe('revenant headless CBS parser', () => {
 
         expect(renderRevenantTemplate('{{metadata::modelname}}', input).text).toBe('Bound Preset')
     })
+})
+
+it('reports the Kei release version in server CBS metadata', () => {
+    expect(renderRevenantTemplate('{{metadata::version}}/{{metadata::majorversion}}', recipe()).text).toBe(
+        `${pocketKeiVer}/${pocketKeiVer.split('.')[0]}`,
+    )
 })
