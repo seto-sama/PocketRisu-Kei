@@ -9,7 +9,8 @@ type GenerationFailure = {
 }
 
 /** Transient provider saturation is already represented by request status. */
-export function shouldSuppressGenerationErrorModal(failure: unknown): boolean {
+export function shouldSuppressGenerationErrorModal(failure: unknown, signal?: AbortSignal): boolean {
+    if (signal?.aborted) return true
     if (!failure) return false
     if (typeof failure === 'string') return isTransientOverloadMessage(failure)
     if (typeof failure !== 'object') return false

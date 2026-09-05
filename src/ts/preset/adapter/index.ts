@@ -48,7 +48,6 @@ export { applyAuth, appendQuery } from './auth'
 export { prepareAdapterRequest, resolveAdapterCredential } from './resolveCredential'
 export {
     createServiceAccountTokenCache,
-    getDefaultServiceAccountTokenCache,
 } from './googleServiceAccount/cache'
 export type {
     ServiceAccountTokenCache,

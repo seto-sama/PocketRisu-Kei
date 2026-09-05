@@ -51,14 +51,14 @@
         if (["openai3small", "openai3large", "ada"].includes(DBState.db.hypaModel)) return "openai";
         if (["voyage4large", "voyageContext3", "voyageContext4"].includes(DBState.db.hypaModel)) return "voyage";
         if (DBState.db.hypaModel === "custom") return "custom";
-        return "local";
+        return "openai";
     });
 
     function selectEmbeddingProvider(provider: string) {
         if (provider === "openai") DBState.db.hypaModel = "openai3small";
         else if (provider === "voyage") DBState.db.hypaModel = "voyage4large";
         else if (provider === "custom") DBState.db.hypaModel = "custom";
-        else DBState.db.hypaModel = "MiniLM";
+        else DBState.db.hypaModel = "openai3small";
     }
 
     $effect(() => {
@@ -229,7 +229,6 @@
         <div class="[&>*:first-child]:border-t-0">
         <SettingLayout variant="row" title={language.hypaV3Settings.embeddingProviderLabel} description={help("embedding")}>
             {#snippet control()}<Select className="w-48 text-sm" size="sm" value={embeddingProvider} onchange={(e) => selectEmbeddingProvider(e.currentTarget.value)}>
-                <SelectOption value="local">CPU & GPU</SelectOption>
                 <SelectOption value="openai">OpenAI</SelectOption>
                 <SelectOption value="voyage">Voyage</SelectOption>
                 <SelectOption value="custom">Custom (OpenAI-Compatible)</SelectOption>
@@ -237,22 +236,7 @@
         </SettingLayout>
         {#if embeddingProvider !== "custom"}<SettingLayout variant="row" title={language.hypaV3Settings.embeddingModelLabel} description={language.help.hypaV3EmbeddingModel}>
             {#snippet control()}<Select className="w-48 text-sm" size="sm" bind:value={DBState.db.hypaModel}>
-                {#if embeddingProvider === "local"}
-                    {#if "gpu" in navigator}
-                        <SelectOption value="MiniLMGPU">MiniLM L6 v2 (GPU)</SelectOption>
-                        <SelectOption value="nomicGPU">Nomic Embed Text v1.5 (GPU)</SelectOption>
-                        <SelectOption value="bgeSmallEnGPU">BGE Small English (GPU)</SelectOption>
-                        <SelectOption value="bgem3GPU">BGE Medium 3 (GPU)</SelectOption>
-                        <SelectOption value="multiMiniLMGPU">Multilingual MiniLM L12 v2 (GPU)</SelectOption>
-                        <SelectOption value="bgeM3KoGPU">BGE Medium 3 Korean (GPU)</SelectOption>
-                    {/if}
-                    <SelectOption value="MiniLM">MiniLM L6 v2 (CPU)</SelectOption>
-                    <SelectOption value="nomic">Nomic Embed Text v1.5 (CPU)</SelectOption>
-                    <SelectOption value="bgeSmallEn">BGE Small English (CPU)</SelectOption>
-                    <SelectOption value="bgem3">BGE Medium 3 (CPU)</SelectOption>
-                    <SelectOption value="multiMiniLM">Multilingual MiniLM L12 v2 (CPU)</SelectOption>
-                    <SelectOption value="bgeM3Ko">BGE Medium 3 Korean (CPU)</SelectOption>
-                {:else if embeddingProvider === "openai"}
+                {#if embeddingProvider === "openai"}
                     <SelectOption value="openai3small">text-embedding-3-small</SelectOption>
                     <SelectOption value="openai3large">text-embedding-3-large</SelectOption>
                     <SelectOption value="ada">Ada (text-embedding-ada-002)</SelectOption>

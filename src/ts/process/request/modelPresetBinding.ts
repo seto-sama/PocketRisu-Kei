@@ -1,3 +1,4 @@
+import { resolveModelPresetCredential } from '../../preset/runtime/credential'
 import { getDatabase, type Chat, type Database } from 'src/ts/storage/database.svelte'
 import type { AdapterCredential } from 'src/ts/preset/adapter'
 import type { ModelPreset } from 'src/ts/preset/types'
@@ -249,23 +250,5 @@ export function applyPromptPresetParams(
  * inlineCredential → schema-driven auth userValue (the editor's key field).
  */
 export function buildModelPresetCredential(preset: ModelPreset): AdapterCredential | undefined {
-    const db = getDatabase()
-    if (preset.apiKeyRef) {
-        const entry = db.apiKeyPool?.[preset.apiKeyRef]
-        if (entry?.key) return { apiKey: entry.key }
-    }
-    if (typeof preset.inlineCredential === 'string' && preset.inlineCredential.length > 0) {
-        return { apiKey: preset.inlineCredential }
-    }
-    if (preset.inlineCredential && typeof preset.inlineCredential === 'object') {
-        return preset.inlineCredential as AdapterCredential
-    }
-    for (const field of preset.profileSnapshot.schema) {
-        if (field.mapsTo?.target !== 'auth') continue
-        const value = preset.userValues?.[field.key]
-        if (typeof value === 'string' && value.length > 0) {
-            return { apiKey: value }
-        }
-    }
-    return undefined
+    return resolveModelPresetCredential(preset, getDatabase().apiKeyPool)
 }

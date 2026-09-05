@@ -345,6 +345,7 @@ function normalizeRevenantHypaExecutionRecipe(value) {
         || !WORKFLOW_KEY_PATTERN.test(value.batchId)
         || !Array.isArray(value.expectedOperationIds)
         || value.expectedOperationIds.length > 1000
+        || new Set(value.expectedOperationIds).size !== value.expectedOperationIds.length
         || !value.expectedOperationIds.every(id => typeof id === 'string' && WORKFLOW_KEY_PATTERN.test(id))
         || !embedding || !REMOTE_HYPA_MODELS.has(embedding.model)
         || typeof embedding.apiKey !== 'string'
@@ -374,6 +375,23 @@ function normalizeRevenantHypaExecutionRecipe(value) {
         || typeof value.shouldReserveMemoryTokens !== 'boolean'
         || typeof value.randomSeed !== 'string'
     ) return undefined;
+    if (settings.queryMode !== undefined && !['chat', 'paragraph'].includes(settings.queryMode)) return undefined;
+    if (value.summaryRequests !== undefined) {
+        const requests = value.summaryRequests;
+        if (!Array.isArray(requests) || requests.length !== value.expectedOperationIds.length
+            || new Set(requests.map(request => request?.operationId)).size !== requests.length
+            || !requests.every(request => request
+                && value.expectedOperationIds.includes(request.operationId)
+                && ['memory', 'query'].includes(request.purpose)
+                && Array.isArray(request.chatMemos) && request.chatMemos.every(memo => typeof memo === 'string')
+                && Array.isArray(request.prompt) && request.prompt.length > 0
+                && request.prompt.every(message => message
+                    && ['system', 'user', 'assistant'].includes(message.role)
+                    && typeof message.content === 'string'))
+            || requests.filter(request => request.purpose === 'query').length > 1
+            || !value.summaryProvider?.profileSnapshot
+            || !normalizeRevenantDispatchPolicy(value.summaryDispatch, { kind: 'hypav3-summary' })) return undefined;
+    }
     if (embedding.model === 'custom' && typeof embedding.customUrl !== 'string') return undefined;
     return JSON.parse(serialized);
 }

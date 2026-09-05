@@ -1,4 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { getPersistedHypaVector, setPersistedHypaVector } from './hypamemory'
+import { readPersistentJson } from 'src/ts/storage/persistentKv'
+
+it('bounds the shared vector cache without losing persisted embeddings', async () => {
+    hypaVectorCache.clear()
+    for (let index = 0; index < 600; index++) {
+        await setPersistedHypaVector(String(index), { content: String(index), embedding: [1, 0] })
+    }
+    expect(hypaVectorCache.size).toBeLessThan(600)
+    expect(hypaVectorCache.has('0')).toBe(false)
+    vi.mocked(readPersistentJson).mockResolvedValueOnce({ key: '0', value: { content: '0', embedding: [1, 0] } })
+    expect(await getPersistedHypaVector('0')).toEqual({ content: '0', embedding: [1, 0] })
+    hypaVectorCache.clear()
+})
 
 vi.mock('src/ts/storage/database.svelte', () => ({
     getDatabase: () => ({
@@ -9,7 +23,6 @@ vi.mock('src/ts/storage/database.svelte', () => ({
     }),
 }))
 vi.mock('src/ts/globalApi.svelte', () => ({ globalFetch: vi.fn() }))
-vi.mock('src/ts/process/transformers', () => ({ runEmbedding: vi.fn() }))
 vi.mock('src/ts/storage/persistentKv', () => ({
     makeHashedStorageKey: vi.fn(async (_prefix: string, key: string) => key),
     readPersistentJson: vi.fn(async () => undefined),

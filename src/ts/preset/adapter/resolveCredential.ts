@@ -2,7 +2,6 @@ import type { ModelPreset } from '../types'
 import { buildPreparedRequest } from './buildRequest'
 import { ModelPresetAdapterError } from './error'
 import {
-    getDefaultServiceAccountTokenCache,
     type ServiceAccountTokenCache,
 } from './googleServiceAccount/cache'
 import { parseServiceAccountJson } from './googleServiceAccount/serviceAccount'
@@ -20,9 +19,9 @@ export interface ResolveCredentialInput {
 /**
  * Resolves a raw adapter credential into one that is ready for the synchronous
  * `applyAuth` step. For most auth kinds this is a no-op pass-through. For
- * `google-service-account` the SA JSON in `credential.apiKey` is exchanged for
- * a fresh access token via the token cache, and the returned credential carries
- * the bearer token in `apiKey`.
+ * `google-service-account`, an injected server cache supplies the bearer token.
+ * Browser preparation leaves an inert placeholder; prepareAdapterRequest keeps
+ * the credential in separate metadata for server dispatch.
  */
 export async function resolveAdapterCredential(
     input: ResolveCredentialInput,
@@ -42,7 +41,8 @@ export async function resolveAdapterCredential(
     }
 
     const serviceAccount = parseServiceAccountJson(saJson)
-    const cache = input.tokenCache ?? getDefaultServiceAccountTokenCache()
+    const cache = input.tokenCache
+    if (!cache) return { apiKey: '[server-auth]' }
     const token = await cache.getAccessToken({
         serviceAccount,
         scope: input.scope,
@@ -66,8 +66,8 @@ export interface PrepareAdapterRequestInput extends AdapterRequestContext {
 }
 
 /**
- * Async entrypoint for adapters: resolve the credential (exchanging SA JSON
- * for an access token when needed) and then build the prepared request. This
+ * Async entrypoint for adapters: resolve or defer authentication, then build
+ * the prepared request. This
  * is the only callsite shape that's safe for `google-service-account` profiles
  * — calling `buildPreparedRequest` directly with a raw SA JSON credential
  * would send the SA JSON itself as a bearer token.
@@ -94,5 +94,9 @@ export async function prepareAdapterRequest(
         abortSignal: input.abortSignal,
         tokenCache: input.tokenCache,
     })
-    return buildPreparedRequest({ ...input, credential, serviceAccountJson })
+    const prepared = buildPreparedRequest({ ...input, credential, serviceAccountJson })
+    if (serviceAccountJson && !input.tokenCache) {
+        prepared.serverProviderAuth = { kind: 'google-service-account', serviceAccountJson, scope: input.scope }
+    }
+    return prepared
 }

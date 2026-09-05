@@ -189,7 +189,7 @@
                 {#snippet control()}
                     <Select className="w-48 text-sm" size="sm" bind:value={DBState.db.emotionProcesser}>
                         <SelectOption value="submodel">{language.submodel}</SelectOption>
-                        <SelectOption value="embedding">MiniLM-L6-v2</SelectOption>
+                        <SelectOption value="embedding">{language.hypaV3Settings.embeddingModelLabel}</SelectOption>
                     </Select>
                 {/snippet}
             </SettingLayout>

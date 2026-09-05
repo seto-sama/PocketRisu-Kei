@@ -75,6 +75,20 @@ describe('server HypaV3 selection executor', () => {
         expect(result.chatSequence[1]).toEqual({ inputIndex: 1, inputMemo: 'query' })
     })
 
+    it('keeps legacy chat queries intact and includes the similarity correction summary', async () => {
+        const input = recipe()
+        input.settings = { ...input.settings, queryMode: 'chat' } as any
+        input.chats[1].content = 'first paragraph\n\nsecond paragraph'
+        const queries = vi.fn(async (items: string[]) => items.map(() => [1, 0]))
+        await selectHypaMemory({ ...input, querySummary: 'query summary' }, [
+            { text: 'matching', chatMemos: ['a'], isImportant: false },
+        ], {
+            tokenize: async () => 1,
+            embedder: { documents: async () => [[1, 0]], queries },
+        })
+        expect(queries).toHaveBeenCalledWith(['first paragraph\n\nsecond paragraph', 'query summary'])
+    })
+
     it('uses the OpenAI embeddings endpoint for every remote embedding phase', async () => {
         const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
             const body = JSON.parse(String(init.body))

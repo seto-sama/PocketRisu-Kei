@@ -8,6 +8,7 @@ import {
     parseRetryAfterMs,
 } from './error'
 import { prepareAdapterRequest } from './resolveCredential'
+import { preparedRequestFetch } from './httpTransport'
 import { parseSseStream } from './sse'
 import type {
     AdapterChatMessage,
@@ -73,7 +74,7 @@ function beginCacheTurn(
         modelId: prepared.modelId,
         credentialKey: credential?.apiKey,
         boundaryIndex: prepared.cacheBoundary,
-        fetchImpl: options.fetchImpl,
+        fetchImpl: preparedRequestFetch(prepared, options),
     })
 }
 
@@ -93,7 +94,7 @@ export async function sendGoogleChatRequest(
 ): Promise<AdapterChatResponse> {
     const prepared = await prepareGeminiBody(preset, options, credential, false)
     const cacheTurn = beginCacheTurn(prepared, options, credential)
-    const fetchImpl = options.fetchImpl ?? globalThis.fetch
+    const fetchImpl = preparedRequestFetch(prepared, options)
     const send = (body: Record<string, unknown>): Promise<Response> => fetchImpl(prepared.url, {
         method: prepared.method,
         headers: prepared.headers,
@@ -142,7 +143,7 @@ export async function* streamGoogleChatRequest(
 ): AsyncGenerator<AdapterChatStreamDelta, void, void> {
     const prepared = await prepareGeminiBody(preset, options, credential, true)
     const cacheTurn = beginCacheTurn(prepared, options, credential)
-    const fetchImpl = options.fetchImpl ?? globalThis.fetch
+    const fetchImpl = preparedRequestFetch(prepared, options)
     const send = (body: Record<string, unknown>): Promise<Response> => fetchImpl(prepared.url, {
         method: prepared.method,
         headers: { ...prepared.headers, Accept: 'text/event-stream' },
@@ -218,6 +219,7 @@ async function prepareGeminiBody(
     const prepared = await prepareAdapterRequest({
         preset,
         credential,
+        tokenCache: options.tokenCache,
         abortSignal: options.abortSignal,
     })
     // Wire invariants overwrite any customBody collisions (plan §4-5):

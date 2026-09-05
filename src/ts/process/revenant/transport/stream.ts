@@ -48,6 +48,7 @@ export function subscribeRecoverableGeneration(
     handlers: {
         onContent: (content: string) => void
         onProgress?: (progress: { thinking: string, response: string, usage?: AdapterUsage }) => void
+        onProviderStarted?: (startedAt: number) => void
         onDone: (terminal?: RevenantGenerationTerminal, usage?: AdapterUsage) => void
         onError?: (error: unknown) => void
     },
@@ -77,7 +78,7 @@ export function subscribeRecoverableGeneration(
     }
     void openRecoverableJournalStream(job, controller.signal, value => {
         terminal = value
-    }, () => finishCatchUp())
+    }, () => finishCatchUp(), handlers.onProviderStarted)
         .then(stream => decodeRevenantGenerationJournal(
             job,
             stream,
@@ -129,6 +130,7 @@ async function openRecoverableJournalStream(
     signal?: AbortSignal,
     onTerminal?: (terminal: RevenantGenerationTerminal) => void,
     onSnapshotConsumed?: () => void,
+    onProviderStarted?: (startedAt: number) => void,
 ): Promise<ReadableStream<Uint8Array>> {
     const auth = await createRevenantGenerationAuth()
     const snapshotResponse = await fetch(
@@ -151,6 +153,7 @@ async function openRecoverableJournalStream(
         recovery: true,
         initialOffset: snapshotOffset,
         onDone: onTerminal,
+        onProviderStarted,
         onHeaders(status, headers) {
             job.responseStatus = status
             job.responseHeaders = headers
@@ -187,6 +190,7 @@ async function openRecoverableJournalStream(
 }
 
 export async function fetchViaGenerationJob(url: string, arg: {
+    serverProviderAuth?: import('../../../network/transportTypes').ServerProviderAuth
     method: string
     headers: Record<string, string>
     body?: Uint8Array
@@ -211,6 +215,7 @@ export async function fetchViaGenerationJob(url: string, arg: {
             url,
             method: arg.method,
             headers: arg.headers,
+            serverProviderAuth: arg.serverProviderAuth,
             bodyBase64,
             timeoutMs: arg.requestTimeoutMs,
             heartbeatSec: defaultGenerationHeartbeatSec,
@@ -231,9 +236,10 @@ export async function fetchViaGenerationJob(url: string, arg: {
         throw new GenerationJobRegistrationError(jobRes.status, await jobRes.text())
     }
 
-    const { jobId, createdAt } = await jobRes.json() as {
+    const { jobId, createdAt, workflowId } = await jobRes.json() as {
         jobId?: unknown
         createdAt?: unknown
+        workflowId?: string
     }
     if (
         typeof jobId !== 'string'
@@ -244,7 +250,12 @@ export async function fetchViaGenerationJob(url: string, arg: {
     }
     arg.onJobCreated?.(jobId, createdAt)
     setRevenantGenerationLocallyObserved(jobId, true)
-    trackRevenantGenerationWorkflow(jobId, arg.generationRequest.workflow?.workflowId)
+    trackRevenantGenerationWorkflow(jobId, workflowId ?? arg.generationRequest.workflow?.workflowId)
+    if (workflowId) {
+        void import('../workflow/requestStatus').then(({ observeRevenantWorkflowRequests }) => {
+            observeRevenantWorkflowRequests(workflowId, arg.signal)
+        })
+    }
     if (arg.generationRequest.job.jobType === 'model' && arg.generationRequest.job.chatId) {
         trackRevenantGenerationJob(arg.generationRequest.job.chatId, jobId)
     }

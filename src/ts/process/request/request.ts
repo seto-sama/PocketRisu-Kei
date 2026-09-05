@@ -1,8 +1,9 @@
+import { formatPresetMessages } from './formatMessages'
 import { language } from "../../../lang";
 import { isV3PluginModel, LLMFlags, type LLMModel } from "../../model/modellist";
 import { risuEscape, risuUnescape } from "../../parser/parser.svelte";
 import { pluginProviderRequestContextKey, pluginV2 } from "../../plugins/plugins.svelte";
-import { getCurrentCharacter, getCurrentChat, getDatabase, normalizeSystemRoleReplacement, type character } from "../../storage/database.svelte";
+import { getCurrentCharacter, getCurrentChat, getDatabase, type character } from "../../storage/database.svelte";
 import { encodeWithTokenizer } from "../../tokenizer";
 import { v4 as uuidv4 } from "uuid";
 import { simplifySchema, sleep } from "../../util";
@@ -67,7 +68,7 @@ import {
     type RevenantAuxiliaryResultPolicy,
 } from "../revenant/transport";
 import { combineProviderStartedHandlers } from "../revenant/workflow";
-import { MODELS_DEV_REGISTRY_ID } from "src/ts/preset/registry/modelsDev";
+import { modelsDevUsageIdentity } from "../../preset/runtime/usageIdentity";
 
 export type ToolCall = {
     name: string;
@@ -306,89 +307,13 @@ export async function requestChatData(arg:requestDataArgument, model:ModelModeEx
 }
 
 export function reformater(formated:OpenAIChat[],modelInfo:LLMModel|LLMFlags[]){
-
     const flags = Array.isArray(modelInfo) ? modelInfo : modelInfo.flags
-    
-    const db = getDatabase()
-    let systemPrompt:OpenAIChat|null = null
-
-    if(!flags.includes(LLMFlags.hasFullSystemPrompt)){
-        if(flags.includes(LLMFlags.hasFirstSystemPrompt)){
-            while(formated.length > 0 && formated[0].role === 'system'){
-                if(systemPrompt){
-                    systemPrompt.content += '\n\n' + formated[0].content
-                }
-                else{
-                    systemPrompt = formated[0]
-                }
-                formated = formated.slice(1)
-            }
-        }
-
-        for(let i=0;i<formated.length;i++){
-            if(formated[i].role === 'system'){
-                formated[i].content = db.systemContentReplacement ? db.systemContentReplacement.replace('{{slot}}', formated[i].content) : `system: ${formated[i].content}`
-                formated[i].role = normalizeSystemRoleReplacement(db.systemRoleReplacement)
-            }
-        }
-    }
-    
-    if(flags.includes(LLMFlags.requiresAlternateRole)){
-        let newFormated:OpenAIChat[] = []
-        for(let i=0;i<formated.length;i++){
-            const m = formated[i]
-            if(newFormated.length === 0){
-                newFormated.push(m)
-                continue
-            }
-
-            if(newFormated[newFormated.length-1].role === m.role){
-            
-                newFormated[newFormated.length-1].content += '\n' + m.content
-
-                if(m.multimodals){
-                    if(!newFormated[newFormated.length-1].multimodals){
-                        newFormated[newFormated.length-1].multimodals = []
-                    }
-                    newFormated[newFormated.length-1].multimodals.push(...m.multimodals)
-                }
-
-                if(m.thoughts){
-                    if(!newFormated[newFormated.length-1].thoughts){
-                        newFormated[newFormated.length-1].thoughts = []
-                    }
-                    newFormated[newFormated.length-1].thoughts.push(...m.thoughts)
-                }
-
-                if(m.cachePoint){
-                    if(!newFormated[newFormated.length-1].cachePoint){
-                        newFormated[newFormated.length-1].cachePoint = true
-                    }
-                }
-
-                continue
-            }
-            else{
-                newFormated.push(m)
-            }
-        }
-        formated = newFormated
-    }
-
-    if(flags.includes(LLMFlags.mustStartWithUserInput)){
-        if(formated.length === 0 || formated[0].role !== 'user'){
-            formated.unshift({
-                role: 'user',
-                content: ' '
-            })
-        }
-    }
-
-    if(systemPrompt){
-        formated.unshift(systemPrompt)
-    }
-
-    return formated
+    return formatPresetMessages(formated, {
+        foldSystemPrompt: !flags.includes(LLMFlags.hasFullSystemPrompt),
+        keepFirstSystemPrompt: flags.includes(LLMFlags.hasFirstSystemPrompt),
+        alternateRole: flags.includes(LLMFlags.requiresAlternateRole),
+        startWithUserInput: flags.includes(LLMFlags.mustStartWithUserInput),
+    }, getDatabase())
 }
 
 
@@ -799,23 +724,6 @@ async function requestPluginPresetProvider(
 // Provider adapters receive a normal Fetch implementation backed by the shared
 // LLM transport. Execution intent stays explicit while route, recovery,
 // cancellation, timeout, and local-network behavior stay out of adapters.
-function modelsDevUsageIdentity(
-    preset: ModelPreset,
-): Pick<
-    RevenantProviderJobSpec,
-    'usageProviderId' | 'usageModelId' | 'usageServiceTier'
-> | undefined {
-    const source = preset.sourceProfile
-    if (source?.registryId !== MODELS_DEV_REGISTRY_ID) return undefined
-
-    const separator = source.profileId.indexOf(':')
-    if (separator <= 0 || separator >= source.profileId.length - 1) return undefined
-    return {
-        usageProviderId: source.profileId.slice(0, separator),
-        usageModelId: source.profileId.slice(separator + 1),
-        usageServiceTier: preset.claudeBatching ? 'batch' : undefined,
-    }
-}
 
 function resolveLLMExecutionPolicy(arg: RequestDataArgumentExtended): LLMExecutionPolicy {
     if (arg.llmExecutionPolicy) return arg.llmExecutionPolicy
